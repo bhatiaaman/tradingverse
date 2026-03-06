@@ -1,0 +1,32 @@
+{
+  "name": "tradingverse",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.36.2",
+    "kiteconnect": "^5.1.0",
+    "lightweight-charts": "^4.0.0",
+    "lucide-react": "^0.553.0",
+    "next": "^16.1.6",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "recharts": "^2.10.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "babel-plugin-react-compiler": "1.0.0",
+    "baseline-browser-mapping": "^2.9.19",
+    "eslint": "^10.0.1",
+    "eslint-config-next": "^16.1.6",
+    "tailwindcss": "^4",
+    "vercel": "^28.18.5"
+  }
+}

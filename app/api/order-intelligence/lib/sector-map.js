@@ -1,0 +1,297 @@
+// Copyright (c) 2025 Amandeep Bhatia — TradePreflight
+// Licensed under Apache 2.0 — https://github.com/amanbhatia/tradepreflight
+// Maps NSE trading symbols → sector name (must match sector-performance API `name` field)
+// Sectors available: 'Bank Nifty' | 'IT' | 'Financial' | 'Auto' | 'Pharma' |
+//                    'Metal' | 'FMCG' | 'Realty' | 'Energy' | 'Media' | 'PSU Bank' | 'Infra'
+
+const SECTOR_MAP = {
+  // ── INDEX OPTIONS (map to their sector) ──────────────────────────────────
+  BANKNIFTY:       'Bank Nifty',
+  FINNIFTY:        'Financial',
+  MIDCPNIFTY:      null,   // broad midcap, no single sector
+  NIFTY:           null,   // broad market
+
+  // ── BANKING (Private) ────────────────────────────────────────────────────
+  HDFCBANK:        'Bank Nifty',
+  ICICIBANK:       'Bank Nifty',
+  KOTAKBANK:       'Bank Nifty',
+  AXISBANK:        'Bank Nifty',
+  INDUSINDBK:      'Bank Nifty',
+  BANDHANBNK:      'Bank Nifty',
+  FEDERALBNK:      'Bank Nifty',
+  IDFCFIRSTB:      'Bank Nifty',
+  AUBANK:          'Bank Nifty',
+  RBLBANK:         'Bank Nifty',
+  YESBANK:         'Bank Nifty',
+  CSBBANK:         'Bank Nifty',
+  KARURVYSYA:      'Bank Nifty',
+  DCBBANK:         'Bank Nifty',
+  LAKSHVILAS:      'Bank Nifty',
+
+  // ── BANKING (PSU) ────────────────────────────────────────────────────────
+  SBIN:            'PSU Bank',
+  PNB:             'PSU Bank',
+  BANKBARODA:      'PSU Bank',
+  CANBK:           'PSU Bank',
+  UNIONBANK:       'PSU Bank',
+  INDIANB:         'PSU Bank',
+  MAHABANK:        'PSU Bank',
+  CENTRALBK:       'PSU Bank',
+  IOB:             'PSU Bank',
+  UCOBANK:         'PSU Bank',
+  BANKINDIA:       'PSU Bank',
+  'J&KBANK':       'PSU Bank',
+
+  // ── IT / TECHNOLOGY ──────────────────────────────────────────────────────
+  TCS:             'IT',
+  INFY:            'IT',
+  WIPRO:           'IT',
+  HCLTECH:         'IT',
+  TECHM:           'IT',
+  LTIM:            'IT',
+  MPHASIS:         'IT',
+  PERSISTENT:      'IT',
+  COFORGE:         'IT',
+  OFSS:            'IT',
+  KPITTECH:        'IT',
+  LTTS:            'IT',
+  NIIT:            'IT',
+  HEXAWARE:        'IT',
+  CYIENT:          'IT',
+  MASTEK:          'IT',
+  TATAELXSI:       'IT',
+  ZENSARTECH:      'IT',
+
+  // ── FINANCIAL SERVICES ────────────────────────────────────────────────────
+  BAJFINANCE:      'Financial',
+  BAJAJFINSV:      'Financial',
+  MUTHOOTFIN:      'Financial',
+  CHOLAFIN:        'Financial',
+  'M&MFIN':        'Financial',
+  MANAPPURAM:      'Financial',
+  SBILIFE:         'Financial',
+  HDFCLIFE:        'Financial',
+  ICICIGI:         'Financial',
+  ICICIPRULI:      'Financial',
+  LICHSGFIN:       'Financial',
+  PNBHOUSING:      'Financial',
+  RECLTD:          'Financial',
+  PFC:             'Financial',
+  IRFC:            'Financial',
+  SHRIRAMFIN:      'Financial',
+  ABCAPITAL:       'Financial',
+  CANFINHOME:      'Financial',
+  ANGELONE:        'Financial',
+  CDSL:            'Financial',
+  BSE:             'Financial',
+  MCXINDIA:        'Financial',
+
+  // ── AUTO ─────────────────────────────────────────────────────────────────
+  MARUTI:          'Auto',
+  TATAMOTORS:      'Auto',
+  'M&M':           'Auto',
+  'BAJAJ-AUTO':    'Auto',
+  EICHERMOT:       'Auto',
+  HEROMOTOCO:      'Auto',
+  TVSMOTOR:        'Auto',
+  ASHOKLEY:        'Auto',
+  MOTHERSON:       'Auto',
+  BOSCHLTD:        'Auto',
+  BALKRISIND:      'Auto',
+  EXIDEIND:        'Auto',
+  AMARAJABAT:      'Auto',
+  MRF:             'Auto',
+  TIINDIA:         'Auto',
+  CEATLTD:         'Auto',
+  SUNDRMFAST:      'Auto',
+  ENDURANCE:       'Auto',
+  MINDAIND:        'Auto',
+  BHARATFORG:      'Auto',
+  APOLLOTYRE:      'Auto',
+
+  // ── PHARMA / HEALTHCARE ───────────────────────────────────────────────────
+  SUNPHARMA:       'Pharma',
+  DRREDDY:         'Pharma',
+  CIPLA:           'Pharma',
+  DIVISLAB:        'Pharma',
+  AUROPHARMA:      'Pharma',
+  TORNTPHARM:      'Pharma',
+  ALKEM:           'Pharma',
+  LUPIN:           'Pharma',
+  BIOCON:          'Pharma',
+  GLENMARK:        'Pharma',
+  IPCALAB:         'Pharma',
+  ABBOTINDIA:      'Pharma',
+  ZYDUSLIFE:       'Pharma',
+  LALPATHLAB:      'Pharma',
+  METROPOLIS:      'Pharma',
+  FORTIS:          'Pharma',
+  APOLLOHOSP:      'Pharma',
+  MAXHEALTH:       'Pharma',
+  NARAYANHRUDAL:   'Pharma',
+  MEDANTA:         'Pharma',
+  ERIS:            'Pharma',
+  GRANULES:        'Pharma',
+  NATCOPHARM:      'Pharma',
+  PFIZER:          'Pharma',
+  SANOFI:          'Pharma',
+
+  // ── METAL / MINING ────────────────────────────────────────────────────────
+  TATASTEEL:       'Metal',
+  HINDALCO:        'Metal',
+  JSWSTEEL:        'Metal',
+  SAIL:            'Metal',
+  NMDC:            'Metal',
+  VEDL:            'Metal',
+  NATIONALUM:      'Metal',
+  HINDCOPPER:      'Metal',
+  COALINDIA:       'Metal',
+  MOIL:            'Metal',
+  WELCORP:         'Metal',
+  APLAPOLLO:       'Metal',
+  RATNAMANI:       'Metal',
+  JINDALSAW:       'Metal',
+  JSWINFRA:        'Infra',   // infra arm of JSW
+
+  // ── FMCG ──────────────────────────────────────────────────────────────────
+  HINDUNILVR:      'FMCG',
+  ITC:             'FMCG',
+  NESTLEIND:       'FMCG',
+  BRITANNIA:       'FMCG',
+  MARICO:          'FMCG',
+  DABUR:           'FMCG',
+  GODREJCP:        'FMCG',
+  TATACONSUM:      'FMCG',
+  COLPAL:          'FMCG',
+  EMAMILTD:        'FMCG',
+  RADICO:          'FMCG',
+  UBL:             'FMCG',
+  VBL:             'FMCG',
+  JUBLFT:          'FMCG',
+  PGHH:            'FMCG',
+  GILLETTE:        'FMCG',
+  TITAN:           'FMCG',    // consumer lifestyle, closest to FMCG
+  MANYAVAR:        'FMCG',
+
+  // ── REALTY ────────────────────────────────────────────────────────────────
+  DLF:             'Realty',
+  GODREJPROP:      'Realty',
+  OBEROIRLTY:      'Realty',
+  PRESTIGE:        'Realty',
+  BRIGADE:         'Realty',
+  SOBHA:           'Realty',
+  PHOENIXLTD:      'Realty',
+  LODHA:           'Realty',
+  MAHLIFE:         'Realty',
+  SUNTECK:         'Realty',
+  KOLTEPATIL:      'Realty',
+  PURVA:           'Realty',
+  ARVSMART:        'Realty',
+  IGIL:            'Realty',
+
+  // ── ENERGY (Oil, Gas, Power) ──────────────────────────────────────────────
+  RELIANCE:        'Energy',
+  ONGC:            'Energy',
+  BPCL:            'Energy',
+  IOC:             'Energy',
+  GAIL:            'Energy',
+  PETRONET:        'Energy',
+  HINDPETRO:       'Energy',
+  OIL:             'Energy',
+  MGL:             'Energy',
+  IGL:             'Energy',
+  GUJGASLTD:       'Energy',
+  ADANIGAS:        'Energy',
+  NTPC:            'Energy',
+  POWERGRID:       'Energy',
+  TATAPOWER:       'Energy',
+  ADANIPOWER:      'Energy',
+  ADANIGREEN:      'Energy',
+  JSWEN:           'Energy',
+  JSWENERGY:       'Energy',
+  CESC:            'Energy',
+  TORNTPOWER:      'Energy',
+  RPOWER:          'Energy',
+  NHPC:            'Energy',
+  SJVN:            'Energy',
+  IREDA:           'Energy',
+
+  // ── INFRA / CAPITAL GOODS ─────────────────────────────────────────────────
+  LT:              'Infra',
+  ADANIENT:        'Infra',
+  ADANIPORTS:      'Infra',
+  GMRINFRA:        'Infra',
+  IRB:             'Infra',
+  KNRCON:          'Infra',
+  NCC:             'Infra',
+  PNCINFRA:        'Infra',
+  RVNL:            'Infra',
+  IRCON:           'Infra',
+  NBCC:            'Infra',
+  CONCOR:          'Infra',
+  SIEMENS:         'Infra',
+  ABB:             'Infra',
+  BHEL:            'Infra',
+  CUMMINSIND:      'Infra',
+  THERMAX:         'Infra',
+  HAVELLS:         'Infra',
+  POLYCAB:         'Infra',
+  VOLTAS:          'Infra',
+  BLUESTARCO:      'Infra',
+  KECL:            'Infra',
+  KALPATPOWR:      'Infra',
+  ENGINERSIN:      'Infra',
+  TITAGARH:        'Infra',
+  RAILVIKAS:       'Infra',
+  HAL:             'Infra',
+  BEL:             'Infra',
+  COCHINSHIP:      'Infra',
+  MAZDOCK:         'Infra',
+  GRSE:            'Infra',
+
+  // ── MEDIA / ENTERTAINMENT ─────────────────────────────────────────────────
+  ZEEL:            'Media',
+  SUNTV:           'Media',
+  PVRINOX:         'Media',
+  NAZARA:          'Media',
+  NXTDIGITAL:      'Media',
+  SAREGAMA:        'Media',
+  TIPS:            'Media',
+
+  // ── TELECOM ──────────────────────────────────────────────────────────────
+  BHARTIARTL:      null,   // no Telecom sector index; treat as broad market
+  IDEA:            null,
+  TTML:            null,
+  RAILTEL:         'Infra',
+
+  // ── CHEMICALS / SPECIALTY ─────────────────────────────────────────────────
+  // No Chemicals sector in API; omit (null = no sector check)
+  PIDILITIND:      null,
+  DEEPAKNTR:       null,
+  ALKYLAMINE:      null,
+  ATUL:            null,
+  GALAXYSURF:      null,
+  NAVINFLUOR:      null,
+  SOLARINDS:       null,
+  FINOLEXIND:      null,
+
+  // ── CONSUMER DURABLES ────────────────────────────────────────────────────
+  KAJARIACER:      null,
+  VGUARD:          null,
+  CROMPTON:        null,
+  ORIENTELEC:      null,
+  AMBER:           null,
+};
+
+/**
+ * Returns the sector name for a given NSE trading symbol.
+ * Returns null if the symbol has no sector mapping or sector is broad market.
+ * @param {string} symbol - NSE trading symbol (e.g. "TCS", "HDFCBANK")
+ * @returns {string|null}
+ */
+export function getSector(symbol) {
+  if (!symbol) return null;
+  return SECTOR_MAP[symbol.toUpperCase()] ?? null;
+}
+
+export default SECTOR_MAP;
