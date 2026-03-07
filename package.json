@@ -12,6 +12,7 @@
     "@anthropic-ai/sdk": "^0.78.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.36.2",
+    "bcryptjs": "^3.0.3",
     "kiteconnect": "^5.1.0",
     "lightweight-charts": "^4.0.0",
     "lucide-react": "^0.553.0",

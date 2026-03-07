@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Nav from '../components/Nav'
 
 const GAMES = [
   {
@@ -11,6 +12,7 @@ const GAMES = [
     tagColor: 'text-blue-400 bg-blue-950/40 border-blue-900/50',
     difficulty: 'Intermediate',
     available: true,
+    href: '/games/scenario',
   },
   {
     emoji: '📈',
@@ -20,6 +22,7 @@ const GAMES = [
     tagColor: 'text-emerald-400 bg-emerald-950/40 border-emerald-900/50',
     difficulty: 'Beginner',
     available: true,
+    href: '/games/market-direction',
   },
   {
     emoji: '⚖️',
@@ -29,6 +32,7 @@ const GAMES = [
     tagColor: 'text-amber-400 bg-amber-950/40 border-amber-900/50',
     difficulty: 'Advanced',
     available: true,
+    href: '/games/risk-management',
   },
   {
     emoji: '🔍',
@@ -38,6 +42,7 @@ const GAMES = [
     tagColor: 'text-violet-400 bg-violet-950/40 border-violet-900/50',
     difficulty: 'Intermediate',
     available: true,
+    href: '/games/pattern-recognition',
   },
   {
     emoji: '📰',
@@ -47,6 +52,7 @@ const GAMES = [
     tagColor: 'text-cyan-400 bg-cyan-950/40 border-cyan-900/50',
     difficulty: 'Advanced',
     available: true,
+    href: '/games/news-reaction',
   },
   {
     emoji: '🎯',
@@ -56,6 +62,7 @@ const GAMES = [
     tagColor: 'text-rose-400 bg-rose-950/40 border-rose-900/50',
     difficulty: 'Advanced',
     available: false,
+    href: null,
   },
 ]
 
@@ -69,15 +76,7 @@ export default function GamesPage() {
   return (
     <div className="min-h-screen bg-[#060b14] text-white">
 
-      {/* Nav */}
-      <nav className="flex items-center justify-between px-8 py-5 border-b border-white/5">
-        <Link href="/" className="text-lg font-black tracking-tight">
-          Trading<span className="text-blue-400">Verse</span>
-        </Link>
-        <Link href="/trades" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-bold transition-colors">
-          Dashboard →
-        </Link>
-      </nav>
+      <Nav />
 
       <div className="max-w-5xl mx-auto px-6 py-20">
 
@@ -93,45 +92,50 @@ export default function GamesPage() {
 
         {/* Games grid */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {GAMES.map(g => (
-            <div key={g.title}
-              className={`relative flex flex-col p-7 rounded-2xl border transition-all duration-200
-                ${g.available
-                  ? 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04] hover:-translate-y-1 cursor-pointer'
-                  : 'border-white/5 bg-white/[0.01] opacity-60'}`}>
+          {GAMES.map(g => {
+            const inner = (
+              <>
+                {!g.available && (
+                  <span className="absolute top-5 right-5 text-[9px] font-bold tracking-widest uppercase text-slate-600 border border-slate-800 px-2 py-0.5 rounded-full">
+                    Soon
+                  </span>
+                )}
+                <div className="text-4xl mb-5">{g.emoji}</div>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className={`text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded-full border ${g.tagColor}`}>
+                    {g.tag}
+                  </span>
+                </div>
+                <h3 className="text-lg font-bold text-white mb-2">{g.title}</h3>
+                <p className="text-slate-500 text-sm leading-relaxed flex-1">{g.desc}</p>
+                <div className="mt-6 flex items-center justify-between">
+                  <span className={`text-xs font-semibold ${DIFF_COLOR[g.difficulty]}`}>{g.difficulty}</span>
+                  {g.available
+                    ? <span className="text-xs text-blue-400 font-semibold">Play now →</span>
+                    : <span className="text-xs text-slate-700">Coming soon</span>
+                  }
+                </div>
+              </>
+            )
 
-              {!g.available && (
-                <span className="absolute top-5 right-5 text-[9px] font-bold tracking-widest uppercase text-slate-600 border border-slate-800 px-2 py-0.5 rounded-full">
-                  Soon
-                </span>
-              )}
-
-              <div className="text-4xl mb-5">{g.emoji}</div>
-
-              <div className="flex items-center gap-2 mb-3">
-                <span className={`text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded-full border ${g.tagColor}`}>
-                  {g.tag}
-                </span>
+            return g.available ? (
+              <Link key={g.title} href={g.href}
+                className="relative flex flex-col p-7 rounded-2xl border transition-all duration-200 border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04] hover:-translate-y-1">
+                {inner}
+              </Link>
+            ) : (
+              <div key={g.title}
+                className="relative flex flex-col p-7 rounded-2xl border transition-all duration-200 border-white/5 bg-white/[0.01] opacity-60">
+                {inner}
               </div>
-
-              <h3 className="text-lg font-bold text-white mb-2">{g.title}</h3>
-              <p className="text-slate-500 text-sm leading-relaxed flex-1">{g.desc}</p>
-
-              <div className="mt-6 flex items-center justify-between">
-                <span className={`text-xs font-semibold ${DIFF_COLOR[g.difficulty]}`}>{g.difficulty}</span>
-                {g.available
-                  ? <span className="text-xs text-slate-500 hover:text-slate-300 transition-colors font-semibold">Play now →</span>
-                  : <span className="text-xs text-slate-700">Coming soon</span>
-                }
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         {/* Bottom nudge */}
         <div className="mt-20 text-center">
           <p className="text-slate-500 text-sm mb-2">Want to track your accuracy over time?</p>
-          <Link href="/settings/kite" className="text-blue-400 text-sm font-semibold hover:underline">
+          <Link href="/login" className="text-blue-400 text-sm font-semibold hover:underline">
             Login to save your progress →
           </Link>
         </div>

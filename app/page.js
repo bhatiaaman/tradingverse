@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import Nav from './components/Nav'
 
 // ── Scroll-reveal hook ─────────────────────────────────────────────────────
 function useReveal() {
@@ -232,21 +233,7 @@ export default function Home() {
       <div className="bg-[#060b14] text-white min-h-screen">
 
         {/* ── NAV ── */}
-        <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-8 py-4 bg-[#060b14]/80 backdrop-blur-md border-b border-white/5">
-          <span className="text-lg font-black tracking-tight">Trading<span className="text-blue-400">Verse</span></span>
-          <div className="hidden md:flex items-center gap-8 text-sm text-slate-400">
-            <Link href="/trades" className="hover:text-white transition-colors">Dashboard</Link>
-            <Link href="#games"  className="hover:text-white transition-colors">Games</Link>
-            <Link href="#learn"  className="hover:text-white transition-colors">Learn</Link>
-            <span className="flex items-center gap-1.5 text-slate-600 cursor-default">
-              Investing
-              <span className="text-[9px] font-bold tracking-wider uppercase bg-blue-900/50 text-blue-400 px-1.5 py-0.5 rounded-full border border-blue-800/60">Soon</span>
-            </span>
-          </div>
-          <Link href="/settings/kite" className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 text-sm hover:border-blue-600 hover:text-white transition-all">
-            Login
-          </Link>
-        </nav>
+        <Nav fixed />
 
         {/* ── HERO ── */}
         <section className="min-h-screen flex flex-col items-center justify-center text-center px-6 pt-20 relative overflow-hidden">
@@ -318,7 +305,7 @@ export default function Home() {
               {
                 num: '03', verb: 'Learn',
                 desc: 'Read what the best traders in the world figured out after years of painful losses.',
-                cta: 'Explore articles & books →', href: '#learn',
+                cta: 'Explore articles & books →', href: '/learn',
                 accent: 'text-violet-400',
               },
             ].map((p, i) => (
@@ -372,7 +359,7 @@ export default function Home() {
             </h2>
 
             {/* Featured article */}
-            <div data-reveal className="group p-10 rounded-3xl border border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04] transition-all cursor-pointer mb-6">
+            <Link href="/learn/articles/trader-who-knew-everything" data-reveal className="group block p-10 rounded-3xl border border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04] transition-all mb-6">
               <span className="text-xs font-bold tracking-widest uppercase text-cyan-400 mb-4 block">Market Psychology</span>
               <h3 className="text-2xl md:text-3xl font-black mb-4 group-hover:text-blue-200 transition-colors leading-tight">
                 The trader who knew everything but lost anyway
@@ -381,17 +368,17 @@ export default function Home() {
                 He could identify every pattern. He knew support, resistance, order flow. He had read every book. And yet, at the end of each month, his account shrank. The problem was never knowledge.
               </p>
               <span className="text-sm font-semibold text-cyan-400 group-hover:underline">Read article →</span>
-            </div>
+            </Link>
 
             {/* Books */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
-                { title: 'Trading in the Zone', author: 'Mark Douglas', emoji: '🧠', lesson: 'Your edge means nothing without the mental discipline to execute it consistently.' },
-                { title: 'Market Wizards', author: 'Jack Schwager', emoji: '⚡', lesson: 'Every great trader has found a unique edge. Find yours and exploit it relentlessly.' },
-                { title: 'The Daily Trading Coach', author: 'Brett Steenbarger', emoji: '🎯', lesson: 'Self-improvement is the highest-leverage activity in trading.' },
-                { title: 'Reminiscences of a Stock Operator', author: 'Edwin Lefèvre', emoji: '📜', lesson: 'Human nature never changes. The market has always been the same game.' },
+                { title: 'Trading in the Zone', author: 'Mark Douglas', emoji: '🧠', slug: 'trading-in-the-zone', lesson: 'Your edge means nothing without the mental discipline to execute it consistently.' },
+                { title: 'Market Wizards', author: 'Jack Schwager', emoji: '⚡', slug: 'market-wizards', lesson: 'Every great trader has found a unique edge. Find yours and exploit it relentlessly.' },
+                { title: 'The Daily Trading Coach', author: 'Brett Steenbarger', emoji: '🎯', slug: 'daily-trading-coach', lesson: 'Self-improvement is the highest-leverage activity in trading.' },
+                { title: 'Reminiscences of a Stock Operator', author: 'Edwin Lefèvre', emoji: '📜', slug: 'reminiscences-stock-operator', lesson: 'Human nature never changes. The market has always been the same game.' },
               ].map((b, i) => (
-                <div key={b.title} data-reveal className="group relative rounded-2xl border border-white/10 bg-white/[0.02] p-6 hover:border-violet-700/60 hover:bg-violet-950/10 transition-all cursor-pointer overflow-hidden min-h-[160px]"
+                <Link key={b.title} href={`/learn/books/${b.slug}`} data-reveal className="group relative rounded-2xl border border-white/10 bg-white/[0.02] p-6 hover:border-violet-700/60 hover:bg-violet-950/10 transition-all overflow-hidden min-h-[160px] block"
                   style={{transitionDelay: `${i*0.08}s`}}>
                   <div className="transition-all duration-300 group-hover:opacity-0">
                     <div className="text-3xl mb-3">{b.emoji}</div>
@@ -401,7 +388,7 @@ export default function Home() {
                   <div className="absolute inset-0 p-6 flex items-center opacity-0 group-hover:opacity-100 transition-all duration-300">
                     <p className="text-violet-300 text-xs leading-relaxed italic">"{b.lesson}"</p>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
@@ -453,8 +440,8 @@ export default function Home() {
             <div className="flex items-center gap-8 text-sm text-slate-500">
               <Link href="/trades"          className="hover:text-slate-300 transition-colors">Dashboard</Link>
               <Link href="#games"           className="hover:text-slate-300 transition-colors">Games</Link>
-              <Link href="#learn"           className="hover:text-slate-300 transition-colors">Articles</Link>
-              <Link href="#learn"           className="hover:text-slate-300 transition-colors">Books</Link>
+              <Link href="/learn"            className="hover:text-slate-300 transition-colors">Articles</Link>
+              <Link href="/learn"            className="hover:text-slate-300 transition-colors">Books</Link>
               <a    href="mailto:hello@tradingverse.in" className="hover:text-slate-300 transition-colors">Contact</a>
             </div>
             <p className="text-slate-700 text-xs">© 2025 TradingVerse</p>
