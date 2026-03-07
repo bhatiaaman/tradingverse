@@ -16,43 +16,131 @@ function useReveal() {
   }, [])
 }
 
-// ── Scenario Challenge game ────────────────────────────────────────────────
+// ── Mini SVG candlestick chart ─────────────────────────────────────────────
+function MiniChart({ candles }) {
+  const W = 200, H = 70, pad = 10
+  const prices = candles.flatMap(c => [c.h, c.l])
+  const min = Math.min(...prices), max = Math.max(...prices)
+  const scaleY = v => H - pad - ((v - min) / (max - min)) * (H - pad * 2)
+  const cw = (W - pad * 2) / candles.length
+  return (
+    <div className="mb-4">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-16 rounded-lg bg-slate-900/60">
+        {candles.map((c, i) => {
+          const x = pad + i * cw + cw * 0.1
+          const w = cw * 0.8
+          const oy = scaleY(Math.max(c.o, c.c)), cy = scaleY(Math.min(c.o, c.c))
+          const bodyH = Math.max(2, cy - oy)
+          const color = c.c >= c.o ? '#34d399' : '#f87171'
+          return (
+            <g key={i}>
+              <line x1={x + w/2} y1={scaleY(c.h)} x2={x + w/2} y2={scaleY(c.l)} stroke={color} strokeWidth="1" opacity="0.6"/>
+              <rect x={x} y={oy} width={w} height={bodyH} fill={color} opacity="0.85" rx="1"/>
+            </g>
+          )
+        })}
+        {/* Question mark candle */}
+        <rect x={pad + candles.length * cw + cw*0.1} y={H/2 - 12} width={cw*0.8} height={24}
+          fill="none" stroke="#475569" strokeWidth="1.5" strokeDasharray="3,2" rx="1"/>
+        <text x={pad + candles.length * cw + cw*0.5} y={H/2 + 5} textAnchor="middle" fill="#475569" fontSize="10" fontWeight="bold">?</text>
+      </svg>
+      <p className="text-[10px] text-slate-600 mt-1 text-center">Nifty 15-min chart · What happens next?</p>
+    </div>
+  )
+}
+
+// ── Scenario data ──────────────────────────────────────────────────────────
 const SCENARIOS = [
   {
     id: 1,
+    type: 'context',
     context: [
-      { label: 'Dow Jones', value: '-1.8%', bad: true },
-      { label: 'GIFT Nifty', value: '-180 pts', bad: true },
-      { label: 'India VIX', value: '18.4 ↑', bad: true },
-      { label: 'Nifty', value: 'Near weekly support', bad: false },
+      { label: 'Dow Jones',  value: '-1.8%',              bad: true  },
+      { label: 'GIFT Nifty', value: '-180 pts',            bad: true  },
+      { label: 'India VIX',  value: '18.4 ↑',             bad: true  },
+      { label: 'Nifty',      value: 'Near weekly support', bad: false },
     ],
     question: 'Gap down open expected. Nifty is near a major weekly support. 9:15 AM. What do you do?',
     options: [
       { id: 'a', text: 'Short immediately — global cues are bearish' },
-      { id: 'b', text: 'Wait and watch for 15–30 mins before taking any trade' },
+      { id: 'b', text: 'Wait 15–30 mins for directional confirmation' },
       { id: 'c', text: 'Buy the dip — weekly support will hold' },
-      { id: 'd', text: 'Buy options on both sides (straddle)' },
+      { id: 'd', text: 'Buy straddle — direction unclear' },
     ],
     answer: 'b',
-    explanation: 'Opening volatility is high. Weekly support could attract buyers or break further. Waiting 15–30 mins for the dust to settle and a directional confirmation is the professional move. Impulsive entries at the open are how most traders blow up.',
+    explanation: 'Opening volatility is highest in the first 15 mins. Weekly support could attract buyers OR break further. Waiting for confirmation is the professional move. Impulsive entries at open are how accounts blow up.',
   },
   {
     id: 2,
-    context: [
-      { label: 'Dow Jones', value: '+0.4%', bad: false },
-      { label: 'Nifty trend', value: 'Bullish 3 days', bad: false },
-      { label: 'India VIX', value: '12.1 ↓', bad: false },
-      { label: 'PCR', value: '1.3 (bullish)', bad: false },
+    type: 'chart',
+    candles: [
+      {o:100,c:108,h:110,l:98},{o:108,c:104,h:112,l:102},{o:104,c:115,h:117,l:103},
+      {o:115,c:112,h:118,l:110},{o:112,c:120,h:122,l:111},
     ],
-    question: 'Everything looks bullish. You\'re up 2% on a long trade. Target is another 1.5% away. What do you do?',
+    question: 'Strong bullish candle after a pullback to support. Volume is above average. What\'s the trade?',
     options: [
-      { id: 'a', text: 'Hold for the full target — the trend is your friend' },
-      { id: 'b', text: 'Book partial profits (50%) and trail the rest' },
-      { id: 'c', text: 'Add more to the position — momentum is strong' },
-      { id: 'd', text: 'Exit completely — 2% is good enough' },
+      { id: 'a', text: 'Enter long now — strong close with volume' },
+      { id: 'b', text: 'Wait for next candle to confirm, then enter' },
+      { id: 'c', text: 'Short — overbought after big move' },
+      { id: 'd', text: 'Ignore — risk:reward not clear' },
     ],
     answer: 'b',
-    explanation: 'Booking partial profits locks in gains while letting the trade breathe. Adding to a winning position without a clear stop plan is how good trades turn into losses. Full exit gives up potential upside. The disciplined move is partial booking + trailing stop.',
+    explanation: 'The candle looks great but chasing a big green candle is a classic mistake. Wait for the next candle to hold the gains without giving back much. A confirmation candle gives a tighter stop and better R:R.',
+  },
+  {
+    id: 3,
+    type: 'context',
+    context: [
+      { label: 'Dow Jones',   value: '+0.4%',         bad: false },
+      { label: 'Nifty trend', value: 'Bullish 3 days', bad: false },
+      { label: 'India VIX',   value: '12.1 ↓',        bad: false },
+      { label: 'PCR',         value: '1.3 (bullish)',  bad: false },
+    ],
+    question: 'You\'re up 2% on a long trade. Target is 1.5% away. VIX is low, trend intact. What do you do?',
+    options: [
+      { id: 'a', text: 'Hold for full target — trend is your friend' },
+      { id: 'b', text: 'Book 50% now, trail stop on the rest' },
+      { id: 'c', text: 'Add more — momentum is strong' },
+      { id: 'd', text: 'Exit fully — 2% is enough' },
+    ],
+    answer: 'b',
+    explanation: 'Partial booking locks in gains while letting the trade breathe. Adding without a plan turns winners into losers. Full exit gives up potential. Partial + trailing stop is textbook risk management.',
+  },
+  {
+    id: 4,
+    type: 'chart',
+    candles: [
+      {o:120,c:116,h:122,l:114},{o:116,c:118,h:120,l:113},{o:118,c:113,h:119,l:111},
+      {o:113,c:110,h:114,l:108},{o:110,c:108,h:112,l:106},
+    ],
+    question: 'Nifty is forming lower highs and lower lows. Now testing a key support at 24,400. What\'s your bias?',
+    options: [
+      { id: 'a', text: 'Short — structure is clearly bearish' },
+      { id: 'b', text: 'Buy — support zone, mean reversion likely' },
+      { id: 'c', text: 'Wait for a bounce and then short' },
+      { id: 'd', text: 'Stay flat — trend is unclear' },
+    ],
+    answer: 'c',
+    explanation: 'The structure is bearish (lower highs, lower lows). But shorting right at support is dangerous — it could bounce sharply. Waiting for a bounce to a resistance level gives you a high-probability short with a tight stop above resistance.',
+  },
+  {
+    id: 5,
+    type: 'context',
+    context: [
+      { label: 'Event',       value: 'RBI Policy Day',  bad: false },
+      { label: 'Expectation', value: 'No rate change',  bad: false },
+      { label: 'India VIX',   value: '16.8 ↑',         bad: true  },
+      { label: 'Time',        value: '9:45 AM',         bad: false },
+    ],
+    question: 'RBI policy announcement at 10 AM. You have a profitable long position from yesterday. What do you do?',
+    options: [
+      { id: 'a', text: 'Hold — no rate change expected, should be fine' },
+      { id: 'b', text: 'Exit before 10 AM — don\'t hold through events' },
+      { id: 'c', text: 'Add more — positive outcome expected' },
+      { id: 'd', text: 'Buy a put as hedge and hold the long' },
+    ],
+    answer: 'b',
+    explanation: '"Buy the rumour, sell the news." Even if the outcome is as expected, markets often reverse on announcement day. VIX rising shows uncertainty. The professional move is to protect profits and re-enter after the event if the setup remains valid.',
   },
 ]
 
@@ -75,16 +163,21 @@ function ScenarioGame() {
 
   return (
     <div>
-      {/* Context cards */}
-      <div className="grid grid-cols-2 gap-2 mb-5">
-        {scenario.context.map(c => (
-          <div key={c.label} className={`px-3 py-2 rounded-lg border text-xs flex items-center justify-between
-            ${c.bad ? 'border-rose-900/50 bg-rose-950/20' : 'border-emerald-900/50 bg-emerald-950/20'}`}>
-            <span className="text-slate-400">{c.label}</span>
-            <span className={`font-bold ${c.bad ? 'text-rose-400' : 'text-emerald-400'}`}>{c.value}</span>
+      {/* Context or chart */}
+      {scenario.type === 'chart'
+        ? <MiniChart candles={scenario.candles} />
+        : (
+          <div className="grid grid-cols-2 gap-2 mb-5">
+            {scenario.context.map(c => (
+              <div key={c.label} className={`px-3 py-2 rounded-lg border text-xs flex items-center justify-between
+                ${c.bad ? 'border-rose-900/50 bg-rose-950/20' : 'border-emerald-900/50 bg-emerald-950/20'}`}>
+                <span className="text-slate-400">{c.label}</span>
+                <span className={`font-bold ${c.bad ? 'text-rose-400' : 'text-emerald-400'}`}>{c.value}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        )
+      }
 
       {/* Question */}
       <p className="text-sm font-semibold text-white leading-snug mb-4">{scenario.question}</p>
@@ -252,7 +345,7 @@ export default function Home() {
                   Real market scenarios. Real decisions. No right answer is obvious — just like actual trading.
                 </p>
                 <div data-reveal data-reveal-delay="3" className="flex items-center gap-6 text-sm text-slate-500 mb-8">
-                  <span>🎮 3 games available</span>
+                  <span>🎮 New scenarios every week</span>
                   <span>⚡ No signup needed</span>
                 </div>
                 <Link data-reveal data-reveal-delay="4" href="/games" className="text-sm font-semibold text-emerald-400 hover:underline">

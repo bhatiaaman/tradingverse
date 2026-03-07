@@ -28,7 +28,7 @@ const GAMES = [
     tag: 'Risk & Psychology',
     tagColor: 'text-amber-400 bg-amber-950/40 border-amber-900/50',
     difficulty: 'Advanced',
-    available: false,
+    available: true,
   },
   {
     emoji: '🔍',
@@ -37,7 +37,7 @@ const GAMES = [
     tag: 'Technical Analysis',
     tagColor: 'text-violet-400 bg-violet-950/40 border-violet-900/50',
     difficulty: 'Intermediate',
-    available: false,
+    available: true,
   },
   {
     emoji: '📰',
@@ -46,7 +46,7 @@ const GAMES = [
     tag: 'Macro',
     tagColor: 'text-cyan-400 bg-cyan-950/40 border-cyan-900/50',
     difficulty: 'Advanced',
-    available: false,
+    available: true,
   },
   {
     emoji: '🎯',
