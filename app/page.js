@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 
 // ── Scroll-reveal hook ─────────────────────────────────────────────────────
@@ -92,9 +92,13 @@ export default function Home() {
         <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-8 py-4 bg-[#060b14]/80 backdrop-blur-md border-b border-white/5">
           <span className="text-lg font-black tracking-tight">Trading<span className="text-blue-400">Verse</span></span>
           <div className="hidden md:flex items-center gap-8 text-sm text-slate-400">
-            <Link href="/trades"   className="hover:text-white transition-colors">Dashboard</Link>
-            <Link href="#games"    className="hover:text-white transition-colors">Games</Link>
-            <Link href="#learn"    className="hover:text-white transition-colors">Learn</Link>
+            <Link href="/trades" className="hover:text-white transition-colors">Dashboard</Link>
+            <Link href="#games"  className="hover:text-white transition-colors">Games</Link>
+            <Link href="#learn"  className="hover:text-white transition-colors">Learn</Link>
+            <span className="flex items-center gap-1.5 text-slate-600 cursor-default">
+              Investing
+              <span className="text-[9px] font-bold tracking-wider uppercase bg-blue-900/50 text-blue-400 px-1.5 py-0.5 rounded-full border border-blue-800/60">Soon</span>
+            </span>
           </div>
           <Link href="/settings/kite" className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 text-sm hover:border-blue-600 hover:text-white transition-all">
             Login
@@ -114,7 +118,11 @@ export default function Home() {
               Trade with context.
             </h1>
 
-            <p data-reveal data-reveal-delay="2" className="text-slate-400 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed mb-16">
+            <p data-reveal data-reveal-delay="2" className="text-slate-300 text-base md:text-lg max-w-xl mx-auto leading-relaxed mb-4">
+              <span className="text-white font-semibold">TradingVerse</span> is your daily trading ritual — pre-market context, skill-building games, and lessons from the world's best traders. All in one place.
+            </p>
+
+            <p data-reveal data-reveal-delay="3" className="text-slate-500 text-base max-w-2xl mx-auto leading-relaxed mb-16">
               Most traders lose not because they lack skills — but because they trade without understanding the full picture.
             </p>
 
