@@ -144,9 +144,13 @@ export default function Home() {
               <p className="text-slate-400 text-xl leading-relaxed mb-6">
                 The 17% who consistently win share one habit — they understand <em className="text-white not-italic font-semibold">context</em> before placing a trade.
               </p>
-              <p className="text-slate-500 text-base leading-relaxed">
+              <p className="text-slate-500 text-base leading-relaxed mb-8">
                 They know what the global markets did overnight. They know where smart money is positioned. They've trained their instincts on hundreds of real scenarios. They've read the books.
               </p>
+              <Link href="/trades" className="inline-flex items-center gap-2 text-blue-400 text-sm font-semibold hover:gap-3 transition-all group">
+                See what the 17% see every morning
+                <span className="group-hover:translate-x-1 transition-transform">→</span>
+              </Link>
             </div>
           </div>
         </section>
