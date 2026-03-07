@@ -16,55 +16,105 @@ function useReveal() {
   }, [])
 }
 
-// ── Inline game ────────────────────────────────────────────────────────────
-function InlineGame() {
+// ── Scenario Challenge game ────────────────────────────────────────────────
+const SCENARIOS = [
+  {
+    id: 1,
+    context: [
+      { label: 'Dow Jones', value: '-1.8%', bad: true },
+      { label: 'GIFT Nifty', value: '-180 pts', bad: true },
+      { label: 'India VIX', value: '18.4 ↑', bad: true },
+      { label: 'Nifty', value: 'Near weekly support', bad: false },
+    ],
+    question: 'Gap down open expected. Nifty is near a major weekly support. 9:15 AM. What do you do?',
+    options: [
+      { id: 'a', text: 'Short immediately — global cues are bearish' },
+      { id: 'b', text: 'Wait and watch for 15–30 mins before taking any trade' },
+      { id: 'c', text: 'Buy the dip — weekly support will hold' },
+      { id: 'd', text: 'Buy options on both sides (straddle)' },
+    ],
+    answer: 'b',
+    explanation: 'Opening volatility is high. Weekly support could attract buyers or break further. Waiting 15–30 mins for the dust to settle and a directional confirmation is the professional move. Impulsive entries at the open are how most traders blow up.',
+  },
+  {
+    id: 2,
+    context: [
+      { label: 'Dow Jones', value: '+0.4%', bad: false },
+      { label: 'Nifty trend', value: 'Bullish 3 days', bad: false },
+      { label: 'India VIX', value: '12.1 ↓', bad: false },
+      { label: 'PCR', value: '1.3 (bullish)', bad: false },
+    ],
+    question: 'Everything looks bullish. You\'re up 2% on a long trade. Target is another 1.5% away. What do you do?',
+    options: [
+      { id: 'a', text: 'Hold for the full target — the trend is your friend' },
+      { id: 'b', text: 'Book partial profits (50%) and trail the rest' },
+      { id: 'c', text: 'Add more to the position — momentum is strong' },
+      { id: 'd', text: 'Exit completely — 2% is good enough' },
+    ],
+    answer: 'b',
+    explanation: 'Booking partial profits locks in gains while letting the trade breathe. Adding to a winning position without a clear stop plan is how good trades turn into losses. Full exit gives up potential upside. The disciplined move is partial booking + trailing stop.',
+  },
+]
+
+function ScenarioGame() {
+  const [idx, setIdx]     = useState(0)
   const [pick, setPick]   = useState(null)
   const [done, setDone]   = useState(false)
-  const answer = 'bullish'
+  const scenario          = SCENARIOS[idx]
 
   const choose = v => {
     if (done) return
     setPick(v)
-    setTimeout(() => setDone(true), 500)
+    setTimeout(() => setDone(true), 400)
   }
-  const reset = () => { setPick(null); setDone(false) }
+  const next = () => {
+    setIdx(i => (i + 1) % SCENARIOS.length)
+    setPick(null)
+    setDone(false)
+  }
 
   return (
-    <div className="max-w-md mx-auto">
-      {/* Chart */}
-      <div className="flex items-end gap-2 h-20 mb-6 px-2">
-        {[{h:35,g:false},{h:50,g:true},{h:42,g:false},{h:62,g:true},{h:72,g:true}].map((c,i) => (
-          <div key={i} className="flex-1 flex flex-col items-center gap-px">
-            <div className={`w-px opacity-50 ${c.g?'bg-emerald-400':'bg-rose-400'}`} style={{height:c.h*0.25}}/>
-            <div className={`w-full rounded-sm opacity-90 ${c.g?'bg-emerald-400':'bg-rose-400'}`} style={{height:c.h*0.65}}/>
-            <div className={`w-px opacity-50 ${c.g?'bg-emerald-400':'bg-rose-400'}`} style={{height:c.h*0.15}}/>
+    <div>
+      {/* Context cards */}
+      <div className="grid grid-cols-2 gap-2 mb-5">
+        {scenario.context.map(c => (
+          <div key={c.label} className={`px-3 py-2 rounded-lg border text-xs flex items-center justify-between
+            ${c.bad ? 'border-rose-900/50 bg-rose-950/20' : 'border-emerald-900/50 bg-emerald-950/20'}`}>
+            <span className="text-slate-400">{c.label}</span>
+            <span className={`font-bold ${c.bad ? 'text-rose-400' : 'text-emerald-400'}`}>{c.value}</span>
           </div>
         ))}
-        <div className="flex-1 h-full flex items-center justify-center border-2 border-dashed border-slate-600 rounded-sm">
-          <span className="text-slate-500 text-sm font-bold">?</span>
-        </div>
       </div>
 
+      {/* Question */}
+      <p className="text-sm font-semibold text-white leading-snug mb-4">{scenario.question}</p>
+
+      {/* Options */}
       {!done ? (
-        <div className="flex gap-3">
-          <button onClick={() => choose('bullish')}
-            className={`flex-1 py-3 rounded-xl font-bold text-sm border transition-all duration-200
-              ${pick==='bullish' ? 'bg-emerald-600 border-emerald-500 text-white scale-95' : 'border-slate-700 text-slate-400 hover:border-emerald-600 hover:text-emerald-400'}`}>
-            📈 Bullish
-          </button>
-          <button onClick={() => choose('bearish')}
-            className={`flex-1 py-3 rounded-xl font-bold text-sm border transition-all duration-200
-              ${pick==='bearish' ? 'bg-rose-600 border-rose-500 text-white scale-95' : 'border-slate-700 text-slate-400 hover:border-rose-600 hover:text-rose-400'}`}>
-            📉 Bearish
-          </button>
+        <div className="flex flex-col gap-2">
+          {scenario.options.map(o => (
+            <button key={o.id} onClick={() => choose(o.id)}
+              className={`text-left px-4 py-3 rounded-xl text-xs border transition-all duration-200 leading-snug
+                ${pick === o.id
+                  ? 'border-blue-600 bg-blue-950/50 text-blue-300 scale-[0.99]'
+                  : 'border-slate-800 text-slate-400 hover:border-slate-600 hover:text-slate-200 hover:bg-white/[0.03]'}`}>
+              <span className="font-bold text-slate-500 mr-2">{o.id.toUpperCase()}.</span>{o.text}
+            </button>
+          ))}
         </div>
       ) : (
-        <div className={`p-4 rounded-xl border text-sm ${pick===answer ? 'border-emerald-700 bg-emerald-950/40' : 'border-rose-700 bg-rose-950/40'}`}>
-          <p className={`font-bold mb-1 ${pick===answer ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {pick===answer ? '✓ Correct! +10 XP' : '✗ The next candle was bullish.'}
-          </p>
-          <p className="text-slate-500 text-xs leading-relaxed">Price swept the low (liquidity grab) before reversing higher. Classic stop hunt.</p>
-          <button onClick={reset} className="mt-3 text-xs text-slate-500 hover:text-slate-300 underline transition-colors">Try again</button>
+        <div>
+          <div className={`p-4 rounded-xl border mb-3 text-xs
+            ${pick === scenario.answer ? 'border-emerald-700/60 bg-emerald-950/30' : 'border-amber-700/60 bg-amber-950/20'}`}>
+            <p className={`font-bold mb-2 text-sm ${pick === scenario.answer ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {pick === scenario.answer ? '✓ Good thinking.' : `✗ The smarter play was: ${scenario.options.find(o=>o.id===scenario.answer)?.text}`}
+            </p>
+            <p className="text-slate-400 leading-relaxed">{scenario.explanation}</p>
+          </div>
+          <button onClick={next}
+            className="w-full py-2.5 rounded-xl border border-slate-700 text-slate-400 text-xs font-semibold hover:border-slate-500 hover:text-slate-200 transition-colors">
+            Next scenario →
+          </button>
         </div>
       )}
     </div>
@@ -199,21 +249,21 @@ export default function Home() {
                   Can you read<br/>the chart?
                 </h2>
                 <p data-reveal data-reveal-delay="2" className="text-slate-400 text-lg leading-relaxed mb-6">
-                  Nifty 15-min chart. Five candles. What happens next? No login required — just your instinct vs the market.
+                  Real market scenarios. Real decisions. No right answer is obvious — just like actual trading.
                 </p>
                 <div data-reveal data-reveal-delay="3" className="flex items-center gap-6 text-sm text-slate-500 mb-8">
                   <span>🎮 3 games available</span>
                   <span>⚡ No signup needed</span>
                 </div>
-                <Link data-reveal data-reveal-delay="4" href="#" className="text-sm font-semibold text-emerald-400 hover:underline">
+                <Link data-reveal data-reveal-delay="4" href="/games" className="text-sm font-semibold text-emerald-400 hover:underline">
                   See all games →
                 </Link>
               </div>
 
               <div data-reveal data-reveal-delay="2">
                 <div className="p-8 rounded-3xl border border-white/10 bg-white/[0.02]">
-                  <p className="text-xs text-slate-500 uppercase tracking-widest mb-6 font-semibold">Live challenge</p>
-                  <InlineGame />
+                  <p className="text-xs text-slate-500 uppercase tracking-widest mb-4 font-semibold">Scenario Challenge</p>
+                  <ScenarioGame />
                 </div>
               </div>
             </div>
