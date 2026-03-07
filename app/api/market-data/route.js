@@ -419,7 +419,8 @@ export async function GET() {
         fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EBANKNIFTY?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }).then(r => r.json()).then(d => d.chart.result[0].meta.regularMarketPrice).catch(() => null),
         fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EINDIAVIX?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }).then(r => r.json()).then(d => d.chart.result[0].meta.regularMarketPrice).catch(() => null),
       ]);
-      niftyData = yahooNifty;
+      // Normalize Yahoo key (previousClose → prevClose) so rest of pipeline works identically
+      niftyData = yahooNifty ? { ...yahooNifty, prevClose: yahooNifty.previousClose } : null;
       sensex    = yahooSensex;
       bankNifty = yahooBankNifty;
       vix       = yahooVix;
@@ -457,8 +458,8 @@ export async function GET() {
       indices: {
         nifty:               niftyData?.price           ? niftyData.price.toFixed(2)           : null,
         niftyPrevClose:      niftyData?.prevClose       ? niftyData.prevClose.toFixed(2)       : null,
-        niftyChange:         niftyData?.change          ? niftyData.change.toFixed(2)          : null,
-        niftyChangePercent:  niftyData?.changePercent   ? niftyData.changePercent.toFixed(2)   : null,
+        niftyChange:         niftyData?.change          != null ? niftyData.change.toFixed(2)          : null,
+        niftyChangePercent:  niftyData?.changePercent   != null ? niftyData.changePercent.toFixed(2)   : null,
         niftyHigh:           niftyData?.high            ? niftyData.high.toFixed(2)            : null,
         niftyLow:            niftyData?.low             ? niftyData.low.toFixed(2)             : null,
         sensex:              sensex?.price              ? sensex.price.toFixed(2)              : (typeof sensex === 'number' ? sensex.toFixed(2) : null),
