@@ -308,14 +308,25 @@ export default function ChartAnalyserPage() {
     }
     setError('')
     setAnalysis(null)
-    setMediaType(file.type)
     setPreview(URL.createObjectURL(file))
 
     const reader = new FileReader()
     reader.onload = (e) => {
-      const dataUrl = e.target.result
-      const base64 = dataUrl.split(',')[1]
-      setImage(base64)
+      const img = new Image()
+      img.onload = () => {
+        const MAX = 1200
+        const scale = img.width > MAX ? MAX / img.width : 1
+        const w = Math.round(img.width * scale)
+        const h = Math.round(img.height * scale)
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+        const resized = canvas.toDataURL('image/jpeg', 0.85)
+        setMediaType('image/jpeg')
+        setImage(resized.split(',')[1])
+      }
+      img.src = e.target.result
     }
     reader.readAsDataURL(file)
   }, [])
