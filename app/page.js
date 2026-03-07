@@ -1,392 +1,312 @@
 'use client'
 
-import { createContext, useContext, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 
-// ── Theme tokens ────────────────────────────────────────────────────────────
-const THEMES = {
-  dark: {
-    page:          'bg-[#060b14] text-white',
-    sidebar:       'bg-[#080d1a] border-white/5',
-    sidebarBorder: 'border-white/5',
-    ticker:        'bg-white/[0.02] border-white/5',
-    tickerSym:     'text-slate-500',
-    tickerVal:     'text-slate-200 font-semibold',
-    navActive:     'bg-blue-600/20 text-blue-300 font-semibold',
-    navInactive:   'text-slate-500 hover:text-slate-200 hover:bg-white/5',
-    navDot:        'bg-blue-400',
-    mktStatus:     'bg-emerald-950/40 border-emerald-900/50',
-    mktText:       'text-emerald-400',
-    mktSub:        'text-slate-500',
-    hdrDate:       'text-slate-500',
-    hdrTitle:      'text-white',
-    ctaBtn:        'bg-blue-600 hover:bg-blue-500 text-white hover:shadow-[0_0_20px_rgba(59,130,246,0.4)]',
-    statUp:        'border-emerald-900/40 bg-emerald-950/20 hover:border-emerald-700/60',
-    statDown:      'border-rose-900/40 bg-rose-950/20 hover:border-rose-700/60',
-    statLabel:     'text-slate-500',
-    statVal:       'text-slate-100',
-    gameCard:      'border-white/5 bg-gradient-to-br from-[#0e1629] to-[#080d1a] hover:border-white/10',
-    gameChartBg:   'bg-slate-900/40',
-    gameChartDash: 'border-slate-700',
-    gameChartQ:    'text-slate-600',
-    gameBtnOff:    'border-slate-700 text-slate-400',
-    gameBtnBull:   'hover:border-emerald-700 hover:text-emerald-400 hover:bg-emerald-950/30',
-    gameBtnBear:   'hover:border-rose-700 hover:text-rose-400 hover:bg-rose-950/30',
-    gameDiv:       'border-white/5',
-    gameLbl:       'text-slate-600',
-    intelTitle:    'text-slate-200 group-hover:text-white',
-    intelDesc:     'text-slate-500',
-    intelConceptBorder: 'border-blue-900/40', intelConceptBg: 'bg-blue-950/10',
-    intelConceptBar:    'bg-slate-700',
-    intelArticleBorder: 'border-cyan-900/40',  intelArticleBg: 'bg-cyan-950/10',
-    intelArticleTag:    'bg-cyan-900/30 text-cyan-400 border border-cyan-900/50',
-    intelArticleMeta:   'text-slate-600',
-    artCard:       'border-white/5 bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/10',
-    artTitle:      'text-slate-400 group-hover:text-slate-200',
-    artCta:        'text-slate-700 group-hover:text-slate-500',
-    preMarket:     'border-amber-900/40 bg-amber-950/20 hover:border-amber-700/60 hover:bg-amber-950/30',
-    preMarketTxt:  'text-amber-300 group-hover:text-amber-200',
-    preMarketSub:  'text-slate-600',
-    toggle:        'bg-slate-800/80 text-slate-300 hover:bg-slate-700 border border-slate-700',
-    logo:          'text-blue-400',
-    accentBlue:    'text-blue-400',
-    accentCyan:    'text-cyan-400',
-    accentGreen:   'text-emerald-400',
-    accentAmber:   'text-amber-400',
-    accentViolet:  'text-violet-400',
-  },
-  light: {
-    page:          'bg-[#eef2ff] text-slate-800',
-    sidebar:       'bg-white border-slate-200 shadow-sm',
-    sidebarBorder: 'border-slate-100',
-    ticker:        'bg-white border-slate-200',
-    tickerSym:     'text-slate-400',
-    tickerVal:     'text-slate-700 font-semibold',
-    navActive:     'bg-indigo-50 text-indigo-700 font-semibold border-l-[3px] border-indigo-500 rounded-l-none',
-    navInactive:   'text-slate-500 hover:text-slate-700 hover:bg-slate-50',
-    navDot:        'bg-indigo-500',
-    mktStatus:     'bg-emerald-50 border-emerald-200',
-    mktText:       'text-emerald-600',
-    mktSub:        'text-slate-400',
-    hdrDate:       'text-slate-400',
-    hdrTitle:      'text-slate-800',
-    ctaBtn:        'bg-indigo-600 hover:bg-indigo-500 text-white hover:shadow-[0_4px_14px_rgba(79,70,229,0.4)]',
-    statUp:        'border-emerald-200 bg-white hover:border-emerald-300 shadow-sm',
-    statDown:      'border-red-200 bg-white hover:border-red-300 shadow-sm',
-    statLabel:     'text-slate-400',
-    statVal:       'text-slate-800',
-    gameCard:      'border-slate-200 bg-white hover:border-slate-300 shadow-sm hover:shadow-md',
-    gameChartBg:   'bg-slate-50 border border-slate-100',
-    gameChartDash: 'border-slate-300',
-    gameChartQ:    'text-slate-300',
-    gameBtnOff:    'border-slate-200 text-slate-500 bg-white',
-    gameBtnBull:   'hover:border-emerald-400 hover:text-emerald-700 hover:bg-emerald-50',
-    gameBtnBear:   'hover:border-red-400 hover:text-red-700 hover:bg-red-50',
-    gameDiv:       'border-slate-100',
-    gameLbl:       'text-slate-400',
-    intelTitle:    'text-slate-700 group-hover:text-slate-900',
-    intelDesc:     'text-slate-500',
-    intelConceptBorder: 'border-indigo-200', intelConceptBg: 'bg-white shadow-sm',
-    intelConceptBar:    'bg-slate-200',
-    intelArticleBorder: 'border-sky-200',    intelArticleBg: 'bg-white shadow-sm',
-    intelArticleTag:    'bg-sky-50 text-sky-600 border border-sky-200',
-    intelArticleMeta:   'text-slate-400',
-    artCard:       'border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 shadow-sm hover:shadow-md',
-    artTitle:      'text-slate-600 group-hover:text-slate-800',
-    artCta:        'text-slate-300 group-hover:text-slate-500',
-    preMarket:     'border-amber-200 bg-white hover:border-amber-300 hover:bg-amber-50 shadow-sm hover:shadow-md',
-    preMarketTxt:  'text-amber-700 group-hover:text-amber-800',
-    preMarketSub:  'text-slate-400',
-    toggle:        'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 shadow-sm',
-    logo:          'text-indigo-600',
-    accentBlue:    'text-indigo-500',
-    accentCyan:    'text-sky-500',
-    accentGreen:   'text-emerald-500',
-    accentAmber:   'text-amber-500',
-    accentViolet:  'text-violet-500',
-  },
+// ── Scroll-reveal hook ─────────────────────────────────────────────────────
+function useReveal() {
+  useEffect(() => {
+    const els = document.querySelectorAll('[data-reveal]')
+    const io = new IntersectionObserver(
+      entries => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('revealed') }),
+      { threshold: 0.15 }
+    )
+    els.forEach(el => io.observe(el))
+    return () => io.disconnect()
+  }, [])
 }
 
-const ThemeCtx = createContext('dark')
-const useTh = () => THEMES[useContext(ThemeCtx)]
-
-// ── Ticker ──────────────────────────────────────────────────────────────────
-const TICKERS = [
-  { sym: 'NIFTY 50',   val: '22,347.60', chg: '+0.84%', up: true  },
-  { sym: 'BANKNIFTY',  val: '47,891.25', chg: '+1.12%', up: true  },
-  { sym: 'SENSEX',     val: '73,648.30', chg: '+0.76%', up: true  },
-  { sym: 'NIFTY IT',   val: '38,421.10', chg: '-0.34%', up: false },
-  { sym: 'NIFTY AUTO', val: '21,044.85', chg: '+1.58%', up: true  },
-  { sym: 'GOLD',       val: '₹63,240',   chg: '+0.22%', up: true  },
-  { sym: 'CRUDE OIL',  val: '$83.40',    chg: '-0.61%', up: false },
-  { sym: 'USD/INR',    val: '83.42',     chg: '+0.08%', up: false },
-]
-
-function Ticker() {
-  const tk = useTh()
-  return (
-    <div className={`overflow-hidden border-b ${tk.ticker} py-2 shrink-0`}>
-      <div className="ticker-track flex gap-14 w-max">
-        {[...TICKERS, ...TICKERS].map((t, i) => (
-          <span key={i} className="flex items-center gap-2 text-xs whitespace-nowrap">
-            <span className={tk.tickerSym}>{t.sym}</span>
-            <span className={tk.tickerVal}>{t.val}</span>
-            <span className={t.up ? 'text-emerald-500' : 'text-rose-500'}>{t.chg}</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ── Sidebar ──────────────────────────────────────────────────────────────────
-const NAV = [
-  { icon: '🏠', label: 'Home',        href: '/',                  active: true  },
-  { icon: '🌅', label: 'Pre-Market',  href: '/trades/pre-market', active: false },
-  { icon: '📊', label: 'Dashboard',   href: '/trades',            active: false },
-  { icon: '🎮', label: 'Games',       href: '#',                  active: false },
-  { icon: '📘', label: 'Concepts',    href: '#',                  active: false },
-  { icon: '📰', label: 'Articles',    href: '#',                  active: false },
-  { icon: '📚', label: 'Books',       href: '#',                  active: false },
-]
-
-function Sidebar() {
-  const tk = useTh()
-  return (
-    <aside className={`w-[200px] shrink-0 flex flex-col border-r ${tk.sidebar}`}>
-      <div className={`px-5 py-5 border-b ${tk.sidebarBorder}`}>
-        <span className="text-base font-black tracking-tight">
-          Trading<span className={tk.logo}>Verse</span>
-        </span>
-      </div>
-
-      <nav className="flex-1 flex flex-col gap-0.5 p-3 pt-4">
-        {NAV.map(n => (
-          <Link key={n.label} href={n.href}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all group
-              ${n.active ? tk.navActive : tk.navInactive}`}>
-            <span className="text-base">{n.icon}</span>
-            <span>{n.label}</span>
-            {n.active && <span className={`ml-auto w-1.5 h-1.5 rounded-full ${tk.navDot}`} />}
-          </Link>
-        ))}
-      </nav>
-
-      <div className={`p-3 border-t ${tk.sidebarBorder}`}>
-        <div className={`p-3 rounded-xl border ${tk.mktStatus}`}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className={`text-xs font-semibold ${tk.mktText}`}>Market Open</span>
-          </div>
-          <p className={`text-[10px] ${tk.mktSub}`}>NSE · BSE · MCX</p>
-        </div>
-      </div>
-    </aside>
-  )
-}
-
-// ── Stat card ────────────────────────────────────────────────────────────────
-function StatCard({ sym, val, chg, up, icon }) {
-  const tk = useTh()
-  return (
-    <div className={`flex flex-col gap-2 p-4 rounded-2xl border transition-all duration-200 hover:-translate-y-0.5
-      ${up ? tk.statUp : tk.statDown}`}>
-      <div className="flex items-center justify-between">
-        <span className={`text-xs font-medium ${tk.statLabel}`}>{sym}</span>
-        <span className="text-base">{icon}</span>
-      </div>
-      <div className={`text-lg font-bold ${tk.statVal}`}>{val}</div>
-      <div className={`text-xs font-semibold ${up ? 'text-emerald-500' : 'text-rose-500'}`}>{chg} today</div>
-    </div>
-  )
-}
-
-// ── Game card ─────────────────────────────────────────────────────────────────
-function GameCard() {
-  const tk = useTh()
-  const [pick, setPick] = useState(null)
-  const [done, setDone] = useState(false)
+// ── Inline game ────────────────────────────────────────────────────────────
+function InlineGame() {
+  const [pick, setPick]   = useState(null)
+  const [done, setDone]   = useState(false)
   const answer = 'bullish'
 
-  const choose = (v) => {
+  const choose = v => {
     if (done) return
     setPick(v)
     setTimeout(() => setDone(true), 500)
   }
+  const reset = () => { setPick(null); setDone(false) }
 
   return (
-    <div className={`flex flex-col h-full p-5 rounded-2xl border transition-all ${tk.gameCard}`}>
-      <div className="flex items-center justify-between mb-1">
-        <span className={`text-[10px] font-bold tracking-widest uppercase ${tk.accentGreen}`}>Game of the Day</span>
-        <Link href="#" className={`text-[10px] transition-colors ${tk.artCta}`}>All games →</Link>
-      </div>
-      <p className={`text-sm font-bold mb-0.5 ${tk.hdrTitle}`}>Market Direction Challenge</p>
-      <p className={`text-xs mb-4 ${tk.statLabel}`}>Nifty 15-min · What's the next move?</p>
-
-      <div className={`flex items-end gap-1.5 h-14 mb-4 rounded-xl px-4 py-3 ${tk.gameChartBg}`}>
-        {[{h:38,g:false},{h:52,g:true},{h:44,g:false},{h:66,g:true},{h:74,g:true}].map((c,i) => (
+    <div className="max-w-md mx-auto">
+      {/* Chart */}
+      <div className="flex items-end gap-2 h-20 mb-6 px-2">
+        {[{h:35,g:false},{h:50,g:true},{h:42,g:false},{h:62,g:true},{h:72,g:true}].map((c,i) => (
           <div key={i} className="flex-1 flex flex-col items-center gap-px">
-            <div className={`w-px ${c.g?'bg-emerald-400':'bg-rose-400'} opacity-50`} style={{height:c.h*0.22}}/>
-            <div className={`w-full rounded-sm ${c.g?'bg-emerald-400':'bg-rose-400'} opacity-80`} style={{height:c.h*0.55}}/>
-            <div className={`w-px ${c.g?'bg-emerald-400':'bg-rose-400'} opacity-50`} style={{height:c.h*0.14}}/>
+            <div className={`w-px opacity-50 ${c.g?'bg-emerald-400':'bg-rose-400'}`} style={{height:c.h*0.25}}/>
+            <div className={`w-full rounded-sm opacity-90 ${c.g?'bg-emerald-400':'bg-rose-400'}`} style={{height:c.h*0.65}}/>
+            <div className={`w-px opacity-50 ${c.g?'bg-emerald-400':'bg-rose-400'}`} style={{height:c.h*0.15}}/>
           </div>
         ))}
-        <div className={`flex-1 flex items-center justify-center border border-dashed ${tk.gameChartDash} rounded-sm h-full`}>
-          <span className={`text-xs font-bold ${tk.gameChartQ}`}>?</span>
+        <div className="flex-1 h-full flex items-center justify-center border-2 border-dashed border-slate-600 rounded-sm">
+          <span className="text-slate-500 text-sm font-bold">?</span>
         </div>
       </div>
 
       {!done ? (
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           <button onClick={() => choose('bullish')}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold border transition-all
-              ${pick==='bullish' ? 'bg-emerald-600 border-emerald-500 text-white' : `${tk.gameBtnOff} ${tk.gameBtnBull}`}`}>
+            className={`flex-1 py-3 rounded-xl font-bold text-sm border transition-all duration-200
+              ${pick==='bullish' ? 'bg-emerald-600 border-emerald-500 text-white scale-95' : 'border-slate-700 text-slate-400 hover:border-emerald-600 hover:text-emerald-400'}`}>
             📈 Bullish
           </button>
           <button onClick={() => choose('bearish')}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold border transition-all
-              ${pick==='bearish' ? 'bg-rose-600 border-rose-500 text-white' : `${tk.gameBtnOff} ${tk.gameBtnBear}`}`}>
+            className={`flex-1 py-3 rounded-xl font-bold text-sm border transition-all duration-200
+              ${pick==='bearish' ? 'bg-rose-600 border-rose-500 text-white scale-95' : 'border-slate-700 text-slate-400 hover:border-rose-600 hover:text-rose-400'}`}>
             📉 Bearish
           </button>
         </div>
       ) : (
-        <div className={`p-3 rounded-xl border text-xs ${pick===answer ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
-          <p className="font-bold mb-1">{pick===answer ? '✓ Correct! +10 XP' : '✗ The move was bullish.'}</p>
-          <p className="text-slate-500 text-[11px] leading-relaxed">Price swept the low (stop hunt) before reversing — classic liquidity grab.</p>
+        <div className={`p-4 rounded-xl border text-sm ${pick===answer ? 'border-emerald-700 bg-emerald-950/40' : 'border-rose-700 bg-rose-950/40'}`}>
+          <p className={`font-bold mb-1 ${pick===answer ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {pick===answer ? '✓ Correct! +10 XP' : '✗ The next candle was bullish.'}
+          </p>
+          <p className="text-slate-500 text-xs leading-relaxed">Price swept the low (liquidity grab) before reversing higher. Classic stop hunt.</p>
+          <button onClick={reset} className="mt-3 text-xs text-slate-500 hover:text-slate-300 underline transition-colors">Try again</button>
         </div>
       )}
-
-      <div className={`mt-auto pt-4 grid grid-cols-3 gap-2 text-center border-t ${tk.gameDiv}`}>
-        {[['Level','7',tk.accentBlue],['Accuracy','62%',tk.accentGreen],['Streak','4d',tk.accentAmber]].map(([l,v,c]) => (
-          <div key={l}>
-            <div className={`text-sm font-bold ${c}`}>{v}</div>
-            <div className={`text-[10px] ${tk.gameLbl}`}>{l}</div>
-          </div>
-        ))}
-      </div>
     </div>
   )
 }
 
-// ── Intel cards ───────────────────────────────────────────────────────────────
-function ConceptCard() {
-  const tk = useTh()
-  return (
-    <div className={`flex flex-col h-full p-5 rounded-2xl border hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group ${tk.intelConceptBorder} ${tk.intelConceptBg}`}>
-      <span className={`text-[10px] font-bold tracking-widest uppercase mb-3 ${tk.accentBlue}`}>Concept of the Day</span>
-      <p className={`text-sm font-bold mb-2 leading-snug transition-colors ${tk.intelTitle}`}>Liquidity Sweep</p>
-      <div className={`flex items-end gap-1 h-10 my-2 opacity-60`}>
-        {[30,42,36,50,42,58,40,26,70,82].map((h,i) => (
-          <div key={i} className={`flex-1 rounded-sm ${i<7 ? tk.intelConceptBar : i===8 ? 'bg-rose-400' : 'bg-emerald-400'}`} style={{height:h*0.5}}/>
-        ))}
-      </div>
-      <p className={`text-xs leading-relaxed flex-1 ${tk.intelDesc}`}>
-        Price raids a key level to grab stop orders placed by retail traders, then reverses sharply. The moment most get stopped out is exactly when smart money enters.
-      </p>
-      <span className={`text-xs font-semibold mt-4 group-hover:underline ${tk.accentBlue}`}>Learn this concept →</span>
-    </div>
-  )
-}
-
-function ArticleIntelCard() {
-  const tk = useTh()
-  return (
-    <div className={`flex flex-col h-full p-5 rounded-2xl border hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group ${tk.intelArticleBorder} ${tk.intelArticleBg}`}>
-      <span className={`text-[10px] font-bold tracking-widest uppercase mb-3 ${tk.accentCyan}`}>Article of the Day</span>
-      <p className={`text-sm font-bold mb-2 leading-snug transition-colors ${tk.intelTitle}`}>Why Most Breakout Trades Fail</p>
-      <div className="flex items-center gap-2 my-2">
-        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${tk.intelArticleTag}`}>Price Action</span>
-        <span className={`text-[10px] ${tk.intelArticleMeta}`}>8 min read</span>
-      </div>
-      <p className={`text-xs leading-relaxed flex-1 ${tk.intelDesc}`}>
-        The setup looks perfect. Volume picks up. Price breaks the level. You enter. Then it reverses. Here's the structural reason it keeps happening.
-      </p>
-      <span className={`text-xs font-semibold mt-4 group-hover:underline ${tk.accentCyan}`}>Read article →</span>
-    </div>
-  )
-}
-
-// ── Article strip card ────────────────────────────────────────────────────────
-function ArticleCard({ tag, title, accent }) {
-  const tk = useTh()
-  return (
-    <a href="#" className={`flex flex-col p-4 rounded-2xl border transition-all group cursor-pointer h-full ${tk.artCard}`}>
-      <span className={`text-[10px] font-bold tracking-widest uppercase mb-2 ${accent}`}>{tag}</span>
-      <p className={`text-xs font-semibold leading-snug transition-colors ${tk.artTitle}`}>{title}</p>
-      <span className={`mt-auto pt-3 text-[10px] transition-colors ${tk.artCta}`}>Read →</span>
-    </a>
-  )
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
+// ── Page ───────────────────────────────────────────────────────────────────
 export default function Home() {
-  const [theme, setTheme] = useState('dark')
-  const tk = THEMES[theme]
+  useReveal()
 
   return (
-    <ThemeCtx.Provider value={theme}>
-      <div className={`h-screen flex overflow-hidden transition-colors duration-300 ${tk.page}`}>
+    <>
+      <style>{`
+        [data-reveal] { opacity: 0; transform: translateY(28px); transition: opacity 0.7s ease, transform 0.7s ease; }
+        [data-reveal].revealed { opacity: 1; transform: translateY(0); }
+        [data-reveal-delay="1"] { transition-delay: 0.1s; }
+        [data-reveal-delay="2"] { transition-delay: 0.2s; }
+        [data-reveal-delay="3"] { transition-delay: 0.3s; }
+        [data-reveal-delay="4"] { transition-delay: 0.4s; }
+      `}</style>
 
-        <Sidebar />
+      <div className="bg-[#060b14] text-white min-h-screen">
 
-        {/* MAIN */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <Ticker />
+        {/* ── NAV ── */}
+        <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-8 py-4 bg-[#060b14]/80 backdrop-blur-md border-b border-white/5">
+          <span className="text-lg font-black tracking-tight">Trading<span className="text-blue-400">Verse</span></span>
+          <div className="hidden md:flex items-center gap-8 text-sm text-slate-400">
+            <Link href="/trades"   className="hover:text-white transition-colors">Dashboard</Link>
+            <Link href="#games"    className="hover:text-white transition-colors">Games</Link>
+            <Link href="#learn"    className="hover:text-white transition-colors">Learn</Link>
+          </div>
+          <Link href="/settings/kite" className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 text-sm hover:border-blue-600 hover:text-white transition-all">
+            Login
+          </Link>
+        </nav>
 
-          {/* Header */}
-          <div className="shrink-0 px-6 pt-5 pb-3 flex items-center justify-between">
-            <div>
-              <p className={`text-xs mb-0.5 ${tk.hdrDate}`}>Saturday, 7 March 2026</p>
-              <h1 className={`text-xl font-black ${tk.hdrTitle}`}>Good morning, Aman 👋</h1>
-            </div>
-            <div className="flex items-center gap-3">
-              {/* Theme toggle */}
-              <button onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-                className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all ${tk.toggle}`}>
-                {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
-              </button>
-              <Link href="/trades"
-                className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all hover:-translate-y-0.5 ${tk.ctaBtn}`}>
-                Launch Dashboard →
-              </Link>
+        {/* ── HERO ── */}
+        <section className="min-h-screen flex flex-col items-center justify-center text-center px-6 pt-20 relative overflow-hidden">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_30%,rgba(59,130,246,0.07),transparent_65%)]" />
+
+          <div className="relative z-10 max-w-4xl">
+            <p data-reveal className="text-blue-400 text-xs font-bold tracking-[0.2em] uppercase mb-8">For Indian Traders</p>
+
+            <h1 data-reveal data-reveal-delay="1" className="text-6xl md:text-8xl font-black tracking-tight leading-[0.9] mb-8">
+              Trade less.<br/>
+              <span className="text-slate-500">Trade smarter.</span><br/>
+              Trade with context.
+            </h1>
+
+            <p data-reveal data-reveal-delay="2" className="text-slate-400 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed mb-16">
+              Most traders lose not because they lack skills — but because they trade without understanding the full picture.
+            </p>
+
+            <div data-reveal data-reveal-delay="3" className="flex flex-col items-center gap-3">
+              <span className="text-slate-600 text-sm">Scroll to see why</span>
+              <div className="w-px h-12 bg-gradient-to-b from-slate-600 to-transparent" />
             </div>
           </div>
+        </section>
 
-          {/* BENTO GRID */}
-          <div className="flex-1 px-6 pb-5 grid grid-rows-[auto_1fr_auto] gap-4 min-h-0 overflow-y-auto scrollbar-thin">
-
-            {/* ROW 1 — Market stats */}
-            <div className="grid grid-cols-4 gap-4 shrink-0">
-              <StatCard sym="NIFTY 50"  val="22,347" chg="+0.84%" up  icon="📈" />
-              <StatCard sym="BANKNIFTY" val="47,891" chg="+1.12%" up  icon="🏦" />
-              <StatCard sym="SENSEX"    val="73,648" chg="+0.76%" up  icon="📊" />
-              <StatCard sym="GOLD"      val="₹63,240" chg="+0.22%" up icon="✨" />
+        {/* ── THE TRUTH ── */}
+        <section className="py-32 px-6">
+          <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-16 items-center">
+            <div data-reveal>
+              <div className="text-8xl md:text-9xl font-black text-white/10 leading-none mb-4">83%</div>
+              <p className="text-3xl font-bold text-white leading-tight">of retail traders lose money in the markets.</p>
             </div>
-
-            {/* ROW 2 — Game + Intel cards */}
-            <div className="grid grid-cols-[2fr_1fr_1fr] gap-4 min-h-0">
-              <GameCard />
-              <ConceptCard />
-              <ArticleIntelCard />
-            </div>
-
-            {/* ROW 3 — Article strip + Pre-Market */}
-            <div className="grid grid-cols-[1fr_1fr_1fr_1fr_180px] gap-4 shrink-0">
-              <ArticleCard tag="Psychology"   accent={tk.accentViolet} title="Why traders sabotage their own trades" />
-              <ArticleCard tag="Price Action" accent={tk.accentBlue}   title="Reading order flow without indicators" />
-              <ArticleCard tag="Trade Review" accent={tk.accentGreen}  title="Post-trade review: the missing habit" />
-              <ArticleCard tag="Mistakes"     accent="text-rose-500"   title="The revenge trade trap — and the exit" />
-
-              <Link href="/trades/pre-market"
-                className={`flex flex-col items-center justify-center gap-2 rounded-2xl border hover:-translate-y-0.5 transition-all group text-center p-4 ${tk.preMarket}`}>
-                <span className="text-3xl">🌅</span>
-                <span className={`text-xs font-bold leading-snug transition-colors ${tk.preMarketTxt}`}>Start Pre-Market Analysis</span>
-                <span className={`text-[10px] transition-colors ${tk.preMarketSub}`}>Plan your day →</span>
-              </Link>
+            <div data-reveal data-reveal-delay="2">
+              <p className="text-slate-400 text-xl leading-relaxed mb-6">
+                The 17% who consistently win share one habit — they understand <em className="text-white not-italic font-semibold">context</em> before placing a trade.
+              </p>
+              <p className="text-slate-500 text-base leading-relaxed">
+                They know what the global markets did overnight. They know where smart money is positioned. They've trained their instincts on hundreds of real scenarios. They've read the books.
+              </p>
             </div>
           </div>
-        </div>
+        </section>
+
+        {/* ── THREE PATHS ── */}
+        <section className="border-t border-white/5">
+          <div className="max-w-6xl mx-auto grid md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-white/5">
+
+            {[
+              {
+                num: '01', verb: 'Know',
+                desc: 'Understand what the market is telling you before it opens. Global cues, key levels, what to watch.',
+                cta: 'Open Pre-Market →', href: '/trades/pre-market',
+                accent: 'text-blue-400',
+              },
+              {
+                num: '02', verb: 'Train',
+                desc: 'Test your instincts on real market scenarios. No capital at risk. Just you vs the chart.',
+                cta: 'Play a game →', href: '#games',
+                accent: 'text-emerald-400',
+              },
+              {
+                num: '03', verb: 'Learn',
+                desc: 'Read what the best traders in the world figured out after years of painful losses.',
+                cta: 'Explore articles & books →', href: '#learn',
+                accent: 'text-violet-400',
+              },
+            ].map((p, i) => (
+              <div key={p.num} data-reveal className={`p-10 md:p-14 group hover:bg-white/[0.02] transition-colors`} style={{transitionDelay: `${i*0.1}s`}}>
+                <div className="text-slate-700 text-sm font-bold tracking-widest mb-6">{p.num}</div>
+                <h3 className={`text-5xl font-black mb-6 ${p.accent}`}>{p.verb}</h3>
+                <p className="text-slate-400 text-base leading-relaxed mb-10">{p.desc}</p>
+                <Link href={p.href} className={`text-sm font-semibold ${p.accent} hover:underline`}>{p.cta}</Link>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── GAMES ── */}
+        <section id="games" className="py-32 px-6 border-t border-white/5">
+          <div className="max-w-5xl mx-auto">
+            <div className="grid md:grid-cols-2 gap-16 items-center">
+              <div>
+                <p data-reveal className="text-emerald-400 text-xs font-bold tracking-[0.2em] uppercase mb-4">Trading Games</p>
+                <h2 data-reveal data-reveal-delay="1" className="text-4xl md:text-5xl font-black mb-6 leading-tight">
+                  Can you read<br/>the chart?
+                </h2>
+                <p data-reveal data-reveal-delay="2" className="text-slate-400 text-lg leading-relaxed mb-6">
+                  Nifty 15-min chart. Five candles. What happens next? No login required — just your instinct vs the market.
+                </p>
+                <div data-reveal data-reveal-delay="3" className="flex items-center gap-6 text-sm text-slate-500 mb-8">
+                  <span>🎮 3 games available</span>
+                  <span>⚡ No signup needed</span>
+                </div>
+                <Link data-reveal data-reveal-delay="4" href="#" className="text-sm font-semibold text-emerald-400 hover:underline">
+                  See all games →
+                </Link>
+              </div>
+
+              <div data-reveal data-reveal-delay="2">
+                <div className="p-8 rounded-3xl border border-white/10 bg-white/[0.02]">
+                  <p className="text-xs text-slate-500 uppercase tracking-widest mb-6 font-semibold">Live challenge</p>
+                  <InlineGame />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── LEARN ── */}
+        <section id="learn" className="py-32 px-6 border-t border-white/5">
+          <div className="max-w-5xl mx-auto">
+            <p data-reveal className="text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-4">Learn from Masters</p>
+            <h2 data-reveal data-reveal-delay="1" className="text-4xl md:text-5xl font-black mb-16 leading-tight max-w-xl">
+              Everything the best traders learned the hard way.
+            </h2>
+
+            {/* Featured article */}
+            <div data-reveal className="group p-10 rounded-3xl border border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04] transition-all cursor-pointer mb-6">
+              <span className="text-xs font-bold tracking-widest uppercase text-cyan-400 mb-4 block">Market Psychology</span>
+              <h3 className="text-2xl md:text-3xl font-black mb-4 group-hover:text-blue-200 transition-colors leading-tight">
+                The trader who knew everything but lost anyway
+              </h3>
+              <p className="text-slate-400 text-base leading-relaxed max-w-2xl mb-6">
+                He could identify every pattern. He knew support, resistance, order flow. He had read every book. And yet, at the end of each month, his account shrank. The problem was never knowledge.
+              </p>
+              <span className="text-sm font-semibold text-cyan-400 group-hover:underline">Read article →</span>
+            </div>
+
+            {/* Books */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                { title: 'Trading in the Zone', author: 'Mark Douglas', emoji: '🧠', lesson: 'Your edge means nothing without the mental discipline to execute it consistently.' },
+                { title: 'Market Wizards', author: 'Jack Schwager', emoji: '⚡', lesson: 'Every great trader has found a unique edge. Find yours and exploit it relentlessly.' },
+                { title: 'The Daily Trading Coach', author: 'Brett Steenbarger', emoji: '🎯', lesson: 'Self-improvement is the highest-leverage activity in trading.' },
+                { title: 'Reminiscences of a Stock Operator', author: 'Edwin Lefèvre', emoji: '📜', lesson: 'Human nature never changes. The market has always been the same game.' },
+              ].map((b, i) => (
+                <div key={b.title} data-reveal className="group relative rounded-2xl border border-white/10 bg-white/[0.02] p-6 hover:border-violet-700/60 hover:bg-violet-950/10 transition-all cursor-pointer overflow-hidden min-h-[160px]"
+                  style={{transitionDelay: `${i*0.08}s`}}>
+                  <div className="transition-all duration-300 group-hover:opacity-0">
+                    <div className="text-3xl mb-3">{b.emoji}</div>
+                    <p className="text-sm font-bold text-white leading-tight mb-1">{b.title}</p>
+                    <p className="text-xs text-slate-500">{b.author}</p>
+                  </div>
+                  <div className="absolute inset-0 p-6 flex items-center opacity-0 group-hover:opacity-100 transition-all duration-300">
+                    <p className="text-violet-300 text-xs leading-relaxed italic">"{b.lesson}"</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ── TESTIMONIALS ── */}
+        <section className="py-32 px-6 border-t border-white/5">
+          <div className="max-w-5xl mx-auto">
+            <p data-reveal className="text-slate-500 text-xs font-bold tracking-[0.2em] uppercase mb-16 text-center">What traders say</p>
+            <div className="grid md:grid-cols-3 gap-6">
+              {[
+                { quote: "The pre-market analysis alone changed how I approach each trading day. I stopped trading in the dark.", name: 'Rahul M.', role: 'Swing Trader, Mumbai' },
+                { quote: "The games section is addictive. I've played the direction challenge every morning for 3 weeks. My accuracy went from 48% to 67%.", name: 'Priya S.', role: 'Positional Trader, Bangalore' },
+                { quote: "Finally a tool that focuses on context, not just charts. The articles are some of the best trading content I've read in years.", name: 'Karan T.', role: 'Options Trader, Delhi' },
+              ].map((t, i) => (
+                <div key={i} data-reveal className="p-8 rounded-2xl border border-white/8 bg-white/[0.02]" style={{transitionDelay: `${i*0.1}s`}}>
+                  <p className="text-slate-300 text-base leading-relaxed mb-6 italic">"{t.quote}"</p>
+                  <div>
+                    <p className="text-white font-semibold text-sm">{t.name}</p>
+                    <p className="text-slate-500 text-xs mt-0.5">{t.role}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ── FINAL CTA ── */}
+        <section className="py-32 px-6 border-t border-white/5">
+          <div className="max-w-3xl mx-auto text-center">
+            <div data-reveal className="inline-block w-16 h-px bg-blue-500 mb-10" />
+            <h2 data-reveal data-reveal-delay="1" className="text-5xl md:text-6xl font-black mb-6 leading-tight">
+              Ready to trade<br/>with context?
+            </h2>
+            <p data-reveal data-reveal-delay="2" className="text-slate-400 text-lg mb-12">
+              Join traders who've stopped guessing and started reading the market.
+            </p>
+            <Link data-reveal data-reveal-delay="3" href="/trades"
+              className="inline-block px-12 py-5 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold text-lg transition-all duration-200 hover:shadow-[0_0_40px_rgba(59,130,246,0.5)] hover:-translate-y-1">
+              Enter TradingVerse →
+            </Link>
+          </div>
+        </section>
+
+        {/* ── FOOTER ── */}
+        <footer className="border-t border-white/5 py-12 px-8">
+          <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+            <span className="text-base font-black">Trading<span className="text-blue-400">Verse</span></span>
+            <div className="flex items-center gap-8 text-sm text-slate-500">
+              <Link href="/trades"          className="hover:text-slate-300 transition-colors">Dashboard</Link>
+              <Link href="#games"           className="hover:text-slate-300 transition-colors">Games</Link>
+              <Link href="#learn"           className="hover:text-slate-300 transition-colors">Articles</Link>
+              <Link href="#learn"           className="hover:text-slate-300 transition-colors">Books</Link>
+              <a    href="mailto:hello@tradingverse.in" className="hover:text-slate-300 transition-colors">Contact</a>
+            </div>
+            <p className="text-slate-700 text-xs">© 2025 TradingVerse</p>
+          </div>
+        </footer>
+
       </div>
-    </ThemeCtx.Provider>
+    </>
   )
 }
