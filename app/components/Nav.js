@@ -7,9 +7,10 @@ export default function Nav({ fixed = false }) {
   const path = usePathname()
 
   const links = [
-    { href: '/trades', label: 'Trading Dashboard' },
-    { href: '/games',  label: 'Trading Games' },
-    { href: '/learn',  label: 'Learn' },
+    { href: '/trades',    label: 'Trading Dashboard' },
+    { href: '/games',     label: 'Trading Games' },
+    { href: '/learn',     label: 'Learn' },
+    { href: '/investing', label: 'Investing' },
   ]
 
   const isActive = (href) => path === href || path.startsWith(href + '/')
@@ -33,10 +34,6 @@ export default function Nav({ fixed = false }) {
             {l.label}
           </Link>
         ))}
-        <span className="flex items-center gap-1.5 text-slate-600 cursor-default text-sm font-medium">
-          Investing
-          <span className="text-[9px] font-bold tracking-wider uppercase bg-blue-900/50 text-blue-400 px-1.5 py-0.5 rounded-full border border-blue-800/60">Soon</span>
-        </span>
         <Link href="/login"
           className={`px-4 py-2 rounded-lg border text-sm font-semibold transition-all ${
             path === '/login'
@@ -49,9 +46,10 @@ export default function Nav({ fixed = false }) {
 
       {/* Mobile menu — simplified */}
       <div className="md:hidden flex items-center gap-4 text-sm">
-        <Link href="/games"  className="text-slate-400 hover:text-white transition-colors">Trading Games</Link>
-        <Link href="/learn"  className="text-slate-400 hover:text-white transition-colors">Learn</Link>
-        <Link href="/login"  className="text-slate-400 hover:text-white transition-colors">Login</Link>
+        <Link href="/games"     className="text-slate-400 hover:text-white transition-colors">Games</Link>
+        <Link href="/learn"     className="text-slate-400 hover:text-white transition-colors">Learn</Link>
+        <Link href="/investing" className="text-slate-400 hover:text-white transition-colors">Investing</Link>
+        <Link href="/login"     className="text-slate-400 hover:text-white transition-colors">Login</Link>
       </div>
     </nav>
   )
