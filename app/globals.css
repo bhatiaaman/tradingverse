@@ -52,3 +52,16 @@ body {
 .bg-gradient-radial-hero {
   background: radial-gradient(ellipse at 50% 40%, rgba(59, 130, 246, 0.08) 0%, transparent 65%);
 }
+
+.ticker-track {
+  animation: ticker-scroll 28s linear infinite;
+}
+
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+
+@keyframes ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
