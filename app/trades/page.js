@@ -5,6 +5,7 @@
   import { TrendingUp, RefreshCw,ChevronDown, ChevronUp,AlertCircle  } from 'lucide-react';
   import { useTheme } from '../../lib/theme-context';
   import { usePageVisibility } from '@/app/hooks/usePageVisibility';
+  import { playBullishFlip, playBearishFlip, playReversalAlert, playWarningPing, playReversalBuilding } from '../lib/sounds';
 
   // ── Check if nifty price is near a key H/L level (within 0.3%) ────────────
 function getNiftyLevelAlerts(indices) {
@@ -148,8 +149,10 @@ function getNiftyLevelAlerts(indices) {
     };
     const isVisible = usePageVisibility();
     const [commentary, setCommentary] = useState(null);
-    const [commentaryLoading, setCommentaryLoading] = useState(true); 
+    const [commentaryLoading, setCommentaryLoading] = useState(true);
     const [commentaryCollapsed, setCommentaryCollapsed] = useState(false);
+    const prevCommentaryRef = useRef(null);
+    const soundEnabledRef   = useRef(false); // only alert after first load
     // Chart state
     const [chartSymbol, setChartSymbol] = useState('NIFTY');
     const [chartInterval, setChartInterval] = useState('15minute');
@@ -277,7 +280,31 @@ function getNiftyLevelAlerts(indices) {
         try {
           const response = await fetch('/api/market-commentary');
           const data = await response.json();
-          setCommentary(data.commentary);
+          const next = data.commentary;
+          const prev = prevCommentaryRef.current;
+
+          if (soundEnabledRef.current && next && prev) {
+            const biasChanged  = next.bias !== prev.bias
+            const newReversal  = next.reversal?.reversalZone && !prev.reversal?.reversalZone
+            const highConf     = next.reversal?.confidence === 'HIGH'
+            const prevWarnings = (prev.warnings || []).length
+            const nextWarnings = (next.warnings || []).length
+
+            if (biasChanged) {
+              if (next.bias === 'BULLISH') playBullishFlip()
+              else if (next.bias === 'BEARISH') playBearishFlip()
+            } else if (newReversal && highConf) {
+              playReversalAlert()
+            } else if (newReversal && !highConf) {
+              playReversalBuilding()
+            } else if (nextWarnings > prevWarnings) {
+              playWarningPing()
+            }
+          }
+
+          prevCommentaryRef.current = next
+          soundEnabledRef.current   = true
+          setCommentary(next);
         } catch (error) {
           console.error('Failed to fetch commentary:', error);
         } finally {

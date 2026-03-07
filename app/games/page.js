@@ -55,6 +55,16 @@ const GAMES = [
     href: '/games/news-reaction',
   },
   {
+    emoji: '📅',
+    title: 'Real Chart Challenge',
+    desc: 'Real Nifty charts from historic moments — COVID crash, election day, budget surprises. What would you have done? Then see what actually happened.',
+    tag: 'Market History',
+    tagColor: 'text-rose-400 bg-rose-950/40 border-rose-900/50',
+    difficulty: 'Advanced',
+    available: true,
+    href: '/games/real-charts',
+  },
+  {
     emoji: '🎯',
     title: 'Entry Precision',
     desc: 'The setup is there. But where exactly do you enter? Tests your ability to time entries at optimal risk:reward without chasing.',

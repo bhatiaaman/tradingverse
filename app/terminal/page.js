@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { usePageVisibility } from '@/app/hooks/usePageVisibility';
 import { useTheme } from '@/lib/theme-context';
+import { playOrderExecuted } from '@/app/lib/sounds';
 import {
   Search, X, RefreshCw, Brain, Loader2, ChevronDown, ChevronRight,
   CheckCircle, XCircle, Clock, AlertTriangle, ShieldCheck,
@@ -610,20 +611,32 @@ function OrdersRightPanel({ orders, loading, onRefresh, open, setOpen, movers })
             </div>
           )}
 
-          {/* FnO Movers */}
-          {(movers.gainers.length > 0 || movers.losers.length > 0) && (
-            <div className="border-t border-gray-200 dark:border-white/10 mt-1">
-              <div className="px-3 py-1.5">
-                <span className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">FnO Movers</span>
+          {/* FnO Movers — always shown */}
+          <div className="border-t border-gray-200 dark:border-white/10 mt-1">
+            <div className="px-3 py-1.5 flex items-center justify-between">
+              <span className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">FnO Movers</span>
+              {movers.weekend && (
+                <span className="text-[9px] text-amber-500 dark:text-amber-400 font-semibold">Fri close</span>
+              )}
+            </div>
+
+            {movers.loading ? (
+              <div className="px-2 pb-2 space-y-1">
+                {[1,2,3,4,5].map(i => <div key={i} className="h-7 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}
               </div>
+            ) : movers.gainers.length === 0 && movers.losers.length === 0 ? (
+              <div className="flex items-center justify-center h-12 text-gray-400 dark:text-white/20 text-xs px-3 text-center">
+                {movers.weekend ? 'Market closed' : 'Connect Kite to see movers'}
+              </div>
+            ) : (
               <div className="px-2 pb-2 space-y-2">
                 {movers.gainers.length > 0 && (
                   <div>
                     <div className="px-2 pb-1">
-                      <span className="text-[10px] font-semibold text-green-600 dark:text-green-400 uppercase tracking-wider">Gainers</span>
+                      <span className="text-[10px] font-semibold text-green-600 dark:text-green-400 uppercase tracking-wider">Top Gainers</span>
                     </div>
                     <div className="space-y-0.5">
-                      {movers.gainers.slice(0, 4).map(s => (
+                      {movers.gainers.slice(0, 5).map(s => (
                         <div key={`g-${s.symbol}`} className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800/60 border border-gray-100 dark:border-white/5">
                           <span className="text-xs font-medium text-gray-900 dark:text-white truncate">{s.symbol}</span>
                           <span className="text-xs font-mono text-green-600 dark:text-green-400 flex-shrink-0 ml-1">+{s.changePct?.toFixed(2)}%</span>
@@ -635,10 +648,10 @@ function OrdersRightPanel({ orders, loading, onRefresh, open, setOpen, movers })
                 {movers.losers.length > 0 && (
                   <div>
                     <div className="px-2 pb-1">
-                      <span className="text-[10px] font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider">Losers</span>
+                      <span className="text-[10px] font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider">Top Losers</span>
                     </div>
                     <div className="space-y-0.5">
-                      {movers.losers.slice(0, 4).map(s => (
+                      {movers.losers.slice(0, 5).map(s => (
                         <div key={`l-${s.symbol}`} className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800/60 border border-gray-100 dark:border-white/5">
                           <span className="text-xs font-medium text-gray-900 dark:text-white truncate">{s.symbol}</span>
                           <span className="text-xs font-mono text-red-600 dark:text-red-400 flex-shrink-0 ml-1">{s.changePct?.toFixed(2)}%</span>
@@ -648,8 +661,8 @@ function OrdersRightPanel({ orders, loading, onRefresh, open, setOpen, movers })
                   </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1235,10 +1248,11 @@ export default function TerminalPage() {
   // Panel orders (right sidebar — always visible)
   const [panelOrders, setPanelOrders]       = useState([]);
   const [panelOrdersLoading, setPanelOrdersLoading] = useState(false);
+  const prevOrderStatusMapRef = useRef({}); // order_id → status, for execution detection
   const [ordersOpen, setOrdersOpen]         = useState(true);
 
   // FnO movers (right sidebar)
-  const [movers, setMovers]                 = useState({ gainers: [], losers: [] });
+  const [movers, setMovers]                 = useState({ gainers: [], losers: [], weekend: false, loading: true });
 
   // Order form
   const [symbol, setSymbol]                 = useState('');
@@ -1407,6 +1421,25 @@ export default function TerminalPage() {
       const r = await fetch('/api/kite-orders?limit=50');
       const d = await r.json();
       const allOrders = d.success ? (d.orders || []) : [];
+
+      // Detect newly COMPLETE orders → play execution beep
+      const prevMap = prevOrderStatusMapRef.current;
+      const isFirstLoad = Object.keys(prevMap).length === 0;
+      if (!isFirstLoad) {
+        for (const o of allOrders) {
+          const prevStatus = prevMap[o.order_id]
+          const newStatus  = o.status?.toUpperCase()
+          if (prevStatus && prevStatus !== 'COMPLETE' && newStatus === 'COMPLETE') {
+            playOrderExecuted()
+            break // one beep even if multiple fill simultaneously
+          }
+        }
+      }
+      // Update the status map
+      prevOrderStatusMapRef.current = Object.fromEntries(
+        allOrders.map(o => [o.order_id, o.status?.toUpperCase()])
+      );
+
       const openOrders = allOrders.filter(o => OPEN_STATUSES.has(o.status?.toUpperCase()));
       setPanelOrders(openOrders);
     } catch { /* keep existing list on transient error */ }
@@ -1418,8 +1451,10 @@ export default function TerminalPage() {
     try {
       const r = await fetch('/api/fno-movers');
       const d = await r.json();
-      if (d.gainers || d.losers) setMovers({ gainers: d.gainers || [], losers: d.losers || [] });
-    } catch {}
+      setMovers({ gainers: d.gainers || [], losers: d.losers || [], weekend: !!d.weekend, loading: false });
+    } catch {
+      setMovers(prev => ({ ...prev, loading: false }));
+    }
   }, []);
 
   useEffect(() => {
