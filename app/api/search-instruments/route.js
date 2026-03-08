@@ -1,10 +1,35 @@
 import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/app/lib/providers';
 
-// Cache instruments for 24 hours
+// In-memory cache (warm instance) + Redis (cross-restart / multi-instance)
 let instrumentsCache = null;
 let cacheTimestamp = null;
 const CACHE_DURATION = 24 * 60 * 60 * 1000;
+
+const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const NS          = process.env.REDIS_NAMESPACE || 'default';
+const REDIS_KEY   = `${NS}:nse-instruments`;
+const REDIS_TTL   = 86400; // 24 hours
+
+async function redisCacheGet() {
+  try {
+    const res = await fetch(`${REDIS_URL}/get/${REDIS_KEY}`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+    });
+    const data = await res.json();
+    return data.result ? JSON.parse(data.result) : null;
+  } catch { return null; }
+}
+
+async function redisCacheSet(value) {
+  try {
+    const encoded = encodeURIComponent(JSON.stringify(value));
+    await fetch(`${REDIS_URL}/set/${REDIS_KEY}/${encoded}?ex=${REDIS_TTL}`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+    });
+  } catch { /* non-critical */ }
+}
 
 const INDICES = [
   { symbol: 'NIFTY',      name: 'Nifty 50',     exchange: 'NSE', type: 'INDEX', lotSize: 65 },
@@ -69,8 +94,16 @@ function parseCSVLine(line) {
 
 async function fetchAndCacheInstruments(dp) {
   const now = Date.now();
+  // L1: in-memory (same process, fast)
   if (instrumentsCache && cacheTimestamp && (now - cacheTimestamp) < CACHE_DURATION) {
     return instrumentsCache;
+  }
+  // L2: Redis (survives restarts / multi-instance)
+  const redisHit = await redisCacheGet();
+  if (redisHit) {
+    instrumentsCache = redisHit;
+    cacheTimestamp   = now;
+    return redisHit;
   }
 
   // Fetch NSE equity instruments
@@ -107,7 +140,6 @@ async function fetchAndCacheInstruments(dp) {
         }
       }
     }
-    console.log(`Built lot size map for ${Object.keys(lotSizeMap).length} symbols`);
   }
 
   // Parse NSE EQ instruments
@@ -136,7 +168,7 @@ async function fetchAndCacheInstruments(dp) {
 
   instrumentsCache = instruments;
   cacheTimestamp   = now;
-  console.log(`Cached ${instruments.length} NSE EQ instruments`);
+  redisCacheSet(instruments); // async, non-blocking
   return instruments;
 }
 

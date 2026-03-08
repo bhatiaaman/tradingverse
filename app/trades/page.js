@@ -250,7 +250,7 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       fetchOptionChain();
-      const interval = setInterval(() => { if (isMarketHours()) fetchOptionChain(); }, 60000);
+      const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchOptionChain(); }, 60000);
       return () => clearInterval(interval);
     }, [optionUnderlying, optionExpiry]);
 

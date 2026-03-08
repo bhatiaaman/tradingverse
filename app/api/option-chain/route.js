@@ -150,17 +150,14 @@ function findSupportResistance(optionData, spotPrice, config) {
 async function getNFOInstruments(dp) {
   const cached = await redisGet(INSTRUMENTS_CACHE_KEY);
   if (cached) {
-    console.log('Using cached NFO instruments');
     return cached;
   }
 
-  console.log('Fetching NFO instruments from Kite...');
   const instruments = await dp.getInstruments('NFO');
   const options = instruments.filter(i =>
     (i.name === 'NIFTY' || i.name === 'BANKNIFTY') &&
     (i.instrument_type === 'CE' || i.instrument_type === 'PE')
   );
-  console.log(`Filtered options: ${options.length}`);
   await redisSet(INSTRUMENTS_CACHE_KEY, options, INSTRUMENTS_CACHE_TTL);
   return options;
 }
@@ -215,12 +212,13 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Kite API not configured', pcr: null, maxPain: null, support: null, resistance: null });
     }
 
-    const spotData = await dp.getOHLC([`NSE:${config.spotSymbol}`]);
+    const [spotData, allOptions] = await Promise.all([
+      dp.getOHLC([`NSE:${config.spotSymbol}`]),
+      getNFOInstruments(dp),
+    ]);
     const spotPrice = spotData[`NSE:${config.spotSymbol}`]?.last_price;
     if (!spotPrice) throw new Error(`Could not fetch ${underlying} spot price`);
     const spot = spotPrice;
-
-    const allOptions    = await getNFOInstruments(dp);
     const expiries      = getExpiries(allOptions, config.name);
     const selectedExpiry = expiryType === 'monthly' ? expiries.monthly : expiries.weekly;
 

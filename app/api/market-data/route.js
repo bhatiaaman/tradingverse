@@ -348,9 +348,11 @@ async function fetchMarketBreadth(dp) {
   }
 }
 
-const CACHE_KEY = `${NS}:market-data`;
-const CACHE_TTL = 300;
-const FRESH_TTL = 60000;
+const CACHE_KEY       = `${NS}:market-data`;
+const CACHE_TTL       = 300;
+const FRESH_TTL       = 60000;
+const YAHOO_CACHE_KEY = `${NS}:market-data-yahoo-fallback`;
+const YAHOO_CACHE_TTL = 300; // 5 min — Yahoo data is delayed anyway
 
 export async function GET() {
   try {
@@ -405,18 +407,27 @@ export async function GET() {
         niftyData.changePercent = ((niftyData.price - correctPreviousClose) / correctPreviousClose) * 100;
       }
     } else {
-      // Yahoo fallback (only when Kite unavailable)
-      const [yahooNifty, yahooSensex, yahooBankNifty, yahooVix] = await Promise.all([
-        fetchNiftyFromYahoo(),
-        fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EBSESN?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }).then(r => r.json()).then(d => d.chart.result[0].meta.regularMarketPrice).catch(() => null),
-        fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EBANKNIFTY?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }).then(r => r.json()).then(d => d.chart.result[0].meta.regularMarketPrice).catch(() => null),
-        fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EINDIAVIX?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }).then(r => r.json()).then(d => d.chart.result[0].meta.regularMarketPrice).catch(() => null),
-      ]);
-      // Normalize Yahoo key (previousClose → prevClose) so rest of pipeline works identically
-      niftyData = yahooNifty ? { ...yahooNifty, prevClose: yahooNifty.previousClose } : null;
-      sensex    = yahooSensex;
-      bankNifty = yahooBankNifty;
-      vix       = yahooVix;
+      // Yahoo fallback (only when Kite unavailable) — cached 5 min to avoid repeated 8s fetches
+      const yahooCached = await redisGet(YAHOO_CACHE_KEY);
+      if (yahooCached) {
+        niftyData = yahooCached.niftyData;
+        sensex    = yahooCached.sensex;
+        bankNifty = yahooCached.bankNifty;
+        vix       = yahooCached.vix;
+      } else {
+        const [yahooNifty, yahooSensex, yahooBankNifty, yahooVix] = await Promise.all([
+          fetchNiftyFromYahoo(),
+          fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EBSESN?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }).then(r => r.json()).then(d => d.chart.result[0].meta.regularMarketPrice).catch(() => null),
+          fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EBANKNIFTY?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }).then(r => r.json()).then(d => d.chart.result[0].meta.regularMarketPrice).catch(() => null),
+          fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EINDIAVIX?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }).then(r => r.json()).then(d => d.chart.result[0].meta.regularMarketPrice).catch(() => null),
+        ]);
+        // Normalize Yahoo key (previousClose → prevClose) so rest of pipeline works identically
+        niftyData = yahooNifty ? { ...yahooNifty, prevClose: yahooNifty.previousClose } : null;
+        sensex    = yahooSensex;
+        bankNifty = yahooBankNifty;
+        vix       = yahooVix;
+        redisSet(YAHOO_CACHE_KEY, { niftyData, sensex, bankNifty, vix }, YAHOO_CACHE_TTL);
+      }
     }
 
     // EMA9 calculation

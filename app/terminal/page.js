@@ -1339,7 +1339,7 @@ export default function TerminalPage() {
 
   useEffect(() => {
     fetchScannerStocks();
-    const iv = setInterval(fetchScannerStocks, 5 * 60_000); // 5 min — matches Chartink scan frequency
+    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchScannerStocks(); }, 5 * 60_000); // 5 min — matches Chartink scan frequency
     return () => clearInterval(iv);
   }, [fetchScannerStocks]);
 
