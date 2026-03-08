@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import posthog from 'posthog-js'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -37,6 +38,8 @@ export default function LoginPage() {
       if (!res.ok) {
         setError(data.error || 'Something went wrong')
       } else {
+        posthog.identify(form.email, { email: form.email, name: form.name || data.user?.name })
+        posthog.capture(mode === 'signup' ? 'signed_up' : 'logged_in', { email: form.email })
         router.push('/trades')
       }
     } catch {

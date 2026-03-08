@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 import Nav from '../../components/Nav'
 import Link from 'next/link'
+import posthog from 'posthog-js'
 
 const VERDICT_CONFIG = {
   'STRONG BUY': { color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-700/50', dot: 'bg-emerald-500' },
@@ -403,6 +404,12 @@ export default function ChartAnalyserPage() {
       if (!res.ok) throw new Error(data.error || 'Analysis failed')
 
       setAnalysis(data.analysis)
+      posthog.capture('chart_analysed', {
+        timeframe: detectedTf,
+        ticker: data.analysis?.ticker,
+        verdict: data.analysis?.verdict?.rating,
+        score: data.analysis?.verdict?.score,
+      })
     } catch (err) {
       setError(err.message)
     } finally {
