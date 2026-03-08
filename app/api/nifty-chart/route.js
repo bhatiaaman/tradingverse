@@ -124,7 +124,8 @@ export async function GET(request) {
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error(`Error fetching ${symbol} chart data:`, error.message);
-    return NextResponse.json({ candles: [], error: error.message });
+    const isAuthError = /api_key|access_token|invalid.*token|unauthorized/i.test(error.message)
+    if (!isAuthError) console.error(`Error fetching ${symbol} chart data:`, error.message)
+    return NextResponse.json({ candles: [], error: isAuthError ? 'Kite disconnected' : error.message });
   }
 }
