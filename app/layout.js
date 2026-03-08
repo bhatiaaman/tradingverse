@@ -3,6 +3,8 @@ import { Suspense } from 'react'
 import './globals.css'
 import { ThemeProvider } from '../lib/theme-context'
 import PostHogProvider from './components/PostHogProvider'
+import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -28,6 +30,8 @@ export default function RootLayout({ children }) {
             </PostHogProvider>
           </Suspense>
         </ThemeProvider>
+        <Analytics />
+        <SpeedInsights />
         {envLabel && (
           <footer style={{ padding: '1rem', textAlign: 'center', borderTop: '1px solid #e5e7eb', marginTop: '2rem' }}>
             <span style={{
