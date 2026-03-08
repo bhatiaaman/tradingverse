@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { nseStrikeSteps } from '@/app/lib/nseStrikeSteps';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 
 // Indices that have Thursday expiry (monthly)
 const INDICES = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX'];
@@ -89,8 +89,8 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Missing symbol or type' }, { status: 400 });
     }
     
-    const { apiKey, accessToken } = await getKiteCredentials();
-    if (!accessToken) {
+    const dp = await getDataProvider();
+    if (!dp.isConnected()) {
       return NextResponse.json({ error: 'Kite not authenticated' }, { status: 401 });
     }
     
@@ -119,23 +119,15 @@ export async function GET(request) {
     kiteSymbol = buildKiteOptionSymbol(symbol, atmStrike, optionType, expiry);
 
     // Get LTP for the option
-    const ltpUrl = `https://api.kite.trade/quote/ltp?i=NFO:${kiteSymbol}`;
-    const ltpRes = await fetch(ltpUrl, {
-      headers: {
-        'Authorization': `token ${apiKey}:${accessToken}`,
-      }
-    });
-
     let ltp = 0;
     let ltpError = null;
 
-    if (ltpRes.ok) {
-      const ltpData = await ltpRes.json();
+    try {
+      const kiteData = await dp.getLTP('NFO:' + kiteSymbol);
       const key = `NFO:${kiteSymbol}`;
-      ltp = ltpData.data?.[key]?.last_price || 0;
-    } else {
-      const errorData = await ltpRes.json().catch(() => ({}));
-      ltpError = errorData.message || `LTP fetch failed (${ltpRes.status})`;
+      ltp = kiteData.data?.[key]?.last_price || 0;
+    } catch (e) {
+      ltpError = e.message || 'LTP fetch failed';
       console.error(`LTP error for ${kiteSymbol}:`, ltpError);
     }
 

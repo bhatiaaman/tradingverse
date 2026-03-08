@@ -1,6 +1,6 @@
 // app/api/pre-market/key-levels/route.js
 import { NextResponse } from 'next/server';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 
 export async function GET(request) {
   try {
@@ -8,12 +8,12 @@ export async function GET(request) {
     const symbol = searchParams.get('symbol') || 'NIFTY';
 
     // Get yesterday's OHLC from Kite
-    const { apiKey, accessToken } = await getKiteCredentials();
-    
-    if (!accessToken) {
-      return NextResponse.json({ 
+    const dp = await getDataProvider();
+
+    if (!dp.isConnected()) {
+      return NextResponse.json({
         error: 'Kite not connected. Using fallback data.',
-        success: false 
+        success: false
       }, { status: 401 });
     }
 
@@ -25,18 +25,10 @@ export async function GET(request) {
     const fromDate = new Date(toDate);
     fromDate.setDate(fromDate.getDate() - 5); // Get last 5 days to ensure we have data
 
-    const histUrl = `https://api.kite.trade/instruments/historical/${instrumentToken}/day`;
-    const params = new URLSearchParams({
-      from: fromDate.toISOString().split('T')[0],
-      to: toDate.toISOString().split('T')[0],
-    });
+    const fromStr = fromDate.toISOString().split('T')[0];
+    const toStr = toDate.toISOString().split('T')[0];
 
-    const response = await fetch(`${histUrl}?${params}`, {
-      headers: {
-        'Authorization': `token ${apiKey}:${accessToken}`,
-        'X-Kite-Version': '3',
-      },
-    });
+    const response = await dp.getHistoricalRaw(instrumentToken, 'day', fromStr, toStr);
 
     const data = await response.json();
 

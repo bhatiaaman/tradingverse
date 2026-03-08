@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -34,13 +34,11 @@ const FALLBACK_LOT_SIZES = {
 };
 
 // Fetch NFO instruments and build lot-size map; cache in Redis (24h)
-async function getLotSizeMap(apiKey, accessToken) {
+async function getLotSizeMap(dp) {
   const cached = await redisGet(LOT_SIZE_KEY);
   if (cached) return cached;
 
-  const res = await fetch('https://api.kite.trade/instruments/NFO', {
-    headers: { 'Authorization': `token ${apiKey}:${accessToken}` },
-  });
+  const res = await dp.getNFOInstrumentsCSV();
   if (!res.ok) return FALLBACK_LOT_SIZES;
 
   const csvText = await res.text();
@@ -79,13 +77,13 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Missing symbol parameter' }, { status: 400 });
     }
 
-    const { apiKey, accessToken } = await getKiteCredentials();
+    const dp = await getDataProvider();
 
-    if (!accessToken) {
+    if (!dp.isConnected()) {
       return NextResponse.json({ symbol, lotSize: FALLBACK_LOT_SIZES[symbol] || 1, source: 'fallback' });
     }
 
-    const lotMap = await getLotSizeMap(apiKey, accessToken);
+    const lotMap = await getLotSizeMap(dp);
 
     return NextResponse.json({ symbol, lotSize: lotMap[symbol] || 1, source: 'kite' });
 

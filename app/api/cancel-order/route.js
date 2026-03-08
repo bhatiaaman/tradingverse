@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
-import { KiteConnect } from 'kiteconnect';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getBroker } from '@/app/lib/providers';
 
 export async function POST(request) {
-  const { apiKey, accessToken } = await getKiteCredentials();
-  if (!apiKey || !accessToken) {
+  const broker = await getBroker();
+  if (!broker.isConnected()) {
     return NextResponse.json({ success: false, error: 'Kite not authenticated' }, { status: 401 });
   }
 
@@ -14,10 +13,7 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'order_id required' }, { status: 400 });
     }
 
-    const kite = new KiteConnect({ api_key: apiKey });
-    kite.setAccessToken(accessToken);
-
-    const result = await kite.cancelOrder(variety, order_id);
+    const result = await broker.cancelOrder(variety, order_id);
     return NextResponse.json({ success: true, order_id: result.order_id });
 
   } catch (error) {

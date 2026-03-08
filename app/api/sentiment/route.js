@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Redis } from '@upstash/redis';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
@@ -25,12 +25,12 @@ function isMarketHours() {
 // Returns { candles, error } — error is null on success, string on failure
 async function fetchKiteCandles(token, interval, days = 3) {
   try {
-    const { apiKey, accessToken } = await getKiteCredentials();
-    if (!apiKey || !accessToken) {
+    const dp = await getDataProvider();
+    if (!dp.isConnected()) {
       console.log('[sentiment] Kite credentials missing - not logged in');
       return { candles: null, error: 'not_logged_in' };
     }
-    console.log('[sentiment] Fetching Kite candles, token present:', !!accessToken);
+    console.log('[sentiment] Fetching Kite candles, token present: true');
 
     const toDate = new Date();
     const fromDate = new Date();
@@ -41,14 +41,10 @@ async function fetchKiteCandles(token, interval, days = 3) {
       return ist.toISOString().slice(0, 19).replace('T', ' ');
     };
 
-    const url = `https://api.kite.trade/instruments/historical/${token}/${interval}?from=${encodeURIComponent(fmt(fromDate))}&to=${encodeURIComponent(fmt(toDate))}`;
+    const fromStr = encodeURIComponent(fmt(fromDate));
+    const toStr = encodeURIComponent(fmt(toDate));
 
-    const response = await fetch(url, {
-      headers: {
-        'X-Kite-Version': '3',
-        'Authorization': `token ${apiKey}:${accessToken}`,
-      },
-    });
+    const response = await dp.getHistoricalRaw(token, interval, fromStr, toStr);
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));

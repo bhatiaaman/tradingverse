@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { nseStrikeSteps } from '@/app/lib/nseStrikeSteps';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 
 function getStrikeStep(symbol, price) {
   if (nseStrikeSteps[symbol]) return nseStrikeSteps[symbol];
@@ -114,8 +114,8 @@ export async function GET(request) {
       return NextResponse.json({ error: 'instrumentType must be CE or PE' }, { status: 400 });
     }
 
-    const { apiKey, accessToken } = await getKiteCredentials();
-    if (!apiKey || !accessToken) {
+    const dp = await getDataProvider();
+    if (!dp.isConnected()) {
       return NextResponse.json({ error: 'Kite not authenticated' }, { status: 401 });
     }
 
@@ -133,22 +133,12 @@ export async function GET(request) {
       : buildKiteMonthlySymbol(symbol, atmStrike, instrumentType, expiry);
     const tvSymbol = buildTvSymbol(symbol, atmStrike, instrumentType, expiry);
 
-    const ltpRes = await fetch(
-      `https://api.kite.trade/quote/ltp?i=${encodeURIComponent(`NFO:${kiteSymbol}`)}`,
-      {
-        headers: {
-          'Authorization':  `token ${apiKey}:${accessToken}`,
-          'X-Kite-Version': '3',
-        },
-      }
-    );
-
     let ltp = 0;
-    if (ltpRes.ok) {
-      const ltpData = await ltpRes.json();
-      ltp = ltpData.data?.[`NFO:${kiteSymbol}`]?.last_price || 0;
-    } else {
-      console.error('option-details LTP fetch failed:', await ltpRes.text());
+    try {
+      const kiteData = await dp.getLTP('NFO:' + kiteSymbol);
+      ltp = kiteData.data?.['NFO:' + kiteSymbol]?.last_price || 0;
+    } catch (e) {
+      console.error('option-details LTP fetch failed:', e.message);
     }
 
     return NextResponse.json({

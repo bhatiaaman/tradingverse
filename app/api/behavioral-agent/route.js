@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 import { detectStations } from './lib/station-detector.js';
 
 // ─────────────────────────────────────────────
@@ -321,7 +321,8 @@ export async function POST(request) {
       optionChain = null,
     } = context;
 
-    const { apiKey, accessToken } = await getKiteCredentials();
+    const dp = await getDataProvider();
+    const { apiKey, accessToken } = await dp.getAuth();
     const hasKite = !!(apiKey && accessToken);
 
     const insights = [];

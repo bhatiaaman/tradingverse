@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 
 // Cache instruments for 24 hours
 let instrumentsCache = null;
@@ -67,23 +67,19 @@ function parseCSVLine(line) {
   return result;
 }
 
-async function fetchAndCacheInstruments(apiKey, accessToken) {
+async function fetchAndCacheInstruments(dp) {
   const now = Date.now();
   if (instrumentsCache && cacheTimestamp && (now - cacheTimestamp) < CACHE_DURATION) {
     return instrumentsCache;
   }
 
   // Fetch NSE equity instruments
-  const nseRes = await fetch('https://api.kite.trade/instruments/NSE', {
-    headers: { 'Authorization': `token ${apiKey}:${accessToken}` },
-  });
+  const nseRes = await dp.getInstrumentsCSV('NSE');
   if (!nseRes.ok) throw new Error(`NSE fetch failed: ${nseRes.status}`);
   const nseCsv = await nseRes.text();
 
   // Fetch NFO to get lot sizes — use tradingsymbol to extract underlying
-  const nfoRes = await fetch('https://api.kite.trade/instruments/NFO', {
-    headers: { 'Authorization': `token ${apiKey}:${accessToken}` },
-  });
+  const nfoRes = await dp.getNFOInstrumentsCSV();
 
   // Build lot size map: underlying symbol → lot size
   // Key insight: for FUT rows, tradingsymbol is like "COFORGE25FEBFUT"
@@ -154,12 +150,12 @@ export async function GET(request) {
       return NextResponse.json({ success: true, instruments: [] });
     }
 
-    const { apiKey, accessToken } = await getKiteCredentials();
+    const dp = await getDataProvider();
 
     let equityInstruments = [];
-    if (apiKey && accessToken) {
+    if (dp.isConnected()) {
       try {
-        equityInstruments = await fetchAndCacheInstruments(apiKey, accessToken);
+        equityInstruments = await fetchAndCacheInstruments(dp);
       } catch (err) {
         console.error('Falling back to hardcoded list:', err.message);
         equityInstruments = FALLBACK_STOCKS;

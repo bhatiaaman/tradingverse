@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { KiteConnect } from 'kiteconnect';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -44,15 +43,12 @@ const MARKET_INDICES = {
   GIFTNIFTY: { symbol: 'GIFT NIFTY',        exchange: 'NSEIX', token: 291849 },
 };
 
-async function fetchIndianIndicesFromKite(apiKey, accessToken) {
+async function fetchIndianIndicesFromKite(dp) {
   try {
-    const kite = new KiteConnect({ api_key: apiKey });
-    kite.setAccessToken(accessToken);
-
     const instrumentKeys = Object.values(MARKET_INDICES).map(
       idx => `${idx.exchange}:${idx.symbol}`
     );
-    const ohlcData = await kite.getOHLC(instrumentKeys);
+    const ohlcData = await dp.getOHLC(instrumentKeys);
 
     const processIndex = (key) => {
       const idx = MARKET_INDICES[key];
@@ -83,20 +79,17 @@ async function fetchIndianIndicesFromKite(apiKey, accessToken) {
 // ═══════════════════════════════════════════════════════════════════════
 // FIXED: Returns both prices array AND correct previousClose
 // ═══════════════════════════════════════════════════════════════════════
-async function fetchNiftyHistoricalFromKite(apiKey, accessToken) {
+async function fetchNiftyHistoricalFromKite(dp) {
   try {
-    const kite = new KiteConnect({ api_key: apiKey });
-    kite.setAccessToken(accessToken);
-
     const toDate = new Date();
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - 20);
     const formatDate = (d) => d.toISOString().split('T')[0];
 
-    const historicalData = await kite.getHistoricalData(
-      MARKET_INDICES.NIFTY.token, 
-      'day', 
-      formatDate(fromDate), 
+    const historicalData = await dp.getHistoricalData(
+      MARKET_INDICES.NIFTY.token,
+      'day',
+      formatDate(fromDate),
       formatDate(toDate)
     );
 
@@ -227,14 +220,19 @@ let mcxInstrumentsCache = null;
 let mcxInstrumentsCacheTime = 0;
 const MCX_CACHE_TTL = 24 * 60 * 60 * 1000;
 
-async function fetchMCXInstruments() {
+async function fetchMCXInstruments(dp) {
   const now = Date.now();
   if (mcxInstrumentsCache && (now - mcxInstrumentsCacheTime) < MCX_CACHE_TTL) {
     return mcxInstrumentsCache;
   }
   try {
+    const { apiKey, accessToken } = await dp.getAuth();
     const response = await fetch('https://api.kite.trade/instruments', {
-      headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000),
+      headers: {
+        'Authorization': `token ${apiKey}:${accessToken}`,
+        'X-Kite-Version': '3',
+      },
+      signal: AbortSignal.timeout(8000),
     });
     const csvText = await response.text();
     const lines = csvText.split('\n');
@@ -268,9 +266,9 @@ function getNearestContract(instruments, baseName) {
   return { symbol: contracts[0].symbol, token: contracts[0].token, expiry: contracts[0].expiry };
 }
 
-async function fetchCommoditiesFromKite(apiKey, accessToken) {
+async function fetchCommoditiesFromKite(dp) {
   try {
-    const instruments = await fetchMCXInstruments();
+    const instruments = await fetchMCXInstruments(dp);
     const contracts = {};
     for (const [key, { base, name }] of Object.entries(MCX_COMMODITY_NAMES)) {
       const contract = getNearestContract(instruments, base);
@@ -278,11 +276,8 @@ async function fetchCommoditiesFromKite(apiKey, accessToken) {
     }
     if (Object.keys(contracts).length === 0) return null;
 
-    const kite = new KiteConnect({ api_key: apiKey });
-    kite.setAccessToken(accessToken);
-
     const symbols = Object.values(contracts).map(c => `MCX:${c.symbol}`);
-    const ohlcData = await kite.getOHLC(symbols);
+    const ohlcData = await dp.getOHLC(symbols);
 
     const processComm = (key) => {
       const contract = contracts[key];
@@ -332,12 +327,10 @@ const NIFTY_50_STOCKS = [
   'COALINDIA','APOLLOHOSP','SBILIFE','TATACONSUM','BAJAJFINSV','HEROMOTOCO','LTIM','SHRIRAMFIN','TRENT','BAJAJ-AUTO',
 ];
 
-async function fetchMarketBreadth(apiKey, accessToken) {
+async function fetchMarketBreadth(dp) {
   try {
-    const kite = new KiteConnect({ api_key: apiKey });
-    kite.setAccessToken(accessToken);
     const instrumentKeys = NIFTY_50_STOCKS.map(symbol => `NSE:${symbol}`);
-    const ohlcData = await kite.getOHLC(instrumentKeys);
+    const ohlcData = await dp.getOHLC(instrumentKeys);
     let advances = 0, declines = 0, unchanged = 0;
     for (const symbol of NIFTY_50_STOCKS) {
       const data = ohlcData[`NSE:${symbol}`];
@@ -373,26 +366,26 @@ export async function GET() {
       }
     }
 
-    // Get credentials once
-    const { apiKey, accessToken } = await getKiteCredentials();
-    const hasKite = !!(apiKey && accessToken);
+    // Get data provider once
+    const dp = await getDataProvider();
+    const hasKite = dp.isConnected();
 
     // ═══════════════════════════════════════════════════════════════════════
     // CRITICAL: Fetch historical data FIRST to get correct previous close
     // ═══════════════════════════════════════════════════════════════════════
-    const historicalResult = hasKite ? await fetchNiftyHistoricalFromKite(apiKey, accessToken) : null;
+    const historicalResult = hasKite ? await fetchNiftyHistoricalFromKite(dp) : null;
     const correctPreviousClose = historicalResult?.previousClose;
     const historicalPrices     = historicalResult?.prices;
     const niftyWeeklyHigh      = historicalResult?.weeklyHigh ?? null;
     const niftyWeeklyLow       = historicalResult?.weeklyLow  ?? null;
 
     const [kiteIndices, globalIndices, kiteCommodities, yahooCommodities, giftNifty, breadthData] = await Promise.all([
-      hasKite ? fetchIndianIndicesFromKite(apiKey, accessToken) : Promise.resolve(null),
+      hasKite ? fetchIndianIndicesFromKite(dp) : Promise.resolve(null),
       fetchGlobalIndices(),
-      hasKite ? fetchCommoditiesFromKite(apiKey, accessToken) : Promise.resolve(null),
+      hasKite ? fetchCommoditiesFromKite(dp) : Promise.resolve(null),
       fetchCommoditiesFromYahoo(),
       fetchGIFTNifty(),
-      hasKite ? fetchMarketBreadth(apiKey, accessToken) : Promise.resolve(null),
+      hasKite ? fetchMarketBreadth(dp) : Promise.resolve(null),
     ]);
 
     let niftyData, sensex, bankNifty, vix;

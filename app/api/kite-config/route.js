@@ -1,59 +1,15 @@
 import { NextResponse } from 'next/server';
-
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const NS = process.env.REDIS_NAMESPACE || 'default';
-
-function key(name) {
-  return `${NS}:kite:${name}`;
-}
-
-async function redisGet(k) {
-  const res = await fetch(`${REDIS_URL}/get/${k}`, {
-    headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-  });
-  const data = await res.json();
-  return data.result ?? null;
-}
-
-async function redisSet(k, value) {
-  const res = await fetch(`${REDIS_URL}/set/${k}/${encodeURIComponent(value)}`, {
-    headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-  });
-  const data = await res.json();
-  return data.result === 'OK';
-}
-
-async function redisDel(k) {
-  const res = await fetch(`${REDIS_URL}/del/${k}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-  });
-  const data = await res.json();
-  return data.result >= 0;
-}
-
-async function validateAccessToken(apiKey, accessToken) {
-  if (!apiKey || !accessToken) return false;
-  try {
-    const response = await fetch('https://api.kite.trade/user/profile', {
-      headers: {
-        'X-Kite-Version': '3',
-        'Authorization': `token ${apiKey}:${accessToken}`,
-      },
-    });
-    return response.ok;
-  } catch (error) {
-    console.error('Token validation error:', error);
-    return false;
-  }
-}
+import { KiteBroker } from '@/app/lib/providers/kite/KiteBroker.js';
+import { kiteRedisGet } from '@/app/lib/providers/kite/kite-redis.js';
+import { invalidateCredentialsCache } from '@/app/lib/kite-credentials';
 
 export async function GET() {
   try {
-    const redisApiKey      = await redisGet(key('api_key'));
-    const redisAccessToken = await redisGet(key('access_token'));
-    const disconnected     = await redisGet(key('disconnected'));
+    const [redisApiKey, redisAccessToken, disconnected] = await Promise.all([
+      kiteRedisGet('api_key'),
+      kiteRedisGet('access_token'),
+      kiteRedisGet('disconnected'),
+    ]);
 
     const apiKey = redisApiKey || process.env.KITE_API_KEY || '';
 
@@ -61,7 +17,7 @@ export async function GET() {
       ? ''
       : (redisAccessToken || process.env.KITE_ACCESS_TOKEN || '');
 
-    const tokenValid = await validateAccessToken(apiKey, accessToken);
+    const tokenValid = await KiteBroker.getConnectionStatus(apiKey, accessToken);
 
     return NextResponse.json({
       success: true,
@@ -81,26 +37,18 @@ export async function POST(request) {
     const { apiKey, accessToken } = body;
 
     if (apiKey !== undefined) {
-      if (apiKey === '') {
-        await redisDel(key('api_key'));
-      } else {
-        await redisSet(key('api_key'), apiKey);
-      }
+      await KiteBroker.saveApiKey(apiKey);
     }
 
     if (accessToken !== undefined) {
-      if (accessToken === '') {
-        await redisDel(key('access_token'));
-        await redisSet(key('disconnected'), '1');
-      } else {
-        await redisSet(key('access_token'), accessToken);
-        await redisDel(key('disconnected'));
-      }
+      await KiteBroker.saveAccessToken(accessToken);
     }
 
     if (apiKey === undefined && accessToken === undefined) {
       return NextResponse.json({ success: false, error: 'No valid updates provided' }, { status: 400 });
     }
+
+    invalidateCredentialsCache();
 
     return NextResponse.json({ success: true, message: 'Config saved successfully' });
   } catch (error) {

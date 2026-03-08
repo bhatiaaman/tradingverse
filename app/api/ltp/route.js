@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 
 const REDIS_URL    = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN  = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -41,14 +41,12 @@ async function redisSet(key, value, exSeconds) {
 }
 
 // Shared Redis key with lot-size/route.js — if either route has already warmed the cache, both benefit
-async function getLotSizeMap(apiKey, accessToken) {
+async function getLotSizeMap(dp) {
   const cached = await redisGet(LOT_SIZE_KEY);
   if (cached) return cached;
 
   try {
-    const nfoRes = await fetch('https://api.kite.trade/instruments/NFO', {
-      headers: { 'Authorization': `token ${apiKey}:${accessToken}` },
-    });
+    const nfoRes = await dp.getNFOInstrumentsCSV();
     if (!nfoRes.ok) return FALLBACK_LOT_SIZES;
 
     const lines   = (await nfoRes.text()).trim().split('\n');
@@ -90,31 +88,19 @@ export async function GET(request) {
     const clean = symbol.includes(':') ? symbol.split(':')[1] : symbol;
     const upper = clean.toUpperCase();
 
-    const { apiKey, accessToken } = await getKiteCredentials();
-    if (!apiKey || !accessToken) {
+    const dp = await getDataProvider();
+    if (!dp.isConnected()) {
       return NextResponse.json({ success: false, error: 'Kite not authenticated' }, { status: 401 });
     }
 
     const instrument = INDEX_INSTRUMENTS[upper] || `NSE:${upper}`;
 
     // Fetch LTP and lot size map in parallel
-    const [kiteRes, lotSizeMap] = await Promise.all([
-      fetch(`https://api.kite.trade/quote/ltp?i=${encodeURIComponent(instrument)}`, {
-        headers: {
-          'Authorization': `token ${apiKey}:${accessToken}`,
-          'X-Kite-Version': '3',
-        },
-      }),
-      getLotSizeMap(apiKey, accessToken),
+    const [kiteData, lotSizeMap] = await Promise.all([
+      dp.getLTP(instrument),
+      getLotSizeMap(dp),
     ]);
 
-    if (!kiteRes.ok) {
-      const err = await kiteRes.text();
-      console.error('Kite LTP error:', err);
-      return NextResponse.json({ success: false, error: 'Kite API error' }, { status: 502 });
-    }
-
-    const kiteData = await kiteRes.json();
     const ltp = kiteData.data?.[instrument]?.last_price || null;
 
     if (!ltp) {

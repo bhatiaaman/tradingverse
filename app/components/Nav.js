@@ -13,6 +13,7 @@ export default function Nav({ fixed = false }) {
     { href: '/games',     label: 'Trading Games' },
     { href: '/learn',     label: 'Learn' },
     { href: '/investing', label: 'Investing' },
+    { href: '/settings',  label: 'Settings' },
   ]
 
   const isActive = (href) => path === href || path.startsWith(href + '/')

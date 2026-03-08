@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { KiteConnect } from 'kiteconnect';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -73,13 +72,10 @@ export async function GET(request) {
       return NextResponse.json({ ...cached, fromCache: true });
     }
 
-    const { apiKey, accessToken } = await getKiteCredentials();
-    if (!apiKey || !accessToken) {
+    const dp = await getDataProvider();
+    if (!dp.isConnected()) {
       return NextResponse.json({ candles: [], error: 'Kite API not configured' });
     }
-
-    const kite = new KiteConnect({ api_key: apiKey });
-    kite.setAccessToken(accessToken);
 
     // Use IST for all date calculations
     let toDate = getISTDate();
@@ -98,7 +94,7 @@ export async function GET(request) {
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     };
 
-    const historicalData = await kite.getHistoricalData(
+    const historicalData = await dp.getHistoricalData(
       symbolConfig.token, kiteInterval, formatDate(fromDate), formatDate(toDate)
     );
 

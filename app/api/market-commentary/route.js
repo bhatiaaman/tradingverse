@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import { NextResponse } from 'next/server';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 import { detectReversalZone } from './lib/reversal-detector.js';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
@@ -120,7 +120,7 @@ function calcVWAP(candles) {
 // ─────────────────────────────────────────────────────────────────────
 // Kite 5-minute intraday candles (today only)
 // ─────────────────────────────────────────────────────────────────────
-async function fetchIntradayCandles(apiKey, accessToken) {
+async function fetchIntradayCandles(dp) {
   try {
     const toDate   = new Date();
     const fromDate = new Date();
@@ -131,13 +131,10 @@ async function fetchIntradayCandles(apiKey, accessToken) {
       return ist.toISOString().slice(0, 19).replace('T', ' ');
     };
 
-    const url = `https://api.kite.trade/instruments/historical/${NIFTY_TOKEN}/5minute?from=${encodeURIComponent(fmt(fromDate))}&to=${encodeURIComponent(fmt(toDate))}`;
-    const res = await fetch(url, {
-      headers: {
-        'X-Kite-Version': '3',
-        Authorization: `token ${apiKey}:${accessToken}`,
-      },
-    });
+    const fromStr = encodeURIComponent(fmt(fromDate));
+    const toStr = encodeURIComponent(fmt(toDate));
+
+    const res = await dp.getHistoricalRaw(NIFTY_TOKEN, '5minute', fromStr, toStr);
     if (!res.ok) return null;
 
     const data = await res.json();
@@ -789,9 +786,9 @@ export async function GET(request) {
       // Fetch Kite intraday candles for RSI / VWAP / EMA21 / volume
       let intradayData = null;
       try {
-        const { apiKey, accessToken } = await getKiteCredentials();
-        if (apiKey && accessToken) {
-          intradayData = await fetchIntradayCandles(apiKey, accessToken);
+        const dp = await getDataProvider();
+        if (dp.isConnected()) {
+          intradayData = await fetchIntradayCandles(dp);
         }
       } catch {}
 

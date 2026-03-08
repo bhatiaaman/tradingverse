@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
-import { KiteConnect } from 'kiteconnect';
 import { detectMarketActivity, generateActionableInsights } from './lib/market-activity-detector.js';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -148,7 +147,7 @@ function findSupportResistance(optionData, spotPrice, config) {
   };
 }
 
-async function getNFOInstruments(kite) {
+async function getNFOInstruments(dp) {
   const cached = await redisGet(INSTRUMENTS_CACHE_KEY);
   if (cached) {
     console.log('Using cached NFO instruments');
@@ -156,7 +155,7 @@ async function getNFOInstruments(kite) {
   }
 
   console.log('Fetching NFO instruments from Kite...');
-  const instruments = await kite.getInstruments('NFO');
+  const instruments = await dp.getInstruments('NFO');
   const options = instruments.filter(i =>
     (i.name === 'NIFTY' || i.name === 'BANKNIFTY') &&
     (i.instrument_type === 'CE' || i.instrument_type === 'PE')
@@ -211,20 +210,17 @@ export async function GET(request) {
       return NextResponse.json({ ...cached, fromCache: true });
     }
 
-    const { apiKey, accessToken } = await getKiteCredentials();
-    if (!apiKey || !accessToken) {
+    const dp = await getDataProvider();
+    if (!dp.isConnected()) {
       return NextResponse.json({ error: 'Kite API not configured', pcr: null, maxPain: null, support: null, resistance: null });
     }
 
-    const kite = new KiteConnect({ api_key: apiKey });
-    kite.setAccessToken(accessToken);
-
-    const spotData = await kite.getOHLC([`NSE:${config.spotSymbol}`]);
+    const spotData = await dp.getOHLC([`NSE:${config.spotSymbol}`]);
     const spotPrice = spotData[`NSE:${config.spotSymbol}`]?.last_price;
     if (!spotPrice) throw new Error(`Could not fetch ${underlying} spot price`);
     const spot = spotPrice;
 
-    const allOptions    = await getNFOInstruments(kite);
+    const allOptions    = await getNFOInstruments(dp);
     const expiries      = getExpiries(allOptions, config.name);
     const selectedExpiry = expiryType === 'monthly' ? expiries.monthly : expiries.weekly;
 
@@ -245,7 +241,7 @@ export async function GET(request) {
     const allQuotes = {};
     const batches = [];
     for (let i = 0; i < quoteSymbols.length; i += 500) batches.push(quoteSymbols.slice(i, i + 500));
-    const batchResults = await Promise.all(batches.map(batch => kite.getQuote(batch)));
+    const batchResults = await Promise.all(batches.map(batch => dp.getQuote(batch)));
     batchResults.forEach(quotes => Object.assign(allQuotes, quotes));
 
     const optionData = [];

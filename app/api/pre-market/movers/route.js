@@ -2,8 +2,7 @@
 // Fetches NSE Pre-Open session data (9:00-9:15 AM)
 
 import { NextResponse } from 'next/server';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
-import { KiteConnect } from 'kiteconnect';
+import { getDataProvider } from '@/app/lib/providers';
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -68,9 +67,9 @@ export async function GET(request) {
       }
     }
 
-    const { apiKey, accessToken } = await getKiteCredentials();
-    
-    if (!apiKey || !accessToken) {
+    const dp = await getDataProvider();
+
+    if (!dp.isConnected()) {
       return NextResponse.json({
         success: false,
         error: 'Kite credentials not available',
@@ -78,15 +77,12 @@ export async function GET(request) {
       }, { status: 401 });
     }
 
-    const kite = new KiteConnect({ api_key: apiKey });
-    kite.setAccessToken(accessToken);
-
     // Fetch OHLC for all liquid stocks
     const instrumentKeys = LIQUID_STOCKS.map(symbol => `NSE:${symbol}`);
-    const ohlcData = await kite.getOHLC(instrumentKeys);
+    const ohlcData = await dp.getOHLC(instrumentKeys);
 
     // Fetch quotes for additional data (volume, buy/sell pressure)
-    const quotesData = await kite.getQuote(instrumentKeys);
+    const quotesData = await dp.getQuote(instrumentKeys);
 
     const movers = [];
 

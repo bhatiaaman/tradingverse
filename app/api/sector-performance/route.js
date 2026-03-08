@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { KiteConnect } from 'kiteconnect';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -72,20 +71,16 @@ export async function GET() {
       }
     }
 
-    // Get credentials from Redis (not process.env directly)
-    const { apiKey, accessToken } = await getKiteCredentials();
+    const dp = await getDataProvider();
 
-    if (!apiKey || !accessToken) {
+    if (!dp.isConnected()) {
       console.error('Kite credentials missing');
       if (cached) return NextResponse.json({ ...cached, fromCache: true, error: 'Kite not connected' });
       return NextResponse.json({ sectors: [], error: 'Kite API not configured' });
     }
 
-    const kite = new KiteConnect({ api_key: apiKey });
-    kite.setAccessToken(accessToken);
-
     const instrumentKeys = SECTOR_INDICES.map(s => `${s.exchange}:${s.symbol}`);
-    const ohlcData = await kite.getOHLC(instrumentKeys);
+    const ohlcData = await dp.getOHLC(instrumentKeys);
 
     const sectorData = SECTOR_INDICES.map(sector => {
       const key = `${sector.exchange}:${sector.symbol}`;

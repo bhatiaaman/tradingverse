@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { KiteConnect } from 'kiteconnect';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getBroker } from '@/app/lib/providers';
 import { orderLimiter, checkLimit } from '@/app/lib/rate-limit';
 
 export async function POST(request) {
@@ -9,9 +8,9 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
   }
 
-  const { apiKey, accessToken } = await getKiteCredentials();
+  const broker = await getBroker();
 
-  if (!apiKey || !accessToken) {
+  if (!broker.isConnected()) {
     return NextResponse.json(
       { error: 'Kite API not configured. Please set up your API credentials.' },
       { status: 400 }
@@ -44,9 +43,6 @@ export async function POST(request) {
     if (!quantity || quantity <= 0) {
       return NextResponse.json({ error: 'Quantity must be a positive number' }, { status: 400 });
     }
-
-    const kite = new KiteConnect({ api_key: apiKey });
-    kite.setAccessToken(accessToken);
 
     const parsedQty = parseInt(quantity, 10);
     if (isNaN(parsedQty) || parsedQty <= 0) {
@@ -90,7 +86,7 @@ export async function POST(request) {
       orderParams.tag = tag.replace(/[^a-zA-Z0-9 \-_.]/g, '').slice(0, 20);
     }
 
-    const orderResponse = await kite.placeOrder(variety, orderParams);
+    const orderResponse = await broker.placeOrder(variety, orderParams);
 
     return NextResponse.json({
       success: true,
@@ -121,26 +117,23 @@ export async function POST(request) {
 }
 
 export async function GET(request) {
-  const { apiKey, accessToken } = await getKiteCredentials();
+  const broker = await getBroker();
 
-  if (!apiKey || !accessToken) {
+  if (!broker.isConnected()) {
     return NextResponse.json({ error: 'Kite API not configured' }, { status: 400 });
   }
 
   try {
-    const kite = new KiteConnect({ api_key: apiKey });
-    kite.setAccessToken(accessToken);
-
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type') || 'orders';
 
     let data;
     if (type === 'positions') {
-      data = await kite.getPositions();
+      data = await broker.getPositions();
     } else if (type === 'holdings') {
-      data = await kite.getHoldings();
+      data = await broker.getHoldings();
     } else {
-      data = await kite.getOrders();
+      data = await broker.getOrders();
     }
 
     return NextResponse.json({ success: true, data });

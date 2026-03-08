@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { KiteConnect } from 'kiteconnect';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -57,16 +56,13 @@ export async function GET() {
 
     if (cached) return NextResponse.json({ ...cached, fromCache: true });
 
-    const { apiKey, accessToken } = await getKiteCredentials();
-    if (!apiKey || !accessToken) {
+    const dp = await getDataProvider();
+    if (!dp.isConnected()) {
       return NextResponse.json({ error: 'Kite API not configured', gainers: [], losers: [] });
     }
 
-    const kite = new KiteConnect({ api_key: apiKey });
-    kite.setAccessToken(accessToken);
-
     const instrumentKeys = FNO_STOCKS.map(s => `NSE:${s}`);
-    const ohlcData = await kite.getOHLC(instrumentKeys);
+    const ohlcData = await dp.getOHLC(instrumentKeys);
 
     const movers = [];
     for (const symbol of FNO_STOCKS) {

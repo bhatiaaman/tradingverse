@@ -6,7 +6,7 @@ import { runPatternAgent } from './agents/pattern.js';
 import { runStationAgent } from './agents/station.js';
 import { runOIAgent } from './agents/oi.js';
 import { resolveToken } from './lib/resolve-token.js';
-import { getKiteCredentials } from '@/app/lib/kite-credentials';
+import { getDataProvider } from '@/app/lib/providers';
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
@@ -213,7 +213,8 @@ async function collectStructureData(symbol, exchange, productType, base) {
     return null;
   }
 
-  const { apiKey, accessToken } = await getKiteCredentials();
+  const dp = await getDataProvider();
+  const { apiKey, accessToken } = await dp.getAuth();
   if (!apiKey || !accessToken) return null;
 
   const isSwing = ['NRML', 'CNC'].includes(productType?.toUpperCase());
@@ -262,7 +263,8 @@ async function collectPatternData(symbol, productType) {
     return null;
   }
 
-  const { apiKey, accessToken } = await getKiteCredentials();
+  const dp = await getDataProvider();
+  const { apiKey, accessToken } = await dp.getAuth();
   if (!apiKey || !accessToken) return null;
 
   const isSwing = ['NRML', 'CNC'].includes(productType?.toUpperCase());
@@ -291,7 +293,8 @@ async function collectStationData(symbol, productType) {
     return null;
   }
 
-  const { apiKey, accessToken } = await getKiteCredentials();
+  const dp = await getDataProvider();
+  const { apiKey, accessToken } = await dp.getAuth();
   if (!apiKey || !accessToken) return null;
 
   const isSwing = ['NRML', 'CNC'].includes(productType?.toUpperCase());
