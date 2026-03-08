@@ -2,8 +2,8 @@
 
   import React, { useState, useEffect, useRef } from 'react';
   import Link from 'next/link';
-  import { TrendingUp, RefreshCw,ChevronDown, ChevronUp,AlertCircle  } from 'lucide-react';
-  import { useTheme } from '../../lib/theme-context';
+  import { RefreshCw, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
+  import Nav from '../components/Nav';
   import { usePageVisibility } from '@/app/hooks/usePageVisibility';
   import { playBullishFlip, playBearishFlip, playReversalAlert, playWarningPing, playReversalBuilding } from '../lib/sounds';
 
@@ -92,7 +92,6 @@ function getNiftyLevelAlerts(indices) {
   }
 
   export default function TradesPage() {
-    const { isDark, toggleTheme } = useTheme();
     const [marketData, setMarketData] = useState(null);
     const [sectorData, setSectorData] = useState([]);
     const [sectorError, setSectorError] = useState('');
@@ -463,98 +462,50 @@ function getNiftyLevelAlerts(indices) {
     };
 
     return (
-      <div className="min-h-screen bg-[#0a1628] text-slate-100">
-        {/* HEADER */}
-        <header className="border-b border-blue-800/50 bg-[#0d1d35]/90 backdrop-blur-sm">
-          <div className="container mx-auto px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <TrendingUp className="w-7 h-7 text-blue-400" />
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
-                Trading Dashboard
-              </h1>
-            </div>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={e => {
-                  e.currentTarget.classList.add('animate-click-scale');
-                  setTimeout(() => {
-                    e.currentTarget.classList.remove('animate-click-scale');
-                  }, 300);
-                  openKiteSettings();
-                }}
-                className={`relative w-9 h-9 flex items-center justify-center rounded-full border-0 focus:outline-none transition-transform duration-300 ${
-                  kiteAuth.isLoggedIn ? 'bg-green-500 shadow-[0_0_8px_2px_rgba(34,197,94,0.3)]' :
-                  kiteAuth.checking ? 'bg-slate-500' :
-                  'bg-red-500 shadow-[0_0_8px_2px_rgba(239,68,68,0.3)]'
-                }`}
-                title={kiteAuth.checking ? 'Checking Kite...' : kiteAuth.isLoggedIn ? 'Kite Connected' : 'Kite Disconnected'}
-                style={{
-                  boxShadow: kiteAuth.isLoggedIn
-                    ? '0 0 8px 2px rgba(34,197,94,0.3)'
-                    : kiteAuth.checking
-                    ? '0 0 4px 1px rgba(100,116,139,0.2)'
-                    : '0 0 8px 2px rgba(239,68,68,0.3)',
-                  transition: 'box-shadow 0.3s, background-color 0.3s, transform 0.3s',
-                }}
-              >
-                <span
-                  className={`w-7 h-7 flex items-center justify-center rounded-full text-lg font-extrabold select-none transition-colors duration-300 ${
-                    kiteAuth.isLoggedIn ? 'text-white drop-shadow-[0_0_4px_rgba(34,197,94,0.7)]' :
-                    kiteAuth.checking ? 'text-slate-200' :
-                    'text-white drop-shadow-[0_0_4px_rgba(239,68,68,0.7)]'
-                  }`}
-                  style={{
-                    fontFamily: 'monospace',
-                  }}
-                >K</span>
-                {/* Rotating ring animation */}
-                <span
-                  className={`absolute w-9 h-9 rounded-full border-2 pointer-events-none ${
-                    kiteAuth.isLoggedIn ? 'border-green-300 animate-rotate-cw' :
-                    kiteAuth.checking ? 'border-slate-300' :
-                    'border-red-300 animate-rotate-ccw'
-                  }`}
-                  style={{
-                    opacity: 0.7,
-                  }}
-                ></span>
-                <style jsx>{`
-                  @keyframes click-scale {
-                    0% { transform: scale(1); }
-                    50% { transform: scale(1.12); }
-                    100% { transform: scale(1); }
-                  }
-                  .animate-click-scale { animation: click-scale 0.3s; }
-                  @keyframes rotate-cw {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                  }
-                  @keyframes rotate-ccw {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(-360deg); }
-                  }
-                  .animate-rotate-cw { animation: rotate-cw 1.2s linear infinite; }
-                  .animate-rotate-ccw { animation: rotate-ccw 1.2s linear infinite; }
-                `}</style>
-              </button>
-              <Link href="/orders" className="px-4 py-2 text-sm rounded-lg border border-purple-600/50 bg-purple-900/40 hover:bg-purple-800/50 text-purple-200 transition-colors">
-                🛒 Orders
-              </Link>
-              <Link href="/terminal" className="px-4 py-2 text-sm rounded-lg border border-blue-500/50 bg-blue-900/40 hover:bg-blue-800/50 text-blue-200 transition-colors">
-                ⚡ Terminal
-              </Link>
-              <Link href="/trades/pre-market" className="px-4 py-2 text-sm rounded-lg border border-yellow-600/50 bg-yellow-900/40 hover:bg-yellow-800/50 text-yellow-200 transition-colors">
-                🌅 Pre-Market
-              </Link>
-              <Link href="/" className="px-4 py-2 text-sm rounded-lg border border-blue-600/50 bg-blue-900/40 hover:bg-blue-800/50 text-blue-200 transition-colors">
-                Back Home
-              </Link>
+      <div className="min-h-screen bg-[#060b14] text-slate-100">
+        <Nav />
+
+        {/* Sub-bar: Kite status + quick links */}
+        <div className="border-b border-white/5 bg-[#060b14]">
+          <div className="max-w-[1400px] mx-auto px-6 py-2.5 flex items-center justify-between">
+            {/* Kite status */}
+            <button
+              onClick={openKiteSettings}
+              className="flex items-center gap-2 text-sm hover:opacity-80 transition-opacity"
+              title={kiteAuth.checking ? 'Checking...' : kiteAuth.isLoggedIn ? 'Kite Connected — click to manage' : 'Kite Disconnected — click to connect'}
+            >
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                kiteAuth.isLoggedIn ? 'bg-emerald-400' :
+                kiteAuth.checking  ? 'bg-slate-500' :
+                'bg-rose-500'
+              }`} />
+              <span className={`font-medium ${
+                kiteAuth.isLoggedIn ? 'text-emerald-400' :
+                kiteAuth.checking  ? 'text-slate-500' :
+                'text-rose-400'
+              }`}>
+                {kiteAuth.checking ? 'Checking…' : kiteAuth.isLoggedIn ? 'Kite Connected' : 'Kite Disconnected'}
+              </span>
+            </button>
+
+            {/* Quick links */}
+            <div className="flex items-center gap-1">
+              {[
+                { href: '/terminal',       label: 'Terminal'    },
+                { href: '/trades/pre-market', label: 'Pre-Market' },
+                { href: '/orders',         label: 'Orders'      },
+              ].map(l => (
+                <Link key={l.href} href={l.href}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-white border border-transparent hover:border-white/10 rounded-lg transition-all">
+                  {l.label}
+                </Link>
+              ))}
             </div>
           </div>
-        </header>
+        </div>
 
         {/* MAIN CONTENT */}
-        <main className="container mx-auto px-4 py-6">
+        <main className="max-w-[1400px] mx-auto px-6 py-6">
 
           {commentary && (
             <div className="mb-4 bg-gradient-to-r from-purple-900/50 via-blue-900/50 to-purple-900/50 border border-purple-700/50 rounded-xl backdrop-blur-sm overflow-hidden">
