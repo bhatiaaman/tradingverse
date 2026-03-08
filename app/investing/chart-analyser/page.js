@@ -294,8 +294,9 @@ export default function ChartAnalyserPage() {
   const [image, setImage] = useState(null)        // base64 string
   const [mediaType, setMediaType] = useState('image/jpeg')
   const [preview, setPreview] = useState(null)    // object URL for display
-  const [timeframe, setTimeframe] = useState('Daily')
+  const [timeframe, setTimeframe] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [loadingStep, setLoadingStep] = useState('')  // 'detecting' | 'analysing'
   const [analysis, setAnalysis] = useState(null)
   const [error, setError] = useState('')
   const [dragging, setDragging] = useState(false)
@@ -353,6 +354,17 @@ export default function ChartAnalyserPage() {
     }
   }
 
+  const ALLOWED_TIMEFRAMES = ['Daily', 'Weekly', 'Monthly']
+
+  function normaliseTimeframe(raw) {
+    if (!raw) return null
+    const s = raw.toLowerCase()
+    if (s.includes('daily') || s === '1d' || s === 'd') return 'Daily'
+    if (s.includes('weekly') || s === '1w' || s === 'w') return 'Weekly'
+    if (s.includes('monthly') || s === '1m' || s === 'm' || s === 'mo') return 'Monthly'
+    return null
+  }
+
   async function analyse() {
     if (!image) return
     setLoading(true)
@@ -360,18 +372,42 @@ export default function ChartAnalyserPage() {
     setAnalysis(null)
 
     try {
+      // Step 1: detect timeframe (fast, cheap — 64 tokens)
+      setLoadingStep('detecting')
+      const detectRes = await fetch('/api/investing/chart-analyser', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image, mediaType, detectOnly: true }),
+      })
+      const detectData = await detectRes.json()
+      if (!detectRes.ok) throw new Error(detectData.error || 'Timeframe detection failed')
+
+      const detectedTf = normaliseTimeframe(detectData.timeframe)
+      if (!detectedTf) {
+        throw new Error(
+          `This looks like a ${detectData.timeframe || 'unsupported'} chart. Only Daily, Weekly, or Monthly timeframes are supported for positional analysis. Please upload a higher timeframe chart.`
+        )
+      }
+
+      // Auto-select the correct button before full analysis starts
+      setTimeframe(detectedTf)
+
+      // Step 2: full analysis
+      setLoadingStep('analysing')
       const res = await fetch('/api/investing/chart-analyser', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image, mediaType, timeframe }),
+        body: JSON.stringify({ image, mediaType, timeframe: detectedTf }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Analysis failed')
+
       setAnalysis(data.analysis)
     } catch (err) {
       setError(err.message)
     } finally {
       setLoading(false)
+      setLoadingStep('')
     }
   }
 
@@ -380,6 +416,8 @@ export default function ChartAnalyserPage() {
     setPreview(null)
     setAnalysis(null)
     setError('')
+    setTimeframe(null)
+    setLoadingStep('')
   }
 
   return (
@@ -436,7 +474,7 @@ export default function ChartAnalyserPage() {
                   </div>
                   <p className="text-slate-900 dark:text-white font-semibold mb-1">Drop your chart here</p>
                   <p className="text-slate-500 text-sm mb-4">or click to browse · <kbd className="text-slate-500 dark:text-slate-600 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-1.5 py-0.5 rounded text-xs">⌘V</kbd> to paste</p>
-                  <p className="text-slate-400 dark:text-slate-700 text-xs">PNG, JPG, WebP · Daily or Weekly chart recommended</p>
+                  <p className="text-slate-400 dark:text-slate-700 text-xs">PNG, JPG, WebP · Daily, Weekly, or Monthly charts only</p>
                 </div>
               )}
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onFileChange} />
@@ -444,15 +482,22 @@ export default function ChartAnalyserPage() {
 
             {/* Timeframe + Analyse */}
             <div className="flex items-center gap-3">
-              <div className="flex bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 rounded-xl p-1 gap-1">
-                {['Daily', 'Weekly'].map(tf => (
-                  <button key={tf} onClick={() => setTimeframe(tf)}
-                    className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-                      timeframe === tf ? 'bg-violet-600 text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                    }`}>
-                    {tf}
-                  </button>
-                ))}
+              <div className="flex items-center gap-2">
+                <div className="flex bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 rounded-xl p-1 gap-1">
+                  {ALLOWED_TIMEFRAMES.map(tf => (
+                    <button key={tf} onClick={() => setTimeframe(tf)}
+                      className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                        timeframe === tf ? 'bg-violet-600 text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}>
+                      {tf}
+                    </button>
+                  ))}
+                </div>
+                {!timeframe && (
+                  <span className="text-[10px] text-slate-400 dark:text-slate-600 leading-tight">
+                    Auto-detected<br />after analysis
+                  </span>
+                )}
               </div>
               <button
                 onClick={analyse}
@@ -480,14 +525,26 @@ export default function ChartAnalyserPage() {
 
             {/* Loading state */}
             {loading && (
-              <div className="bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/8 rounded-2xl p-6 text-center">
+              <div className="bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/8 rounded-2xl p-6">
                 <div className="flex items-center justify-center gap-3 mb-3">
                   <div className="w-2 h-2 bg-violet-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                   <div className="w-2 h-2 bg-violet-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                   <div className="w-2 h-2 bg-violet-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
-                <p className="text-slate-700 dark:text-slate-300 text-sm font-semibold">Reading chart structure…</p>
-                <p className="text-slate-400 dark:text-slate-600 text-xs mt-1">Technical patterns · Relative strength · Sector view · Story</p>
+                {loadingStep === 'detecting' ? (
+                  <>
+                    <p className="text-slate-700 dark:text-slate-300 text-sm font-semibold text-center">Detecting timeframe…</p>
+                    <p className="text-slate-400 dark:text-slate-600 text-xs mt-1 text-center">Checking if chart is Daily, Weekly, or Monthly</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-center gap-2 mb-2">
+                      <span className="text-[10px] font-bold tracking-widest uppercase text-emerald-500">✓ {timeframe} chart confirmed</span>
+                    </div>
+                    <p className="text-slate-700 dark:text-slate-300 text-sm font-semibold text-center">Reading chart structure…</p>
+                    <p className="text-slate-400 dark:text-slate-600 text-xs mt-1 text-center">Technical patterns · Relative strength · Sector view · Story</p>
+                  </>
+                )}
               </div>
             )}
 
@@ -503,7 +560,7 @@ export default function ChartAnalyserPage() {
                 {[
                   { label: 'Take screenshot', sub: 'From TradingView or any charting app' },
                   { label: 'Paste directly', sub: '⌘V after copying a screenshot' },
-                  { label: 'Daily or Weekly', sub: 'Best for positional analysis' },
+                  { label: 'Daily / Weekly / Monthly', sub: 'Only these timeframes supported' },
                 ].map(h => (
                   <div key={h.label} className="bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl p-3 text-center">
                     <p className="text-slate-700 dark:text-slate-300 text-xs font-semibold mb-0.5">{h.label}</p>

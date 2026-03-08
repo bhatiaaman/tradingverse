@@ -59,3 +59,8 @@ export function buildUserPrompt(timeframe) {
     ? `This is a ${timeframe} chart. Analyse it for technical structure, relative strength vs Nifty, sector view, sentiment, and build a medium to long-term story. Return only the JSON.`
     : 'Analyse this chart for technical structure, relative strength vs Nifty, sector view, sentiment, and build a medium to long-term story. Return only the JSON.'
 }
+
+export const TIMEFRAME_DETECT_PROMPT = `You are a chart reading assistant. Look at the chart image and identify the timeframe/interval shown.
+Look for: the interval label (1m, 5m, 15m, 1H, 4H, D, W, M), axis date spacing, or any text on the chart.
+Respond with ONLY a valid JSON object — no markdown, no extra text:
+{"timeframe": "exact timeframe string as shown on chart, e.g. 1m, 5m, 15m, 1H, 4H, Daily, Weekly, Monthly"}`
