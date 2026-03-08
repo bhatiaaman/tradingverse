@@ -72,14 +72,14 @@ export default function GameEngine({ title, tag, tagColor, description, question
   const pct = Math.round((score / total) * 100)
 
   return (
-    <div className="min-h-screen bg-[#060b14] text-white">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#060b14] text-slate-900 dark:text-white">
       <Nav />
 
       <div className="max-w-2xl mx-auto px-6 py-12">
 
         {/* Header */}
         <div className="mb-8">
-          <Link href="/games" className="inline-flex items-center gap-1.5 text-slate-500 hover:text-slate-300 text-sm font-medium transition-colors mb-6">
+          <Link href="/games" className="inline-flex items-center gap-1.5 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-sm font-medium transition-colors mb-6">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
@@ -88,28 +88,28 @@ export default function GameEngine({ title, tag, tagColor, description, question
           <div className="flex items-center gap-3 mb-2">
             <span className={`text-[10px] font-bold tracking-widest uppercase ${tagColor}`}>{tag}</span>
           </div>
-          <h1 className="text-3xl font-black text-white mb-2">{title}</h1>
+          <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-2">{title}</h1>
           <p className="text-slate-500 text-sm">{description}</p>
         </div>
 
         {finished ? (
           /* ── Final score ── */
-          <div className="p-8 rounded-2xl border border-white/10 bg-white/[0.02] text-center">
+          <div className="p-8 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.02] text-center">
             <p className="text-slate-500 text-xs font-bold tracking-widest uppercase mb-4">Your Score</p>
-            <p className={`text-7xl font-black mb-2 ${pct >= 80 ? 'text-emerald-400' : pct >= 60 ? 'text-amber-400' : 'text-rose-400'}`}>
+            <p className={`text-7xl font-black mb-2 ${pct >= 80 ? 'text-emerald-500 dark:text-emerald-400' : pct >= 60 ? 'text-amber-500 dark:text-amber-400' : 'text-rose-500 dark:text-rose-400'}`}>
               {score}/{total}
             </p>
-            <p className="text-slate-400 text-base mb-2">
+            <p className="text-slate-600 dark:text-slate-400 text-base mb-2">
               {pct >= 80 ? 'Excellent decision-making.' : pct >= 60 ? 'Solid instincts. Keep sharpening.' : 'Good attempt. Review the explanations and retry.'}
             </p>
-            <p className="text-slate-600 text-sm mb-8">{pct}% accuracy</p>
+            <p className="text-slate-400 dark:text-slate-600 text-sm mb-8">{pct}% accuracy</p>
             <div className="flex gap-3 justify-center">
               <button onClick={restart}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-bold transition-colors">
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-bold transition-colors">
                 Play Again
               </button>
               <Link href="/games"
-                className="px-6 py-3 border border-white/10 hover:border-white/20 rounded-xl text-sm font-semibold text-slate-300 transition-colors">
+                className="px-6 py-3 border border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 transition-colors">
                 More Games
               </Link>
             </div>
@@ -119,15 +119,15 @@ export default function GameEngine({ title, tag, tagColor, description, question
           <div>
             {/* Progress */}
             <div className="flex items-center justify-between mb-5">
-              <span className="text-slate-600 text-xs font-semibold">Question {idx + 1} of {total}</span>
-              <span className="text-slate-600 text-xs font-semibold">{score} correct</span>
+              <span className="text-slate-400 dark:text-slate-600 text-xs font-semibold">Question {idx + 1} of {total}</span>
+              <span className="text-slate-400 dark:text-slate-600 text-xs font-semibold">{score} correct</span>
             </div>
-            <div className="w-full h-1 bg-white/5 rounded-full mb-8">
+            <div className="w-full h-1 bg-slate-200 dark:bg-white/5 rounded-full mb-8">
               <div className="h-1 bg-blue-600 rounded-full transition-all duration-500"
                 style={{ width: `${((idx) / total) * 100}%` }} />
             </div>
 
-            <div className="p-7 rounded-2xl border border-white/10 bg-white/[0.02]">
+            <div className="p-7 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.02]">
 
               {/* Context or chart */}
               {q.type === 'chart' && q.candles && <MiniChart candles={q.candles} />}
@@ -136,29 +136,29 @@ export default function GameEngine({ title, tag, tagColor, description, question
                 <div className="grid grid-cols-2 gap-2.5 mb-5">
                   {q.context.map(c => (
                     <div key={c.label} className={`px-3 py-2.5 rounded-xl border text-xs flex items-center justify-between
-                      ${c.bad ? 'border-rose-900/50 bg-rose-950/20' : 'border-emerald-900/50 bg-emerald-950/20'}`}>
-                      <span className="text-slate-400">{c.label}</span>
-                      <span className={`font-bold ${c.bad ? 'text-rose-400' : 'text-emerald-400'}`}>{c.value}</span>
+                      ${c.bad ? 'border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/20' : 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/20'}`}>
+                      <span className="text-slate-500 dark:text-slate-400">{c.label}</span>
+                      <span className={`font-bold ${c.bad ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{c.value}</span>
                     </div>
                   ))}
                 </div>
               )}
 
               {q.type === 'news' && q.headline && (
-                <div className="p-4 rounded-xl border border-amber-900/40 bg-amber-950/20 mb-5">
-                  <p className="text-amber-400 text-[10px] font-bold tracking-widest uppercase mb-1.5">Breaking News</p>
-                  <p className="text-white font-bold text-base leading-snug">{q.headline}</p>
+                <div className="p-4 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 mb-5">
+                  <p className="text-amber-600 dark:text-amber-400 text-[10px] font-bold tracking-widest uppercase mb-1.5">Breaking News</p>
+                  <p className="text-slate-900 dark:text-white font-bold text-base leading-snug">{q.headline}</p>
                   {q.context && q.context.map(c => (
                     <div key={c.label} className="flex items-center gap-2 mt-2">
                       <span className="text-slate-500 text-xs">{c.label}:</span>
-                      <span className="text-slate-300 text-xs font-semibold">{c.value}</span>
+                      <span className="text-slate-700 dark:text-slate-300 text-xs font-semibold">{c.value}</span>
                     </div>
                   ))}
                 </div>
               )}
 
               {/* Question */}
-              <p className="text-white font-semibold text-base leading-snug mb-5">{q.question}</p>
+              <p className="text-slate-900 dark:text-white font-semibold text-base leading-snug mb-5">{q.question}</p>
 
               {/* Options */}
               {!done ? (
@@ -167,22 +167,24 @@ export default function GameEngine({ title, tag, tagColor, description, question
                     <button key={o.id} onClick={() => choose(o.id)}
                       className={`text-left px-5 py-3.5 rounded-xl text-sm border transition-all duration-200 leading-snug
                         ${pick === o.id
-                          ? 'border-blue-600 bg-blue-950/50 text-blue-300 scale-[0.99]'
-                          : 'border-slate-800 text-slate-300 hover:border-slate-600 hover:bg-white/[0.03]'}`}>
-                      <span className="font-bold text-slate-500 mr-2.5">{o.id.toUpperCase()}.</span>{o.text}
+                          ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 scale-[0.99]'
+                          : 'border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-white/[0.03]'}`}>
+                      <span className="font-bold text-slate-400 dark:text-slate-500 mr-2.5">{o.id.toUpperCase()}.</span>{o.text}
                     </button>
                   ))}
                 </div>
               ) : (
                 <div>
                   <div className={`p-5 rounded-xl border mb-4
-                    ${pick === q.answer ? 'border-emerald-700/60 bg-emerald-950/30' : 'border-amber-700/60 bg-amber-950/20'}`}>
-                    <p className={`font-bold mb-2 ${pick === q.answer ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    ${pick === q.answer
+                      ? 'border-emerald-300 dark:border-emerald-700/60 bg-emerald-50 dark:bg-emerald-950/30'
+                      : 'border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/20'}`}>
+                    <p className={`font-bold mb-2 ${pick === q.answer ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
                       {pick === q.answer
                         ? 'Correct. Good thinking.'
                         : `Not quite. Best answer: ${q.options.find(o => o.id === q.answer)?.text}`}
                     </p>
-                    <p className="text-slate-400 text-sm leading-relaxed">{q.explanation}</p>
+                    <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">{q.explanation}</p>
                   </div>
                   <button onClick={next}
                     className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition-colors">

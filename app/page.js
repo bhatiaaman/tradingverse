@@ -171,9 +171,9 @@ function ScenarioGame() {
           <div className="grid grid-cols-2 gap-2 mb-5">
             {scenario.context.map(c => (
               <div key={c.label} className={`px-3 py-2 rounded-lg border text-xs flex items-center justify-between
-                ${c.bad ? 'border-rose-900/50 bg-rose-950/20' : 'border-emerald-900/50 bg-emerald-950/20'}`}>
-                <span className="text-slate-400">{c.label}</span>
-                <span className={`font-bold ${c.bad ? 'text-rose-400' : 'text-emerald-400'}`}>{c.value}</span>
+                ${c.bad ? 'border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/20' : 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/20'}`}>
+                <span className="text-slate-600 dark:text-slate-400">{c.label}</span>
+                <span className={`font-bold ${c.bad ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{c.value}</span>
               </div>
             ))}
           </div>
@@ -181,7 +181,7 @@ function ScenarioGame() {
       }
 
       {/* Question */}
-      <p className="text-sm font-semibold text-white leading-snug mb-4">{scenario.question}</p>
+      <p className="text-sm font-semibold text-slate-900 dark:text-white leading-snug mb-4">{scenario.question}</p>
 
       {/* Options */}
       {!done ? (
@@ -190,23 +190,23 @@ function ScenarioGame() {
             <button key={o.id} onClick={() => choose(o.id)}
               className={`text-left px-4 py-3 rounded-xl text-xs border transition-all duration-200 leading-snug
                 ${pick === o.id
-                  ? 'border-blue-600 bg-blue-950/50 text-blue-300 scale-[0.99]'
-                  : 'border-slate-800 text-slate-400 hover:border-slate-600 hover:text-slate-200 hover:bg-white/[0.03]'}`}>
-              <span className="font-bold text-slate-500 mr-2">{o.id.toUpperCase()}.</span>{o.text}
+                  ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 scale-[0.99]'
+                  : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/[0.03]'}`}>
+              <span className="font-bold text-slate-400 dark:text-slate-500 mr-2">{o.id.toUpperCase()}.</span>{o.text}
             </button>
           ))}
         </div>
       ) : (
         <div>
           <div className={`p-4 rounded-xl border mb-3 text-xs
-            ${pick === scenario.answer ? 'border-emerald-700/60 bg-emerald-950/30' : 'border-amber-700/60 bg-amber-950/20'}`}>
-            <p className={`font-bold mb-2 text-sm ${pick === scenario.answer ? 'text-emerald-400' : 'text-amber-400'}`}>
+            ${pick === scenario.answer ? 'border-emerald-300 dark:border-emerald-700/60 bg-emerald-50 dark:bg-emerald-950/30' : 'border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/20'}`}>
+            <p className={`font-bold mb-2 text-sm ${pick === scenario.answer ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
               {pick === scenario.answer ? '✓ Good thinking.' : `✗ The smarter play was: ${scenario.options.find(o=>o.id===scenario.answer)?.text}`}
             </p>
-            <p className="text-slate-400 leading-relaxed">{scenario.explanation}</p>
+            <p className="text-slate-600 dark:text-slate-400 leading-relaxed">{scenario.explanation}</p>
           </div>
           <button onClick={next}
-            className="w-full py-2.5 rounded-xl border border-slate-700 text-slate-400 text-xs font-semibold hover:border-slate-500 hover:text-slate-200 transition-colors">
+            className="w-full py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 text-xs font-semibold hover:border-slate-300 dark:hover:border-slate-500 hover:text-slate-900 dark:hover:text-slate-200 transition-colors">
             Next scenario →
           </button>
         </div>
@@ -230,7 +230,7 @@ export default function Home() {
         [data-reveal-delay="4"] { transition-delay: 0.4s; }
       `}</style>
 
-      <div className="bg-[#060b14] text-white min-h-screen">
+      <div className="bg-slate-50 dark:bg-[#060b14] text-slate-900 dark:text-white min-h-screen">
 
         {/* ── NAV ── */}
         <Nav fixed />
@@ -240,7 +240,7 @@ export default function Home() {
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_30%,rgba(59,130,246,0.07),transparent_65%)]" />
 
           <div className="relative z-10 max-w-4xl">
-            <p data-reveal className="text-blue-400 text-xs font-bold tracking-[0.2em] uppercase mb-8">For Indian Traders</p>
+            <p data-reveal className="text-blue-600 dark:text-blue-400 text-xs font-bold tracking-[0.2em] uppercase mb-8">For Indian Traders</p>
 
             <h1 data-reveal data-reveal-delay="1" className="text-6xl md:text-8xl font-black tracking-tight leading-[0.9] mb-8">
               Trade less.<br/>
@@ -248,8 +248,8 @@ export default function Home() {
               Trade with context.
             </h1>
 
-            <p data-reveal data-reveal-delay="2" className="text-slate-300 text-base md:text-lg max-w-xl mx-auto leading-relaxed mb-4">
-              <span className="text-white font-semibold">TradingVerse</span> is your daily trading ritual — pre-market context, skill-building games, and lessons from the world's best traders. All in one place.
+            <p data-reveal data-reveal-delay="2" className="text-slate-600 dark:text-slate-300 text-base md:text-lg max-w-xl mx-auto leading-relaxed mb-4">
+              <span className="text-slate-900 dark:text-white font-semibold">TradingVerse</span> is your daily trading ritual — pre-market context, skill-building games, and lessons from the world's best traders. All in one place.
             </p>
 
             <p data-reveal data-reveal-delay="3" className="text-slate-500 text-base max-w-2xl mx-auto leading-relaxed mb-16">
@@ -257,9 +257,22 @@ export default function Home() {
             </p>
 
             <div data-reveal data-reveal-delay="3" className="flex flex-col items-center gap-3">
-              <span className="text-slate-600 text-sm">Scroll to see why</span>
-              <div className="w-px h-12 bg-gradient-to-b from-slate-600 to-transparent" />
+              <span className="text-slate-500 dark:text-slate-600 text-sm">Scroll to see why</span>
+              <div className="w-px h-12 bg-gradient-to-b from-slate-400 dark:from-slate-600 to-transparent" />
             </div>
+          </div>
+        </section>
+
+        {/* ── QUOTE ── */}
+        <section className="py-16 px-6 border-t border-slate-100 dark:border-white/5">
+          <div className="max-w-2xl mx-auto text-center" data-reveal>
+            <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white leading-snug mb-3">
+              "Give a man a fish and you feed him for a day.
+            </p>
+            <p className="text-2xl md:text-3xl font-black text-slate-500 leading-snug mb-6">
+              Teach a man to fish and you feed him for a lifetime."
+            </p>
+            <p className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 dark:text-slate-600">— Proverb</p>
           </div>
         </section>
 
@@ -267,17 +280,17 @@ export default function Home() {
         <section className="py-32 px-6">
           <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-16 items-center">
             <div data-reveal>
-              <div className="text-8xl md:text-9xl font-black text-white/10 leading-none mb-4">83%</div>
-              <p className="text-3xl font-bold text-white leading-tight">of retail traders lose money in the markets.</p>
+              <div className="text-8xl md:text-9xl font-black leading-none mb-4 bg-gradient-to-br from-rose-500 to-rose-400/40 dark:from-rose-500/80 dark:to-rose-800/20 bg-clip-text text-transparent">83%</div>
+              <p className="text-3xl font-bold text-slate-900 dark:text-white leading-tight">of retail traders lose money in the markets.</p>
             </div>
             <div data-reveal data-reveal-delay="2">
-              <p className="text-slate-400 text-xl leading-relaxed mb-6">
-                The 17% who consistently win share one habit — they understand <em className="text-white not-italic font-semibold">context</em> before placing a trade.
+              <p className="text-slate-600 dark:text-slate-400 text-xl leading-relaxed mb-6">
+                The 17% who consistently win share one habit — they understand <em className="text-slate-900 dark:text-white not-italic font-semibold">context</em> before placing a trade.
               </p>
               <p className="text-slate-500 text-base leading-relaxed mb-8">
                 They know what the global markets did overnight. They know where smart money is positioned. They've trained their instincts on hundreds of real scenarios. They've read the books.
               </p>
-              <Link href="/trades" className="inline-flex items-center gap-2 text-blue-400 text-sm font-semibold hover:gap-3 transition-all group">
+              <Link href="/trades" className="inline-flex items-center gap-2 text-blue-600 dark:text-blue-400 text-sm font-semibold hover:gap-3 transition-all group">
                 See what the 17% see every morning
                 <span className="group-hover:translate-x-1 transition-transform">→</span>
               </Link>
@@ -286,33 +299,33 @@ export default function Home() {
         </section>
 
         {/* ── THREE PATHS ── */}
-        <section className="border-t border-white/5">
-          <div className="max-w-6xl mx-auto grid md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-white/5">
+        <section className="border-t border-slate-100 dark:border-white/5">
+          <div className="max-w-6xl mx-auto grid md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-white/5">
 
             {[
               {
                 num: '01', verb: 'Know',
                 desc: 'Understand what the market is telling you before it opens. Global cues, key levels, what to watch.',
                 cta: 'Open Pre-Market →', href: '/trades/pre-market',
-                accent: 'text-blue-400',
+                accent: 'text-blue-600 dark:text-blue-400',
               },
               {
                 num: '02', verb: 'Train',
                 desc: 'Test your instincts on real market scenarios. No capital at risk. Just you vs the chart.',
                 cta: 'Play a game →', href: '#games',
-                accent: 'text-emerald-400',
+                accent: 'text-emerald-600 dark:text-emerald-400',
               },
               {
                 num: '03', verb: 'Learn',
                 desc: 'Read what the best traders in the world figured out after years of painful losses.',
                 cta: 'Explore articles & books →', href: '/learn',
-                accent: 'text-violet-400',
+                accent: 'text-violet-600 dark:text-violet-400',
               },
             ].map((p, i) => (
-              <div key={p.num} data-reveal className={`p-10 md:p-14 group hover:bg-white/[0.02] transition-colors`} style={{transitionDelay: `${i*0.1}s`}}>
-                <div className="text-slate-700 text-sm font-bold tracking-widest mb-6">{p.num}</div>
+              <div key={p.num} data-reveal className={`p-10 md:p-14 group hover:bg-slate-100 dark:hover:bg-white/[0.02] transition-colors`} style={{transitionDelay: `${i*0.1}s`}}>
+                <div className="text-slate-400 dark:text-slate-700 text-sm font-bold tracking-widest mb-6">{p.num}</div>
                 <h3 className={`text-5xl font-black mb-6 ${p.accent}`}>{p.verb}</h3>
-                <p className="text-slate-400 text-base leading-relaxed mb-10">{p.desc}</p>
+                <p className="text-slate-600 dark:text-slate-400 text-base leading-relaxed mb-10">{p.desc}</p>
                 <Link href={p.href} className={`text-sm font-semibold ${p.accent} hover:underline`}>{p.cta}</Link>
               </div>
             ))}
@@ -320,28 +333,28 @@ export default function Home() {
         </section>
 
         {/* ── GAMES ── */}
-        <section id="games" className="py-32 px-6 border-t border-white/5">
+        <section id="games" className="py-32 px-6 border-t border-slate-100 dark:border-white/5">
           <div className="max-w-5xl mx-auto">
             <div className="grid md:grid-cols-2 gap-16 items-center">
               <div>
-                <p data-reveal className="text-emerald-400 text-xs font-bold tracking-[0.2em] uppercase mb-4">Trading Games</p>
+                <p data-reveal className="text-emerald-600 dark:text-emerald-400 text-xs font-bold tracking-[0.2em] uppercase mb-4">Trading Games</p>
                 <h2 data-reveal data-reveal-delay="1" className="text-4xl md:text-5xl font-black mb-6 leading-tight">
                   Can you read<br/>the chart?
                 </h2>
-                <p data-reveal data-reveal-delay="2" className="text-slate-400 text-lg leading-relaxed mb-6">
+                <p data-reveal data-reveal-delay="2" className="text-slate-600 dark:text-slate-400 text-lg leading-relaxed mb-6">
                   Real market scenarios. Real decisions. No right answer is obvious — just like actual trading.
                 </p>
                 <div data-reveal data-reveal-delay="3" className="flex items-center gap-6 text-sm text-slate-500 mb-8">
                   <span>🎮 New scenarios every week</span>
                   <span>⚡ No signup needed</span>
                 </div>
-                <Link data-reveal data-reveal-delay="4" href="/games" className="text-sm font-semibold text-emerald-400 hover:underline">
+                <Link data-reveal data-reveal-delay="4" href="/games" className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 hover:underline">
                   See all games →
                 </Link>
               </div>
 
               <div data-reveal data-reveal-delay="2">
-                <div className="p-8 rounded-3xl border border-white/10 bg-white/[0.02]">
+                <div className="p-8 rounded-3xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.02]">
                   <p className="text-xs text-slate-500 uppercase tracking-widest mb-4 font-semibold">Scenario Challenge</p>
                   <ScenarioGame />
                 </div>
@@ -351,23 +364,23 @@ export default function Home() {
         </section>
 
         {/* ── LEARN ── */}
-        <section id="learn" className="py-32 px-6 border-t border-white/5">
+        <section id="learn" className="py-32 px-6 border-t border-slate-100 dark:border-white/5">
           <div className="max-w-5xl mx-auto">
-            <p data-reveal className="text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-4">Learn from Masters</p>
+            <p data-reveal className="text-violet-600 dark:text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-4">Learn from Masters</p>
             <h2 data-reveal data-reveal-delay="1" className="text-4xl md:text-5xl font-black mb-16 leading-tight max-w-xl">
               Everything the best traders learned the hard way.
             </h2>
 
             {/* Featured article */}
-            <Link href="/learn/articles/trader-who-knew-everything" data-reveal className="group block p-10 rounded-3xl border border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04] transition-all mb-6">
-              <span className="text-xs font-bold tracking-widest uppercase text-cyan-400 mb-4 block">Market Psychology</span>
-              <h3 className="text-2xl md:text-3xl font-black mb-4 group-hover:text-blue-200 transition-colors leading-tight">
+            <Link href="/learn/articles/trader-who-knew-everything" data-reveal className="group block p-10 rounded-3xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.02] hover:border-slate-300 dark:hover:border-white/20 hover:bg-slate-50 dark:hover:bg-white/[0.04] transition-all mb-6">
+              <span className="text-xs font-bold tracking-widest uppercase text-cyan-600 dark:text-cyan-400 mb-4 block">Market Psychology</span>
+              <h3 className="text-2xl md:text-3xl font-black mb-4 group-hover:text-blue-700 dark:group-hover:text-blue-200 transition-colors leading-tight">
                 The trader who knew everything but lost anyway
               </h3>
-              <p className="text-slate-400 text-base leading-relaxed max-w-2xl mb-6">
+              <p className="text-slate-600 dark:text-slate-400 text-base leading-relaxed max-w-2xl mb-6">
                 He could identify every pattern. He knew support, resistance, order flow. He had read every book. And yet, at the end of each month, his account shrank. The problem was never knowledge.
               </p>
-              <span className="text-sm font-semibold text-cyan-400 group-hover:underline">Read article →</span>
+              <span className="text-sm font-semibold text-cyan-600 dark:text-cyan-400 group-hover:underline">Read article →</span>
             </Link>
 
             {/* Books */}
@@ -378,15 +391,15 @@ export default function Home() {
                 { title: 'The Daily Trading Coach', author: 'Brett Steenbarger', emoji: '🎯', slug: 'daily-trading-coach', lesson: 'Self-improvement is the highest-leverage activity in trading.' },
                 { title: 'Reminiscences of a Stock Operator', author: 'Edwin Lefèvre', emoji: '📜', slug: 'reminiscences-stock-operator', lesson: 'Human nature never changes. The market has always been the same game.' },
               ].map((b, i) => (
-                <Link key={b.title} href={`/learn/books/${b.slug}`} data-reveal className="group relative rounded-2xl border border-white/10 bg-white/[0.02] p-6 hover:border-violet-700/60 hover:bg-violet-950/10 transition-all overflow-hidden min-h-[160px] block"
+                <Link key={b.title} href={`/learn/books/${b.slug}`} data-reveal className="group relative rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.02] p-6 hover:border-violet-300 dark:hover:border-violet-700/60 hover:bg-violet-50 dark:hover:bg-violet-950/10 transition-all overflow-hidden min-h-[160px] block"
                   style={{transitionDelay: `${i*0.08}s`}}>
                   <div className="transition-all duration-300 group-hover:opacity-0">
                     <div className="text-3xl mb-3">{b.emoji}</div>
-                    <p className="text-sm font-bold text-white leading-tight mb-1">{b.title}</p>
+                    <p className="text-sm font-bold text-slate-900 dark:text-white leading-tight mb-1">{b.title}</p>
                     <p className="text-xs text-slate-500">{b.author}</p>
                   </div>
                   <div className="absolute inset-0 p-6 flex items-center opacity-0 group-hover:opacity-100 transition-all duration-300">
-                    <p className="text-violet-300 text-xs leading-relaxed italic">"{b.lesson}"</p>
+                    <p className="text-violet-700 dark:text-violet-300 text-xs leading-relaxed italic">"{b.lesson}"</p>
                   </div>
                 </Link>
               ))}
@@ -395,7 +408,7 @@ export default function Home() {
         </section>
 
         {/* ── TESTIMONIALS ── */}
-        <section className="py-32 px-6 border-t border-white/5">
+        <section className="py-32 px-6 border-t border-slate-100 dark:border-white/5">
           <div className="max-w-5xl mx-auto">
             <p data-reveal className="text-slate-500 text-xs font-bold tracking-[0.2em] uppercase mb-16 text-center">What traders say</p>
             <div className="grid md:grid-cols-3 gap-6">
@@ -404,10 +417,10 @@ export default function Home() {
                 { quote: "The games section is addictive. I've played the direction challenge every morning for 3 weeks. My accuracy went from 48% to 67%.", name: 'Priya S.', role: 'Positional Trader, Bangalore' },
                 { quote: "Finally a tool that focuses on context, not just charts. The articles are some of the best trading content I've read in years.", name: 'Karan T.', role: 'Options Trader, Delhi' },
               ].map((t, i) => (
-                <div key={i} data-reveal className="p-8 rounded-2xl border border-white/8 bg-white/[0.02]" style={{transitionDelay: `${i*0.1}s`}}>
-                  <p className="text-slate-300 text-base leading-relaxed mb-6 italic">"{t.quote}"</p>
+                <div key={i} data-reveal className="p-8 rounded-2xl border border-slate-200 dark:border-white/8 bg-white dark:bg-white/[0.02]" style={{transitionDelay: `${i*0.1}s`}}>
+                  <p className="text-slate-700 dark:text-slate-300 text-base leading-relaxed mb-6 italic">"{t.quote}"</p>
                   <div>
-                    <p className="text-white font-semibold text-sm">{t.name}</p>
+                    <p className="text-slate-900 dark:text-white font-semibold text-sm">{t.name}</p>
                     <p className="text-slate-500 text-xs mt-0.5">{t.role}</p>
                   </div>
                 </div>
@@ -417,34 +430,34 @@ export default function Home() {
         </section>
 
         {/* ── FINAL CTA ── */}
-        <section className="py-32 px-6 border-t border-white/5">
+        <section className="py-32 px-6 border-t border-slate-100 dark:border-white/5">
           <div className="max-w-3xl mx-auto text-center">
             <div data-reveal className="inline-block w-16 h-px bg-blue-500 mb-10" />
             <h2 data-reveal data-reveal-delay="1" className="text-5xl md:text-6xl font-black mb-6 leading-tight">
               Ready to trade<br/>with context?
             </h2>
-            <p data-reveal data-reveal-delay="2" className="text-slate-400 text-lg mb-12">
+            <p data-reveal data-reveal-delay="2" className="text-slate-600 dark:text-slate-400 text-lg mb-12">
               Join traders who've stopped guessing and started reading the market.
             </p>
             <Link data-reveal data-reveal-delay="3" href="/trades"
-              className="inline-block px-12 py-5 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold text-lg transition-all duration-200 hover:shadow-[0_0_40px_rgba(59,130,246,0.5)] hover:-translate-y-1">
+              className="inline-block px-12 py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-lg transition-all duration-200 hover:shadow-[0_0_40px_rgba(59,130,246,0.5)] hover:-translate-y-1">
               Enter TradingVerse →
             </Link>
           </div>
         </section>
 
         {/* ── FOOTER ── */}
-        <footer className="border-t border-white/5 py-12 px-8">
+        <footer className="border-t border-slate-100 dark:border-white/5 py-12 px-8">
           <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-            <span className="text-base font-black">Trading<span className="text-blue-400">Verse</span></span>
+            <span className="text-base font-black text-slate-900 dark:text-white">Trading<span className="text-blue-600 dark:text-blue-400">Verse</span></span>
             <div className="flex items-center gap-8 text-sm text-slate-500">
-              <Link href="/trades"          className="hover:text-slate-300 transition-colors">Dashboard</Link>
-              <Link href="#games"           className="hover:text-slate-300 transition-colors">Games</Link>
-              <Link href="/learn"            className="hover:text-slate-300 transition-colors">Articles</Link>
-              <Link href="/learn"            className="hover:text-slate-300 transition-colors">Books</Link>
-              <a    href="mailto:hello@tradingverse.in" className="hover:text-slate-300 transition-colors">Contact</a>
+              <Link href="/trades"          className="hover:text-slate-700 dark:hover:text-slate-300 transition-colors">Dashboard</Link>
+              <Link href="#games"           className="hover:text-slate-700 dark:hover:text-slate-300 transition-colors">Games</Link>
+              <Link href="/learn"            className="hover:text-slate-700 dark:hover:text-slate-300 transition-colors">Articles</Link>
+              <Link href="/learn"            className="hover:text-slate-700 dark:hover:text-slate-300 transition-colors">Books</Link>
+              <a    href="mailto:hello@tradingverse.in" className="hover:text-slate-700 dark:hover:text-slate-300 transition-colors">Contact</a>
             </div>
-            <p className="text-slate-700 text-xs">© 2025 TradingVerse</p>
+            <p className="text-slate-400 dark:text-slate-700 text-xs">© 2025 TradingVerse</p>
           </div>
         </footer>
 

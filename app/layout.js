@@ -13,7 +13,11 @@ const envLabel = process.env.NEXT_PUBLIC_ENV_LABEL
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Blocking script — applies theme class before first paint, prevents flash */}
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme');if(t!=='light')document.documentElement.classList.add('dark');}catch(e){}})();` }} />
+      </head>
       <body className={inter.className}>
         <ThemeProvider>
           {children}

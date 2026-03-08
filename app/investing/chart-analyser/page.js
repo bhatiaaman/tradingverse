@@ -5,25 +5,25 @@ import Nav from '../../components/Nav'
 import Link from 'next/link'
 
 const VERDICT_CONFIG = {
-  'STRONG BUY': { color: 'text-emerald-400', bg: 'bg-emerald-900/30 border-emerald-700/50', dot: 'bg-emerald-400' },
-  'BUY':        { color: 'text-green-400',   bg: 'bg-green-900/30 border-green-700/50',     dot: 'bg-green-400'   },
-  'NEUTRAL':    { color: 'text-amber-400',   bg: 'bg-amber-900/30 border-amber-700/50',     dot: 'bg-amber-400'   },
-  'AVOID':      { color: 'text-orange-400',  bg: 'bg-orange-900/30 border-orange-700/50',   dot: 'bg-orange-400'  },
-  'SELL':       { color: 'text-rose-400',    bg: 'bg-rose-900/30 border-rose-700/50',       dot: 'bg-rose-400'    },
+  'STRONG BUY': { color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-700/50', dot: 'bg-emerald-500' },
+  'BUY':        { color: 'text-green-600 dark:text-green-400',     bg: 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-700/50',         dot: 'bg-green-500'   },
+  'NEUTRAL':    { color: 'text-amber-600 dark:text-amber-400',     bg: 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-700/50',         dot: 'bg-amber-500'   },
+  'AVOID':      { color: 'text-orange-600 dark:text-orange-400',   bg: 'bg-orange-50 dark:bg-orange-900/30 border-orange-200 dark:border-orange-700/50',     dot: 'bg-orange-500'  },
+  'SELL':       { color: 'text-rose-600 dark:text-rose-400',       bg: 'bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-700/50',             dot: 'bg-rose-500'    },
 }
 
 const RS_CONFIG = {
-  'Outperforming': { color: 'text-emerald-400', icon: '↑' },
-  'In-line':       { color: 'text-amber-400',   icon: '→' },
-  'Underperforming': { color: 'text-rose-400',  icon: '↓' },
+  'Outperforming':   { color: 'text-emerald-600 dark:text-emerald-400', icon: '↑' },
+  'In-line':         { color: 'text-amber-600 dark:text-amber-400',     icon: '→' },
+  'Underperforming': { color: 'text-rose-600 dark:text-rose-400',       icon: '↓' },
 }
 
 const SENTIMENT_CONFIG = {
-  'Bullish':             { color: 'text-emerald-400' },
-  'Cautiously Bullish':  { color: 'text-green-400'   },
-  'Neutral':             { color: 'text-amber-400'   },
-  'Cautiously Bearish':  { color: 'text-orange-400'  },
-  'Bearish':             { color: 'text-rose-400'    },
+  'Bullish':             { color: 'text-emerald-600 dark:text-emerald-400' },
+  'Cautiously Bullish':  { color: 'text-green-600 dark:text-green-400'     },
+  'Neutral':             { color: 'text-amber-600 dark:text-amber-400'     },
+  'Cautiously Bearish':  { color: 'text-orange-600 dark:text-orange-400'   },
+  'Bearish':             { color: 'text-rose-600 dark:text-rose-400'       },
 }
 
 function ScoreBar({ score }) {
@@ -31,15 +31,15 @@ function ScoreBar({ score }) {
   const color = score >= 7 ? 'bg-emerald-500' : score >= 5 ? 'bg-amber-500' : 'bg-rose-500'
   return (
     <div className="flex items-center gap-3">
-      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+      <div className="flex-1 h-1.5 bg-slate-200 dark:bg-white/10 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-xs font-bold text-white tabular-nums">{score}/10</span>
+      <span className="text-xs font-bold text-slate-900 dark:text-white tabular-nums">{score}/10</span>
     </div>
   )
 }
 
-function Tag({ label, color = 'text-slate-400', bg = 'bg-white/5 border-white/10' }) {
+function Tag({ label, color = 'text-slate-600 dark:text-slate-400', bg = 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10' }) {
   return (
     <span className={`inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-lg border ${color} ${bg}`}>
       {label}
@@ -49,10 +49,10 @@ function Tag({ label, color = 'text-slate-400', bg = 'bg-white/5 border-white/10
 
 function Section({ title, icon, children }) {
   return (
-    <div className="bg-white/[0.03] border border-white/8 rounded-2xl p-5">
+    <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/8 rounded-2xl p-5">
       <div className="flex items-center gap-2 mb-4">
-        <span className="text-slate-500">{icon}</span>
-        <h3 className="text-xs font-bold tracking-[0.15em] uppercase text-slate-400">{title}</h3>
+        <span className="text-slate-400 dark:text-slate-500">{icon}</span>
+        <h3 className="text-xs font-bold tracking-[0.15em] uppercase text-slate-500 dark:text-slate-400">{title}</h3>
       </div>
       {children}
     </div>
@@ -76,18 +76,18 @@ function AnalysisPanel({ analysis }) {
               <span className={`text-lg font-black tracking-wide ${vc.color}`}>{analysis.verdict?.rating}</span>
             </div>
             {analysis.ticker && analysis.ticker !== 'Unknown' && (
-              <p className="text-white font-bold text-base">{analysis.ticker}
+              <p className="text-slate-900 dark:text-white font-bold text-base">{analysis.ticker}
                 {analysis.timeframe && <span className="text-slate-500 text-sm font-normal ml-2">· {analysis.timeframe}</span>}
               </p>
             )}
           </div>
           <div className="text-right">
             <p className="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Score</p>
-            <p className={`text-3xl font-black ${vc.color}`}>{analysis.verdict?.score}<span className="text-slate-600 text-lg">/10</span></p>
+            <p className={`text-3xl font-black ${vc.color}`}>{analysis.verdict?.score}<span className="text-slate-400 dark:text-slate-600 text-lg">/10</span></p>
           </div>
         </div>
         <ScoreBar score={analysis.verdict?.score || 5} />
-        <p className="text-slate-300 text-sm leading-6 mt-3">{analysis.verdict?.summary}</p>
+        <p className="text-slate-700 dark:text-slate-300 text-sm leading-6 mt-3">{analysis.verdict?.summary}</p>
       </div>
 
       {/* Grid: Technical + RS + Sector */}
@@ -113,10 +113,10 @@ function AnalysisPanel({ analysis }) {
             </div>
             {analysis.technical?.patterns?.length > 0 && (
               <div>
-                <p className="text-slate-600 text-[10px] uppercase tracking-widest mb-1.5">Patterns</p>
+                <p className="text-slate-400 dark:text-slate-600 text-[10px] uppercase tracking-widest mb-1.5">Patterns</p>
                 <ul className="space-y-1">
                   {analysis.technical.patterns.map((p, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                    <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
                       <span className="text-blue-500 mt-0.5 flex-shrink-0">·</span>{p}
                     </li>
                   ))}
@@ -125,21 +125,21 @@ function AnalysisPanel({ analysis }) {
             )}
             {analysis.technical?.keyLevels && (
               <div className="grid grid-cols-2 gap-2 pt-1">
-                <div className="bg-emerald-900/20 border border-emerald-800/30 rounded-xl px-3 py-2">
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/30 rounded-xl px-3 py-2">
                   <p className="text-[10px] text-emerald-600 uppercase tracking-widest mb-0.5">Support</p>
-                  <p className="text-sm font-semibold text-emerald-300">{analysis.technical.keyLevels.support}</p>
+                  <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">{analysis.technical.keyLevels.support}</p>
                 </div>
-                <div className="bg-rose-900/20 border border-rose-800/30 rounded-xl px-3 py-2">
+                <div className="bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800/30 rounded-xl px-3 py-2">
                   <p className="text-[10px] text-rose-600 uppercase tracking-widest mb-0.5">Resistance</p>
-                  <p className="text-sm font-semibold text-rose-300">{analysis.technical.keyLevels.resistance}</p>
+                  <p className="text-sm font-semibold text-rose-700 dark:text-rose-300">{analysis.technical.keyLevels.resistance}</p>
                 </div>
               </div>
             )}
             {analysis.technical?.movingAverages && (
-              <p className="text-slate-400 text-xs leading-5">{analysis.technical.movingAverages}</p>
+              <p className="text-slate-600 dark:text-slate-400 text-xs leading-5">{analysis.technical.movingAverages}</p>
             )}
             {analysis.technical?.volume && (
-              <p className="text-slate-500 text-xs leading-5 border-t border-white/5 pt-2">{analysis.technical.volume}</p>
+              <p className="text-slate-500 text-xs leading-5 border-t border-slate-100 dark:border-white/5 pt-2">{analysis.technical.volume}</p>
             )}
           </div>
         </Section>
@@ -154,16 +154,16 @@ function AnalysisPanel({ analysis }) {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 text-xs">vs Nifty 50</span>
-                <span className={`font-bold text-sm ${rsc.color || 'text-slate-300'}`}>
+                <span className={`font-bold text-sm ${rsc.color || 'text-slate-700 dark:text-slate-300'}`}>
                   {rsc.icon} {analysis.relativeStrength?.vsNifty}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 text-xs">RS Trend</span>
-                <span className="text-slate-300 text-sm font-semibold">{analysis.relativeStrength?.trend}</span>
+                <span className="text-slate-700 dark:text-slate-300 text-sm font-semibold">{analysis.relativeStrength?.trend}</span>
               </div>
               {analysis.relativeStrength?.notes && (
-                <p className="text-slate-400 text-xs leading-5 pt-1 border-t border-white/5">{analysis.relativeStrength.notes}</p>
+                <p className="text-slate-600 dark:text-slate-400 text-xs leading-5 pt-1 border-t border-slate-100 dark:border-white/5">{analysis.relativeStrength.notes}</p>
               )}
             </div>
           </Section>
@@ -176,7 +176,7 @@ function AnalysisPanel({ analysis }) {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 text-xs">Sector</span>
-                <span className="text-slate-200 text-sm font-semibold">{analysis.sector?.likely}</span>
+                <span className="text-slate-800 dark:text-slate-200 text-sm font-semibold">{analysis.sector?.likely}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 text-xs">Position</span>
@@ -187,7 +187,7 @@ function AnalysisPanel({ analysis }) {
                 />
               </div>
               {analysis.sector?.notes && (
-                <p className="text-slate-400 text-xs leading-5 pt-1 border-t border-white/5">{analysis.sector.notes}</p>
+                <p className="text-slate-600 dark:text-slate-400 text-xs leading-5 pt-1 border-t border-slate-100 dark:border-white/5">{analysis.sector.notes}</p>
               )}
             </div>
           </Section>
@@ -205,13 +205,13 @@ function AnalysisPanel({ analysis }) {
             <span className={`text-base font-black ${sc.color || 'text-slate-300'}`}>{analysis.sentiment?.overall}</span>
           </div>
           {analysis.sentiment?.institutionalClues && (
-            <div className="bg-white/[0.02] border border-white/5 rounded-xl px-3 py-2">
-              <p className="text-[10px] text-slate-600 uppercase tracking-widest mb-1">Institutional Footprint</p>
-              <p className="text-slate-300 text-sm">{analysis.sentiment.institutionalClues}</p>
+            <div className="bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl px-3 py-2">
+              <p className="text-[10px] text-slate-400 dark:text-slate-600 uppercase tracking-widest mb-1">Institutional Footprint</p>
+              <p className="text-slate-700 dark:text-slate-300 text-sm">{analysis.sentiment.institutionalClues}</p>
             </div>
           )}
           {analysis.sentiment?.notes && (
-            <p className="text-slate-400 text-sm leading-6">{analysis.sentiment.notes}</p>
+            <p className="text-slate-600 dark:text-slate-400 text-sm leading-6">{analysis.sentiment.notes}</p>
           )}
         </div>
       </Section>
@@ -224,10 +224,10 @@ function AnalysisPanel({ analysis }) {
       }>
         <div className="space-y-4">
           {analysis.story?.theme && (
-            <p className="text-white font-bold text-base leading-snug">"{analysis.story.theme}"</p>
+            <p className="text-slate-900 dark:text-white font-bold text-base leading-snug">"{analysis.story.theme}"</p>
           )}
           {analysis.story?.narrative && (
-            <p className="text-slate-300 text-sm leading-6">{analysis.story.narrative}</p>
+            <p className="text-slate-700 dark:text-slate-300 text-sm leading-6">{analysis.story.narrative}</p>
           )}
           {analysis.story?.horizon && (
             <div className="flex items-center gap-2">
@@ -241,7 +241,7 @@ function AnalysisPanel({ analysis }) {
                 <p className="text-emerald-600 text-[10px] uppercase tracking-widest mb-2">Positives</p>
                 <ul className="space-y-1.5">
                   {analysis.story.positives.map((p, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                    <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
                       <span className="text-emerald-500 mt-0.5 flex-shrink-0">+</span>{p}
                     </li>
                   ))}
@@ -253,7 +253,7 @@ function AnalysisPanel({ analysis }) {
                 <p className="text-rose-600 text-[10px] uppercase tracking-widest mb-2">Risks</p>
                 <ul className="space-y-1.5">
                   {analysis.story.negatives.map((n, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                    <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
                       <span className="text-rose-500 mt-0.5 flex-shrink-0">−</span>{n}
                     </li>
                   ))}
@@ -274,7 +274,7 @@ function AnalysisPanel({ analysis }) {
         }>
           <ul className="space-y-2">
             {analysis.watchFor.map((w, i) => (
-              <li key={i} className="flex items-start gap-3 text-sm text-slate-300 bg-white/[0.02] border border-white/5 rounded-xl px-3 py-2.5">
+              <li key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl px-3 py-2.5">
                 <span className="text-violet-500 font-bold flex-shrink-0">{i + 1}</span>{w}
               </li>
             ))}
@@ -283,7 +283,7 @@ function AnalysisPanel({ analysis }) {
       )}
 
       {/* Disclaimer */}
-      <p className="text-slate-700 text-xs text-center leading-5 pt-2">
+      <p className="text-slate-400 dark:text-slate-700 text-xs text-center leading-5 pt-2">
         AI analysis for educational purposes only. Not investment advice. Always do your own research.
       </p>
     </div>
@@ -383,25 +383,25 @@ export default function ChartAnalyserPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#060b14]" onPaste={onPaste}>
+    <div className="min-h-screen bg-slate-50 dark:bg-[#060b14] text-slate-900 dark:text-white" onPaste={onPaste}>
       <Nav />
 
       <div className="max-w-4xl mx-auto px-6 pt-12 pb-20">
 
         {/* Breadcrumb */}
-        <div className="flex items-center gap-2 text-sm text-slate-600 mb-8">
-          <Link href="/investing" className="hover:text-slate-400 transition-colors">Investing</Link>
+        <div className="flex items-center gap-2 text-sm text-slate-500 mb-8">
+          <Link href="/investing" className="hover:text-slate-700 dark:hover:text-slate-400 transition-colors">Investing</Link>
           <span>/</span>
-          <span className="text-slate-400">Chart Analyser</span>
+          <span className="text-slate-600 dark:text-slate-400">Chart Analyser</span>
         </div>
 
         {/* Header */}
         <div className="mb-10">
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-[9px] font-bold tracking-[0.2em] uppercase text-violet-400 bg-violet-900/30 border border-violet-800/50 px-2 py-0.5 rounded-full">AI Vision</span>
+            <span className="text-[9px] font-bold tracking-[0.2em] uppercase text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-800/50 px-2 py-0.5 rounded-full">AI Vision</span>
           </div>
-          <h1 className="text-3xl font-black text-white mb-2">Chart Analyser</h1>
-          <p className="text-slate-400 text-sm leading-6">
+          <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-2">Chart Analyser</h1>
+          <p className="text-slate-600 dark:text-slate-400 text-sm leading-6">
             Paste or upload any daily / weekly chart. AI analyses technical structure, relative strength vs Nifty, sector position, market sentiment, and builds a medium to long-term story.
           </p>
         </div>
@@ -411,7 +411,7 @@ export default function ChartAnalyserPage() {
             {/* Upload zone */}
             <div
               className={`relative border-2 border-dashed rounded-2xl transition-all cursor-pointer
-                ${dragging ? 'border-violet-500 bg-violet-500/10' : image ? 'border-white/20 bg-white/[0.02]' : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]'}`}
+                ${dragging ? 'border-violet-500 bg-violet-500/10' : image ? 'border-slate-300 dark:border-white/20 bg-white dark:bg-white/[0.02]' : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.02] hover:border-slate-300 dark:hover:border-white/20 hover:bg-slate-50 dark:hover:bg-white/[0.04]'}`}
               onClick={() => !image && fileInputRef.current?.click()}
               onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
               onDragLeave={() => setDragging(false)}
@@ -429,14 +429,14 @@ export default function ChartAnalyserPage() {
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
-                  <div className="w-14 h-14 rounded-2xl bg-violet-900/30 border border-violet-800/50 flex items-center justify-center mb-5">
-                    <svg className="w-7 h-7 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-14 h-14 rounded-2xl bg-violet-100 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-800/50 flex items-center justify-center mb-5">
+                    <svg className="w-7 h-7 text-violet-600 dark:text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
                   </div>
-                  <p className="text-white font-semibold mb-1">Drop your chart here</p>
-                  <p className="text-slate-500 text-sm mb-4">or click to browse · <kbd className="text-slate-600 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-xs">⌘V</kbd> to paste</p>
-                  <p className="text-slate-700 text-xs">PNG, JPG, WebP · Daily or Weekly chart recommended</p>
+                  <p className="text-slate-900 dark:text-white font-semibold mb-1">Drop your chart here</p>
+                  <p className="text-slate-500 text-sm mb-4">or click to browse · <kbd className="text-slate-500 dark:text-slate-600 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-1.5 py-0.5 rounded text-xs">⌘V</kbd> to paste</p>
+                  <p className="text-slate-400 dark:text-slate-700 text-xs">PNG, JPG, WebP · Daily or Weekly chart recommended</p>
                 </div>
               )}
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onFileChange} />
@@ -444,11 +444,11 @@ export default function ChartAnalyserPage() {
 
             {/* Timeframe + Analyse */}
             <div className="flex items-center gap-3">
-              <div className="flex bg-white/[0.04] border border-white/10 rounded-xl p-1 gap-1">
+              <div className="flex bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 rounded-xl p-1 gap-1">
                 {['Daily', 'Weekly'].map(tf => (
                   <button key={tf} onClick={() => setTimeframe(tf)}
                     className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-                      timeframe === tf ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-white'
+                      timeframe === tf ? 'bg-violet-600 text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                     }`}>
                     {tf}
                   </button>
@@ -480,19 +480,19 @@ export default function ChartAnalyserPage() {
 
             {/* Loading state */}
             {loading && (
-              <div className="bg-white/[0.02] border border-white/8 rounded-2xl p-6 text-center">
+              <div className="bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/8 rounded-2xl p-6 text-center">
                 <div className="flex items-center justify-center gap-3 mb-3">
-                  <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  <div className="w-2 h-2 bg-violet-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-2 h-2 bg-violet-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-2 h-2 bg-violet-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
-                <p className="text-slate-300 text-sm font-semibold">Reading chart structure…</p>
-                <p className="text-slate-600 text-xs mt-1">Technical patterns · Relative strength · Sector view · Story</p>
+                <p className="text-slate-700 dark:text-slate-300 text-sm font-semibold">Reading chart structure…</p>
+                <p className="text-slate-400 dark:text-slate-600 text-xs mt-1">Technical patterns · Relative strength · Sector view · Story</p>
               </div>
             )}
 
             {error && (
-              <div className="bg-rose-950/30 border border-rose-800/50 rounded-2xl p-4 text-rose-400 text-sm">
+              <div className="bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 rounded-2xl p-4 text-rose-600 dark:text-rose-400 text-sm">
                 {error}
               </div>
             )}
@@ -505,9 +505,9 @@ export default function ChartAnalyserPage() {
                   { label: 'Paste directly', sub: '⌘V after copying a screenshot' },
                   { label: 'Daily or Weekly', sub: 'Best for positional analysis' },
                 ].map(h => (
-                  <div key={h.label} className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center">
-                    <p className="text-slate-300 text-xs font-semibold mb-0.5">{h.label}</p>
-                    <p className="text-slate-600 text-xs">{h.sub}</p>
+                  <div key={h.label} className="bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl p-3 text-center">
+                    <p className="text-slate-700 dark:text-slate-300 text-xs font-semibold mb-0.5">{h.label}</p>
+                    <p className="text-slate-500 dark:text-slate-600 text-xs">{h.sub}</p>
                   </div>
                 ))}
               </div>
@@ -517,8 +517,8 @@ export default function ChartAnalyserPage() {
           <div>
             {/* Chart preview strip */}
             {preview && (
-              <div className="mb-6 rounded-2xl overflow-hidden border border-white/10">
-                <img src={preview} alt="Analysed chart" className="w-full max-h-48 object-contain bg-black/40" />
+              <div className="mb-6 rounded-2xl overflow-hidden border border-slate-200 dark:border-white/10">
+                <img src={preview} alt="Analysed chart" className="w-full max-h-48 object-contain bg-slate-100 dark:bg-black/40" />
               </div>
             )}
 
@@ -527,7 +527,7 @@ export default function ChartAnalyserPage() {
             {/* Analyse another */}
             <button
               onClick={reset}
-              className="mt-6 w-full border border-white/10 hover:border-violet-500/40 text-slate-400 hover:text-white font-semibold rounded-xl py-3 text-sm transition-all"
+              className="mt-6 w-full border border-slate-200 dark:border-white/10 hover:border-violet-400 dark:hover:border-violet-500/40 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-semibold rounded-xl py-3 text-sm transition-all"
             >
               Analyse another chart →
             </button>
