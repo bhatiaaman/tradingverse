@@ -76,9 +76,12 @@ export default function Nav({ fixed = false }) {
 
         {user ? (
           <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+            <Link
+              href="/settings/account"
+              className="text-sm font-semibold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            >
               {user.name?.split(' ')[0]}
-            </span>
+            </Link>
             <button
               onClick={handleLogout}
               className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:border-red-400 hover:text-red-500 dark:hover:text-red-400 transition-all"
