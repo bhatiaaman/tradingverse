@@ -32,8 +32,7 @@ export async function POST(request) {
     let secretToUse;
     if (useEnvSecret) {
       secretToUse = process.env.KITE_SECRET
-        || process.env.KITE_API_SECRET
-        || process.env.NEXT_PUBLIC_KITE_SECRET;
+        || process.env.KITE_API_SECRET;
       if (secretToUse) secretToUse = secretToUse.trim();
     } else {
       secretToUse = apiSecret?.trim();
@@ -43,7 +42,7 @@ export async function POST(request) {
       return NextResponse.json({
         success: false,
         error: useEnvSecret
-          ? 'API Secret not found in environment variables (KITE_SECRET or KITE_API_SECRET)'
+          ? 'API Secret not found in environment variables. Set KITE_SECRET or KITE_API_SECRET.'
           : 'API Secret is required',
       }, { status: 400 });
     }

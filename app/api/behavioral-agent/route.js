@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/app/lib/providers';
 import { detectStations } from './lib/station-detector.js';
+import { requireSession, unauthorized } from '@/app/lib/session';
+import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit';
 
 // ─────────────────────────────────────────────
 // HELPERS
@@ -306,6 +308,10 @@ async function findInstrumentToken(symbol, exchange, apiKey, accessToken) {
 // MAIN HANDLER
 // ─────────────────────────────────────────────
 export async function POST(request) {
+  if (!await requireSession()) return unauthorized();
+  const rl = await checkLimit(intelligenceLimiter, request);
+  if (rl.limited) return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+
   try {
     const body = await request.json();
     const {

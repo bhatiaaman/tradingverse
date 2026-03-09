@@ -2,6 +2,7 @@ import { Redis } from '@upstash/redis'
 import bcrypt from 'bcryptjs'
 import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
+import { authLimiter, checkLimit } from '@/app/lib/rate-limit'
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
@@ -11,6 +12,11 @@ const redis = new Redis({
 const NS = process.env.REDIS_NAMESPACE || 'tradingverse'
 
 export async function POST(req) {
+  const rl = await checkLimit(authLimiter, req)
+  if (rl.limited) {
+    return NextResponse.json({ error: 'Too many attempts. Please try again later.' }, { status: 429 })
+  }
+
   const { email, password } = await req.json()
 
   if (!email || !password) {

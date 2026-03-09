@@ -1,10 +1,21 @@
-//import { setLatestScan } from '../../lib/scanStore';
-
 import { setLatestScan, setScannerScan } from "@/app/lib/scanStore";
 
+const WEBHOOK_SECRET = process.env.CHARTINK_WEBHOOK_SECRET;
+
 export async function POST(request) {
+  // Verify secret token if configured
+  if (WEBHOOK_SECRET) {
+    const provided = request.headers.get('x-webhook-secret') || new URL(request.url).searchParams.get('secret');
+    if (provided !== WEBHOOK_SECRET) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+  }
+
   try {
     const scanData = await request.json();
+    if (!scanData || typeof scanData !== 'object') {
+      return Response.json({ error: 'Invalid scan data' }, { status: 400 });
+    }
     
     const enrichedData = {
       ...scanData,

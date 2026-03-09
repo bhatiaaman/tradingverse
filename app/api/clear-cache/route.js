@@ -1,11 +1,13 @@
 // app/api/clear-cache/route.js
 import { NextResponse } from 'next/server';
+import { requireOwner, unauthorized } from '@/app/lib/session';
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS = process.env.REDIS_NAMESPACE || 'default';
 
 export async function GET() {
+  if (!await requireOwner()) return unauthorized();
   try {
     const CACHE_KEY = `${NS}:market-data`;
     await fetch(`${REDIS_URL}/del/${CACHE_KEY}`, {

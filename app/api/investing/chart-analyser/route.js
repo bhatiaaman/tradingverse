@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 import { SYSTEM_PROMPT, TIMEFRAME_DETECT_PROMPT, buildUserPrompt } from '@/app/lib/prompts/chart-analyser'
+import { requireSession, unauthorized } from '@/app/lib/session'
+import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -24,6 +26,10 @@ async function callClaude({ system, userPrompt, image, mediaType, maxTokens }) {
 }
 
 export async function POST(req) {
+  if (!await requireSession()) return unauthorized();
+  const rl = await checkLimit(intelligenceLimiter, req);
+  if (rl.limited) return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+
   try {
     const { image, mediaType = 'image/jpeg', timeframe, detectOnly = false } = await req.json()
 

@@ -13,6 +13,13 @@ export const intelligenceLimiter = new Ratelimit({
   prefix:  'rl:intelligence',
 });
 
+// 5 attempts per 15 min per IP — brute force protection for login/signup
+export const authLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(5, '15 m'),
+  prefix:  'rl:auth',
+});
+
 // 20 req/min for order placement (safety)
 export const orderLimiter = new Ratelimit({
   redis,

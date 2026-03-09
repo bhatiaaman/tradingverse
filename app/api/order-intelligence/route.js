@@ -8,6 +8,7 @@ import { runOIAgent } from './agents/oi.js';
 import { resolveToken } from './lib/resolve-token.js';
 import { getDataProvider } from '@/app/lib/providers';
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit';
+import { requireSession, unauthorized } from '@/app/lib/session';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -349,6 +350,7 @@ async function collectOIData(symbol, base) {
 //         productType?, includeStructure?, includePattern?, includeStation?, includeOI? }
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req) {
+  if (!await requireSession()) return unauthorized();
   const rl = await checkLimit(intelligenceLimiter, req);
   if (rl.limited) {
     return NextResponse.json(
