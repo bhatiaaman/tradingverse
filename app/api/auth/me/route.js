@@ -28,5 +28,7 @@ export async function GET() {
   }
 
   const user = typeof raw === 'string' ? JSON.parse(raw) : raw
-  return NextResponse.json({ user: { name: user.name, email: user.email } })
+  const ownerEmail = process.env.OWNER_EMAIL?.toLowerCase().trim()
+  const role = (ownerEmail && email.toLowerCase() === ownerEmail) ? 'admin' : 'user'
+  return NextResponse.json({ user: { name: user.name, email: user.email, role } })
 }

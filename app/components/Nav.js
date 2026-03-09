@@ -1,12 +1,25 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from '../../lib/theme-context'
+import { useState, useEffect } from 'react'
 
 export default function Nav({ fixed = false }) {
   const path = usePathname()
+  const router = useRouter()
   const { isDark, toggleTheme } = useTheme()
+  const [user, setUser] = useState(null)
+
+  useEffect(() => {
+    fetch('/api/auth/me').then(r => r.json()).then(d => setUser(d.user || null)).catch(() => {})
+  }, [path])
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    setUser(null)
+    router.push('/')
+  }
 
   const links = [
     { href: '/trades',    label: 'Trading Dashboard' },
@@ -61,14 +74,28 @@ export default function Nav({ fixed = false }) {
           )}
         </button>
 
-        <Link href="/login"
-          className={`px-4 py-2 rounded-lg border text-sm font-semibold transition-all ${
-            path === '/login'
-              ? 'border-blue-600 text-blue-600 dark:text-white bg-blue-600/10'
-              : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-blue-600 hover:text-blue-600 dark:hover:text-white'
-          }`}>
-          Login
-        </Link>
+        {user ? (
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+              {user.name?.split(' ')[0]}
+            </span>
+            <button
+              onClick={handleLogout}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:border-red-400 hover:text-red-500 dark:hover:text-red-400 transition-all"
+            >
+              Logout
+            </button>
+          </div>
+        ) : (
+          <Link href="/login"
+            className={`px-4 py-2 rounded-lg border text-sm font-semibold transition-all ${
+              path === '/login'
+                ? 'border-blue-600 text-blue-600 dark:text-white bg-blue-600/10'
+                : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-blue-600 hover:text-blue-600 dark:hover:text-white'
+            }`}>
+            Login
+          </Link>
+        )}
       </div>
 
       {/* Mobile menu */}

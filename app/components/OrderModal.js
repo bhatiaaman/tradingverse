@@ -26,6 +26,7 @@ export default function OrderModal({
   const [success, setSuccess] = useState('');
   
   const [isSessionLoggedIn, setIsSessionLoggedIn] = useState(true); // optimistic
+  const [userRole, setUserRole] = useState(null); // null=unknown, 'admin', 'user'
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [kiteApiKey, setKiteApiKey] = useState('');
@@ -69,13 +70,25 @@ export default function OrderModal({
   const checkKiteAuth = async () => {
     setCheckingAuth(true);
     try {
-      const res = await fetch('/api/kite-config');
-      if (res.status === 401) {
+      // Check session + role first
+      const meRes = await fetch('/api/auth/me');
+      const meData = await meRes.json();
+      if (!meData.user) {
         setIsSessionLoggedIn(false);
         setIsLoggedIn(false);
         return;
       }
       setIsSessionLoggedIn(true);
+      setUserRole(meData.user.role);
+
+      // Only admin can connect broker / place orders
+      if (meData.user.role !== 'admin') return;
+
+      const res = await fetch('/api/kite-config');
+      if (res.status === 401) {
+        setIsLoggedIn(false);
+        return;
+      }
       const data = await res.json();
       setIsLoggedIn(data.tokenValid === true);
       setKiteApiKey(data.config?.apiKey || '');
@@ -271,8 +284,12 @@ export default function OrderModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!isSessionLoggedIn) {
+      setIsSessionLoggedIn(false);
+      return;
+    }
     if (!isLoggedIn) {
-      setError('Please login to Kite first');
+      setError('Please connect your broker account first');
       return;
     }
 
@@ -342,6 +359,11 @@ export default function OrderModal({
         body: JSON.stringify(orderData),
       });
       const result = await response.json();
+      if (response.status === 401) {
+        setIsSessionLoggedIn(false);
+        setIsLoggedIn(false);
+        return;
+      }
       if (!response.ok) {
         throw new Error(result.error || 'Failed to place order');
       }
@@ -472,6 +494,19 @@ export default function OrderModal({
               <LogIn className="w-5 h-5" />
               Login to TradingVerse
             </a>
+          </div>
+        ) : userRole === 'user' ? (
+          <div className="p-8 flex flex-col items-center justify-center text-center">
+            <div className="w-16 h-16 bg-gradient-to-br from-violet-500 to-violet-600 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-violet-600/30">
+              <TrendingUp className="w-8 h-8 text-white" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Unauthorized</h3>
+            <p className="text-amber-400 text-sm font-semibold mb-3">
+              Only paid users can place orders.
+            </p>
+            <p className="text-slate-500 text-xs max-w-xs">
+              You can still use market data, intelligence, and all learning features.
+            </p>
           </div>
         ) : !isLoggedIn ? (
           <div className="p-8 flex flex-col items-center justify-center">

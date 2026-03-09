@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getBroker } from '@/app/lib/providers';
 import { orderLimiter, checkLimit } from '@/app/lib/rate-limit';
-import { requireSession, unauthorized } from '@/app/lib/session';
+import { requireOwner, requireSession, unauthorized, forbidden } from '@/app/lib/session';
 
 export async function POST(request) {
-  if (!await requireSession()) return unauthorized();
+  const session = await requireSession();
+  if (!session) return unauthorized();
+  if (session.role !== 'admin') return forbidden();
 
   const rl = await checkLimit(orderLimiter, request);
   if (rl.limited) {
@@ -120,7 +122,9 @@ export async function POST(request) {
 }
 
 export async function GET(request) {
-  if (!await requireSession()) return unauthorized();
+  const getSession = await requireSession();
+  if (!getSession) return unauthorized();
+  if (getSession.role !== 'admin') return forbidden();
 
   const broker = await getBroker();
 

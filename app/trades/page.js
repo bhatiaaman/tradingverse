@@ -141,6 +141,7 @@ function getNiftyLevelAlerts(indices) {
     const [sentimentData, setSentimentData] = useState(null);
     const [sentimentLoading, setSentimentLoading] = useState(true);
     const [kiteAuth, setKiteAuth] = useState({ isLoggedIn: false, checking: true });
+    const [userRole, setUserRole] = useState(null);
     const isMarketHours = () => {
       const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
       const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
@@ -162,9 +163,11 @@ function getNiftyLevelAlerts(indices) {
 
     // Check Kite auth status
     useEffect(() => {
+      fetch('/api/auth/me').then(r => r.json()).then(d => setUserRole(d.user?.role || 'user')).catch(() => {});
       const checkKiteAuth = async () => {
         try {
           const res = await fetch('/api/kite-config');
+          if (res.status === 401) { setKiteAuth({ isLoggedIn: false, checking: false }); return; }
           const data = await res.json();
           setKiteAuth({ isLoggedIn: data.tokenValid === true, checking: false });
         } catch (error) {
@@ -468,25 +471,27 @@ function getNiftyLevelAlerts(indices) {
         {/* Sub-bar: Kite status + quick links */}
         <div className="border-b border-white/5 bg-[#060b14]">
           <div className="max-w-[1400px] mx-auto px-6 py-2.5 flex items-center justify-between">
-            {/* Kite status */}
-            <button
-              onClick={openKiteSettings}
-              className="flex items-center gap-2 text-sm hover:opacity-80 transition-opacity"
-              title={kiteAuth.checking ? 'Checking...' : kiteAuth.isLoggedIn ? 'Kite Connected — click to manage' : 'Kite Disconnected — click to connect'}
-            >
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                kiteAuth.isLoggedIn ? 'bg-emerald-400' :
-                kiteAuth.checking  ? 'bg-slate-500' :
-                'bg-rose-500'
-              }`} />
-              <span className={`font-medium ${
-                kiteAuth.isLoggedIn ? 'text-emerald-400' :
-                kiteAuth.checking  ? 'text-slate-500' :
-                'text-rose-400'
-              }`}>
-                {kiteAuth.checking ? 'Checking…' : kiteAuth.isLoggedIn ? 'Kite Connected' : 'Kite Disconnected'}
-              </span>
-            </button>
+            {/* Kite status — admin only */}
+            {userRole === 'admin' ? (
+              <button
+                onClick={openKiteSettings}
+                className="flex items-center gap-2 text-sm hover:opacity-80 transition-opacity"
+                title={kiteAuth.checking ? 'Checking...' : kiteAuth.isLoggedIn ? 'Kite Connected — click to manage' : 'Kite Disconnected — click to connect'}
+              >
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  kiteAuth.isLoggedIn ? 'bg-emerald-400' :
+                  kiteAuth.checking  ? 'bg-slate-500' :
+                  'bg-rose-500'
+                }`} />
+                <span className={`font-medium ${
+                  kiteAuth.isLoggedIn ? 'text-emerald-400' :
+                  kiteAuth.checking  ? 'text-slate-500' :
+                  'text-rose-400'
+                }`}>
+                  {kiteAuth.checking ? 'Checking…' : kiteAuth.isLoggedIn ? 'Kite Connected' : 'Kite Disconnected'}
+                </span>
+              </button>
+            ) : <div />}
 
             {/* Quick links */}
             <div className="flex items-center gap-1">

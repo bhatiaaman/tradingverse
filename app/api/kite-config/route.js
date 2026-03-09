@@ -2,10 +2,10 @@ import { NextResponse } from 'next/server';
 import { KiteBroker } from '@/app/lib/providers/kite/KiteBroker.js';
 import { kiteRedisGet } from '@/app/lib/providers/kite/kite-redis.js';
 import { invalidateCredentialsCache } from '@/app/lib/kite-credentials';
-import { requireSession, unauthorized } from '@/app/lib/session';
+import { requireOwner, unauthorized } from '@/app/lib/session';
 
 export async function GET() {
-  if (!await requireSession()) return unauthorized();
+  if (!await requireOwner()) return unauthorized();
 
   try {
     const [redisApiKey, redisAccessToken, disconnected] = await Promise.all([
@@ -35,7 +35,7 @@ export async function GET() {
 }
 
 export async function POST(request) {
-  if (!await requireSession()) return unauthorized();
+  if (!await requireOwner()) return unauthorized();
 
   try {
     const body = await request.json();

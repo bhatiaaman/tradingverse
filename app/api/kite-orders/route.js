@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getBroker } from '@/app/lib/providers';
-import { requireSession, unauthorized } from '@/app/lib/session';
+import { requireOwner, unauthorized } from '@/app/lib/session';
 
 export async function GET(request) {
-  if (!await requireSession()) return unauthorized();
+  if (!await requireOwner()) return unauthorized();
 
   try {
     const { searchParams } = new URL(request.url);

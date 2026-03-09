@@ -270,11 +270,17 @@ function NiftyRangeBar({ indices }) {
   );
 }
 
-function TopBar({ indices, kiteConnected }) {
+function TopBar({ indices, kiteConnected, user, setUser }) {
   const { isDark, toggleTheme } = useTheme();
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setUser(null);
+  };
+
   return (
     <div className="h-11 flex items-center justify-between px-4 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-white/10 flex-shrink-0">
-      <Link href="/" className="text-xs font-bold text-gray-500 dark:text-white/50 tracking-widest uppercase hover:text-gray-800 dark:hover:text-white/80 transition-colors">
+      <Link href="/trades" className="text-xs font-bold text-gray-500 dark:text-white/50 tracking-widest uppercase hover:text-gray-800 dark:hover:text-white/80 transition-colors">
         Terminal
       </Link>
 
@@ -297,9 +303,23 @@ function TopBar({ indices, kiteConnected }) {
       </div>
 
       <div className="flex items-center gap-3">
-        <Link href="/trades" className="text-xs text-gray-400 dark:text-white/30 hover:text-gray-700 dark:hover:text-white/70 transition-colors hidden sm:inline">
-          ← Trades
-        </Link>
+        {user ? (
+          <>
+            <span className="text-xs text-gray-500 dark:text-white/40 hidden sm:inline">
+              {user.name?.split(' ')[0] || user.email}
+            </span>
+            <button
+              onClick={handleLogout}
+              className="text-xs text-gray-400 dark:text-white/30 hover:text-gray-700 dark:hover:text-white/70 transition-colors hidden sm:inline"
+            >
+              Logout
+            </button>
+          </>
+        ) : (
+          <Link href="/login?next=/terminal" className="text-xs text-gray-400 dark:text-white/30 hover:text-gray-700 dark:hover:text-white/70 transition-colors hidden sm:inline">
+            Login
+          </Link>
+        )}
         <button
           onClick={toggleTheme}
           className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors"
@@ -1075,15 +1095,37 @@ function PlaceOrderTab({
         )}
 
         {/* Order result banner */}
-        {orderResult && (
-          <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
-            orderResult.success ? 'bg-green-500/10 border border-green-500/30 text-green-600 dark:text-green-300'
-                                : 'bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-300'
-          }`}>
-            {orderResult.success
-              ? <><CheckCircle size={13} /> Order #{orderResult.order_id} placed successfully</>
-              : <><XCircle size={13} /> {orderResult.error}</>
-            }
+        {orderResult && orderResult.success && (
+          <div className="p-3 rounded-xl text-xs flex items-center gap-2 bg-green-500/10 border border-green-500/30 text-green-600 dark:text-green-300">
+            <CheckCircle size={13} /> Order #{orderResult.order_id} placed successfully
+          </div>
+        )}
+        {orderResult && !orderResult.success && orderResult.error === 'Please login to place orders.' && (
+          <div className="p-6 flex flex-col items-center justify-center text-center gap-3 bg-blue-950/40 border border-blue-500/20 rounded-xl">
+            <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            </div>
+            <div>
+              <p className="text-white font-bold text-sm mb-1">Login Required</p>
+              <p className="text-blue-400 text-xs">Please login to place orders.</p>
+            </div>
+          </div>
+        )}
+        {orderResult && !orderResult.success && orderResult.error === 'Only paid users can place orders.' && (
+          <div className="p-6 flex flex-col items-center justify-center text-center gap-3 bg-violet-950/40 border border-violet-500/20 rounded-xl">
+            <div className="w-10 h-10 rounded-full bg-violet-600 flex items-center justify-center">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+            </div>
+            <div>
+              <p className="text-white font-bold text-sm mb-1">Unauthorized</p>
+              <p className="text-amber-400 text-xs font-semibold mb-1">Only paid users can place orders.</p>
+              <p className="text-slate-500 text-xs">You can still use market data, intelligence, and all learning features.</p>
+            </div>
+          </div>
+        )}
+        {orderResult && !orderResult.success && orderResult.error !== 'Please login to place orders.' && orderResult.error !== 'Only paid users can place orders.' && (
+          <div className="p-3 rounded-xl text-xs flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-300">
+            <XCircle size={13} /> {orderResult.error}
           </div>
         )}
 
@@ -1225,6 +1267,11 @@ export default function TerminalPage() {
 
   const [kiteConnected, setKiteConnected]   = useState(false);
   const [indices, setIndices]               = useState(null);
+  const [user, setUser]                     = useState(null);
+
+  useEffect(() => {
+    fetch('/api/auth/me').then(r => r.json()).then(d => setUser(d.user || null)).catch(() => {});
+  }, []);
 
   // Watchlist (2 manual tabs + 1 scanner tab)
   const [watchTab, setWatchTab]             = useState(1);
@@ -1707,6 +1754,10 @@ export default function TerminalPage() {
         setOrderResult({ success: true, order_id: d.order_id });
         setPrice(''); setTriggerPrice('');
         setTimeout(() => { fetchPositions(); fetchPanelOrders(); runIntelligence(); }, 1200);
+      } else if (r.status === 401) {
+        setOrderResult({ success: false, error: 'Please login to place orders.' });
+      } else if (r.status === 403) {
+        setOrderResult({ success: false, error: 'Only paid users can place orders.' });
       } else {
         setOrderResult({ success: false, error: d.error || 'Unknown error' });
       }
@@ -1764,7 +1815,7 @@ export default function TerminalPage() {
   // ── Render
   return (
     <div className="h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-white flex flex-col overflow-hidden">
-      <TopBar indices={indices} kiteConnected={kiteConnected} />
+      <TopBar indices={indices} kiteConnected={kiteConnected} user={user} setUser={setUser} />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Watchlist: always visible on md+, mobile-controlled */}

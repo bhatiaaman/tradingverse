@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 function KiteSettingsContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [config, setConfig] = useState({
     apiKey: '',
     apiSecret: '', // Only kept in memory, never saved to disk
@@ -43,6 +44,10 @@ function KiteSettingsContent() {
   const fetchCurrentConfig = async () => {
     try {
       const res = await fetch('/api/kite-config');
+      if (res.status === 401) {
+        router.replace('/login?next=/settings/kite');
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         setConfig(prev => ({

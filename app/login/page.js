@@ -2,11 +2,13 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import posthog from 'posthog-js'
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const nextUrl = searchParams.get('next') || '/trades'
   const [mode, setMode] = useState('login') // 'login' | 'signup'
   const [form, setForm] = useState({ name: '', email: '', password: '' })
   const [showPass, setShowPass] = useState(false)
@@ -40,7 +42,7 @@ export default function LoginPage() {
       } else {
         posthog.identify(form.email, { email: form.email, name: form.name || data.user?.name })
         posthog.capture(mode === 'signup' ? 'signed_up' : 'logged_in', { email: form.email })
-        router.push('/trades')
+        router.push(nextUrl)
       }
     } catch {
       setError('Network error. Please try again.')
