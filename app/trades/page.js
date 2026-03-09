@@ -787,7 +787,7 @@ function getNiftyLevelAlerts(indices) {
                     {optionChainData?.marketActivity?.activity || 'Loading...'}
                   </div>
                   <div className="text-[9px] text-slate-400">
-                    PCR: {optionChainData?.pcr?.toFixed(2) || '---'}
+                    PCR: {optionChainData?.pcr > 0 ? optionChainData.pcr.toFixed(2) : '---'}
                   </div>
                 </div>
 
@@ -814,17 +814,17 @@ function getNiftyLevelAlerts(indices) {
                     <div>
                       <div className="text-slate-500 text-[8px] mb-0.5">Daily</div>
                       <div className="flex justify-between items-center">
-                        <span className={`text-xs font-mono font-semibold ${isNearHigh('niftyHigh') ? 'text-amber-300 animate-pulse' : 'text-emerald-400'}`}>{fmt(idx?.niftyHigh)}</span>
+                        <span className={`text-sm font-mono font-semibold ${isNearHigh('niftyHigh') ? 'text-amber-300 animate-pulse' : 'text-emerald-400'}`}>{fmt(idx?.niftyHigh)}</span>
                         <span className="text-slate-600 text-[8px]">H/L</span>
-                        <span className={`text-xs font-mono font-semibold ${isNearHigh('niftyLow') ? 'text-sky-300 animate-pulse' : 'text-red-400'}`}>{fmt(idx?.niftyLow)}</span>
+                        <span className={`text-sm font-mono font-semibold ${isNearHigh('niftyLow') ? 'text-sky-300 animate-pulse' : 'text-red-400'}`}>{fmt(idx?.niftyLow)}</span>
                       </div>
                     </div>
                     <div>
                       <div className="text-slate-500 text-[8px] mb-0.5">Weekly</div>
                       <div className="flex justify-between items-center">
-                        <span className={`text-xs font-mono font-semibold ${isNearHigh('niftyWeeklyHigh') ? 'text-amber-300 animate-pulse' : 'text-emerald-600'}`}>{fmt(idx?.niftyWeeklyHigh)}</span>
+                        <span className={`text-sm font-mono font-semibold ${isNearHigh('niftyWeeklyHigh') ? 'text-amber-300 animate-pulse' : 'text-emerald-600'}`}>{fmt(idx?.niftyWeeklyHigh)}</span>
                         <span className="text-slate-600 text-[8px]">H/L</span>
-                        <span className={`text-xs font-mono font-semibold ${isNearHigh('niftyWeeklyLow') ? 'text-sky-300 animate-pulse' : 'text-red-700'}`}>{fmt(idx?.niftyWeeklyLow)}</span>
+                        <span className={`text-sm font-mono font-semibold ${isNearHigh('niftyWeeklyLow') ? 'text-sky-300 animate-pulse' : 'text-red-700'}`}>{fmt(idx?.niftyWeeklyLow)}</span>
                       </div>
                     </div>
                     {nearLabel && (

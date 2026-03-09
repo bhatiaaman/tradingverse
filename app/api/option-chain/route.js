@@ -37,7 +37,7 @@ function isMarketHours() {
 const CACHE_TTL = 60;
 const HISTORY_TTL = 3600;
 const INSTRUMENTS_CACHE_KEY = `${NS}:nfo-instruments-all`;
-const INSTRUMENTS_CACHE_TTL = 86400;
+const INSTRUMENTS_CACHE_TTL = 7200; // 2h — refreshes intraday, handles expiry rollovers
 
 const UNDERLYING_CONFIG = {
   NIFTY: { spotSymbol: 'NIFTY 50', name: 'NIFTY', lotSize: 25, strikeGap: 50 },
@@ -196,15 +196,21 @@ export async function GET(request) {
   const cacheKey      = `${NS}:option-chain-${underlying}-${expiryType}`;
   const historyKey    = `${NS}:option-history-${underlying}-${expiryType}`;
   const sessionKey    = `${NS}:session-open-${underlying}-${expiryType}`;
+  const forceRefresh  = searchParams.get('refresh') === '1';
 
   try {
     const cached = await redisGet(cacheKey);
 
-    if (cached && !isMarketHours()) {
+    if (cached && !forceRefresh && !isMarketHours()) {
       return NextResponse.json({ ...cached, fromCache: true, offMarketHours: true });
     }
-    if (cached) {
+    if (cached && !forceRefresh) {
       return NextResponse.json({ ...cached, fromCache: true });
+    }
+
+    // Bust instruments cache on force-refresh so stale expiry data is cleared
+    if (forceRefresh) {
+      await redisSet(INSTRUMENTS_CACHE_KEY, null, 1);
     }
 
     const dp = await getDataProvider();
