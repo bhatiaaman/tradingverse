@@ -39,8 +39,12 @@ export default function OrderModal({
   // ─── QUICK INSIGHTS STATE ────────────────────────────────────────────
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsResult, setInsightsResult] = useState(null);
+  const [showInsightDetails, setShowInsightDetails] = useState(false);
   const [avgDownAlert, setAvgDownAlert] = useState(null); // Averaging down warning
   const [positions, setPositions] = useState([]);
+  const [activeTab, setActiveTab] = useState('order');
+  const [deepIntelLoading, setDeepIntelLoading] = useState(false);
+  const [deepIntelResult, setDeepIntelResult] = useState(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -153,7 +157,10 @@ export default function OrderModal({
       setKiteOptionSymbol(null);
       setOptionLtp(null);
       setExpiryDay(null);
-      setInsightsResult(null); // Reset insights
+      setInsightsResult(null);
+      setShowInsightDetails(false);
+      setActiveTab('order');
+      setDeepIntelResult(null);
       if (optionType && price) {
         setStrike(getExpectedStrike(symbol, price, optionType));
       } else {
@@ -213,10 +220,45 @@ export default function OrderModal({
     }
   };
 
-  // Trigger insights when transaction type changes
+  // ─── FETCH DEEP INTELLIGENCE (5 agents) ─────────────────────────────
+  const fetchDeepIntel = async () => {
+    if (!symbol || !transactionType) return;
+    setDeepIntelLoading(true);
+    try {
+      const isIndex = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'].includes(symbol?.toUpperCase());
+      const res = await fetch('/api/order-intelligence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol,
+          tradingsymbol: kiteOptionSymbol || optionSymbol || symbol,
+          exchange: optionType ? 'NFO' : 'NSE',
+          instrumentType: optionType || 'EQ',
+          transactionType,
+          productType: product,
+          quantity: quantity || 1,
+          price: optionType ? (optionLtp || price) : price,
+          spotPrice: price || 0,
+          includeStructure: true,
+          includePattern: true,
+          includeStation: true,
+          includeOI: isIndex,
+        }),
+      });
+      const data = await res.json();
+      setDeepIntelResult(data);
+    } catch (err) {
+      console.error('Deep intel error:', err);
+    } finally {
+      setDeepIntelLoading(false);
+    }
+  };
+
+  // Trigger quick + deep analysis when modal opens or transaction type changes
   useEffect(() => {
     if (isOpen && symbol && transactionType && isLoggedIn) {
       fetchQuickInsights();
+      fetchDeepIntel();
     }
   }, [isOpen, symbol, transactionType, isLoggedIn, kiteOptionSymbol]);
 
@@ -318,10 +360,10 @@ export default function OrderModal({
   // ─── VERDICT CONFIG ───────────────────────────────────────────────────
   const getVerdictColor = (verdict) => {
     switch (verdict) {
-      case 'danger': return { bg: 'bg-red-900/20', border: 'border-red-500/40', text: 'text-red-400', dot: 'bg-red-500' };
-      case 'warning': return { bg: 'bg-amber-900/20', border: 'border-amber-500/30', text: 'text-amber-400', dot: 'bg-amber-500' };
-      case 'caution': return { bg: 'bg-yellow-900/15', border: 'border-yellow-500/20', text: 'text-yellow-400', dot: 'bg-yellow-500' };
-      default: return { bg: 'bg-green-900/20', border: 'border-green-500/30', text: 'text-green-400', dot: 'bg-green-500' };
+      case 'danger': return { bg: 'bg-red-900/20', border: 'border-red-500/40', text: 'text-red-400', dot: 'bg-red-500', stroke: '#ef4444' };
+      case 'warning': return { bg: 'bg-amber-900/20', border: 'border-amber-500/30', text: 'text-amber-400', dot: 'bg-amber-500', stroke: '#f59e0b' };
+      case 'caution': return { bg: 'bg-yellow-900/15', border: 'border-yellow-500/20', text: 'text-yellow-400', dot: 'bg-yellow-500', stroke: '#eab308' };
+      default: return { bg: 'bg-green-900/20', border: 'border-green-500/30', text: 'text-green-400', dot: 'bg-green-500', stroke: '#22c55e' };
     }
   };
 
@@ -434,35 +476,59 @@ export default function OrderModal({
             </button>
           </div>
         ) : (
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          
-          {/* ═══ QUICK INSIGHTS BANNER ═══ */}
-          {insightsLoading && (
-            <div className="p-3 bg-slate-700/50 border border-white/10 rounded-xl flex items-center gap-2">
-              <Brain size={16} className="text-purple-400 animate-pulse" />
-              <span className="text-xs text-slate-300">Analyzing trade setup...</span>
-            </div>
-          )}
+        <form onSubmit={handleSubmit} className="flex flex-col">
 
-          {insightsResult && !insightsLoading && (
-            <div className="space-y-2">
-              {/* Score + Verdict */}
-              {(() => {
-                const vc = getVerdictColor(insightsResult.verdict);
-                return (
+          {/* ── Tab bar ─────────────────────────────────────────────────────── */}
+          <div className="flex px-5 pt-3 pb-2 gap-1 border-b border-white/5">
+            <button type="button" onClick={() => setActiveTab('order')}
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                activeTab === 'order' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'
+              }`}>
+              Place Order
+            </button>
+            <button type="button" onClick={() => setActiveTab('analysis')}
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                activeTab === 'analysis' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'
+              }`}>
+              Intelligence
+              {insightsResult && (insightsResult.verdict === 'danger' || insightsResult.verdict === 'warning' || insightsResult.verdict === 'caution') && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+              )}
+            </button>
+          </div>
+
+          {/* ── ANALYSIS TAB ─────────────────────────────────────────────────── */}
+          {activeTab === 'analysis' && (
+          <div className="p-5 space-y-3">
+            {insightsLoading && (
+              <div className="p-3 bg-slate-700/50 border border-white/10 rounded-xl flex items-center gap-2">
+                <Brain size={16} className="text-purple-400 animate-pulse" />
+                <span className="text-xs text-slate-300">Analyzing trade setup...</span>
+              </div>
+            )}
+            {insightsResult && !insightsLoading && (() => {
+              const vc = getVerdictColor(insightsResult.verdict);
+              const warnings = insightsResult.insights?.filter(i => i.level === 'warning') || [];
+              const cautions = insightsResult.insights?.filter(i => i.level === 'caution') || [];
+              const infos    = insightsResult.insights?.filter(i => i.level === 'info') || [];
+              const clears   = insightsResult.insights?.filter(i => i.level === 'clear') || [];
+              const ordered  = [...warnings, ...cautions, ...infos, ...clears];
+              const cardCfg  = {
+                warning: { bg: 'bg-red-900/30',   border: 'border-red-500/30',   text: 'text-red-300'   },
+                caution: { bg: 'bg-amber-900/25', border: 'border-amber-500/25', text: 'text-amber-300' },
+                info:    { bg: 'bg-blue-900/20',  border: 'border-blue-500/20',  text: 'text-blue-300'  },
+                clear:   { bg: 'bg-green-900/15', border: 'border-green-500/20', text: 'text-green-300' },
+              };
+              return (
+                <div className="space-y-2">
                   <div className={`p-3 rounded-xl border ${vc.bg} ${vc.border}`}>
-                    <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className="relative">
-                          <svg width="32" height="32" viewBox="0 0 32 32" className="-rotate-90">
+                          <svg width="36" height="36" viewBox="0 0 32 32" className="-rotate-90">
                             <circle cx="16" cy="16" r="14" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
-                            <circle 
-                              cx="16" cy="16" r="14" fill="none" 
-                              stroke={vc.dot.replace('bg-', '#')} 
-                              strokeWidth="3"
-                              strokeDasharray={`${(insightsResult.riskScore / 100) * 88} 88`}
-                              strokeLinecap="round"
-                            />
+                            <circle cx="16" cy="16" r="14" fill="none" stroke={vc.stroke} strokeWidth="3"
+                              strokeDasharray={`${(insightsResult.riskScore / 100) * 88} 88`} strokeLinecap="round" />
                           </svg>
                           <div className="absolute inset-0 flex items-center justify-center">
                             <span className={`text-xs font-bold ${vc.text}`}>{insightsResult.riskScore}</span>
@@ -477,48 +543,286 @@ export default function OrderModal({
                           <div className="text-[10px] text-slate-500">Risk Score</div>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={fetchQuickInsights}
-                        className="p-1.5 hover:bg-white/5 rounded transition-colors"
-                        title="Refresh"
-                      >
+                      <button type="button" onClick={fetchQuickInsights} title="Refresh" className="p-1.5 hover:bg-white/5 rounded transition-colors">
                         <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
                       </button>
                     </div>
                   </div>
-                );
-              })()}
-
-              {/* Direction Verdict */}
-              {insightsResult.directionVerdict && (() => {
-                const dc = getDirectionColor(insightsResult.directionVerdict.suitable);
-                return (
-                  <div className={`p-2.5 rounded-lg border ${dc.bg} ${dc.border}`}>
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <span className="text-sm">{dc.icon}</span>
-                      <span className={`text-xs font-semibold ${dc.text}`}>
-                        {insightsResult.directionVerdict.suitable ? 'GOOD SETUP' : 'WEAK SETUP'} FOR {insightsResult.directionVerdict.action || 'THIS TRADE'}
-                      </span>
+                  {insightsResult.directionVerdict && (() => {
+                    const dc = getDirectionColor(insightsResult.directionVerdict.suitable);
+                    return (
+                      <div className={`p-2.5 rounded-lg border ${dc.bg} ${dc.border}`}>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="text-sm">{dc.icon}</span>
+                          <span className={`text-xs font-semibold ${dc.text}`}>
+                            {insightsResult.directionVerdict.suitable ? 'GOOD SETUP' : 'WEAK SETUP'} FOR {insightsResult.directionVerdict.action || 'THIS TRADE'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">{insightsResult.directionVerdict.reason}</p>
+                      </div>
+                    );
+                  })()}
+                  {ordered.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {warnings.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/20 text-red-400">{warnings.length} warning{warnings.length > 1 ? 's' : ''}</span>}
+                      {cautions.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-400">{cautions.length} caution{cautions.length > 1 ? 's' : ''}</span>}
+                      {infos.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/20 text-blue-400">{infos.length} info</span>}
+                      {clears.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-400">{clears.length} clear</span>}
+                      {insightsResult.deepAnalysis && <span className="ml-auto text-[10px] text-slate-500">⚡ live data</span>}
                     </div>
-                    <p className="text-[11px] text-slate-400 leading-relaxed">
-                      {insightsResult.directionVerdict.reason}
-                    </p>
+                  )}
+                  <div className="space-y-1.5">
+                    {ordered.map((ins, i) => {
+                      const cfg = cardCfg[ins.level] || cardCfg.info;
+                      return (
+                        <div key={i} className={`p-2.5 rounded-lg border ${cfg.bg} ${cfg.border}`}>
+                          <div className="flex items-start gap-2">
+                            {ins.icon && <span className="text-sm leading-tight flex-shrink-0">{ins.icon}</span>}
+                            <div className="min-w-0">
+                              <div className={`text-[11px] font-semibold ${cfg.text} leading-snug`}>{ins.title}</div>
+                              {ins.detail && <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">{ins.detail}</div>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {insightsResult.stationAnalysis?.available && insightsResult.stationAnalysis.nearestStation && (() => {
+                    const nearest = insightsResult.stationAnalysis.nearestStation;
+                    const evaluation = insightsResult.stationAnalysis.tradeEvaluation;
+                    const stationLabel = nearest.name || nearest.level || nearest.type || 'Key Level';
+                    return (
+                      <div className="pt-1 border-t border-white/10">
+                        <div className="text-[10px] text-slate-500 mb-1.5 uppercase tracking-wider">Nearest Station</div>
+                        <div className="p-2.5 bg-indigo-900/25 border border-indigo-500/25 rounded-lg">
+                          <div className="flex items-start gap-2">
+                            <span className="text-base leading-none">🚉</span>
+                            <div>
+                              <div className="text-[11px] font-semibold text-indigo-300 leading-snug">
+                                {stationLabel}
+                                {nearest.price && <span className="text-slate-400 font-normal ml-1.5">₹{Number(nearest.price).toLocaleString('en-IN')}</span>}
+                              </div>
+                              {nearest.type && nearest.type !== stationLabel && <div className="text-[10px] text-slate-500 capitalize">{nearest.type}</div>}
+                              {evaluation?.reasoning && <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">{evaluation.reasoning}</p>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
+
+            {/* ── Reconciliation banner (shown when both analyses are loaded) ── */}
+            {insightsResult && deepIntelResult && !insightsLoading && !deepIntelLoading && (() => {
+              const SEVERITY = { danger: 3, warning: 2, caution: 1, clear: 0 };
+              const AGENTS_LIST = ['behavioral', 'structure', 'pattern', 'station', 'oi'];
+              const deepTotalRisk = AGENTS_LIST.reduce((s, k) => s + (deepIntelResult[k]?.riskScore || 0), 0);
+              const deepVerdict = deepTotalRisk >= 40 ? 'danger' : deepTotalRisk >= 20 ? 'warning' : deepTotalRisk >= 10 ? 'caution' : 'clear';
+              const qS = SEVERITY[insightsResult.verdict] ?? 0;
+              const dS = SEVERITY[deepVerdict] ?? 0;
+              const gap = dS - qS; // positive = deep is worse than quick
+
+              let banner = null;
+              if (qS === 0 && dS === 0) {
+                banner = { icon: '✅', text: 'Aligned', detail: 'Both 5-min entry and multi-timeframe structure support this trade.', color: 'bg-green-900/20 border-green-500/20 text-green-300' };
+              } else if (gap >= 2) {
+                // Quick looks fine but deep flags real risk
+                banner = { icon: '⚠️', text: 'Scalp-only', detail: '5-min entry looks ok but structure flags risk across higher timeframes. Treat as intraday only — avoid positional. Have a strict SL.', color: 'bg-amber-900/30 border-amber-500/30 text-amber-300' };
+              } else if (gap <= -2) {
+                // Quick flags risk but deep structure is fine
+                banner = { icon: 'ℹ️', text: 'Timing issue', detail: 'Structure supports the trade but 5-min entry is suboptimal. Wait for a better entry signal before placing.', color: 'bg-blue-900/20 border-blue-500/20 text-blue-300' };
+              } else if (qS >= 2 && dS >= 2) {
+                // Both flag serious risk
+                banner = { icon: '🚫', text: 'Avoid', detail: 'Both 5-min analysis and structure flag risk. High probability of loss — consider sitting out.', color: 'bg-red-900/25 border-red-500/25 text-red-300' };
+              } else if (gap > 0) {
+                // Mild conflict: quick ok, deep slightly negative
+                banner = { icon: '↔️', text: 'Minor conflict', detail: '5-min entry is fine but structure raises minor concerns. Trade with reduced size or tighter stop.', color: 'bg-slate-700/60 border-slate-600/40 text-slate-300' };
+              } else if (gap < 0) {
+                // Mild conflict: quick caution, deep fine
+                banner = { icon: '↔️', text: 'Mixed signals', detail: 'Structure looks good but 5-min timing is off. Wait for the entry to improve.', color: 'bg-slate-700/60 border-slate-600/40 text-slate-300' };
+              }
+              if (!banner) return null;
+              return (
+                <div className={`p-2.5 rounded-lg border ${banner.color}`}>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="text-sm leading-none">{banner.icon}</span>
+                    <span className="text-[11px] font-bold">{banner.text}</span>
+                  </div>
+                  <p className="text-[10px] opacity-80 leading-relaxed">{banner.detail}</p>
+                </div>
+              );
+            })()}
+
+            {/* ── Deep Analysis ──────────────────────────────────────────── */}
+            <div className="border-t border-white/10 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <Brain size={13} className="text-purple-400" />
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">5-Agent Deep Analysis</span>
+                </div>
+                <button type="button" onClick={fetchDeepIntel} disabled={deepIntelLoading}
+                  className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors disabled:opacity-50">
+                  {deepIntelLoading ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                  {deepIntelResult ? 'Refresh' : 'Run Analysis'}
+                </button>
+              </div>
+              {!deepIntelResult && !deepIntelLoading && (
+                <p className="text-[11px] text-slate-500 text-center py-2">Pattern · Structure · OI · Station · Behavioral agents</p>
+              )}
+              {deepIntelLoading && (
+                <div className="flex items-center justify-center py-4 gap-2">
+                  <Loader2 size={16} className="animate-spin text-purple-400" />
+                  <span className="text-xs text-slate-400">Running 5 agents...</span>
+                </div>
+              )}
+              {deepIntelResult && !deepIntelLoading && (() => {
+                const SEV = {
+                  danger:  { dot: 'bg-red-500',   text: 'text-red-400'   },
+                  warning: { dot: 'bg-red-400',   text: 'text-red-300'   },
+                  caution: { dot: 'bg-amber-400', text: 'text-amber-300' },
+                  info:    { dot: 'bg-blue-400',  text: 'text-blue-300'  },
+                };
+                const AGENTS = [
+                  { key: 'behavioral', label: 'Behavioral',  icon: '🧠' },
+                  { key: 'structure',  label: 'Structure',   icon: '📐' },
+                  { key: 'pattern',    label: 'Pattern',     icon: '🕯️' },
+                  { key: 'station',    label: 'Station',     icon: '🚉' },
+                  { key: 'oi',         label: 'Open Interest', icon: '📊' },
+                ];
+                // Compute combined risk
+                const totalRisk = AGENTS.reduce((s, a) => s + (deepIntelResult[a.key]?.riskScore || 0), 0);
+                const overallVerdict = totalRisk >= 40 ? 'danger' : totalRisk >= 20 ? 'warning' : totalRisk >= 10 ? 'caution' : 'clear';
+                const ovc = getVerdictColor(overallVerdict);
+                return (
+                  <div className="space-y-2">
+                    {/* Combined header */}
+                    <div className={`p-2.5 rounded-lg border ${ovc.bg} ${ovc.border} flex items-center justify-between`}>
+                      <span className={`text-xs font-semibold ${ovc.text}`}>Combined Risk: {totalRisk}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded border ${ovc.border} ${ovc.text} capitalize`}>{overallVerdict}</span>
+                    </div>
+                    {/* Per-agent results */}
+                    {AGENTS.map(({ key, label, icon }) => {
+                      const agent = deepIntelResult[key];
+                      if (!agent) return null; // not requested (e.g. OI for non-index)
+                      if (agent.unavailable) return (
+                        <div key={key} className="flex items-center gap-2 py-1">
+                          <span className="text-sm">{icon}</span>
+                          <span className="text-[11px] text-slate-500 font-medium">{label}</span>
+                          <span className="ml-auto text-[10px] text-slate-600">unavailable</span>
+                        </div>
+                      );
+                      const avc = getVerdictColor(agent.verdict);
+                      const hasBehaviors = agent.behaviors?.length > 0;
+                      return (
+                        <div key={key} className={`rounded-lg border ${hasBehaviors ? `${avc.bg} ${avc.border}` : 'border-white/5'} p-2.5`}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm leading-none">{icon}</span>
+                            <span className={`text-[11px] font-semibold ${hasBehaviors ? avc.text : 'text-slate-400'}`}>{label}</span>
+                            <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border ${avc.border} ${avc.text} capitalize`}>{agent.verdict}</span>
+                            {agent.riskScore > 0 && <span className="text-[10px] text-slate-500">+{agent.riskScore}</span>}
+                          </div>
+                          {hasBehaviors && (
+                            <div className="space-y-1 mt-1.5 pl-6">
+                              {agent.behaviors.map((beh, i) => {
+                                const cfg = SEV[beh.severity] || { dot: 'bg-slate-400', text: 'text-slate-300' };
+                                return (
+                                  <div key={i} className="flex items-start gap-1.5">
+                                    <span className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
+                                    <div>
+                                      <div className={`text-[10px] font-medium ${cfg.text} leading-snug`}>{beh.title}</div>
+                                      {beh.detail && <div className="text-[9px] text-slate-500 leading-relaxed">{beh.detail}</div>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })()}
-
-              {/* Link to full analysis */}
-              <a
-                href={`/orders?symbol=${encodeURIComponent(symbol)}&type=${encodeURIComponent(optionType || 'EQ')}&transaction=${encodeURIComponent(transactionType)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block text-center text-xs text-blue-400 hover:text-blue-300 py-1 hover:underline"
-              >
-                See Full Analysis →
-              </a>
             </div>
+          </div>
           )}
+
+          {/* ── ORDER TAB ────────────────────────────────────────────────────── */}
+          {activeTab === 'order' && (
+          <div className="p-5 space-y-4">
+            {/* Condensed insights pill */}
+            {insightsLoading && (
+              <div className="p-2.5 bg-slate-700/50 border border-white/10 rounded-lg flex items-center gap-2">
+                <Brain size={14} className="text-purple-400 animate-pulse" />
+                <span className="text-xs text-slate-300">Analyzing...</span>
+              </div>
+            )}
+            {insightsResult && !insightsLoading && (() => {
+              const vc = getVerdictColor(insightsResult.verdict);
+              const issueCount = insightsResult.insights?.filter(i => i.level === 'warning' || i.level === 'caution').length || 0;
+              return (
+                <button type="button" onClick={() => setActiveTab('analysis')}
+                  className={`w-full flex items-center justify-between p-2.5 rounded-lg border ${vc.bg} ${vc.border} hover:opacity-80 transition-opacity text-left`}>
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-shrink-0">
+                      <svg width="26" height="26" viewBox="0 0 32 32" className="-rotate-90">
+                        <circle cx="16" cy="16" r="14" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
+                        <circle cx="16" cy="16" r="14" fill="none" stroke={vc.stroke} strokeWidth="3"
+                          strokeDasharray={`${(insightsResult.riskScore / 100) * 88} 88`} strokeLinecap="round" />
+                      </svg>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className={`text-[9px] font-bold ${vc.text}`}>{insightsResult.riskScore}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div className={`text-xs font-semibold ${vc.text}`}>
+                        {insightsResult.verdict === 'danger' ? 'High Risk' :
+                         insightsResult.verdict === 'warning' ? 'Caution' :
+                         insightsResult.verdict === 'caution' ? 'Review' : 'Looks Good'}
+                      </div>
+                      {issueCount > 0
+                        ? <div className="text-[10px] text-slate-500">{issueCount} issue{issueCount > 1 ? 's' : ''} · tap for analysis</div>
+                        : <div className="text-[10px] text-slate-500">{insightsResult.insights?.length || 0} checks passed</div>
+                      }
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-blue-400 flex-shrink-0">Full Analysis →</span>
+                </button>
+              );
+            })()}
+
+            {/* ── Reconciliation banner in Order tab (shown when deep analysis ran) ── */}
+            {insightsResult && deepIntelResult && !insightsLoading && !deepIntelLoading && (() => {
+              const SEVERITY = { danger: 3, warning: 2, caution: 1, clear: 0 };
+              const AGENTS_LIST = ['behavioral', 'structure', 'pattern', 'station', 'oi'];
+              const deepTotalRisk = AGENTS_LIST.reduce((s, k) => s + (deepIntelResult[k]?.riskScore || 0), 0);
+              const deepVerdict = deepTotalRisk >= 40 ? 'danger' : deepTotalRisk >= 20 ? 'warning' : deepTotalRisk >= 10 ? 'caution' : 'clear';
+              const qS = SEVERITY[insightsResult.verdict] ?? 0;
+              const dS = SEVERITY[deepVerdict] ?? 0;
+              const gap = dS - qS;
+
+              let banner = null;
+              if (gap >= 2) {
+                banner = { icon: '⚠️', text: 'Scalp-only — have a strict SL', color: 'bg-amber-900/30 border-amber-500/40 text-amber-300' };
+              } else if (qS >= 2 && dS >= 2) {
+                banner = { icon: '🚫', text: 'Avoid — both analyses flag risk', color: 'bg-red-900/30 border-red-500/40 text-red-300' };
+              } else if (gap > 0) {
+                banner = { icon: '↔️', text: 'Minor conflict — reduce size', color: 'bg-slate-700/60 border-slate-600/40 text-slate-300' };
+              }
+              if (!banner) return null;
+              return (
+                <button type="button" onClick={() => setActiveTab('analysis')}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border ${banner.color} hover:opacity-80 transition-opacity text-left`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm leading-none">{banner.icon}</span>
+                    <span className="text-[11px] font-semibold">{banner.text}</span>
+                  </div>
+                  <span className="text-[10px] text-blue-400 flex-shrink-0">Why? →</span>
+                </button>
+              );
+            })()}
 
           {/* Buy/Sell Toggle */}
           <div className="flex gap-2">
@@ -701,6 +1005,8 @@ export default function OrderModal({
           <p className="text-slate-500 text-[10px] text-center">
             Orders are placed via Kite Connect API. Market orders execute at current market price.
           </p>
+          </div>
+          )}
         </form>
         )}
       </div>

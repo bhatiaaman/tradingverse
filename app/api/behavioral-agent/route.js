@@ -579,8 +579,21 @@ export async function POST(request) {
           (volAnalysis.signal === 'bearish' && isBuyingCall) ||
           (volAnalysis.signal === 'bullish' && isBuyingPut);
 
-        const level = isConflict ? 'caution' : volAnalysis.signal.includes('weak') ? 'info' : volAnalysis.signal === 'spike' ? 'warning' : volAnalysis.signal === 'dryup' ? 'info' : 'clear';
+        const level = isConflict               ? 'caution'
+          : volAnalysis.signal === 'climax'    ? 'warning'
+          : volAnalysis.signal === 'divergence'? 'caution'
+          : volAnalysis.signal === 'fakeout'   ? 'caution'
+          : volAnalysis.signal === 'bearish'   ? 'caution'
+          : volAnalysis.signal === 'churn'     ? 'info'
+          : volAnalysis.signal === 'gap'       ? 'info'
+          : volAnalysis.signal === 'dryup_sr'  ? 'info'
+          : volAnalysis.signal.includes('weak')? 'info'
+          : volAnalysis.signal === 'spike'     ? 'warning'
+          : 'clear';
         if (isConflict) riskScore += 10;
+        if (volAnalysis.signal === 'climax') riskScore += 15;
+        if (volAnalysis.signal === 'divergence') riskScore += 8;
+        if (volAnalysis.signal === 'fakeout') riskScore += 10;
         insights.push({
           id: 'volume',
           level,
@@ -588,11 +601,18 @@ export async function POST(request) {
           detail: volAnalysis.detail,
           actionable: volAnalysis.actionable,
           icon:
-            volAnalysis.signal === 'bullish' ? '✅' :
-            volAnalysis.signal === 'bearish' ? '⚠' :
-            volAnalysis.signal === 'spike' ? '🔥' :
-            volAnalysis.signal === 'dryup' ? '💤' :
-            'ℹ'
+            volAnalysis.signal === 'bullish'    ? '✅' :
+            volAnalysis.signal === 'bearish'    ? '📉' :
+            volAnalysis.signal === 'climax'     ? '🔥' :
+            volAnalysis.signal === 'divergence' ? '⚠️' :
+            volAnalysis.signal === 'fakeout'    ? '🚫' :
+            volAnalysis.signal === 'spike'      ? '🔥' :
+            volAnalysis.signal === 'churn'      ? '🔄' :
+            volAnalysis.signal === 'gap'        ? '↕️' :
+            volAnalysis.signal === 'dryup_sr'   ? '💤' :
+            volAnalysis.signal === 'breakout'   ? '🚀' :
+            volAnalysis.signal === 'steady_rise'? '📈' :
+            'ℹ️'
         });
       }
 
