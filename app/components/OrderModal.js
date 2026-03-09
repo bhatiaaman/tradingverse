@@ -25,6 +25,7 @@ export default function OrderModal({
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   
+  const [isSessionLoggedIn, setIsSessionLoggedIn] = useState(true); // optimistic
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [kiteApiKey, setKiteApiKey] = useState('');
@@ -69,6 +70,12 @@ export default function OrderModal({
     setCheckingAuth(true);
     try {
       const res = await fetch('/api/kite-config');
+      if (res.status === 401) {
+        setIsSessionLoggedIn(false);
+        setIsLoggedIn(false);
+        return;
+      }
+      setIsSessionLoggedIn(true);
       const data = await res.json();
       setIsLoggedIn(data.tokenValid === true);
       setKiteApiKey(data.config?.apiKey || '');
@@ -447,7 +454,24 @@ export default function OrderModal({
         {checkingAuth ? (
           <div className="p-8 flex flex-col items-center justify-center">
             <Loader2 className="w-8 h-8 text-blue-400 animate-spin mb-3" />
-            <p className="text-slate-400 text-sm">Checking Kite authentication...</p>
+            <p className="text-slate-400 text-sm">Checking authentication...</p>
+          </div>
+        ) : !isSessionLoggedIn ? (
+          <div className="p-8 flex flex-col items-center justify-center">
+            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-blue-600/30">
+              <LogIn className="w-8 h-8 text-white" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Login Required</h3>
+            <p className="text-slate-400 text-sm text-center mb-6 max-w-xs">
+              You need to log in to TradingVerse to place orders.
+            </p>
+            <a
+              href="/login"
+              className="px-8 py-3.5 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-600/30 flex items-center gap-2"
+            >
+              <LogIn className="w-5 h-5" />
+              Login to TradingVerse
+            </a>
           </div>
         ) : !isLoggedIn ? (
           <div className="p-8 flex flex-col items-center justify-center">
