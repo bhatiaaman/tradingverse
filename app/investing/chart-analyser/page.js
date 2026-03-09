@@ -300,6 +300,7 @@ export default function ChartAnalyserPage() {
   const [loadingStep, setLoadingStep] = useState('')  // 'detecting' | 'analysing'
   const [analysis, setAnalysis] = useState(null)
   const [error, setError] = useState('')
+  const [limitReached, setLimitReached] = useState(false)
   const [dragging, setDragging] = useState(false)
   const fileInputRef = useRef(null)
 
@@ -371,6 +372,7 @@ export default function ChartAnalyserPage() {
     setLoading(true)
     setError('')
     setAnalysis(null)
+    setLimitReached(false)
 
     try {
       // Step 1: detect timeframe (fast, cheap — 64 tokens)
@@ -401,8 +403,11 @@ export default function ChartAnalyserPage() {
         body: JSON.stringify({ image, mediaType, timeframe: detectedTf }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Analysis failed')
-
+      if (!res.ok) {
+        if (data.limitReached) { setLimitReached(true); return }
+        throw new Error(data.error || 'Analysis failed')
+      }
+      setLimitReached(false)
       setAnalysis(data.analysis)
       posthog.capture('chart_analysed', {
         timeframe: detectedTf,
@@ -555,7 +560,21 @@ export default function ChartAnalyserPage() {
               </div>
             )}
 
-            {error && (
+            {limitReached && (
+              <div className="bg-violet-950/40 border border-violet-500/20 rounded-2xl p-6 flex flex-col items-center text-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-violet-600 flex items-center justify-center flex-shrink-0">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                </div>
+                <div>
+                  <p className="text-white font-bold text-sm mb-1">Daily Limit Reached</p>
+                  <p className="text-amber-400 text-xs font-semibold mb-2">You've used all 3 free chart analyses for today.</p>
+                  <p className="text-slate-500 text-xs mb-4">Upgrade to Pro for unlimited chart analysis. Resets at midnight.</p>
+                  <a href="/pricing" className="inline-block px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-lg transition-colors">View Plans →</a>
+                </div>
+              </div>
+            )}
+
+            {error && !limitReached && (
               <div className="bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 rounded-2xl p-4 text-rose-600 dark:text-rose-400 text-sm">
                 {error}
               </div>

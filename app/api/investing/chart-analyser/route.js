@@ -1,10 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
+import { Redis } from '@upstash/redis'
 import { SYSTEM_PROMPT, TIMEFRAME_DETECT_PROMPT, buildUserPrompt } from '@/app/lib/prompts/chart-analyser'
 import { requireSession, unauthorized } from '@/app/lib/session'
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const redis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN })
+const NS = process.env.REDIS_NAMESPACE || 'tradingverse'
+const FREE_DAILY_LIMIT = 3
 
 async function callClaude({ system, userPrompt, image, mediaType, maxTokens }) {
   const msg = await client.messages.create({
@@ -26,9 +30,27 @@ async function callClaude({ system, userPrompt, image, mediaType, maxTokens }) {
 }
 
 export async function POST(req) {
-  if (!await requireSession()) return unauthorized();
-  const rl = await checkLimit(intelligenceLimiter, req);
-  if (rl.limited) return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+  const session = await requireSession()
+  if (!session) return unauthorized()
+
+  const rl = await checkLimit(intelligenceLimiter, req)
+  if (rl.limited) return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+
+  // Free users: 3 analyses per day (admin = unlimited)
+  if (session.role !== 'admin') {
+    const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+    const usageKey = `${NS}:usage:chart-analyser:${session.email}:${today}`
+    const used = await redis.incr(usageKey)
+    if (used === 1) await redis.expire(usageKey, 86400) // expire at end of day
+    if (used > FREE_DAILY_LIMIT) {
+      return NextResponse.json({
+        error: 'Daily limit reached',
+        limitReached: true,
+        used: FREE_DAILY_LIMIT,
+        limit: FREE_DAILY_LIMIT,
+      }, { status: 429 })
+    }
+  }
 
   try {
     const { image, mediaType = 'image/jpeg', timeframe, detectOnly = false } = await req.json()

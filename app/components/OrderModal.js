@@ -500,13 +500,16 @@ export default function OrderModal({
             <div className="w-16 h-16 bg-gradient-to-br from-violet-500 to-violet-600 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-violet-600/30">
               <TrendingUp className="w-8 h-8 text-white" />
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">Unauthorized</h3>
-            <p className="text-amber-400 text-sm font-semibold mb-3">
-              Only paid users can place orders.
+            <h3 className="text-xl font-bold text-white mb-1">Pro Feature</h3>
+            <p className="text-amber-400 text-sm font-semibold mb-2">
+              Order placement is available on the Pro plan.
             </p>
-            <p className="text-slate-500 text-xs max-w-xs">
-              You can still use market data, intelligence, and all learning features.
+            <p className="text-slate-500 text-xs max-w-xs mb-5">
+              Connect your broker and trade directly from TradingVerse with AI-powered order intelligence.
             </p>
+            <a href="/pricing" className="px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-bold rounded-xl transition-colors">
+              View Plans →
+            </a>
           </div>
         ) : !isLoggedIn ? (
           <div className="p-8 flex flex-col items-center justify-center">

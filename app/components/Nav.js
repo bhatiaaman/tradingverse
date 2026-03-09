@@ -27,6 +27,7 @@ export default function Nav({ fixed = false }) {
     { href: '/learn',     label: 'Learn' },
     { href: '/investing', label: 'Investing' },
     { href: '/settings',  label: 'Settings' },
+    { href: '/pricing',   label: 'Pricing' },
   ]
 
   const isActive = (href) => path === href || path.startsWith(href + '/')
