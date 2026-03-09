@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getBroker } from '@/app/lib/providers';
+import { requireSession, unauthorized } from '@/app/lib/session';
 
 export async function GET(request) {
+  if (!await requireSession()) return unauthorized();
+
   try {
     const { searchParams } = new URL(request.url);
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '50') || 50, 1), 200);

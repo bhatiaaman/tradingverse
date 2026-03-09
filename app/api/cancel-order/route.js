@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getBroker } from '@/app/lib/providers';
+import { requireSession, unauthorized } from '@/app/lib/session';
 
 export async function POST(request) {
+  if (!await requireSession()) return unauthorized();
+
   const broker = await getBroker();
   if (!broker.isConnected()) {
     return NextResponse.json({ success: false, error: 'Kite not authenticated' }, { status: 401 });

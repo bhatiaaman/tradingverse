@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getBroker } from '@/app/lib/providers';
 import { orderLimiter, checkLimit } from '@/app/lib/rate-limit';
+import { requireSession, unauthorized } from '@/app/lib/session';
 
 export async function POST(request) {
+  if (!await requireSession()) return unauthorized();
+
   const rl = await checkLimit(orderLimiter, request);
   if (rl.limited) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
@@ -117,6 +120,8 @@ export async function POST(request) {
 }
 
 export async function GET(request) {
+  if (!await requireSession()) return unauthorized();
+
   const broker = await getBroker();
 
   if (!broker.isConnected()) {
