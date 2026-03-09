@@ -44,16 +44,8 @@ async function fetchKiteCandles(token, interval, days = 3) {
     const fromStr = encodeURIComponent(fmt(fromDate));
     const toStr = encodeURIComponent(fmt(toDate));
 
-    const response = await dp.getHistoricalRaw(token, interval, fromStr, toStr);
+    const data = await dp.getHistoricalRaw(token, interval, fromStr, toStr);
 
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      const msg = body?.message || body?.error || `HTTP ${response.status}`;
-      console.error('[sentiment] Kite candles API error:', response.status, msg);
-      return { candles: null, error: `kite_api_error: ${msg}` };
-    }
-
-    const data = await response.json();
     if (!data?.data?.candles?.length) {
       return { candles: null, error: 'no_candles' };
     }
@@ -66,8 +58,9 @@ async function fetchKiteCandles(token, interval, days = 3) {
     console.log(`[sentiment] Kite candles fetched: ${candles.length} candles`);
     return { candles, error: null };
   } catch (err) {
-    console.error('fetchKiteCandles error:', err.message);
-    return { candles: null, error: err.message };
+    const isAuthError = /403|401|unauthorized|invalid.*token|api_key|access_token/i.test(err.message);
+    if (!isAuthError) console.error('fetchKiteCandles error:', err.message);
+    return { candles: null, error: isAuthError ? 'not_logged_in' : err.message };
   }
 }
 
@@ -456,9 +449,9 @@ export async function GET(request) {
     const NS = process.env.REDIS_NAMESPACE || 'prod';
     const cacheKey = `${NS}:sentiment:market`;
 
-    // Serve cache unless force-refresh during market hours
+    // Serve cache unless explicitly force-refreshed
     const cached = await redis.get(cacheKey).catch(() => null);
-    if (cached && (!forceRefresh || !isMarketHours())) {
+    if (cached && !forceRefresh) {
       if (!isMarketHours() && cached) cached.offMarketHours = true;
       if (symbols.length > 0) {
         const stockKey = `${NS}:sentiment:stocks:${symbols.join(',')}`;
