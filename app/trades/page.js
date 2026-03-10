@@ -815,7 +815,7 @@ function getNiftyLevelAlerts(indices) {
                     {optionChainData?.marketActivity?.activity || 'Loading...'}
                   </div>
                   <div className="text-[9px] text-slate-400">
-                    PCR: {optionChainData?.pcr > 0 ? optionChainData.pcr.toFixed(2) : '---'}
+                    PCR: {optionChainData?.isExpiryDayZeroOI ? 'N/A' : optionChainData?.pcr > 0 ? optionChainData.pcr.toFixed(2) : '---'}
                   </div>
                 </div>
 
@@ -1389,10 +1389,19 @@ function getNiftyLevelAlerts(indices) {
                     </div>
                     <div className="bg-[#0a1628] rounded-lg p-3">
                       <div className="text-[10px] text-slate-500 uppercase tracking-wider">PCR</div>
-                      <div className={`text-lg font-mono mt-1 ${optionChainData?.pcr > 1.2 ? 'text-green-400' : optionChainData?.pcr < 0.8 ? 'text-red-400' : 'text-yellow-400'}`}>
-                        {optionChainData?.pcr?.toFixed(2) || '—'}
-                      </div>
-                      <div className="text-xs text-slate-400">{optionChainData?.pcr > 1.2 ? 'Bullish' : optionChainData?.pcr < 0.8 ? 'Bearish' : 'Neutral'}</div>
+                      {optionChainData?.isExpiryDayZeroOI ? (
+                        <>
+                          <div className="text-lg font-mono mt-1 text-slate-500">N/A</div>
+                          <div className="text-xs text-slate-500">Expiry Day</div>
+                        </>
+                      ) : (
+                        <>
+                          <div className={`text-lg font-mono mt-1 ${optionChainData?.pcr > 1.2 ? 'text-green-400' : optionChainData?.pcr < 0.8 ? 'text-red-400' : 'text-yellow-400'}`}>
+                            {optionChainData?.pcr?.toFixed(2) || '—'}
+                          </div>
+                          <div className="text-xs text-slate-400">{optionChainData?.pcr > 1.2 ? 'Bullish' : optionChainData?.pcr < 0.8 ? 'Bearish' : 'Neutral'}</div>
+                        </>
+                      )}
                     </div>
                     <div className="bg-[#0a1628] rounded-lg p-3">
                       <div className="text-[10px] text-slate-500 uppercase tracking-wider">Max Pain</div>

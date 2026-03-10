@@ -265,6 +265,13 @@ export async function GET(request) {
     }
 
     const pcr = totalCallOI > 0 ? (totalPutOI / totalCallOI) : 0;
+
+    // If all OI is zero (expiry day settlement / stale instruments cache), bust cache
+    const isExpiryDayZeroOI = totalCallOI === 0 && totalPutOI === 0 && relevantOptions.length > 0;
+    if (isExpiryDayZeroOI) {
+      await redisSet(INSTRUMENTS_CACHE_KEY, null, 1); // force re-fetch next request
+    }
+
     const maxPain = calculateMaxPain(optionData, spotPrice, config);
     const { support, support2, resistance, resistance2 } = findSupportResistance(optionData, spotPrice, config);
 
@@ -343,6 +350,7 @@ export async function GET(request) {
       spotPrice: spotPrice.toFixed(2),
       atmStrike,
       expiry: selectedExpiry,
+      isExpiryDayZeroOI,
       expiries: { weekly: expiries.weekly, monthly: expiries.monthly },
       pcr: parseFloat(pcr.toFixed(2)),
       maxPain,
