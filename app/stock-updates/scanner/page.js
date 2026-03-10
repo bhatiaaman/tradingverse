@@ -1250,6 +1250,13 @@ const buildOptionSymbols = (symbol, price) => {
         }
       `}</style>
 
+      {/* Disclaimer */}
+      <div className="px-4 pb-4 pt-2">
+        <p className="text-[10px] text-slate-400 dark:text-white/20 leading-relaxed border-t border-slate-200 dark:border-white/5 pt-3">
+          <strong className="text-slate-500 dark:text-white/30">Disclaimer:</strong> The stocks displayed on this page are generated automatically using predefined technical scan conditions. This website does not provide any investment advice, recommendation, or stock tips. The information is for educational and informational purposes only. Please consult a SEBI-registered financial advisor before making any investment decisions. The website owner is not responsible for any financial losses arising from the use of this information.
+        </p>
+      </div>
+
       {/* Order Modal */}
       <OrderModal
         isOpen={orderModalOpen}

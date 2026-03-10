@@ -284,14 +284,16 @@ function TopBar({ indices, kiteConnected, user, setUser }) {
         Terminal
       </Link>
 
-      <div className="flex items-center gap-4 sm:gap-6">
-        <IndexTicker label="NIFTY"     price={indices?.nifty}   changePct={indices?.niftyChangePercent} />
+      <div className="flex items-center gap-3 sm:gap-6 overflow-hidden">
+        <IndexTicker label="NIFTY" price={indices?.nifty} changePct={indices?.niftyChangePercent} />
         <NiftyRangeBar indices={indices} />
-        <IndexTicker label="BANKNIFTY" price={indices?.bankNifty} changePct={indices?.bankNiftyChangePercent} />
-        <IndexTicker label="SENSEX"    price={indices?.sensex}  changePct={indices?.sensexChangePercent} />
+        <span className="hidden sm:contents">
+          <IndexTicker label="BANKNIFTY" price={indices?.bankNifty} changePct={indices?.bankNiftyChangePercent} />
+          <IndexTicker label="SENSEX"    price={indices?.sensex}    changePct={indices?.sensexChangePercent} />
+        </span>
         {indices?.vix && (
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-gray-500 dark:text-white/40 hidden sm:inline">VIX</span>
+          <div className="hidden sm:flex items-center gap-1.5">
+            <span className="text-xs text-gray-500 dark:text-white/40">VIX</span>
             <span className="text-xs font-mono font-semibold text-gray-900 dark:text-white">{parseFloat(indices.vix).toFixed(2)}</span>
             {indices.vixChange && (
               <span className={`text-xs font-mono ${parseFloat(indices.vixChange) >= 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
@@ -302,7 +304,7 @@ function TopBar({ indices, kiteConnected, user, setUser }) {
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
         {user ? (
           <>
             <span className="text-xs text-gray-500 dark:text-white/40 hidden sm:inline">
@@ -310,13 +312,13 @@ function TopBar({ indices, kiteConnected, user, setUser }) {
             </span>
             <button
               onClick={handleLogout}
-              className="text-xs text-gray-400 dark:text-white/30 hover:text-gray-700 dark:hover:text-white/70 transition-colors hidden sm:inline"
+              className="text-xs text-gray-400 dark:text-white/30 hover:text-red-500 dark:hover:text-red-400 transition-colors"
             >
               Logout
             </button>
           </>
         ) : (
-          <Link href="/login?next=/terminal" className="text-xs text-gray-400 dark:text-white/30 hover:text-gray-700 dark:hover:text-white/70 transition-colors hidden sm:inline">
+          <Link href="/login?next=/terminal" className="text-xs text-blue-500 dark:text-blue-400 font-semibold transition-colors">
             Login
           </Link>
         )}
