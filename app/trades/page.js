@@ -634,16 +634,39 @@ function getNiftyLevelAlerts(indices) {
                   <span className="text-slate-400 text-[9px]">Nifty 50</span>
                   <div className="flex items-center gap-1">
                     <span className="text-slate-100 text-[9px] lg:text-xs font-mono font-medium">{marketData?.indices?.nifty || '---'}</span>
-                    {marketData?.indices?.niftyChange && (
-                      <span className={`text-[8px] font-mono ${parseFloat(marketData.indices.niftyChange) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {parseFloat(marketData.indices.niftyChange) >= 0 ? '+' : ''}{parseFloat(marketData.indices.niftyChange).toFixed(2)}
-                      </span>
-                    )}
-                    {marketData?.indices?.niftyChangePercent && (
-                      <span className={`text-[8px] font-mono ${parseFloat(marketData.indices.niftyChangePercent) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        ({parseFloat(marketData.indices.niftyChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.indices.niftyChangePercent).toFixed(2)}%)
-                      </span>
-                    )}
+                    {(() => {
+                      const chg = parseFloat(marketData?.indices?.niftyChange);
+                      const pct = parseFloat(marketData?.indices?.niftyChangePercent);
+                      const gift = parseFloat(marketData?.indices?.giftNifty);
+                      const prev = parseFloat(marketData?.indices?.niftyPrevClose);
+                      // When market is closed, niftyChange is 0 — show GIFT Nifty implied gap instead
+                      if ((isNaN(chg) || chg === 0) && gift > 0 && prev > 0) {
+                        const impliedChg = gift - prev;
+                        const impliedPct = (impliedChg / prev) * 100;
+                        return (
+                          <>
+                            <span className={`text-[8px] font-mono ${impliedChg >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {impliedChg >= 0 ? '+' : ''}{impliedChg.toFixed(0)}
+                            </span>
+                            <span className={`text-[8px] font-mono ${impliedPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              ({impliedPct >= 0 ? '+' : ''}{impliedPct.toFixed(2)}%)*
+                            </span>
+                          </>
+                        );
+                      }
+                      return (chg !== 0 && !isNaN(chg)) ? (
+                        <>
+                          <span className={`text-[8px] font-mono ${chg >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {chg >= 0 ? '+' : ''}{chg.toFixed(2)}
+                          </span>
+                          {!isNaN(pct) && (
+                            <span className={`text-[8px] font-mono ${pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              ({pct >= 0 ? '+' : ''}{pct.toFixed(2)}%)
+                            </span>
+                          )}
+                        </>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
                 <div className="flex justify-between items-center">

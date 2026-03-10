@@ -681,10 +681,9 @@ function generatePreMarketCommentary(marketData, optionChain) {
   const giftNifty  = parseFloat(marketData.indices?.giftNifty      || 0);
   const vix        = parseFloat(marketData.indices?.vix            || 0);
 
-  // Use Gift Nifty's own % change (from its own prev close) applied to Nifty's prev close.
-  // Fallback: if giftNiftyChangePercent unavailable, approximate via price diff.
-  const giftNiftyChangePct = parseFloat(marketData.indices?.giftNiftyChangePercent || 0);
-  const gapPercent   = giftNiftyChangePct || (prevClose ? (giftNifty - prevClose) / prevClose * 100 : 0);
+  // Gap = (GIFT Nifty price − Nifty previous close) / Nifty previous close.
+  // giftNiftyChangePercent is GIFT's own session change and must NOT be used here.
+  const gapPercent = (prevClose > 0 && giftNifty > 0) ? (giftNifty - prevClose) / prevClose * 100 : 0;
   const expectedOpen = prevClose * (1 + gapPercent / 100);
 
   const pcr         = optionChain?.pcr        || null;
@@ -812,19 +811,22 @@ export async function GET(request) {
       commentary = generatePreMarketCommentary(marketData, optionChainData);
     }
 
-    // ── Bias history tracking (persists across cache refreshes) ───────────
-    const BIAS_HISTORY_KEY = `${NS}:commentary:bias-history`;
-    const prevHistory = (await redisGet(BIAS_HISTORY_KEY)) || [];
-    if (!prevHistory[0] || prevHistory[0].bias !== commentary.bias) {
-      const ist = getISTTime();
-      const hh  = String(ist.getUTCHours()).padStart(2, '0');
-      const mm  = String(ist.getUTCMinutes()).padStart(2, '0');
-      const entry = { bias: commentary.bias, state: commentary.state, time: `${hh}:${mm}`, timestamp: new Date().toISOString() };
-      const updated = [entry, ...prevHistory].slice(0, 5);
-      await redisSet(BIAS_HISTORY_KEY, updated, 86400);
-      commentary.biasHistory = updated;
-    } else {
-      commentary.biasHistory = prevHistory;
+    // ── Bias history tracking — only during live market hours ─────────────
+    // Pre-market commentary should never show intraday bias timestamps.
+    if (marketIsOpen) {
+      const BIAS_HISTORY_KEY = `${NS}:commentary:bias-history`;
+      const prevHistory = (await redisGet(BIAS_HISTORY_KEY)) || [];
+      if (!prevHistory[0] || prevHistory[0].bias !== commentary.bias) {
+        const ist = getISTTime();
+        const hh  = String(ist.getUTCHours()).padStart(2, '0');
+        const mm  = String(ist.getUTCMinutes()).padStart(2, '0');
+        const entry = { bias: commentary.bias, state: commentary.state, time: `${hh}:${mm}`, timestamp: new Date().toISOString() };
+        const updated = [entry, ...prevHistory].slice(0, 5);
+        await redisSet(BIAS_HISTORY_KEY, updated, 86400);
+        commentary.biasHistory = updated;
+      } else {
+        commentary.biasHistory = prevHistory;
+      }
     }
 
     // ── Pass advance/decline into commentary so clients get it in one fetch
