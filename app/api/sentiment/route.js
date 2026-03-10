@@ -451,7 +451,21 @@ export async function GET(request) {
 
     // Serve cache unless explicitly force-refreshed
     const cached = await redis.get(cacheKey).catch(() => null);
+
+    // Don't serve a "Login to Kite" cached response if Kite is now connected
+    let skipCacheDueToKite = false;
     if (cached && !forceRefresh) {
+      const wasKiteDisconnected = cached.timeframes?.intraday?.source === 'pcr_only'
+        && cached.timeframes?.intraday?.signals?.some(s => s.detail?.includes('Login to Kite'));
+      if (wasKiteDisconnected) {
+        try {
+          const dp = await getDataProvider();
+          if (dp.isConnected()) skipCacheDueToKite = true;
+        } catch {}
+      }
+    }
+
+    if (cached && !forceRefresh && !skipCacheDueToKite) {
       if (!isMarketHours() && cached) cached.offMarketHours = true;
       if (symbols.length > 0) {
         const stockKey = `${NS}:sentiment:stocks:${symbols.join(',')}`;
