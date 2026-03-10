@@ -764,17 +764,25 @@ export default function PreMarketPage() {
               )}
             </div>
 
-            {/* Economic Calendar - Collapsible */}
+            {/* India Events Calendar - Collapsible */}
             <div className="bg-[#112240] border border-blue-800/40 rounded-xl overflow-hidden">
               <button
                 onClick={() => toggleSection('calendar')}
                 className="w-full flex items-center justify-between p-4 hover:bg-blue-900/20 transition-colors"
               >
                 <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold text-blue-300">📅 Economic Calendar</h2>
-                  {calendar?.summary && (
+                  <h2 className="text-sm font-semibold text-blue-300">📅 Events This Week</h2>
+                  {calendar?.rbiCount > 0 && (
+                    <span className="px-2 py-0.5 bg-orange-900/40 text-orange-400 text-[10px] rounded font-bold">RBI</span>
+                  )}
+                  {calendar?.nseCount > 0 && (
+                    <span className="px-2 py-0.5 bg-blue-900/40 text-blue-400 text-[10px] rounded">
+                      {calendar.nseCount} Results
+                    </span>
+                  )}
+                  {calendar?.globalCount > 0 && (
                     <span className="px-2 py-0.5 bg-red-900/30 text-red-400 text-[10px] rounded">
-                      {calendar.summary.high} High
+                      {calendar.globalCount} Global
                     </span>
                   )}
                 </div>
@@ -782,34 +790,75 @@ export default function PreMarketPage() {
               </button>
 
               {!sectionsCollapsed.calendar && (
-                <div className="p-4 pt-0 space-y-2 max-h-96 overflow-y-auto">
-                  {calendar?.events?.map((event, idx) => (
-                    <div key={idx} className={`p-2 rounded border ${
-                      event.status === 'COMPLETED' ? 'bg-slate-800/30 border-slate-700/50 opacity-60' :
-                      event.status === 'SOON' ? 'bg-amber-900/20 border-amber-700/50' :
-                      'bg-slate-800/50 border-slate-700/50'
-                    }`}>
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-start gap-2 flex-1">
-                          <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
-                            event.impact === 'HIGH' ? 'bg-red-500' :
-                            event.impact === 'MEDIUM' ? 'bg-yellow-500' :
-                            'bg-green-500'
-                          }`} />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium text-slate-200 truncate">{event.event}</div>
-                            <div className="text-[10px] text-slate-500 mt-0.5">{event.country}</div>
-                          </div>
-                        </div>
-                        <div className="text-right flex-shrink-0">
-                          <div className="text-xs font-mono text-slate-300">{event.time}</div>
-                          {event.minutesUntil > 0 && (
-                            <div className="text-[10px] text-slate-500">{event.minutesUntil}m</div>
-                          )}
+                <div className="p-4 pt-0 space-y-4 max-h-[32rem] overflow-y-auto">
+                  {(() => {
+                    const events = calendar?.allEvents || [];
+                    if (!events.length) return (
+                      <p className="text-xs text-slate-500 text-center py-4">No major events this week</p>
+                    );
+
+                    // Group by dateLabel
+                    const groups = [];
+                    const seen = {};
+                    events.forEach(ev => {
+                      const key = ev.dateLabel;
+                      if (!seen[key]) { seen[key] = true; groups.push({ label: key, events: [] }); }
+                      groups[groups.length - 1].events.push(ev);
+                    });
+
+                    return groups.map(group => (
+                      <div key={group.label}>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">{group.label}</p>
+                        <div className="space-y-1.5">
+                          {group.events.map((ev, idx) => {
+                            if (ev.type === 'rbi') return (
+                              <div key={`rbi-${idx}`} className="p-2.5 rounded-lg border border-orange-700/40 bg-orange-950/30">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm">🏦</span>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs font-bold text-orange-300">{ev.event}</div>
+                                    <div className="text-[10px] text-orange-500/70">{ev.time} IST · Reserve Bank of India</div>
+                                  </div>
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-900/50 text-orange-400 flex-shrink-0">HIGH</span>
+                                </div>
+                              </div>
+                            );
+                            if (ev.type === 'result' || ev.type === 'board') return (
+                              <div key={`nse-${idx}`} className="p-2 rounded border border-blue-800/30 bg-[#0d1e36]">
+                                <div className="flex items-center gap-2">
+                                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${ev.impact === 'HIGH' ? 'bg-red-500' : 'bg-yellow-500'}`} />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-slate-200 truncate font-medium">{ev.symbol || ev.company}</div>
+                                    <div className="text-[10px] text-slate-500 truncate">{ev.event}</div>
+                                  </div>
+                                  {ev.impact === 'HIGH' && (
+                                    <span className="text-[9px] text-red-400 flex-shrink-0">Q Result</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                            if (ev.type === 'global') return (
+                              <div key={`global-${idx}`} className="p-2 rounded border border-slate-700/40 bg-slate-800/30">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex items-start gap-2 flex-1 min-w-0">
+                                    <div className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 bg-red-500" />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-xs text-slate-200 truncate">{ev.event}</div>
+                                      <div className="text-[10px] text-slate-500">{ev.country}</div>
+                                    </div>
+                                  </div>
+                                  <div className="text-right flex-shrink-0">
+                                    <div className="text-[10px] font-mono text-slate-400">{ev.time} IST</div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                            return null;
+                          })}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ));
+                  })()}
                 </div>
               )}
             </div>
