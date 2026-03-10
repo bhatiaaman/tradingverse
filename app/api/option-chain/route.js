@@ -274,7 +274,7 @@ export async function GET(request) {
     const pcr = totalCallOI > 0 ? (totalPutOI / totalCallOI) : 0;
 
     // If all OI is zero (expiry day settlement / stale instruments cache), bust cache
-    const isExpiryDayZeroOI = totalCallOI === 0 && totalPutOI === 0 && relevantOptions.length > 0;
+    const isExpiryDayZeroOI = (totalCallOI === 0 || totalPutOI === 0) && relevantOptions.length > 0;
     if (isExpiryDayZeroOI) {
       await redisSet(INSTRUMENTS_CACHE_KEY, null, 1); // force re-fetch next request
     }
