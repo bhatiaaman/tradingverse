@@ -6,10 +6,10 @@ import { getProviderStatus } from '@/app/lib/providers';
 async function checkRedis() {
   try {
     const start = Date.now();
-    await redis.set('_health_ping', '1', { ex: 10 });
-    const val = await redis.get('_health_ping');
+    // ping is the lightest operation; if it returns 'PONG' Redis is up
+    const pong = await redis.ping();
     const ms = Date.now() - start;
-    return { ok: val === '1', latencyMs: ms };
+    return { ok: pong === 'PONG', latencyMs: ms };
   } catch (e) {
     return { ok: false, error: e.message };
   }
