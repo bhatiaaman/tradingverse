@@ -815,7 +815,7 @@ function getNiftyLevelAlerts(indices) {
                     {optionChainData?.marketActivity?.activity || 'Loading...'}
                   </div>
                   <div className="text-[9px] text-slate-400">
-                    PCR: {optionChainData?.isExpiryDayZeroOI ? 'N/A' : optionChainData?.pcr > 0 ? optionChainData.pcr.toFixed(2) : '---'}
+                    PCR: {(optionChainData?.isExpiryDayZeroOI || (optionChainData?.totalCallOI === 0 && optionChainData?.totalPutOI === 0 && optionChainData?.pcr === 0)) ? 'N/A' : optionChainData?.pcr > 0 ? optionChainData.pcr.toFixed(2) : '---'}
                   </div>
                 </div>
 
@@ -1389,7 +1389,7 @@ function getNiftyLevelAlerts(indices) {
                     </div>
                     <div className="bg-[#0a1628] rounded-lg p-3">
                       <div className="text-[10px] text-slate-500 uppercase tracking-wider">PCR</div>
-                      {optionChainData?.isExpiryDayZeroOI ? (
+                      {(optionChainData?.isExpiryDayZeroOI || (optionChainData?.totalCallOI === 0 && optionChainData?.totalPutOI === 0 && optionChainData?.pcr === 0)) ? (
                         <>
                           <div className="text-lg font-mono mt-1 text-slate-500">N/A</div>
                           <div className="text-xs text-slate-500">Expiry Day</div>
