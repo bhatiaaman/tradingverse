@@ -3,8 +3,22 @@
 // Example: node scripts/reset-password.mjs bhatiaaman.p@gmail.com MyNewPass123
 
 import { createRequire } from 'module';
+import { readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 const require = createRequire(import.meta.url);
 const bcrypt = require('bcryptjs');
+
+// Load .env.local so the script works without manual env exports
+try {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const envPath = resolve(__dirname, '../.env.local');
+  const lines = readFileSync(envPath, 'utf8').split('\n');
+  for (const line of lines) {
+    const m = line.match(/^([^#=\s][^=]*)=(.*)$/);
+    if (m) process.env[m[1].trim()] = m[2].trim().replace(/^['"]|['"]$/g, '');
+  }
+} catch {}
 
 const [,, email, newPassword] = process.argv;
 

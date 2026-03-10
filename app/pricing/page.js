@@ -128,10 +128,10 @@ export default function PricingPage() {
 
             <p className="text-xs font-bold tracking-widest uppercase text-blue-400 mb-3">Pro</p>
             <div className="flex items-end gap-1 mb-1">
-              <span className="text-4xl font-black">₹999</span>
+              <span className="text-4xl font-black">₹499</span>
               <span className="text-slate-500 text-sm mb-1">/month</span>
             </div>
-            <p className="text-slate-500 text-sm mb-8">Join the waitlist — early access pricing locked in</p>
+            <p className="text-slate-500 text-sm mb-8">+ applicable taxes · Join the waitlist — early access pricing locked in</p>
 
             <ul className="space-y-3 mb-8">
               {PRO_FEATURES.map((f) => (
