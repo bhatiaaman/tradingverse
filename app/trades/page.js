@@ -1392,7 +1392,7 @@ function getNiftyLevelAlerts(indices) {
                       {(optionChainData && (optionChainData.totalCallOI === 0 || optionChainData.totalPutOI === 0)) ? (
                         <>
                           <div className="text-lg font-mono mt-1 text-slate-500">N/A</div>
-                          <div className="text-xs text-slate-500">Expiry Day</div>
+                          <div className="text-xs text-slate-500">Market Closed</div>
                         </>
                       ) : (
                         <>

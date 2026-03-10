@@ -264,13 +264,6 @@ export async function GET(request) {
       else totalPutOI += oi;
     }
 
-    // Diagnostic: log OI situation so we can see what Kite is returning
-    const quotedCount = Object.keys(allQuotes).length;
-    const matchedCount = optionData.length;
-    const sampleKey = quoteSymbols[0];
-    const sampleData = allQuotes[sampleKey];
-    console.log(`[option-chain] ${underlying} ${expiryType} | quoted=${quotedCount} matched=${matchedCount} callOI=${totalCallOI} putOI=${totalPutOI} | sample="${sampleKey}" oi=${sampleData?.oi} ltp=${sampleData?.last_price}`);
-
     const pcr = totalCallOI > 0 ? (totalPutOI / totalCallOI) : 0;
 
     // If all OI is zero (expiry day settlement / stale instruments cache), bust cache
