@@ -583,7 +583,7 @@ function OrdersTab({ orders, loading, onRefresh }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // OrdersRightPanel — collapsible right sidebar for today's orders + FnO movers
 // ─────────────────────────────────────────────────────────────────────────────
-function OrdersRightPanel({ orders, loading, onRefresh, open, setOpen, movers }) {
+function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, open, setOpen, movers }) {
   return (
     <div className={`flex-shrink-0 border-l border-gray-200 dark:border-white/10 flex flex-col bg-gray-50 dark:bg-slate-900/40 transition-all duration-200 ${open ? 'w-screen md:w-[260px]' : 'w-screen md:w-9'}`}>
       {/* Toggle + header */}
@@ -614,11 +614,23 @@ function OrdersRightPanel({ orders, loading, onRefresh, open, setOpen, movers })
             <div className="p-2 space-y-1.5">
               {orders.map(o => {
                 const isBuy = o.transaction_type === 'BUY';
+                const isCancelable = !['COMPLETE', 'CANCELLED', 'REJECTED', 'CANCEL PENDING'].includes(o.status?.toUpperCase());
                 return (
                   <div key={o.order_id} className="p-2 rounded-lg bg-white dark:bg-slate-800/60 border border-gray-100 dark:border-white/5">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs font-semibold text-gray-900 dark:text-white truncate mr-2 max-w-[120px]">{o.tradingsymbol}</span>
-                      <span className={`text-[10px] font-bold ${isBuy ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{o.transaction_type}</span>
+                      <div className="flex items-center gap-1">
+                        <span className={`text-[10px] font-bold ${isBuy ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{o.transaction_type}</span>
+                        {isCancelable && (
+                          <button
+                            onClick={() => onCancelOrder(o.order_id, o.variety || 'regular')}
+                            className="ml-1 p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
+                            title="Cancel order"
+                          >
+                            <X size={10} className="text-red-400 hover:text-red-600 dark:hover:text-red-300" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
@@ -1496,6 +1508,23 @@ export default function TerminalPage() {
     finally { setPanelOrdersLoading(false); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Cancel order from right panel
+  const handleCancelPanelOrder = useCallback(async (orderId, variety) => {
+    try {
+      const r = await fetch('/api/cancel-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId, variety }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        // Optimistically remove from panel, then refresh
+        setPanelOrders(prev => prev.filter(o => o.order_id !== orderId));
+        setTimeout(() => fetchPanelOrders(), 1500);
+      }
+    } catch { /* silent */ }
+  }, [fetchPanelOrders]);
+
   // ── FnO movers
   const fetchMovers = useCallback(async () => {
     try {
@@ -1891,6 +1920,7 @@ export default function TerminalPage() {
             orders={panelOrders}
             loading={panelOrdersLoading}
             onRefresh={fetchPanelOrders}
+            onCancelOrder={handleCancelPanelOrder}
             open={ordersOpen}
             setOpen={setOrdersOpen}
             movers={movers}

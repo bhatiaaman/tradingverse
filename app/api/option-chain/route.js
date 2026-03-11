@@ -366,8 +366,9 @@ export async function GET(request) {
       timestamp: new Date().toISOString(),
     };
 
-    const cacheTTL = isMarketHours() ? CACHE_TTL : 3600;
-    await redisSet(cacheKey, response, cacheTTL);
+    // Don't cache zero-OI responses during market hours — retry next request
+    const cacheTTL = (isExpiryDayZeroOI && isMarketHours()) ? 0 : (isMarketHours() ? CACHE_TTL : 3600);
+    if (cacheTTL > 0) await redisSet(cacheKey, response, cacheTTL);
     return NextResponse.json(response);
 
   } catch (error) {

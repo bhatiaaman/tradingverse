@@ -1,6 +1,6 @@
   'use client';
 
-  import React, { useState, useEffect, useRef } from 'react';
+  import React, { useState, useEffect, useRef, useCallback } from 'react';
   import Link from 'next/link';
   import { RefreshCw, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
   import Nav from '../components/Nav';
@@ -238,24 +238,47 @@ function getNiftyLevelAlerts(indices) {
       return () => clearInterval(interval);
     }, []);
 
+    // Fetch commentary (used by both interval and manual refresh button)
+    const fetchCommentaryNow = useCallback(async () => {
+      setCommentaryLoading(true);
+      try {
+        const response = await fetch('/api/market-commentary');
+        const data = await response.json();
+        const next = data.commentary;
+        prevCommentaryRef.current = next;
+        soundEnabledRef.current   = true;
+        setCommentary(next);
+      } catch (error) {
+        console.error('Failed to fetch commentary:', error);
+      } finally {
+        setCommentaryLoading(false);
+      }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Fetch option chain data
-    useEffect(() => {
-      const fetchOptionChain = async () => {
-        setOptionLoading(true);
-        try {
-          const response = await fetch(`/api/option-chain?underlying=${optionUnderlying}&expiry=${optionExpiry}`);
-          const data = await response.json();
-          setOptionChainData(data);
-        } catch (error) {
-          console.error('Failed to fetch option chain:', error);
-        } finally {
-          setOptionLoading(false);
+    const fetchOptionChain = useCallback(async (forceRefresh = false) => {
+      setOptionLoading(true);
+      try {
+        const url = `/api/option-chain?underlying=${optionUnderlying}&expiry=${optionExpiry}${forceRefresh ? '&refresh=1' : ''}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        setOptionChainData(data);
+        // If OI is zero during market hours, auto-retry once after 15s (stale cache / OI delay at open)
+        if (isMarketHours() && data && !forceRefresh && (data.totalCallOI === 0 || data.totalPutOI === 0)) {
+          setTimeout(() => fetchOptionChain(true), 15000);
         }
-      };
+      } catch (error) {
+        console.error('Failed to fetch option chain:', error);
+      } finally {
+        setOptionLoading(false);
+      }
+    }, [optionUnderlying, optionExpiry]);
+
+    useEffect(() => {
       fetchOptionChain();
       const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchOptionChain(); }, 60000);
       return () => clearInterval(interval);
-    }, [optionUnderlying, optionExpiry]);
+    }, [optionUnderlying, optionExpiry, fetchOptionChain]);
 
     // Fetch market news and events
     useEffect(() => {
@@ -542,6 +565,14 @@ function getNiftyLevelAlerts(indices) {
                   }`}>
                     {commentary.bias}
                   </span>
+                  <button
+                    onClick={e => { e.stopPropagation(); fetchCommentaryNow(); }}
+                    disabled={commentaryLoading}
+                    className="p-1 hover:bg-blue-900/40 rounded transition-colors disabled:opacity-40"
+                    title="Refresh commentary"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${commentaryLoading ? 'animate-spin' : ''}`} />
+                  </button>
                   {commentaryCollapsed ? (
                     <ChevronDown className="w-5 h-5 text-slate-400" />
                   ) : (
@@ -1345,7 +1376,15 @@ function getNiftyLevelAlerts(indices) {
                     </span>
                   )}
                 </h2>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  <button
+                    onClick={() => fetchOptionChain(true)}
+                    disabled={optionLoading}
+                    title="Force refresh OI data"
+                    className="p-1.5 hover:bg-blue-800/40 rounded transition-colors disabled:opacity-40"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${optionLoading ? 'animate-spin' : ''}`} />
+                  </button>
                   <div className="flex bg-[#0a1628] rounded-lg p-0.5">
                     {['NIFTY', 'BANKNIFTY'].map((u) => (
                       <button
@@ -1392,7 +1431,9 @@ function getNiftyLevelAlerts(indices) {
                       {(optionChainData && (optionChainData.totalCallOI === 0 || optionChainData.totalPutOI === 0)) ? (
                         <>
                           <div className="text-lg font-mono mt-1 text-slate-500">N/A</div>
-                          <div className="text-xs text-slate-500">Market Closed</div>
+                          <div className="text-xs text-slate-500">
+                            {optionChainData.offMarketHours ? 'Market Closed' : 'OI Unavailable — retrying'}
+                          </div>
                         </>
                       ) : (
                         <>
