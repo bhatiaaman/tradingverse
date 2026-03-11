@@ -16,31 +16,43 @@ Think like a synthesis of:
 
 For each major theme, present BOTH the bull and bear case. Do not default to consensus. Be specific with numbers and ranges where possible. Distinguish what you know from what you're inferring. Flag where expert consensus is unusually high (potential for mean reversion).`
 
-export function buildUserPrompt(asset, marketContext = null) {
-  const contextBlock = marketContext ? `
-## LIVE MARKET CONTEXT (treat as ground truth — supersedes your training data)
+export function buildUserPrompt(asset, marketContext = null, newsContext = null) {
+  const today = marketContext?.date
+    ?? new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
 
-> Today's date: **${marketContext.date}**
-> Asset: **${asset}**
-${marketContext.price != null ? `> Current price: **${marketContext.priceFormatted}**` : ''}
-${marketContext.change != null ? `> Today's change: **${marketContext.change >= 0 ? '+' : ''}${marketContext.change.toFixed(2)}%**` : ''}
-${marketContext.weekChange != null ? `> 5-day change: **${marketContext.weekChange >= 0 ? '+' : ''}${marketContext.weekChange.toFixed(2)}%**` : ''}
-${marketContext.yearHigh != null ? `> 52-week high: **${marketContext.yearHighFormatted}**` : ''}
-${marketContext.yearLow != null ? `> 52-week low: **${marketContext.yearLowFormatted}**` : ''}
+  const priceBlock = marketContext ? `
+## LIVE MARKET DATA (treat as ground truth — supersedes your training data)
 
-**IMPORTANT**: Your training data has a knowledge cutoff. Use the above live prices as your anchor. Reason forward from **today (${marketContext.date})**, not from your training-time data. Where you reference geopolitical events, macro data, or policy decisions beyond your training cutoff, acknowledge uncertainty and reason from first principles. Do NOT cite specific price levels from your training data as "current".
+| Field | Value |
+|---|---|
+| Today's date | **${today}** |
+| Asset | **${asset}** |
+${marketContext.price != null ? `| Current price | **${marketContext.priceFormatted}** |` : ''}
+${marketContext.change != null ? `| Today's change | **${marketContext.change >= 0 ? '+' : ''}${marketContext.change.toFixed(2)}%** |` : ''}
+${marketContext.weekChange != null ? `| 5-day change | **${marketContext.weekChange >= 0 ? '+' : ''}${marketContext.weekChange.toFixed(2)}%** |` : ''}
+${marketContext.yearHigh != null ? `| 52-week high | **${marketContext.yearHighFormatted}** |` : ''}
+${marketContext.yearLow != null ? `| 52-week low | **${marketContext.yearLowFormatted}** |` : ''}
 
----
 ` : `
-## CONTEXT NOTE
-> Today's date: **${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}**
-> Live price data unavailable for this asset — reason from macro principles. Acknowledge your training cutoff and avoid citing stale price levels as current.
+## DATE CONTEXT
+Today is **${today}**. Live price data unavailable for this asset.
 
----
 `
 
+  const newsBlock = newsContext?.length ? `
+## RECENT NEWS & EVENTS (live headlines — beyond your training cutoff)
+
+Factor these into your analysis, especially near-term outlook. These are actual current events:
+
+${newsContext.map(n => `- **"${n.title}"** — ${n.publisher}${n.publishedAt ? ` (${n.publishedAt})` : ''}`).join('\n')}
+
+` : ''
+
+  const cutoffWarning = `**CRITICAL INSTRUCTION**: Your training data has a knowledge cutoff. The live market data and news headlines above are ground truth for today (${today}). Reason forward from this date. Do NOT reference stale prices from your training as "current". Where events above describe ongoing conflicts, policy shifts, or market moves — incorporate them directly into your analysis.`
+
   return `Generate a comprehensive strategic view for **${asset}**.
-${contextBlock}
+${priceBlock}${newsBlock}
+${cutoffWarning}
 
 ---
 

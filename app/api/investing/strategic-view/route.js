@@ -11,7 +11,8 @@ const NS     = process.env.REDIS_NAMESPACE || 'tradingverse'
 const CACHE_TTL      = 6 * 3600
 const FREE_DAILY_LIMIT = 3
 
-// Yahoo Finance ticker map for known assets
+// ─── Yahoo Finance ticker symbols ─────────────────────────────────────────────
+
 const YAHOO_SYMBOLS = {
   'nifty 50':  '^NSEI',
   'nifty50':   '^NSEI',
@@ -27,14 +28,30 @@ const YAHOO_SYMBOLS = {
   'gold':      'GC=F',
 }
 
+// News search queries per asset — broader than the asset name for richer context
+const NEWS_QUERIES = {
+  'nifty 50':  'Nifty 50 India economy RBI stock market',
+  'nifty50':   'Nifty 50 India economy RBI stock market',
+  's&p 500':   'S&P 500 US economy Fed interest rates recession',
+  'sp500':     'S&P 500 US economy Fed interest rates recession',
+  'nasdaq':    'Nasdaq technology AI earnings stock market',
+  'crude oil': 'crude oil OPEC supply Iran Israel Russia energy war',
+  'crudeoil':  'crude oil OPEC supply Iran Israel Russia energy war',
+  'bitcoin':   'Bitcoin crypto ETF regulation Fed liquidity',
+  'btc':       'Bitcoin crypto ETF regulation Fed liquidity',
+  'us dollar': 'US Dollar DXY Federal Reserve Treasury debt dollar strength',
+  'usd':       'US Dollar DXY Federal Reserve Treasury debt dollar strength',
+  'gold':      'gold price Fed safe haven central bank dollar geopolitics',
+}
+
 function fmtPrice(price, symbol) {
   if (price == null) return null
-  // Indian indices — no currency symbol needed, use comma notation
   if (symbol === '^NSEI') return price.toLocaleString('en-IN', { maximumFractionDigits: 2 })
-  // Crypto & commodities — USD
   if (price >= 1000) return `$${price.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
   return `$${price.toFixed(2)}`
 }
+
+// ─── Fetch live price via Yahoo Finance v8 chart API ─────────────────────────
 
 async function fetchMarketContext(asset) {
   const sym = YAHOO_SYMBOLS[asset.toLowerCase().trim()]
@@ -47,34 +64,64 @@ async function fetchMarketContext(asset) {
       signal: AbortSignal.timeout(6000),
     })
     if (!res.ok) return null
-    const data = await res.json()
+    const data   = await res.json()
     const meta   = data?.chart?.result?.[0]?.meta
     const quotes = data?.chart?.result?.[0]?.indicators?.quote?.[0]
     const closes = quotes?.close?.filter(Boolean) || []
 
     if (!meta?.regularMarketPrice) return null
 
-    const price     = meta.regularMarketPrice
-    const prevClose = meta.chartPreviousClose || meta.previousClose
-    const change    = prevClose ? ((price - prevClose) / prevClose) * 100 : null
-    const weekFirst = closes[0]
+    const price      = meta.regularMarketPrice
+    const prevClose  = meta.chartPreviousClose || meta.previousClose
+    const change     = prevClose ? ((price - prevClose) / prevClose) * 100 : null
+    const weekFirst  = closes[0]
     const weekChange = weekFirst ? ((price - weekFirst) / weekFirst) * 100 : null
 
     return {
-      date:           new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }),
+      date:             new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }),
       price,
-      priceFormatted: fmtPrice(price, sym),
+      priceFormatted:   fmtPrice(price, sym),
       change,
       weekChange,
-      yearHigh:           meta.fiftyTwoWeekHigh ?? null,
-      yearLow:            meta.fiftyTwoWeekLow  ?? null,
-      yearHighFormatted:  fmtPrice(meta.fiftyTwoWeekHigh, sym),
-      yearLowFormatted:   fmtPrice(meta.fiftyTwoWeekLow,  sym),
+      yearHigh:         meta.fiftyTwoWeekHigh ?? null,
+      yearLow:          meta.fiftyTwoWeekLow  ?? null,
+      yearHighFormatted: fmtPrice(meta.fiftyTwoWeekHigh, sym),
+      yearLowFormatted:  fmtPrice(meta.fiftyTwoWeekLow,  sym),
     }
   } catch {
     return null
   }
 }
+
+// ─── Fetch recent headlines via Yahoo Finance search ─────────────────────────
+
+async function fetchNewsContext(asset) {
+  const query = NEWS_QUERIES[asset.toLowerCase().trim()] || asset
+
+  try {
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=10&quotesCount=0&enableFuzzyQuery=false&enableNavLinks=false`
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(6000),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    const news = (data?.news || []).slice(0, 8)
+    if (!news.length) return null
+
+    return news.map(n => ({
+      title:       n.title || '',
+      publisher:   n.publisher || '',
+      publishedAt: n.providerPublishTime
+        ? new Date(n.providerPublishTime * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        : '',
+    })).filter(n => n.title)
+  } catch {
+    return null
+  }
+}
+
+// ─── Route ────────────────────────────────────────────────────────────────────
 
 function cacheKey(asset) {
   return `${NS}:strategic-view:${asset.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`
@@ -102,7 +149,6 @@ export async function POST(req) {
 
   const key = cacheKey(asset)
 
-  // Cached response — always fetch fresh market context so price is current even on cache hits
   if (!refresh) {
     const cached = await redis.get(key)
     if (cached) {
@@ -111,10 +157,14 @@ export async function POST(req) {
     }
   }
 
-  // Fetch live market data in parallel with starting stream setup
-  const marketContext = await fetchMarketContext(asset)
+  // Fetch live price + news in parallel — both complete before we start streaming
+  const [marketContext, newsContext] = await Promise.all([
+    fetchMarketContext(asset),
+    fetchNewsContext(asset),
+  ])
 
-  // Stream fresh analysis from Claude with live market context injected
+  console.log(`[strategic-view] ${asset} — price: ${marketContext?.priceFormatted ?? 'n/a'}, news: ${newsContext?.length ?? 0} headlines`)
+
   const encoder   = new TextEncoder()
   let accumulated = ''
 
@@ -125,7 +175,7 @@ export async function POST(req) {
           model:      'claude-sonnet-4-6',
           max_tokens: 4096,
           system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-          messages: [{ role: 'user', content: buildUserPrompt(asset, marketContext) }],
+          messages: [{ role: 'user', content: buildUserPrompt(asset, marketContext, newsContext) }],
         })
 
         for await (const event of response) {
