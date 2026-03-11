@@ -163,6 +163,7 @@ const PRESET_ASSETS = [
   { id: 'nifty50',  label: 'Nifty 50',  icon: '🇮🇳' },
   { id: 'sp500',    label: 'S&P 500',   icon: '🇺🇸' },
   { id: 'nasdaq',   label: 'Nasdaq',    icon: '💻' },
+  { id: 'gold',     label: 'Gold',      icon: '🥇' },
   { id: 'crudeoil', label: 'Crude Oil', icon: '🛢️' },
   { id: 'bitcoin',  label: 'Bitcoin',   icon: '₿' },
   { id: 'usd',      label: 'US Dollar', icon: '💵' },
@@ -375,7 +376,7 @@ export default function StrategicViewPage() {
         <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-6 mb-6">
           <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-4">Select Asset</p>
 
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-5">
+          <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 mb-5">
             {PRESET_ASSETS.map(a => (
               <button key={a.id}
                 onClick={() => { setSelected(a.id); setCustom('') }}

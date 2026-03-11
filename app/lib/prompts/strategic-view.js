@@ -16,8 +16,31 @@ Think like a synthesis of:
 
 For each major theme, present BOTH the bull and bear case. Do not default to consensus. Be specific with numbers and ranges where possible. Distinguish what you know from what you're inferring. Flag where expert consensus is unusually high (potential for mean reversion).`
 
-export function buildUserPrompt(asset) {
+export function buildUserPrompt(asset, marketContext = null) {
+  const contextBlock = marketContext ? `
+## LIVE MARKET CONTEXT (treat as ground truth — supersedes your training data)
+
+> Today's date: **${marketContext.date}**
+> Asset: **${asset}**
+${marketContext.price != null ? `> Current price: **${marketContext.priceFormatted}**` : ''}
+${marketContext.change != null ? `> Today's change: **${marketContext.change >= 0 ? '+' : ''}${marketContext.change.toFixed(2)}%**` : ''}
+${marketContext.weekChange != null ? `> 5-day change: **${marketContext.weekChange >= 0 ? '+' : ''}${marketContext.weekChange.toFixed(2)}%**` : ''}
+${marketContext.yearHigh != null ? `> 52-week high: **${marketContext.yearHighFormatted}**` : ''}
+${marketContext.yearLow != null ? `> 52-week low: **${marketContext.yearLowFormatted}**` : ''}
+
+**IMPORTANT**: Your training data has a knowledge cutoff. Use the above live prices as your anchor. Reason forward from **today (${marketContext.date})**, not from your training-time data. Where you reference geopolitical events, macro data, or policy decisions beyond your training cutoff, acknowledge uncertainty and reason from first principles. Do NOT cite specific price levels from your training data as "current".
+
+---
+` : `
+## CONTEXT NOTE
+> Today's date: **${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}**
+> Live price data unavailable for this asset — reason from macro principles. Acknowledge your training cutoff and avoid citing stale price levels as current.
+
+---
+`
+
   return `Generate a comprehensive strategic view for **${asset}**.
+${contextBlock}
 
 ---
 
