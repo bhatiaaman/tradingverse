@@ -30,8 +30,11 @@ function getTradeBias(instrumentType, transactionType) {
 // Classify the primary scenario based on zone state + trade bias
 // ─────────────────────────────────────────────────────────────────────────────
 function classifyScenario(tradeBias, zoneState, zoneType, zoneDistance) {
-  // No zone nearby or no station data
-  if (!zoneState || !zoneType || zoneDistance == null || zoneDistance > 2) {
+  // Station not loaded yet — can't classify without zone data
+  if (!zoneState || !zoneType || zoneDistance == null) return 'UNCLEAR';
+
+  // Station loaded, but no meaningful zone within range — open space momentum
+  if (zoneDistance > 2) {
     return tradeBias === 'BULLISH' ? 'MOMENTUM_LONG' : 'MOMENTUM_SHORT';
   }
 
@@ -78,11 +81,11 @@ const SCENARIO_META = {
   BREAK_RETEST_SHORT:   { label: 'Break + Retest Short',   color: 'red',    summary: 'Broken support retested as resistance — continuation' },
   BREAKOUT_LONG:        { label: 'Breakout Long',          color: 'green',  summary: 'Confirmed break above resistance — momentum entry' },
   BREAKDOWN_SHORT:      { label: 'Breakdown Short',        color: 'red',    summary: 'Confirmed break below support — momentum entry' },
-  MOMENTUM_LONG:        { label: 'Momentum Long',          color: 'green',  summary: 'No nearby zone — open space, trade with trend' },
-  MOMENTUM_SHORT:       { label: 'Momentum Short',         color: 'red',    summary: 'No nearby zone — open space, trade with trend' },
+  MOMENTUM_LONG:        { label: 'Open Space — Long',      color: 'green',  summary: 'No zone within 2% — price in open space, bias determines direction' },
+  MOMENTUM_SHORT:       { label: 'Open Space — Short',     color: 'red',    summary: 'No zone within 2% — price in open space, bias determines direction' },
   INSIDE_ZONE:          { label: 'Inside Zone',            color: 'yellow', summary: 'Price inside consolidation — wait for confirmed break' },
   COUNTER_TREND:        { label: 'Counter-Trend',          color: 'yellow', summary: 'Trade direction conflicts with zone and/or market context' },
-  UNCLEAR:              { label: 'Insufficient Data',      color: 'slate',  summary: 'Run Structure and Station analysis for full scenario assessment' },
+  UNCLEAR:              { label: 'Run Station Analysis',   color: 'slate',  summary: 'Station analysis needed to identify zones and classify setup' },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -223,10 +226,13 @@ export function runScenarioAgent({ order, sentiment, stationOutput, oiData, stru
   const forSignals     = signals.filter(s => s.aligned);
   const againstSignals = signals.filter(s => !s.aligned);
 
+  // Downgrade color when confidence is low — don't show misleading green/red
+  const color = confidence === 'LOW' ? 'slate' : meta.color;
+
   return {
     scenario,
     label:       meta.label,
-    color:       meta.color,
+    color,
     summary:     meta.summary,
     confidence,
     forSignals,

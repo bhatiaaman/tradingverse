@@ -7,7 +7,7 @@ import {
   ArrowLeft, Search, TrendingUp, TrendingDown, RefreshCw,
   CheckCircle, XCircle, Clock, AlertCircle, LogIn, Loader2,
   ShoppingCart, History, Brain, AlertTriangle, ShieldCheck,
-  ShieldAlert, ShieldX, X, ExternalLink,
+  ShieldAlert, ShieldX, X, ExternalLink, Target, ChevronDown,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,6 +46,78 @@ function OrderStatusBadge({ status }) {
       <Icon size={11} />
       {status}
     </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scenario card (dark-only)
+// ─────────────────────────────────────────────────────────────────────────────
+const SCENARIO_COLORS = {
+  red:    { bg: 'bg-red-500/10',    border: 'border-red-500/30',    bar: 'bg-red-400'    },
+  green:  { bg: 'bg-green-500/10',  border: 'border-green-500/30',  bar: 'bg-green-400'  },
+  yellow: { bg: 'bg-amber-500/10',  border: 'border-amber-500/30',  bar: 'bg-amber-400'  },
+  slate:  { bg: 'bg-slate-500/10',  border: 'border-slate-700/50',  bar: 'bg-slate-600'  },
+};
+const CONFIDENCE_STYLE = {
+  HIGH:   'text-emerald-400',
+  MEDIUM: 'text-amber-400',
+  LOW:    'text-slate-500',
+};
+
+function ScenarioCard({ scenarioResult, isLoading }) {
+  const [open, setOpen] = useState(true);
+
+  if (isLoading && !scenarioResult) return (
+    <div className="rounded-xl border border-slate-700/50 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Target size={15} className="text-indigo-400" />
+        <span className="text-sm font-semibold text-white">Scenario</span>
+        <Loader2 size={13} className="animate-spin text-slate-400 ml-1" />
+      </div>
+      <div className="space-y-2">{[1,2].map(i => <div key={i} className="h-4 bg-slate-700/50 rounded animate-pulse" style={{ width: `${50+i*20}%` }} />)}</div>
+    </div>
+  );
+
+  if (!scenarioResult || scenarioResult.scenario === 'UNCLEAR') return null;
+
+  const { label, color, confidence, summary, forSignals, againstSignals } = scenarioResult;
+  const palette = SCENARIO_COLORS[color] ?? SCENARIO_COLORS.slate;
+
+  return (
+    <div className={`rounded-xl border ${palette.border} overflow-hidden`}>
+      <div className={`h-0.5 ${palette.bar}`} />
+      <div className={palette.bg}>
+        <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Target size={15} className="text-indigo-400 flex-shrink-0" />
+            <div className="text-left">
+              <div className="text-sm font-bold text-white leading-tight">{label}</div>
+              <div className="text-xs text-slate-400 font-normal mt-0.5">{summary}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+            <span className={`text-xs font-bold tracking-wide ${CONFIDENCE_STYLE[confidence]}`}>{confidence}</span>
+            <ChevronDown size={13} className={`text-slate-500 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
+        {open && (forSignals.length > 0 || againstSignals.length > 0) && (
+          <div className="px-4 pb-3 space-y-1">
+            {forSignals.map((s, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-400 mt-1.5 flex-shrink-0" />
+                <span className="text-slate-300">{s.label}</span>
+              </div>
+            ))}
+            {againstSignals.map((s, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 flex-shrink-0" />
+                <span className="text-slate-400">{s.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -175,7 +247,9 @@ export default function OrdersPage() {
   });
 
   // Intelligence
-  const [intel, setIntel]             = useState({ loading: false, result: null });
+  const [intel, setIntel]               = useState({ loading: false, result: null });
+  const [stationIntel, setStationIntel] = useState({ loading: false, result: null });
+  const [structureIntel, setStructureIntel] = useState({ loading: false, result: null });
   const [acknowledged, setAcknowledged] = useState(false);
   const [dangerModal, setDangerModal]   = useState(false);
 
@@ -249,6 +323,8 @@ export default function OrdersPage() {
     setSymResults([]);
     setOption({ symbol: null, ltp: null, strike: null, expiry: null, loading: false });
     setIntel({ loading: false, result: null });
+    setStationIntel({ loading: false, result: null });
+    setStructureIntel({ loading: false, result: null });
     setFetchingPrice(true);
     try {
       const r = await fetch(`/api/stock-price?symbol=${sym}`);
@@ -264,24 +340,35 @@ export default function OrdersPage() {
 
   const runIntelligence = useCallback(async () => {
     if (!selected?.symbol) return;
+
+    const base = {
+      symbol:          selected.symbol,
+      exchange:        form.instrumentType === 'EQ' ? 'NSE' : 'NFO',
+      instrumentType:  form.instrumentType,
+      transactionType: form.transactionType,
+      spotPrice:       selected.spotPrice,
+    };
+
+    // Fire behavioral + station + structure in parallel
     setIntel({ loading: true, result: null });
-    try {
-      const r = await fetch('/api/order-intelligence', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          symbol:          selected.symbol,
-          exchange:        form.instrumentType === 'EQ' ? 'NSE' : 'NFO',
-          instrumentType:  form.instrumentType,
-          transactionType: form.transactionType,
-          spotPrice:       selected.spotPrice,
-        }),
-      });
-      const d = await r.json();
-      setIntel({ loading: false, result: d });
-    } catch {
-      setIntel({ loading: false, result: null });
-    }
+    setStationIntel({ loading: true, result: null });
+    setStructureIntel({ loading: true, result: null });
+
+    const call = (extras) => fetch('/api/order-intelligence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...base, ...extras }),
+    }).then(r => r.json()).catch(() => null);
+
+    const [behavioral, station, structure] = await Promise.allSettled([
+      call({}),
+      call({ includeStation: true }),
+      call({ includeStructure: true }),
+    ]);
+
+    setIntel({ loading: false, result: behavioral.status === 'fulfilled' ? behavioral.value : null });
+    setStationIntel({ loading: false, result: station.status === 'fulfilled' ? station.value : null });
+    setStructureIntel({ loading: false, result: structure.status === 'fulfilled' ? structure.value : null });
   }, [selected, form.instrumentType, form.transactionType]);
 
   const fetchOrders = async () => {
@@ -631,16 +718,18 @@ export default function OrdersPage() {
                 <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Intelligence Center</h2>
               </div>
               {selected && (
-                <button onClick={runIntelligence} disabled={intel.loading}
+                <button onClick={runIntelligence} disabled={intel.loading || stationIntel.loading}
                   className="p-1.5 hover:bg-slate-700/50 rounded-lg transition-colors" title="Re-run analysis">
-                  <RefreshCw size={13} className={`text-slate-400 ${intel.loading ? 'animate-spin' : ''}`} />
+                  <RefreshCw size={13} className={`text-slate-400 ${(intel.loading || stationIntel.loading) ? 'animate-spin' : ''}`} />
                 </button>
               )}
             </div>
 
+            <ScenarioCard
+              scenarioResult={stationIntel.result?.scenario || structureIntel.result?.scenario || intel.result?.scenario || null}
+              isLoading={stationIntel.loading && !stationIntel.result}
+            />
             <BehavioralPanel intel={intel} selected={selected} />
-
-            {/* Position agent and Pattern agent panels — added later */}
           </div>
 
           {/* ══ RIGHT: Order Book ══════════════════════════════════════════ */}

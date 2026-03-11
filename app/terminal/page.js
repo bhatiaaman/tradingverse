@@ -118,7 +118,8 @@ function ScenarioCard({ scenarioResult, isLoading }) {
     </div>
   );
 
-  if (!scenarioResult) return null;
+  // Don't render when scenario is unclear (station not run yet) and there are no meaningful signals
+  if (!scenarioResult || scenarioResult.scenario === 'UNCLEAR') return null;
 
   const { label, color, confidence, summary, forSignals, againstSignals } = scenarioResult;
   const palette = SCENARIO_COLORS[color] ?? SCENARIO_COLORS.slate;
