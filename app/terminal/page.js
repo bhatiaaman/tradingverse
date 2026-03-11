@@ -89,6 +89,79 @@ function ChecksList({ checks }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // BehavioralPanel
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Scenario Card — synthesis of all available signals into one headline
+// ─────────────────────────────────────────────────────────────────────────────
+const SCENARIO_COLORS = {
+  red:    { bg: 'bg-red-500/10',    border: 'border-red-500/30',    bar: 'bg-red-400',    badge: 'bg-red-500/20 text-red-400 border-red-500/40',    dot: 'bg-red-400'    },
+  green:  { bg: 'bg-green-500/10',  border: 'border-green-500/30',  bar: 'bg-green-400',  badge: 'bg-green-500/20 text-green-400 border-green-500/40', dot: 'bg-green-400' },
+  yellow: { bg: 'bg-amber-500/10',  border: 'border-amber-500/30',  bar: 'bg-amber-400',  badge: 'bg-amber-500/20 text-amber-400 border-amber-500/40',  dot: 'bg-amber-400'  },
+  slate:  { bg: 'bg-slate-500/10',  border: 'border-slate-500/30',  bar: 'bg-slate-400',  badge: 'bg-slate-500/20 text-slate-400 border-slate-500/40',  dot: 'bg-slate-400'  },
+};
+const CONFIDENCE_STYLE = {
+  HIGH:   'text-emerald-400',
+  MEDIUM: 'text-amber-400',
+  LOW:    'text-slate-400',
+};
+
+function ScenarioCard({ scenarioResult, isLoading }) {
+  const [open, setOpen] = useState(true);
+
+  if (isLoading && !scenarioResult) return (
+    <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Target size={15} className="text-indigo-500 dark:text-indigo-400" />
+        <span className="text-sm font-semibold text-gray-900 dark:text-white">Scenario</span>
+        <Loader2 size={13} className="animate-spin text-gray-400 ml-1" />
+      </div>
+      <div className="space-y-2">{[1,2].map(i => <div key={i} className="h-4 bg-black/5 dark:bg-white/5 rounded animate-pulse" style={{ width: `${50+i*20}%` }} />)}</div>
+    </div>
+  );
+
+  if (!scenarioResult) return null;
+
+  const { label, color, confidence, summary, forSignals, againstSignals } = scenarioResult;
+  const palette = SCENARIO_COLORS[color] ?? SCENARIO_COLORS.slate;
+
+  return (
+    <div className={`rounded-xl border ${palette.border} overflow-hidden`}>
+      <div className={`h-0.5 ${palette.bar}`} />
+      <div className={`${palette.bg}`}>
+        <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Target size={15} className="text-indigo-500 dark:text-indigo-400 flex-shrink-0" />
+            <div className="text-left">
+              <div className="text-sm font-bold text-gray-900 dark:text-white leading-tight">{label}</div>
+              <div className="text-xs text-gray-400 font-normal mt-0.5">{summary}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+            <span className={`text-xs font-bold tracking-wide ${CONFIDENCE_STYLE[confidence]}`}>{confidence}</span>
+            <ChevronDown size={13} className={`text-gray-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
+
+        {open && (forSignals.length > 0 || againstSignals.length > 0) && (
+          <div className="px-4 pb-3 space-y-1">
+            {forSignals.map((s, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-400 mt-1.5 flex-shrink-0" />
+                <span className="text-gray-600 dark:text-gray-300">{s.label}</span>
+              </div>
+            ))}
+            {againstSignals.map((s, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 flex-shrink-0" />
+                <span className="text-gray-500 dark:text-gray-400">{s.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function BehavioralPanel({ intel, symbol }) {
   const [open, setOpen] = useState(true);
   if (!symbol) return (
@@ -854,6 +927,15 @@ function PlaceOrderTab({
   const isOICapable = OI_SYMBOLS.includes(symbol);
   const isFnO   = isIndex || lotSize > 1; // non-FnO EQ stocks return lotSize=1 from NFO API
 
+  // Pick the richest scenario result across all loaded agents (station > oi > structure > behavioral)
+  const scenarioResult =
+    stationIntel.result?.scenario ||
+    oiIntel.result?.scenario ||
+    structureIntel.result?.scenario ||
+    intel.result?.scenario ||
+    null;
+  const scenarioLoading = !scenarioResult && (intel.loading || structureIntel.loading || stationIntel.loading || oiIntel.loading);
+
   const getEstimatedValue = () => {
     const p  = (instrumentType === 'EQ' || instrumentType === 'FUT') ? spotPrice : optionLtp;
     const ep = orderType === 'MARKET' ? p : (parseFloat(price) || p);
@@ -1190,6 +1272,7 @@ function PlaceOrderTab({
         </div>
 
         <div className="space-y-3">
+          {symbol && <ScenarioCard scenarioResult={scenarioResult} isLoading={scenarioLoading} />}
           <BehavioralPanel intel={intel} symbol={symbol} />
 
           <AgentPanel

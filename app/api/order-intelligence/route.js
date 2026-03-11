@@ -5,6 +5,7 @@ import { runStructureAgent } from './agents/structure.js';
 import { runPatternAgent } from './agents/pattern.js';
 import { runStationAgent } from './agents/station.js';
 import { runOIAgent } from './agents/oi.js';
+import { runScenarioAgent } from './agents/scenario.js';
 import { resolveToken } from './lib/resolve-token.js';
 import { getDataProvider } from '@/app/lib/providers';
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit';
@@ -423,16 +424,26 @@ export async function POST(req) {
 
     // 7. Optionally run OI agent (index symbols only: NIFTY, BANKNIFTY)
     let oi = null;
+    let rawOIData = null;
     if (includeOI) {
-      const oiData = await collectOIData(symbol, base);
-      if (oiData) {
-        oi = runOIAgent({ order: agentData.order, oiData });
+      rawOIData = await collectOIData(symbol, base);
+      if (rawOIData) {
+        oi = runOIAgent({ order: agentData.order, oiData: rawOIData });
       } else {
         oi = { behaviors: [], checks: [], verdict: 'clear', riskScore: 0, unavailable: true };
       }
     }
 
-    // 8. Return combined result
+    // 8. Scenario synthesis — always runs, confidence improves as more agents load
+    const scenario = runScenarioAgent({
+      order:           agentData.order,
+      sentiment:       collectedData.sentiment,
+      stationOutput:   station,        // null if not requested this call
+      oiData:          rawOIData,      // null for non-index or if OI not requested
+      structureChecks: structure?.checks ?? null,
+    });
+
+    // 9. Return combined result
     return NextResponse.json({
       positions:  collectedData.positions,
       orders:     collectedData.orders,
@@ -444,6 +455,7 @@ export async function POST(req) {
       pattern,
       station,
       oi,
+      scenario,
     });
 
   } catch (error) {
