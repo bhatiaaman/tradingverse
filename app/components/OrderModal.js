@@ -1,18 +1,72 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, TrendingUp, TrendingDown, Loader2, RefreshCw, LogIn, Brain, AlertTriangle } from 'lucide-react';
+import { X, TrendingUp, TrendingDown, Loader2, RefreshCw, LogIn, Brain, AlertTriangle, Target, ChevronDown } from 'lucide-react';
 import { nseStrikeSteps } from '@/app/lib/nseStrikeSteps';
 
-export default function OrderModal({ 
-  isOpen, 
-  onClose, 
-  symbol, 
-  price, 
+// ─────────────────────────────────────────────────────────────────────────────
+// Scenario Card (dark-only, used inside OrderModal analysis tab)
+// ─────────────────────────────────────────────────────────────────────────────
+const SCENARIO_COLORS = {
+  red:    { bg: 'bg-red-500/10',   border: 'border-red-500/30',   bar: 'bg-red-400'   },
+  green:  { bg: 'bg-green-500/10', border: 'border-green-500/30', bar: 'bg-green-400' },
+  yellow: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', bar: 'bg-amber-400' },
+  slate:  { bg: 'bg-slate-500/10', border: 'border-slate-700/50', bar: 'bg-slate-600' },
+};
+const CONFIDENCE_STYLE = { HIGH: 'text-emerald-400', MEDIUM: 'text-amber-400', LOW: 'text-slate-500' };
+
+function ScenarioCard({ scenarioResult }) {
+  const [open, setOpen] = useState(true);
+  if (!scenarioResult || scenarioResult.scenario === 'UNCLEAR') return null;
+  const { label, color, confidence, summary, forSignals, againstSignals } = scenarioResult;
+  const palette = SCENARIO_COLORS[color] ?? SCENARIO_COLORS.slate;
+  return (
+    <div className={`rounded-xl border ${palette.border} overflow-hidden`}>
+      <div className={`h-0.5 ${palette.bar}`} />
+      <div className={palette.bg}>
+        <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <Target size={13} className="text-indigo-400 flex-shrink-0" />
+            <div className="text-left">
+              <div className="text-xs font-bold text-white leading-tight">{label}</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">{summary}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+            <span className={`text-[10px] font-bold tracking-wide ${CONFIDENCE_STYLE[confidence]}`}>{confidence}</span>
+            <ChevronDown size={11} className={`text-slate-500 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
+        {open && (forSignals?.length > 0 || againstSignals?.length > 0) && (
+          <div className="px-3 pb-2.5 space-y-1">
+            {forSignals?.map((s, i) => (
+              <div key={i} className="flex items-start gap-1.5 text-[10px]">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-400 mt-1 flex-shrink-0" />
+                <span className="text-slate-300">{s.label}</span>
+              </div>
+            ))}
+            {againstSignals?.map((s, i) => (
+              <div key={i} className="flex items-start gap-1.5 text-[10px]">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1 flex-shrink-0" />
+                <span className="text-slate-400">{s.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function OrderModal({
+  isOpen,
+  onClose,
+  symbol,
+  price,
   defaultType = 'BUY',
   optionType = null,
   optionSymbol = null,
-  onOrderPlaced 
+  onOrderPlaced
 }) {
   const [transactionType, setTransactionType] = useState(defaultType);
   const [quantity, setQuantity] = useState(1);
@@ -562,6 +616,10 @@ export default function OrderModal({
           {/* ── ANALYSIS TAB ─────────────────────────────────────────────────── */}
           {activeTab === 'analysis' && (
           <div className="p-5 space-y-3">
+            {/* Scenario synthesis — shown once deep intel (station) is loaded */}
+            {deepIntelResult?.scenario && (
+              <ScenarioCard scenarioResult={deepIntelResult.scenario} />
+            )}
             {insightsLoading && (
               <div className="p-3 bg-slate-700/50 border border-white/10 rounded-xl flex items-center gap-2">
                 <Brain size={16} className="text-purple-400 animate-pulse" />

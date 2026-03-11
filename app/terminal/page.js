@@ -1830,7 +1830,7 @@ export default function TerminalPage() {
     } catch { setOIIntel({ loading: false, result: null }); }
   }, [symbol, buildIntelBody]);
 
-  // Auto-run behavioral when symbol/type changes
+  // Auto-run all agents when symbol/type changes
   useEffect(() => {
     if (!symbol) return;
     setAcknowledged(false);
@@ -1838,7 +1838,11 @@ export default function TerminalPage() {
     setPatternIntel({ loading: false, result: null });
     setStationIntel({ loading: false, result: null });
     setOIIntel({ loading: false, result: null });
+    // Fire behavioral + station + structure in parallel; OI only for index symbols
     runIntelligence();
+    runStationAnalysis();
+    runStructureAnalysis();
+    if (OI_SYMBOLS.includes(symbol)) runOIAnalysis();
   }, [symbol, transactionType, instrumentType]);
 
   // ── Watchlist handlers
