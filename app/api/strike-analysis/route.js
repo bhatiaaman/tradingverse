@@ -25,8 +25,33 @@ const INSTRUMENTS_CACHE_KEY = `${NS}:nfo-instruments-full`;
 async function getNFOInstruments(dp) {
   const cached = await redisGet(INSTRUMENTS_CACHE_KEY);
   if (cached) return cached;
-  const instruments = await dp.getInstruments('NFO');
-  const options     = instruments.filter(i => i.instrument_type === 'CE' || i.instrument_type === 'PE');
+
+  // Use raw CSV fetch to avoid Kite SDK's fragile content-type === 'text/csv' check
+  const csvText = await dp.getInstrumentsCSV('NFO');
+  const lines   = csvText.trim().split('\n');
+  const headers = lines[0].split(',');
+
+  const tsIdx     = headers.indexOf('tradingsymbol');
+  const nameIdx   = headers.indexOf('name');
+  const expiryIdx = headers.indexOf('expiry');
+  const strikeIdx = headers.indexOf('strike');
+  const typeIdx   = headers.indexOf('instrument_type');
+
+  const options = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',');
+    const type = cols[typeIdx]?.replace(/"/g, '').trim();
+    if (type === 'CE' || type === 'PE') {
+      options.push({
+        tradingsymbol:   cols[tsIdx]?.replace(/"/g, '').trim(),
+        name:            cols[nameIdx]?.replace(/"/g, '').trim(),
+        expiry:          cols[expiryIdx]?.replace(/"/g, '').trim() || '',
+        strike:          parseFloat(cols[strikeIdx]) || 0,
+        instrument_type: type,
+      });
+    }
+  }
+
   await redisSet(INSTRUMENTS_CACHE_KEY, options, 7200);
   return options;
 }

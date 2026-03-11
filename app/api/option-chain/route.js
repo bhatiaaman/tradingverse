@@ -149,21 +149,38 @@ function findSupportResistance(optionData, spotPrice, config) {
 
 async function getNFOInstruments(dp) {
   const cached = await redisGet(INSTRUMENTS_CACHE_KEY);
-  if (cached) {
-    return cached;
+  if (cached) return cached;
+
+  // Use raw CSV fetch + manual parse to avoid Kite SDK's fragile content-type check
+  // (SDK transformInstrumentsResponse uses === 'text/csv' exact match which breaks
+  //  when Kite returns 'text/csv; charset=utf-8', causing .filter() to throw)
+  const csvText = await dp.getInstrumentsCSV('NFO');
+  const lines   = csvText.trim().split('\n');
+  const headers = lines[0].split(',');
+
+  const tsIdx     = headers.indexOf('tradingsymbol');
+  const nameIdx   = headers.indexOf('name');
+  const expiryIdx = headers.indexOf('expiry');
+  const strikeIdx = headers.indexOf('strike');
+  const typeIdx   = headers.indexOf('instrument_type');
+
+  const options = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',');
+    const name = cols[nameIdx]?.replace(/"/g, '').trim();
+    const type = cols[typeIdx]?.replace(/"/g, '').trim();
+    if ((name === 'NIFTY' || name === 'BANKNIFTY') && (type === 'CE' || type === 'PE')) {
+      options.push({
+        tradingsymbol:   cols[tsIdx]?.replace(/"/g, '').trim(),
+        name,
+        // expiry from CSV is already 'YYYY-MM-DD' — no Date object involved
+        expiry:          cols[expiryIdx]?.replace(/"/g, '').trim() || '',
+        strike:          parseFloat(cols[strikeIdx]) || 0,
+        instrument_type: type,
+      });
+    }
   }
 
-  const instruments = await dp.getInstruments('NFO');
-  const options = instruments
-    .filter(i =>
-      (i.name === 'NIFTY' || i.name === 'BANKNIFTY') &&
-      (i.instrument_type === 'CE' || i.instrument_type === 'PE')
-    )
-    .map(i => ({
-      ...i,
-      // Normalize expiry to ISO string so Redis round-trip is lossless
-      expiry: i.expiry instanceof Date ? i.expiry.toISOString() : String(i.expiry),
-    }));
   await redisSet(INSTRUMENTS_CACHE_KEY, options, INSTRUMENTS_CACHE_TTL);
   return options;
 }
