@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import Nav from '../../components/Nav'
 import Link from 'next/link'
 import posthog from 'posthog-js'
@@ -217,6 +217,49 @@ function AnalysisPanel({ analysis }) {
         </div>
       </Section>
 
+      {/* Institutional */}
+      {analysis.institutional && (
+        <Section title="Institutional Activity" icon={
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+          </svg>
+        }>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl px-3 py-2">
+                <p className="text-[10px] text-slate-400 dark:text-slate-600 uppercase tracking-widest mb-1">FII Signal</p>
+                <p className={`text-sm font-bold ${
+                  analysis.institutional.fiiSignal === 'Buying' ? 'text-emerald-600 dark:text-emerald-400' :
+                  analysis.institutional.fiiSignal === 'Selling' ? 'text-rose-600 dark:text-rose-400' :
+                  'text-amber-600 dark:text-amber-400'
+                }`}>{analysis.institutional.fiiSignal}</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl px-3 py-2">
+                <p className="text-[10px] text-slate-400 dark:text-slate-600 uppercase tracking-widest mb-1">MF Signal</p>
+                <p className={`text-sm font-bold ${
+                  analysis.institutional.mfSignal === 'Accumulating' ? 'text-emerald-600 dark:text-emerald-400' :
+                  analysis.institutional.mfSignal === 'Distributing' ? 'text-rose-600 dark:text-rose-400' :
+                  'text-amber-600 dark:text-amber-400'
+                }`}>{analysis.institutional.mfSignal}</p>
+              </div>
+            </div>
+            {analysis.institutional.holdingTrend && analysis.institutional.holdingTrend !== 'Unknown' && (
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 text-xs">Holding Trend</span>
+                <span className={`text-sm font-semibold ${
+                  analysis.institutional.holdingTrend === 'Increasing' ? 'text-emerald-600 dark:text-emerald-400' :
+                  analysis.institutional.holdingTrend === 'Decreasing' ? 'text-rose-600 dark:text-rose-400' :
+                  'text-slate-700 dark:text-slate-300'
+                }`}>{analysis.institutional.holdingTrend}</span>
+              </div>
+            )}
+            {analysis.institutional.smartMoneyClue && (
+              <p className="text-slate-600 dark:text-slate-400 text-xs leading-5 pt-1 border-t border-slate-100 dark:border-white/5">{analysis.institutional.smartMoneyClue}</p>
+            )}
+          </div>
+        </Section>
+      )}
+
       {/* Story */}
       <Section title="The Story" icon={
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -291,6 +334,74 @@ function AnalysisPanel({ analysis }) {
   )
 }
 
+const SAVED_KEY = 'tv:chart-analyses'
+const MAX_SAVED = 50
+
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem(SAVED_KEY) || '[]') } catch { return [] }
+}
+
+function SavedAnalyses({ onLoad, refreshTick }) {
+  const [items, setItems] = useState([])
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => { setItems(loadSaved()) }, [refreshTick])
+
+  function del(id) {
+    const next = items.filter(x => x.id !== id)
+    localStorage.setItem(SAVED_KEY, JSON.stringify(next))
+    setItems(next)
+  }
+
+  if (items.length === 0) return null
+
+  const vc = VERDICT_CONFIG
+
+  return (
+    <div className="mt-10">
+      <button onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 text-xs font-bold tracking-[0.1em] uppercase text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors mb-4">
+        <svg className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        Saved Analyses ({items.length})
+      </button>
+      {open && (
+        <div className="space-y-2">
+          {items.map(item => {
+            const cfg = vc[item.rating] || vc['NEUTRAL']
+            return (
+              <div key={item.id} className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/8 rounded-xl px-4 py-3 flex items-center gap-3">
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-slate-900 dark:text-white">{item.ticker || 'Unknown'}</span>
+                    <span className={`text-xs font-semibold ${cfg.color}`}>{item.rating}</span>
+                    <span className="text-xs text-slate-400 dark:text-slate-600">{item.score}/10</span>
+                    {item.timeframe && <span className="text-xs text-slate-400 dark:text-slate-600">· {item.timeframe}</span>}
+                  </div>
+                  {item.summary && <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">{item.summary}</p>}
+                  <p className="text-[10px] text-slate-400 dark:text-slate-600 mt-0.5">{new Date(item.savedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button onClick={() => onLoad(item.analysis)}
+                    className="text-xs font-semibold text-violet-600 dark:text-violet-400 hover:underline">
+                    View
+                  </button>
+                  <button onClick={() => del(item.id)}
+                    className="text-xs text-slate-400 hover:text-rose-500 transition-colors">
+                    ×
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ChartAnalyserPage() {
   const [image, setImage] = useState(null)        // base64 string
   const [mediaType, setMediaType] = useState('image/jpeg')
@@ -302,7 +413,29 @@ export default function ChartAnalyserPage() {
   const [error, setError] = useState('')
   const [limitReached, setLimitReached] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [savedTick, setSavedTick] = useState(0)
   const fileInputRef = useRef(null)
+
+  function saveAnalysis() {
+    if (!analysis) return
+    const existing = loadSaved()
+    const entry = {
+      id: Date.now().toString(),
+      savedAt: new Date().toISOString(),
+      ticker: analysis.ticker,
+      timeframe: analysis.timeframe,
+      rating: analysis.verdict?.rating,
+      score: analysis.verdict?.score,
+      summary: analysis.verdict?.summary,
+      analysis,
+    }
+    const next = [entry, ...existing].slice(0, MAX_SAVED)
+    localStorage.setItem(SAVED_KEY, JSON.stringify(next))
+    setSaved(true)
+    setSavedTick(t => t + 1)
+    setTimeout(() => setSaved(false), 2000)
+  }
 
   const processFile = useCallback((file) => {
     if (!file || !file.type.startsWith('image/')) {
@@ -595,6 +728,8 @@ export default function ChartAnalyserPage() {
                 ))}
               </div>
             )}
+
+            <SavedAnalyses refreshTick={savedTick} onLoad={a => { setAnalysis(a); setPreview(null) }} />
           </div>
         ) : (
           <div>
@@ -607,13 +742,39 @@ export default function ChartAnalyserPage() {
 
             <AnalysisPanel analysis={analysis} />
 
-            {/* Analyse another */}
-            <button
-              onClick={reset}
-              className="mt-6 w-full border border-slate-200 dark:border-white/10 hover:border-violet-400 dark:hover:border-violet-500/40 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-semibold rounded-xl py-3 text-sm transition-all"
-            >
-              Analyse another chart →
-            </button>
+            {/* Save + Analyse another */}
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={saveAnalysis}
+                className={`flex items-center gap-2 px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
+                  saved
+                    ? 'border-emerald-400 dark:border-emerald-500/60 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10'
+                    : 'border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:border-violet-400 dark:hover:border-violet-500/40 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                {saved ? (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Saved
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                    </svg>
+                    Save
+                  </>
+                )}
+              </button>
+              <button
+                onClick={reset}
+                className="flex-1 border border-slate-200 dark:border-white/10 hover:border-violet-400 dark:hover:border-violet-500/40 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-semibold rounded-xl py-3 text-sm transition-all"
+              >
+                Analyse another chart →
+              </button>
+            </div>
           </div>
         )}
       </div>

@@ -18,6 +18,21 @@ const TOOLS = [
     available: true,
   },
   {
+    href: '/investing/deals',
+    tag: 'NSE Data',
+    tagColor: 'text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 border-amber-200 dark:border-amber-700/50',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+    ),
+    title: 'Bulk & Block Deals',
+    description: 'See every institutional trade reported to NSE today — bulk deals above 0.5% of shares and block deals executed off-market.',
+    features: ['Buy / Sell side badges', 'Deal value in ₹Cr', 'Filter by bulk or block', 'Search by symbol or client'],
+    available: true,
+  },
+  {
     tag: 'Coming Soon',
     tagColor: 'text-slate-500 bg-slate-100 dark:bg-slate-800/40 border-slate-300 dark:border-slate-700/50',
     icon: (
