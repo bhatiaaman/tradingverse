@@ -3,9 +3,25 @@ import Link from 'next/link'
 
 const TOOLS = [
   {
+    href: '/investing/strategic-view',
+    tag: 'AI Macro',
+    tagColor: 'text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/30 border-violet-200 dark:border-violet-800/50',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+    title: 'Connect the Dots',
+    subtitle: 'Strategic View',
+    description: 'Multi-horizon strategic outlook synthesising macro, geopolitics, AI disruption, demographics, and energy across 3M to 10Y horizons.',
+    features: ['Dalio · Marks · Soros · Burry', 'Bull / Bear / Base cases', '3M → 10Y time horizon matrix', 'Contrarian stress test'],
+    available: true,
+  },
+  {
     href: '/investing/chart-analyser',
     tag: 'AI Vision',
-    tagColor: 'text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/30 border-violet-200 dark:border-violet-800/50',
+    tagColor: 'text-sky-600 dark:text-sky-400 bg-sky-100 dark:bg-sky-900/30 border-sky-200 dark:border-sky-800/50',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -103,7 +119,10 @@ export default function InvestingPage() {
               </div>
 
               {/* Title & description */}
-              <h3 className="text-slate-900 dark:text-white font-bold text-lg mb-2">{tool.title}</h3>
+              <div className="mb-2">
+                <h3 className="text-slate-900 dark:text-white font-bold text-lg leading-tight">{tool.title}</h3>
+                {tool.subtitle && <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 mt-0.5">{tool.subtitle}</p>}
+              </div>
               <p className="text-slate-600 dark:text-slate-400 text-sm leading-6 mb-5 flex-1">{tool.description}</p>
 
               {/* Features */}
