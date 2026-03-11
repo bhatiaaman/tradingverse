@@ -144,7 +144,7 @@ export async function POST(req) {
     }
   }
 
-  const { asset, refresh = false } = await req.json()
+  const { asset, refresh = false, userPrice = '', userMacro = '' } = await req.json()
   if (!asset?.trim()) return NextResponse.json({ error: 'Asset required' }, { status: 400 })
 
   const key = cacheKey(asset)
@@ -152,8 +152,11 @@ export async function POST(req) {
   if (!refresh) {
     const cached = await redis.get(key)
     if (cached) {
-      const content = typeof cached === 'string' ? cached : JSON.stringify(cached)
-      return NextResponse.json({ content, cached: true })
+      // Support both old plain-string cache and new { content, generatedAt } object
+      const isObj = cached && typeof cached === 'object'
+      const content = isObj ? cached.content : (typeof cached === 'string' ? cached : JSON.stringify(cached))
+      const generatedAt = isObj ? cached.generatedAt : null
+      return NextResponse.json({ content, cached: true, generatedAt })
     }
   }
 
@@ -167,6 +170,7 @@ export async function POST(req) {
 
   const encoder   = new TextEncoder()
   let accumulated = ''
+  const generatedAt = Date.now()
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -175,7 +179,7 @@ export async function POST(req) {
           model:      'claude-sonnet-4-6',
           max_tokens: 4096,
           system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-          messages: [{ role: 'user', content: buildUserPrompt(asset, marketContext, newsContext) }],
+          messages: [{ role: 'user', content: buildUserPrompt(asset, marketContext, newsContext, userPrice, userMacro) }],
         })
 
         for await (const event of response) {
@@ -186,7 +190,7 @@ export async function POST(req) {
         }
 
         if (accumulated) {
-          await redis.set(key, accumulated, { ex: CACHE_TTL })
+          await redis.set(key, { content: accumulated, generatedAt }, { ex: CACHE_TTL })
         }
         controller.close()
       } catch (err) {
@@ -202,6 +206,7 @@ export async function POST(req) {
       'X-Accel-Buffering': 'no',
       'Cache-Control':     'no-cache',
       'Transfer-Encoding': 'chunked',
+      'X-Generated-At':    String(generatedAt),
     },
   })
 }

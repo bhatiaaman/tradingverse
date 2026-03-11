@@ -16,7 +16,7 @@ Think like a synthesis of:
 
 For each major theme, present BOTH the bull and bear case. Do not default to consensus. Be specific with numbers and ranges where possible. Distinguish what you know from what you're inferring. Flag where expert consensus is unusually high (potential for mean reversion).`
 
-export function buildUserPrompt(asset, marketContext = null, newsContext = null) {
+export function buildUserPrompt(asset, marketContext = null, newsContext = null, userPrice = '', userMacro = '') {
   const today = marketContext?.date
     ?? new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
 
@@ -48,11 +48,18 @@ ${newsContext.map(n => `- **"${n.title}"** — ${n.publisher}${n.publishedAt ? `
 
 ` : ''
 
-  const cutoffWarning = `**CRITICAL INSTRUCTION**: Your training data has a knowledge cutoff. The live market data and news headlines above are ground truth for today (${today}). Reason forward from this date. Do NOT reference stale prices from your training as "current". Where events above describe ongoing conflicts, policy shifts, or market moves — incorporate them directly into your analysis.`
+  const userContextBlock = (userPrice?.trim() || userMacro?.trim()) ? `
+## USER-PROVIDED CONTEXT (treat as ground truth — user supplied this directly)
+
+${userPrice?.trim() ? `- **Current price of ${asset}**: ${userPrice.trim()}` : ''}
+${userMacro?.trim() ? `- **Current macro regime**: ${userMacro.trim()}` : ''}
+
+` : ''
+
+  const cutoffWarning = `**CRITICAL INSTRUCTION**: Your training data has a knowledge cutoff. The live market data, news headlines, and user-provided context above are ground truth for today (${today}). Reason forward from this date. Do NOT reference stale prices from your training as "current". Where events above describe ongoing conflicts, policy shifts, or market moves — incorporate them directly into your analysis.`
 
   return `Generate a comprehensive strategic view for **${asset}**.
-${priceBlock}${newsBlock}
-${cutoffWarning}
+${priceBlock}${newsBlock}${userContextBlock}${cutoffWarning}
 
 ---
 

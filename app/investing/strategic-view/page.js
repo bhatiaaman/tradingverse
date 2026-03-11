@@ -18,6 +18,17 @@ function saveToDisk(views) {
   try { localStorage.setItem(SAVED_KEY, JSON.stringify(views)) } catch {}
 }
 
+function timeAgo(ms) {
+  if (!ms) return null
+  const diff = Date.now() - ms
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
 // ─── Markdown renderer ────────────────────────────────────────────────────────
 
 function parseInline(text) {
@@ -226,9 +237,14 @@ export default function StrategicViewPage() {
   const [error, setError]         = useState('')
   const [currentAsset, setCurrentAsset] = useState('')
   const [isCached, setIsCached]   = useState(false)
+  const [generatedAt, setGeneratedAt] = useState(null)  // Redis timestamp (ms)
   const [savedViews, setSavedViews] = useState([])
   const [showDrawer, setShowDrawer] = useState(false)
   const [saveTick, setSaveTick]   = useState(false)
+  // Manual context form
+  const [showContext, setShowContext] = useState(false)
+  const [userPrice, setUserPrice] = useState('')
+  const [userMacro, setUserMacro] = useState('')
   const outputRef = useRef(null)
   const abortRef  = useRef(null)
 
@@ -242,7 +258,7 @@ export default function StrategicViewPage() {
   const generate = useCallback(async (refresh = false) => {
     const asset = activeAsset
     if (!asset) return
-    setLoading(true); setContent(''); setDone(false); setError(''); setIsCached(false)
+    setLoading(true); setContent(''); setDone(false); setError(''); setIsCached(false); setGeneratedAt(null)
     setCurrentAsset(asset)
     abortRef.current?.abort()
     abortRef.current = new AbortController()
@@ -251,7 +267,7 @@ export default function StrategicViewPage() {
       const res = await fetch('/api/investing/strategic-view', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ asset, refresh }),
+        body: JSON.stringify({ asset, refresh, userPrice: userPrice.trim(), userMacro: userMacro.trim() }),
         signal: abortRef.current.signal,
       })
 
@@ -267,11 +283,15 @@ export default function StrategicViewPage() {
         const data = await res.json()
         setContent(data.content)
         setIsCached(true)
+        setGeneratedAt(data.generatedAt || null)
         setDone(true)
         return
       }
 
-      // Streaming response
+      // Streaming response — grab timestamp from header
+      const xGenAt = res.headers.get('x-generated-at')
+      if (xGenAt) setGeneratedAt(Number(xGenAt))
+
       const reader  = res.body.getReader()
       const decoder = new TextDecoder()
       let text = ''
@@ -289,7 +309,7 @@ export default function StrategicViewPage() {
     } finally {
       setLoading(false)
     }
-  }, [activeAsset])
+  }, [activeAsset, userPrice, userMacro])
 
   // Auto-scroll output as it streams
   useEffect(() => {
@@ -424,6 +444,67 @@ export default function StrategicViewPage() {
           </div>
         </div>
 
+        {/* Additional context (collapsible) */}
+        <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl mb-6 overflow-hidden">
+          <button
+            onClick={() => setShowContext(v => !v)}
+            className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors group">
+            <div className="flex items-center gap-2.5">
+              <svg className="w-4 h-4 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">Additional Context</span>
+              {(userPrice.trim() || userMacro.trim()) && (
+                <span className="text-[9px] font-bold tracking-widest uppercase text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-700/50 px-1.5 py-0.5 rounded-full">Active</span>
+              )}
+            </div>
+            <svg className={`w-4 h-4 text-slate-400 transition-transform ${showContext ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {showContext && (
+            <div className="px-5 pb-5 border-t border-slate-100 dark:border-white/8 pt-4 space-y-4">
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-5">
+                Provide current context for assets where auto-fetch is unavailable, or override with more precise data. This is injected directly into the AI prompt.
+              </p>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5">
+                    Current Price
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. $82.50 or ₹24,500"
+                    value={userPrice}
+                    onChange={e => setUserPrice(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 outline-none focus:border-violet-400 dark:focus:border-violet-500/60 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5">
+                    Macro Regime Context
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Fed on hold, US 10Y at 4.3%, DXY at 104"
+                    value={userMacro}
+                    onChange={e => setUserMacro(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 outline-none focus:border-violet-400 dark:focus:border-violet-500/60 transition-colors"
+                  />
+                </div>
+              </div>
+              {(userPrice.trim() || userMacro.trim()) && (
+                <button
+                  onClick={() => { setUserPrice(''); setUserMacro('') }}
+                  className="text-xs text-slate-400 hover:text-rose-500 transition-colors">
+                  Clear context
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Error */}
         {error && (
           <div className="bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 rounded-2xl p-5 mb-6">
@@ -440,10 +521,15 @@ export default function StrategicViewPage() {
             <div className="flex items-center justify-between gap-4 mb-6 pb-5 border-b border-slate-100 dark:border-white/8">
               <div>
                 <h2 className="text-xl font-black text-slate-900 dark:text-white">{currentAsset}</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Strategic View
-                  {isCached && <span className="ml-2 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded">Cached</span>}
-                  {loading && <span className="ml-2 inline-flex items-center gap-1 text-violet-600 dark:text-violet-400"><span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />Generating…</span>}
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center flex-wrap gap-1.5">
+                  <span>Strategic View</span>
+                  {generatedAt && !loading && (
+                    <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+                      · Generated {timeAgo(generatedAt)}
+                    </span>
+                  )}
+                  {isCached && <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded">Cached</span>}
+                  {loading && <span className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-400"><span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />Generating…</span>}
                 </p>
               </div>
               {done && (
