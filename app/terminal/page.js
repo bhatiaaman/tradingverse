@@ -118,10 +118,14 @@ function ScenarioCard({ scenarioResult, isLoading }) {
     </div>
   );
 
-  // Don't render when scenario is unclear (station not run yet) and there are no meaningful signals
+  // Don't render when scenario is unclear (station not run yet)
   if (!scenarioResult || scenarioResult.scenario === 'UNCLEAR') return null;
 
-  const { label, color, confidence, summary, forSignals, againstSignals } = scenarioResult;
+  const { label, color, confidence, summary, forSignals, againstSignals, scenario } = scenarioResult;
+
+  // Don't render "Open Space LOW" with no supporting signals — pure noise, station found nothing meaningful
+  const isMomentum = scenario === 'MOMENTUM_LONG' || scenario === 'MOMENTUM_SHORT';
+  if (isMomentum && confidence === 'LOW' && forSignals.length === 0) return null;
   const palette = SCENARIO_COLORS[color] ?? SCENARIO_COLORS.slate;
 
   return (
@@ -1229,6 +1233,21 @@ function PlaceOrderTab({
             <XCircle size={13} /> {orderResult.error}
           </div>
         )}
+
+        {/* Compact scenario strip — shows scenario status inline before placing (hide empty momentum) */}
+        {symbol && scenarioResult && scenarioResult.scenario !== 'UNCLEAR' && !(
+          (scenarioResult.scenario === 'MOMENTUM_LONG' || scenarioResult.scenario === 'MOMENTUM_SHORT') &&
+          scenarioResult.confidence === 'LOW' && scenarioResult.forSignals?.length === 0
+        ) && (() => {
+          const palette = SCENARIO_COLORS[scenarioResult.color] ?? SCENARIO_COLORS.slate;
+          return (
+            <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${palette.badge}`}>
+              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${palette.dot}`} />
+              <span className="text-xs font-medium flex-1 truncate">{scenarioResult.label}</span>
+              <span className={`text-[10px] font-bold tracking-wide ${CONFIDENCE_STYLE[scenarioResult.confidence]}`}>{scenarioResult.confidence}</span>
+            </div>
+          );
+        })()}
 
         {/* Place Order button */}
         <button

@@ -29,12 +29,12 @@ function getTradeBias(instrumentType, transactionType) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Classify the primary scenario based on zone state + trade bias
 // ─────────────────────────────────────────────────────────────────────────────
-function classifyScenario(tradeBias, zoneState, zoneType, zoneDistance) {
+function classifyScenario(tradeBias, zoneState, zoneType, zoneDistance, stationLoaded) {
   // Station not loaded yet — can't classify without zone data
-  if (!zoneState || !zoneType || zoneDistance == null) return 'UNCLEAR';
+  if (!stationLoaded) return 'UNCLEAR';
 
-  // Station loaded, but no meaningful zone within range — open space momentum
-  if (zoneDistance > 2) {
+  // Station loaded, but no zone found nearby (or beyond 2%) — open space momentum
+  if (!zoneState || !zoneType || zoneDistance == null || zoneDistance > 2) {
     return tradeBias === 'BULLISH' ? 'MOMENTUM_LONG' : 'MOMENTUM_SHORT';
   }
 
@@ -217,8 +217,10 @@ export function runScenarioAgent({ order, sentiment, stationOutput, oiData, stru
   const zone         = stationOutput?.nearestStation ?? null;
   const zoneType     = zone?.type   ?? null;
   const zoneDistance = zone?.distance ?? null;
+  // stationLoaded: station agent has run and returned results (not just null/unrun)
+  const stationLoaded = stationOutput != null;
 
-  const scenario  = classifyScenario(tradeBias, zoneState, zoneType, zoneDistance);
+  const scenario  = classifyScenario(tradeBias, zoneState, zoneType, zoneDistance, stationLoaded);
   const meta      = SCENARIO_META[scenario] ?? SCENARIO_META.UNCLEAR;
   const signals   = gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structureChecks });
   const confidence = scoreConfidence(signals, scenario);

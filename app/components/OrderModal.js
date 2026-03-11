@@ -8,17 +8,19 @@ import { nseStrikeSteps } from '@/app/lib/nseStrikeSteps';
 // Scenario Card (dark-only, used inside OrderModal analysis tab)
 // ─────────────────────────────────────────────────────────────────────────────
 const SCENARIO_COLORS = {
-  red:    { bg: 'bg-red-500/10',   border: 'border-red-500/30',   bar: 'bg-red-400'   },
-  green:  { bg: 'bg-green-500/10', border: 'border-green-500/30', bar: 'bg-green-400' },
-  yellow: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', bar: 'bg-amber-400' },
-  slate:  { bg: 'bg-slate-500/10', border: 'border-slate-700/50', bar: 'bg-slate-600' },
+  red:    { bg: 'bg-red-500/10',   border: 'border-red-500/30',   bar: 'bg-red-400',   badge: 'bg-red-500/15 text-red-400 border-red-500/35',   dot: 'bg-red-400'   },
+  green:  { bg: 'bg-green-500/10', border: 'border-green-500/30', bar: 'bg-green-400', badge: 'bg-green-500/15 text-green-400 border-green-500/35', dot: 'bg-green-400' },
+  yellow: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', bar: 'bg-amber-400', badge: 'bg-amber-500/15 text-amber-400 border-amber-500/35', dot: 'bg-amber-400' },
+  slate:  { bg: 'bg-slate-500/10', border: 'border-slate-700/50', bar: 'bg-slate-600', badge: 'bg-slate-700/50 text-slate-400 border-slate-600/40',  dot: 'bg-slate-500' },
 };
 const CONFIDENCE_STYLE = { HIGH: 'text-emerald-400', MEDIUM: 'text-amber-400', LOW: 'text-slate-500' };
 
 function ScenarioCard({ scenarioResult }) {
   const [open, setOpen] = useState(true);
   if (!scenarioResult || scenarioResult.scenario === 'UNCLEAR') return null;
-  const { label, color, confidence, summary, forSignals, againstSignals } = scenarioResult;
+  const { label, color, confidence, summary, forSignals, againstSignals, scenario } = scenarioResult;
+  const isMomentum = scenario === 'MOMENTUM_LONG' || scenario === 'MOMENTUM_SHORT';
+  if (isMomentum && confidence === 'LOW' && forSignals.length === 0) return null;
   const palette = SCENARIO_COLORS[color] ?? SCENARIO_COLORS.slate;
   return (
     <div className={`rounded-xl border ${palette.border} overflow-hidden`}>
@@ -909,6 +911,24 @@ export default function OrderModal({
                     </div>
                   </div>
                   <span className="text-[10px] text-blue-400 flex-shrink-0">Full Analysis →</span>
+                </button>
+              );
+            })()}
+
+            {/* ── Compact scenario strip (shown once station/intel loads, hide empty momentum) ── */}
+            {deepIntelResult?.scenario && deepIntelResult.scenario.scenario !== 'UNCLEAR' && !(
+              (deepIntelResult.scenario.scenario === 'MOMENTUM_LONG' || deepIntelResult.scenario.scenario === 'MOMENTUM_SHORT') &&
+              deepIntelResult.scenario.confidence === 'LOW' && deepIntelResult.scenario.forSignals?.length === 0
+            ) && (() => {
+              const sc = deepIntelResult.scenario;
+              const palette = SCENARIO_COLORS[sc.color] ?? SCENARIO_COLORS.slate;
+              return (
+                <button type="button" onClick={() => setActiveTab('analysis')}
+                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg border ${palette.badge} hover:opacity-80 transition-opacity text-left`}>
+                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${palette.dot}`} />
+                  <span className="text-xs font-medium flex-1 truncate">{sc.label}</span>
+                  <span className={`text-[10px] font-bold tracking-wide ${CONFIDENCE_STYLE[sc.confidence]}`}>{sc.confidence}</span>
+                  <span className="text-[10px] text-blue-400 flex-shrink-0">Details →</span>
                 </button>
               );
             })()}
