@@ -538,9 +538,9 @@ function getNiftyLevelAlerts(indices) {
           {commentary && (
             <div className="mb-4 bg-gradient-to-r from-purple-900/50 via-blue-900/50 to-purple-900/50 border border-purple-700/50 rounded-xl backdrop-blur-sm overflow-hidden">
               {/* Collapsible Header */}
-              <button
+              <div
                 onClick={() => setCommentaryCollapsed(!commentaryCollapsed)}
-                className="w-full flex items-center justify-between p-4 hover:bg-blue-900/20 transition-colors"
+                className="w-full flex items-center justify-between p-4 hover:bg-blue-900/20 transition-colors cursor-pointer"
               >
                 <div className="flex items-center gap-3">
                   <div className={`px-3 py-1.5 rounded-lg font-semibold text-sm flex items-center gap-2 ${
@@ -579,7 +579,7 @@ function getNiftyLevelAlerts(indices) {
                     <ChevronUp className="w-5 h-5 text-slate-400" />
                   )}
                 </div>
-              </button>
+              </div>
 
               {/* Collapsible Content */}
               {!commentaryCollapsed && (

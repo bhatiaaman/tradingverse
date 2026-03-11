@@ -4,7 +4,7 @@ import { getDataProvider } from '@/app/lib/providers';
 const REDIS_URL    = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN  = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS           = process.env.REDIS_NAMESPACE || 'default';
-const LOT_SIZE_KEY = `${NS}:lot-size-map-v2`;
+const LOT_SIZE_KEY = `${NS}:lot-size-map-v3`;
 const LOT_SIZE_TTL = 86400; // 24 hours
 
 const INDEX_INSTRUMENTS = {
@@ -46,10 +46,9 @@ async function getLotSizeMap(dp) {
   if (cached) return cached;
 
   try {
-    const nfoRes = await dp.getNFOInstrumentsCSV();
-    if (!nfoRes.ok) return FALLBACK_LOT_SIZES;
+    const csvText = await dp.getNFOInstrumentsCSV();
 
-    const lines   = (await nfoRes.text()).trim().split('\n');
+    const lines   = csvText.trim().split('\n');
     const headers = lines[0].split(',');
     const nameIdx = headers.indexOf('name');
     const typeIdx = headers.indexOf('instrument_type');

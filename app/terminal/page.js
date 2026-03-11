@@ -272,6 +272,8 @@ function NiftyRangeBar({ indices }) {
 
 function TopBar({ indices, kiteConnected, user, setUser }) {
   const { isDark, toggleTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -325,9 +327,10 @@ function TopBar({ indices, kiteConnected, user, setUser }) {
         <button
           onClick={toggleTheme}
           className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors"
-          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          title={mounted ? (isDark ? 'Switch to light mode' : 'Switch to dark mode') : 'Toggle theme'}
+          suppressHydrationWarning
         >
-          {isDark ? <Sun size={14} className="text-gray-400 dark:text-white/50" /> : <Moon size={14} className="text-gray-500" />}
+          {mounted && (isDark ? <Sun size={14} className="text-gray-400 dark:text-white/50" /> : <Moon size={14} className="text-gray-500" />)}
         </button>
         <div className="flex items-center gap-1.5">
           <span className={`w-1.5 h-1.5 rounded-full ${kiteConnected ? 'bg-green-500' : 'bg-red-500'}`} />
@@ -583,7 +586,7 @@ function OrdersTab({ orders, loading, onRefresh }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // OrdersRightPanel — collapsible right sidebar for today's orders + FnO movers
 // ─────────────────────────────────────────────────────────────────────────────
-function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, open, setOpen, movers }) {
+function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, open, setOpen, movers, onSelectSymbol }) {
   return (
     <div className={`flex-shrink-0 border-l border-gray-200 dark:border-white/10 flex flex-col bg-gray-50 dark:bg-slate-900/40 transition-all duration-200 ${open ? 'w-screen md:w-[260px]' : 'w-screen md:w-9'}`}>
       {/* Toggle + header */}
@@ -671,7 +674,7 @@ function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, open, set
                     </div>
                     <div className="space-y-0.5">
                       {movers.gainers.slice(0, 5).map(s => (
-                        <div key={`g-${s.symbol}`} className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800/60 border border-gray-100 dark:border-white/5">
+                        <div key={`g-${s.symbol}`} onClick={() => onSelectSymbol?.(s.symbol)} className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800/60 border border-gray-100 dark:border-white/5 cursor-pointer hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors">
                           <span className="text-xs font-medium text-gray-900 dark:text-white truncate">{s.symbol}</span>
                           <span className="text-xs font-mono text-green-600 dark:text-green-400 flex-shrink-0 ml-1">+{s.changePct?.toFixed(2)}%</span>
                         </div>
@@ -686,7 +689,7 @@ function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, open, set
                     </div>
                     <div className="space-y-0.5">
                       {movers.losers.slice(0, 5).map(s => (
-                        <div key={`l-${s.symbol}`} className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800/60 border border-gray-100 dark:border-white/5">
+                        <div key={`l-${s.symbol}`} onClick={() => onSelectSymbol?.(s.symbol)} className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800/60 border border-gray-100 dark:border-white/5 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
                           <span className="text-xs font-medium text-gray-900 dark:text-white truncate">{s.symbol}</span>
                           <span className="text-xs font-mono text-red-600 dark:text-red-400 flex-shrink-0 ml-1">{s.changePct?.toFixed(2)}%</span>
                         </div>
@@ -1924,6 +1927,7 @@ export default function TerminalPage() {
             open={ordersOpen}
             setOpen={setOrdersOpen}
             movers={movers}
+            onSelectSymbol={selectSymbol}
           />
         </div>
       </div>

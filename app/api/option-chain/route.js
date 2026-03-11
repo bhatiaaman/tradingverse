@@ -154,10 +154,16 @@ async function getNFOInstruments(dp) {
   }
 
   const instruments = await dp.getInstruments('NFO');
-  const options = instruments.filter(i =>
-    (i.name === 'NIFTY' || i.name === 'BANKNIFTY') &&
-    (i.instrument_type === 'CE' || i.instrument_type === 'PE')
-  );
+  const options = instruments
+    .filter(i =>
+      (i.name === 'NIFTY' || i.name === 'BANKNIFTY') &&
+      (i.instrument_type === 'CE' || i.instrument_type === 'PE')
+    )
+    .map(i => ({
+      ...i,
+      // Normalize expiry to ISO string so Redis round-trip is lossless
+      expiry: i.expiry instanceof Date ? i.expiry.toISOString() : String(i.expiry),
+    }));
   await redisSet(INSTRUMENTS_CACHE_KEY, options, INSTRUMENTS_CACHE_TTL);
   return options;
 }
@@ -167,7 +173,8 @@ function getExpiries(options, underlyingName) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const allExpiries = [...new Set(underlyingOptions.map(o => o.expiry))]
+  // expiry is always a string (normalized in getNFOInstruments); deduplicate by string value
+  const allExpiries = [...new Set(underlyingOptions.map(o => String(o.expiry)))]
     .filter(exp => new Date(exp) >= today)
     .sort((a, b) => new Date(a) - new Date(b));
 
@@ -198,19 +205,14 @@ export async function GET(request) {
   const sessionKey    = `${NS}:session-open-${underlying}-${expiryType}`;
   const forceRefresh  = searchParams.get('refresh') === '1';
 
-  try {
-    const cached = await redisGet(cacheKey);
+  const cached = await redisGet(cacheKey);
 
+  try {
     if (cached && !forceRefresh && !isMarketHours()) {
       return NextResponse.json({ ...cached, fromCache: true, offMarketHours: true });
     }
     if (cached && !forceRefresh) {
       return NextResponse.json({ ...cached, fromCache: true });
-    }
-
-    // Bust instruments cache on force-refresh so stale expiry data is cleared
-    if (forceRefresh) {
-      await redisSet(INSTRUMENTS_CACHE_KEY, null, 1);
     }
 
     const dp = await getDataProvider();
@@ -234,7 +236,7 @@ export async function GET(request) {
 
     const relevantOptions = allOptions.filter(o =>
       o.name === config.name &&
-      o.expiry === selectedExpiry &&
+      String(o.expiry) === String(selectedExpiry) &&
       o.strike >= minStrike &&
       o.strike <= maxStrike
     );
@@ -373,6 +375,10 @@ export async function GET(request) {
 
   } catch (error) {
     console.error('Error fetching option chain:', error.message);
+    // Serve stale cache on live-fetch failure so the UI stays functional
+    if (cached) {
+      return NextResponse.json({ ...cached, fromCache: true, staleOnError: true });
+    }
     return NextResponse.json({ error: 'Internal server error', underlying, expiryType, pcr: null, maxPain: null, support: null, resistance: null }, { status: 500 });
   }
 }

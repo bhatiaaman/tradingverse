@@ -510,17 +510,24 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
 
   // ── Priority 2: OI-activity based (High/Moderate conviction) ──
   let state, stateEmoji, headline, action, keyLevel;
+  let oiBias = null;
 
   if (oiActivity.conviction !== 'Low' && marketActivity?.activity && marketActivity.activity !== 'Consolidation') {
     const activity = marketActivity.activity;
-    ({ state, stateEmoji, headline, action, keyLevel } = buildOIStateCommentary(
-      activity, oiActivity, levelAnalysis, support, resistance
-    ));
+    const built = buildOIStateCommentary(activity, oiActivity, levelAnalysis, support, resistance);
+    ({ state, stateEmoji, headline, action, keyLevel } = built);
+    oiBias = built.oiBias;
   } else {
     // ── Priority 3: Price structure based ──
     ({ state, stateEmoji, headline, action, keyLevel } = buildPriceStateCommentary(
       ema9, vwap, priceStructure, levelAnalysis, support, resistance
     ));
+  }
+
+  // If keyword matching left bias at NEUTRAL but OI activity has a clear direction, use it
+  if (oiBias && bias === 'NEUTRAL' && !hasConflicts) {
+    if (oiBias === 'Bullish')  { bias = 'BULLISH'; biasEmoji = '🟢'; }
+    else if (oiBias === 'Bearish') { bias = 'BEARISH'; biasEmoji = '🔴'; }
   }
 
   // Append conflict implication to action if present
@@ -589,6 +596,7 @@ function buildOIStateCommentary(activity, oiActivity, levelAnalysis, support, re
     headline:   narrative,
     action:     actionSuffix ? `${tradingImplication}. ${actionSuffix}`.trim() : tradingImplication,
     keyLevel:   entry.keyLevel || primaryLevel?.toFixed(0),
+    oiBias:     entry.oiBias,
   };
 }
 
@@ -764,7 +772,7 @@ export async function GET(request) {
       const cached = await redisGet(CACHE_KEY);
       if (cached) {
         const age    = Date.now() - new Date(cached.timestamp).getTime();
-        const maxAge = marketIsOpen ? 60_000 : 300_000;
+        const maxAge = marketIsOpen ? 45_000 : 300_000;
         if (age < maxAge) {
           return NextResponse.json({ ...cached, fromCache: true });
         }
@@ -845,7 +853,7 @@ export async function GET(request) {
       timestamp:    new Date().toISOString(),
     };
 
-    await redisSet(CACHE_KEY, result, marketIsOpen ? 60 : 300);
+    await redisSet(CACHE_KEY, result, marketIsOpen ? 45 : 300);
 
     return NextResponse.json(result);
 
