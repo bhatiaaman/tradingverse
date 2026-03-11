@@ -28,7 +28,7 @@ function getTradeBias(instrumentType, transactionType) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zone State Machine
-// Returns: 'BREAK_RETEST' | 'REJECTION' | 'INSIDE_ZONE' | 'AT_ZONE' | 'APPROACHING'
+// Returns: 'BREAK_RETEST' | 'REJECTION' | 'INSIDE_ZONE' | 'AT_ZONE' | 'APPROACHING' | 'BROKEN'
 // ─────────────────────────────────────────────────────────────────────────────
 function determineZoneState(zone, candles15m, spotPrice) {
   if (!zone || !candles15m?.length) return 'APPROACHING';
@@ -54,7 +54,8 @@ function determineZoneState(zone, candles15m, spotPrice) {
     }
   }
   const hasBOS = bosIndex >= 0;
-  if (hasBOS && atZone) return 'BREAK_RETEST';
+  if (hasBOS && atZone)  return 'BREAK_RETEST';
+  if (hasBOS && !atZone) return 'BROKEN'; // Zone broken, price hasn't retested yet
 
   // ── Rejection wick on last candle ─────────────────────────────────────────
   if (atZone && recent.length > 0) {
@@ -110,8 +111,10 @@ function checkZonePresence(data) {
     };
   }
 
-  const zLabel   = z.type.charAt(0) + z.type.slice(1).toLowerCase();
-  const factors  = z.factors?.length ? z.factors : null;
+  const zoneState = data._zoneState;
+  const baseLabel = z.type.charAt(0) + z.type.slice(1).toLowerCase();
+  const zLabel    = zoneState === 'BROKEN' ? `Broken ${baseLabel}` : baseLabel;
+  const factors   = z.factors?.length ? z.factors : null;
   const factorSuffix = factors
     ? (factors.length === 1 ? ` — ${factors[0]}` : ` — ${factors.join(', ')} (${factors.length} signals)`)
     : ` — quality ${z.quality}/10`;
@@ -129,6 +132,37 @@ function checkZoneAlignment(data) {
   const zone      = sr.nearestStation;
   const tradeBias = getTradeBias(data.order.instrumentType, data.order.transactionType);
   const zoneState = data._zoneState;  // pre-computed in runStationAgent
+
+  // ── Zone broken — flipped role, price has not yet retested ────────────────
+  if (zoneState === 'BROKEN') {
+    const supportBroken    = zone.type === 'SUPPORT'    && tradeBias === 'BEARISH';
+    const resistanceBroken = zone.type === 'RESISTANCE' && tradeBias === 'BULLISH';
+    if (supportBroken) {
+      return { passed: true, title: `Broken support ₹${zone.price.toFixed(0)} — now resistance, aligned for short` };
+    }
+    if (resistanceBroken) {
+      return { passed: true, title: `Broken resistance ₹${zone.price.toFixed(0)} — now support, aligned for long` };
+    }
+    // Trading against the broken zone (e.g. buying below broken support)
+    if (zone.type === 'SUPPORT' && tradeBias === 'BULLISH') {
+      return {
+        type: 'ZONE_ALIGNMENT_CONFLICT',
+        severity: 'warning',
+        title: `Buying below broken support ₹${zone.price.toFixed(0)} — zone now acts as resistance`,
+        detail: `Price has broken below ₹${zone.price.toFixed(0)}. Broken supports flip to resistance. Buying here means fighting the new resistance above. Wait for a clean retest from below or trade from a lower support.`,
+        riskScore: 15,
+      };
+    }
+    if (zone.type === 'RESISTANCE' && tradeBias === 'BEARISH') {
+      return {
+        type: 'ZONE_ALIGNMENT_CONFLICT',
+        severity: 'warning',
+        title: `Selling above broken resistance ₹${zone.price.toFixed(0)} — zone now acts as support`,
+        detail: `Price has broken above ₹${zone.price.toFixed(0)}. Broken resistances flip to support. Selling here means fighting the new support below. Wait for a clean retest from above or trade from a higher resistance.`,
+        riskScore: 15,
+      };
+    }
+  }
 
   // ── BOS flip: resistance broken upward → now acts as support ──────────────
   if (zoneState === 'BREAK_RETEST') {
@@ -193,6 +227,10 @@ function checkZoneScenario(data) {
       return { passed: true, title: `Break+Retest at ${zoneLabel} ₹${zone.price.toFixed(0)} — high-probability continuation` };
     case 'REJECTION':
       return { passed: true, title: `Rejection from ${zoneLabel} ₹${zone.price.toFixed(0)} — wick confirms reversal` };
+    case 'BROKEN': {
+      const flippedType = zone.type === 'SUPPORT' ? 'resistance' : 'support';
+      return { passed: true, title: `Broken ${zoneLabel} ₹${zone.price.toFixed(0)} — zone flipped to ${flippedType}, awaiting retest` };
+    }
     case 'AT_ZONE':
     case 'APPROACHING':
       return { passed: true, title: `Approaching ${zoneLabel} ₹${zone.price.toFixed(0)} — watch for setup confirmation` };
