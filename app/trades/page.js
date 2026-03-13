@@ -536,7 +536,6 @@ function getNiftyLevelAlerts(indices) {
               {[
                 { href: '/terminal',       label: 'Terminal'    },
                 { href: '/trades/pre-market', label: 'Pre-Market' },
-                { href: '/orders',         label: 'Orders'      },
               ].map(l => (
                 <Link key={l.href} href={l.href}
                   className="px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-white border border-transparent hover:border-white/10 rounded-lg transition-all">
