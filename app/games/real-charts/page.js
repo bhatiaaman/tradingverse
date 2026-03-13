@@ -298,7 +298,7 @@ export default function RealChartsPage() {
               <span className="text-slate-600 text-xs font-semibold">{score} correct</span>
             </div>
             <div className="w-full h-1 bg-white/5 rounded-full mb-8">
-              <div className="h-1 bg-rose-600 rounded-full transition-all duration-500" style={{ width: `${(idx / total) * 100}%` }} />
+              <div className="h-1 bg-rose-600 rounded-full transition-all duration-500" style={{ width: `${((idx + 1) / total) * 100}%` }} />
             </div>
 
             <div className="p-7 rounded-2xl border border-white/10 bg-white/[0.02]">
@@ -362,7 +362,7 @@ export default function RealChartsPage() {
                     </div>
                   )}
 
-                  {(showReveal || true) && (
+                  {showReveal && (
                     <button onClick={next}
                       className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition-colors">
                       {idx + 1 >= total ? 'See Results' : 'Next Scenario →'}

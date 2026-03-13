@@ -145,7 +145,7 @@ export default function ScannerPage({ scanName, scanSlug }) {
     const interval = isVisible ? setInterval(fetchScans, 30000) : null;
 
     return () => clearInterval(interval);
-  }, [selectedStock, lastAlertId, scannerLabel, scanSlug,isRefreshing]);
+  }, [selectedStock, lastAlertId, scannerLabel, scanSlug, isRefreshing, isVisible]);
 
   // Fetch market data
   useEffect(() => {

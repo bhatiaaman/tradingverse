@@ -687,7 +687,7 @@ export default function OrdersPage() {
     setStationIntel({ loading: false, result: null });
     setOIIntel({ loading: false, result: null });
     runIntelligence();
-  }, [symbol, transactionType, instrumentType]);
+  }, [symbol, transactionType, instrumentType, runIntelligence]);
 
   useEffect(() => {
     if ((instrumentType === 'CE' || instrumentType === 'PE') && symbol && spotPrice) {

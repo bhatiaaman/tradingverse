@@ -407,7 +407,7 @@ function KiteSettingsContent() {
               />
               <button
                 onClick={validateToken}
-                disabled={loading || !config.accessToken}
+                disabled={loading}
                 className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm"
               >
                 Validate
