@@ -97,10 +97,18 @@ async function fetchNiftyHistoricalFromKite(dp) {
       // During market hours Kite includes today's PARTIAL candle as the last element.
       // Its close = last traded price ≈ current price, NOT yesterday's close.
       // Filter it out so previousClose is always the last COMPLETE trading day's close.
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const completedCandles = historicalData.filter(
-        c => new Date(c.date).toISOString().slice(0, 10) < todayStr
-      );
+      //
+      // IMPORTANT: Kite returns dates in IST (e.g. "2026-03-13T00:00:00+0530").
+      // Comparing against UTC today would make today's IST candle appear as yesterday
+      // in UTC (IST is UTC+5:30, so midnight IST = 6:30 PM previous UTC day),
+      // causing it to pass the filter and become a false "previous close".
+      // Fix: compare both candle dates and today's date in IST.
+      const istOffset = 5.5 * 60 * 60 * 1000;
+      const todayIST = new Date(Date.now() + istOffset).toISOString().slice(0, 10);
+      const completedCandles = historicalData.filter(c => {
+        const candleDateIST = new Date(new Date(c.date).getTime() + istOffset).toISOString().slice(0, 10);
+        return candleDateIST < todayIST;
+      });
       if (completedCandles.length < 2) return null;
 
       const closePrices    = completedCandles.map(c => c.close);
