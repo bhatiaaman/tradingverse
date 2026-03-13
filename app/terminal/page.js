@@ -181,7 +181,11 @@ const REGIME_META = {
   LOW_VOL_DRIFT:    { label: 'Low Vol Drift',    dot: 'bg-slate-400',   badge: 'bg-slate-500/15 text-slate-400 border-slate-600/30'      },
   INITIALIZING:     { label: 'Starting…',        dot: 'bg-slate-500',   badge: 'bg-slate-500/10 text-slate-500 border-slate-600/20'      },
 };
-const REGIME_CONF = { HIGH: 'text-emerald-400', MEDIUM: 'text-amber-400', LOW: 'text-slate-500' };
+const REGIME_CONF = {
+  HIGH:   'text-emerald-600 dark:text-emerald-400',
+  MEDIUM: 'text-amber-600 dark:text-amber-400',
+  LOW:    'text-slate-500',
+};
 
 function RegimeCard({ regimeData, isLoading, symbol }) {
   const [open, setOpen] = useState(false);
@@ -189,60 +193,170 @@ function RegimeCard({ regimeData, isLoading, symbol }) {
   const data = regimeData?.[key];
 
   if (isLoading && !data) return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 flex items-center gap-2">
-      <Loader2 size={12} className="animate-spin text-slate-500 flex-shrink-0" />
+    <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.02] px-4 py-3 flex items-center gap-2">
+      <Loader2 size={12} className="animate-spin text-slate-400 flex-shrink-0" />
       <span className="text-xs text-slate-500">Detecting market regime…</span>
     </div>
   );
-  if (!data || data.error || data.regime === 'INITIALIZING') return null;
+  if (!data || data.error || data.regime === 'INITIALIZING') {
+    if (!isLoading) return (
+      <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/[0.02] px-4 py-2.5 flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full bg-slate-400 flex-shrink-0" />
+        <span className="text-xs text-slate-500">
+          {!data ? 'Regime unavailable' : data.error ? `Regime: ${data.error}` : 'Awaiting open range (first 15 min)…'}
+        </span>
+      </div>
+    );
+    return null;
+  }
 
   const meta = REGIME_META[data.regime] ?? REGIME_META.INITIALIZING;
 
+  // IST timeline labels (UTC+5:30)
+  const fmtIST = (iso) => {
+    const d = new Date(new Date(iso).getTime() + 330 * 60000);
+    return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
+  };
+
   return (
-    <div className="rounded-xl border border-white/10 overflow-hidden bg-white/[0.02]">
+    <div className="rounded-xl border border-gray-200 dark:border-white/10 overflow-hidden bg-white dark:bg-white/[0.02]">
       <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-white/5 transition-colors">
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
         <div className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.dot}`} />
-        <span className="text-xs font-bold text-white flex-1">{meta.label}</span>
+        <span className="text-xs font-bold text-gray-900 dark:text-white flex-1">{meta.label}</span>
         {data.vwapPosition && data.vwapPosition !== 'UNKNOWN' && (
           <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-            data.vwapPosition === 'ABOVE' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
-          }`}>{data.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP</span>
+            data.vwapPosition === 'ABOVE'
+              ? 'bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400'
+              : 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400'
+          }`}>{data.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP {data.vwap ? data.vwap.toLocaleString('en-IN') : ''}</span>
         )}
         <span className={`text-[10px] font-bold ${REGIME_CONF[data.confidence]}`}>{data.confidence}</span>
-        <span className="text-[9px] text-slate-600">{data.symbol}</span>
-        <ChevronDown size={11} className={`text-slate-600 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <span className="text-[9px] text-slate-400 dark:text-slate-600">{data.symbol}</span>
+        <ChevronDown size={11} className={`text-slate-400 dark:text-slate-600 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="px-3 pb-3 space-y-1.5">
+        <div className="px-3 pb-3 space-y-1.5 border-t border-gray-100 dark:border-white/5 pt-2">
           {data.signals?.map((s, i) => (
-            <div key={i} className="flex items-start gap-2 text-[11px] text-slate-400">
+            <div key={i} className="flex items-start gap-2 text-[11px] text-gray-600 dark:text-slate-400">
               <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1 ${meta.dot}`} />
               {s}
             </div>
           ))}
           {(data.orHigh || data.vwap) && (
-            <div className="flex items-center gap-3 pt-1.5 border-t border-white/5 text-[10px] text-slate-500 flex-wrap">
+            <div className="flex items-center gap-3 pt-1.5 border-t border-gray-100 dark:border-white/5 text-[10px] text-slate-500 flex-wrap">
               {data.orHigh && <span>OR {data.orLow?.toLocaleString('en-IN')} – {data.orHigh?.toLocaleString('en-IN')}</span>}
               {data.vwap   && <span>VWAP {data.vwap?.toLocaleString('en-IN')}</span>}
               {data.sessionProgress > 0 && <span className="ml-auto">{data.sessionProgress}% session</span>}
             </div>
           )}
-          {/* Regime timeline — colored blocks for each transition today */}
           {data.timeline?.length > 1 && (
             <div className="flex items-center gap-1 pt-1">
-              <span className="text-[9px] text-slate-600 mr-1 flex-shrink-0">Today</span>
+              <span className="text-[9px] text-slate-400 mr-1 flex-shrink-0">Today</span>
               {data.timeline.map((t, i) => {
                 const m = REGIME_META[t.regime] ?? REGIME_META.INITIALIZING;
-                const d = new Date(t.time);
-                const hhmm = `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
-                return <div key={i} title={`${t.regime} @ ${hhmm}`} className={`h-2 flex-1 rounded-sm ${m.dot} opacity-70`} />;
+                return <div key={i} title={`${t.regime} @ ${fmtIST(t.time)}`} className={`h-2 flex-1 rounded-sm ${m.dot} opacity-70`} />;
               })}
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Regime × Scenario alignment card ─────────────────────────────────────────
+const ALIGN_STATUS = {
+  ALIGNED:  { border: 'border-green-500/40',  bg: 'bg-green-50 dark:bg-green-500/8',   dot: 'bg-green-500',  text: 'text-green-700 dark:text-green-400',  label: 'Aligned',      icon: '✓' },
+  CAUTION:  { border: 'border-amber-500/40',  bg: 'bg-amber-50 dark:bg-amber-500/8',   dot: 'bg-amber-500',  text: 'text-amber-700 dark:text-amber-400',  label: 'Caution',      icon: '⚠' },
+  CONFLICT: { border: 'border-orange-500/40', bg: 'bg-orange-50 dark:bg-orange-500/8', dot: 'bg-orange-500', text: 'text-orange-700 dark:text-orange-400', label: 'Conflict',     icon: '↕' },
+  DANGER:   { border: 'border-red-500/40',    bg: 'bg-red-50 dark:bg-red-500/8',       dot: 'bg-red-500',    text: 'text-red-700 dark:text-red-400',       label: 'High Risk',    icon: '⛔' },
+  NEUTRAL:  { border: 'border-gray-200 dark:border-white/10', bg: 'bg-gray-50 dark:bg-white/[0.02]', dot: 'bg-slate-400', text: 'text-gray-600 dark:text-slate-400', label: 'Neutral', icon: '–' },
+};
+
+function computeRegimeAlignment(regime, scenario) {
+  if (!regime || !scenario || scenario === 'UNCLEAR') return null;
+  const bullish       = ['MOMENTUM_LONG',  'ZONE_SUPPORT_BUY',      'MEAN_REVERSION_BUY',  'BREAKOUT_LONG' ].includes(scenario);
+  const bearish       = ['MOMENTUM_SHORT', 'ZONE_REJECTION_SELL',   'MEAN_REVERSION_SELL', 'BREAKOUT_SHORT'].includes(scenario);
+  const breakout      = ['BREAKOUT_LONG',  'BREAKOUT_SHORT'].includes(scenario);
+  const meanRev       = ['MEAN_REVERSION_BUY', 'MEAN_REVERSION_SELL'].includes(scenario);
+  const counterTrend  = scenario === 'COUNTER_TREND';
+
+  // COUNTER_TREND = trade conflicts with the zone (e.g. selling at support, buying at resistance)
+  // Regime tells us if the zone is likely to hold or break
+  if (counterTrend) {
+    if (regime === 'TREND_DAY_DOWN') return { status: 'CAUTION',  title: 'Zone vs trend conflict',   msg: 'Trend day supports the breakdown, but the zone may bounce. Use a tight stop above support.' };
+    if (regime === 'TREND_DAY_UP')   return { status: 'CAUTION',  title: 'Zone vs trend conflict',   msg: 'Trend day supports the breakout, but the zone may push back. Wait for zone to break first.' };
+    if (regime === 'TRAP_DAY')       return { status: 'DANGER',   title: 'Trap day + zone conflict', msg: 'Trap day makes fakeouts likely — zone conflicts are especially dangerous today.' };
+    if (regime === 'RANGE_DAY')      return { status: 'ALIGNED',  title: 'Zone holds in range',      msg: 'Range day — zones tend to hold. Counter-trend trade fits well here.' };
+    return                                   { status: 'NEUTRAL',  title: 'Zone conflict',            msg: 'Trade goes against the zone. Check if zone is broken before entering.' };
+  }
+
+  if (regime === 'TREND_DAY_UP') {
+    if (bullish)  return { status: 'ALIGNED',  title: 'With the trend',       msg: 'Trend day up confirms your long. Proceed at normal size.' };
+    if (bearish)  return { status: 'CONFLICT', title: 'Counter-trend',        msg: 'Selling into an up-trend day. Halve size or skip.' };
+  }
+  if (regime === 'TREND_DAY_DOWN') {
+    if (bearish)  return { status: 'ALIGNED',  title: 'With the trend',       msg: 'Trend day down confirms your short. Proceed at normal size.' };
+    if (bullish)  return { status: 'CONFLICT', title: 'Counter-trend',        msg: 'Buying into a down-trend day. Halve size or skip.' };
+  }
+  if (regime === 'TRAP_DAY') {
+    if (breakout) return { status: 'DANGER',   title: 'Breakout vs Trap Day', msg: 'Breakouts are failing today. Skip or use tiny size.' };
+    if (meanRev)  return { status: 'ALIGNED',  title: 'Fade fits Trap Day',   msg: 'Fades and mean reversion are the play on trap days.' };
+    return          { status: 'CAUTION',  title: 'Choppy session',       msg: 'Trap day raises risk on all setups. Keep size small.' };
+  }
+  if (regime === 'RANGE_DAY') {
+    if (breakout) return { status: 'CAUTION',  title: 'Breakout in range',    msg: 'Wait for OR break + volume confirmation before entering.' };
+    return          { status: 'NEUTRAL',  title: 'Range session',        msg: 'Scalp only — tight stops, no runners, fade the extremes.' };
+  }
+  if (regime === 'SHORT_SQUEEZE') {
+    if (bearish)  return { status: 'DANGER',   title: 'Shorting a squeeze',   msg: 'Active short squeeze — covering pressure drives prices up. Do not short.' };
+    if (bullish)  return { status: 'CAUTION',  title: 'Chasing the squeeze',  msg: 'Squeeze may be near exhaustion. Wait for pullback.' };
+  }
+  if (regime === 'LONG_LIQUIDATION') {
+    if (bullish)  return { status: 'DANGER',   title: 'Buying into liquidation', msg: 'Forced selling underway — longs still exiting. Do not buy.' };
+    if (bearish)  return { status: 'CAUTION',  title: 'Shorting the flush',   msg: 'Liquidation near exhaustion — risk of sharp bounce. Tight stop.' };
+  }
+  if (regime === 'BREAKOUT_DAY') {
+    if (breakout) return { status: 'ALIGNED',  title: 'Breakout day confirms', msg: 'Session character supports directional breakouts. Normal size.' };
+    if (meanRev)  return { status: 'CONFLICT', title: 'Fading a breakout day', msg: 'Breakout days extend — fades carry extra risk.' };
+    return          { status: 'NEUTRAL',  title: 'Breakout session',     msg: 'Session favors momentum over mean reversion.' };
+  }
+  if (regime === 'LOW_VOL_DRIFT') {
+    return          { status: 'CAUTION',  title: 'Low conviction session', msg: 'Low volume — setups lack follow-through. Scalp only or sit out.' };
+  }
+  return null;
+}
+
+function RegimeAlignmentCard({ regimeData, scenarioResult, symbol }) {
+  const key      = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
+  const regime   = regimeData?.[key];
+  const scenario = scenarioResult?.scenario;
+
+  if (!regime || !scenario || scenario === 'UNCLEAR') return null;
+  // Skip noisy MOMENTUM+LOW+no signals case
+  const isMomentum = scenario === 'MOMENTUM_LONG' || scenario === 'MOMENTUM_SHORT';
+  if (isMomentum && scenarioResult?.confidence === 'LOW' && !scenarioResult?.forSignals?.length) return null;
+
+  const alignment = computeRegimeAlignment(regime.regime, scenario);
+  if (!alignment) return null;
+
+  const st = ALIGN_STATUS[alignment.status];
+
+  return (
+    <div className={`rounded-xl border ${st.border} ${st.bg} px-3 py-2.5`}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-base leading-none">{st.icon}</span>
+        <span className={`text-xs font-bold ${st.text}`}>{alignment.title}</span>
+        <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded border ${st.border} ${st.text}`}>{st.label}</span>
+      </div>
+      <p className="text-[11px] text-gray-600 dark:text-slate-400 leading-relaxed">{alignment.msg}</p>
+      <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-500">
+        <span>{REGIME_META[regime.regime]?.label ?? regime.regime}</span>
+        <span className="text-slate-300 dark:text-slate-700">×</span>
+        <span>{scenarioResult?.label}</span>
+      </div>
     </div>
   );
 }
@@ -1094,14 +1208,30 @@ function PlaceOrderTab({
               {formSearchResults.map(inst => (
                 <button
                   key={inst.symbol}
-                  onClick={() => { onSymbolSelect(inst.symbol); setFormSearch(inst.symbol); setShowFormDropdown(false); }}
+                  onClick={() => {
+                    // For NFO options: use the underlying (e.g. LT) as symbol so ATM builder + intelligence work correctly
+                    const sym = inst.optionType ? inst.underlying : inst.symbol;
+                    onSymbolSelect(sym, inst);
+                    setFormSearch(sym);
+                    setShowFormDropdown(false);
+                  }}
                   className="w-full px-3 py-2.5 text-left hover:bg-gray-100 dark:hover:bg-white/10 flex items-center justify-between transition-colors"
                 >
-                  <div>
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">{inst.symbol}</span>
-                    <span className="text-xs text-gray-400 ml-2 hidden sm:inline">{inst.name}</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-medium text-gray-900 dark:text-white shrink-0">
+                      {inst.optionType ? inst.underlying : inst.symbol}
+                    </span>
+                    {inst.optionType ? (
+                      <>
+                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${inst.optionType === 'CE' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{inst.optionType}</span>
+                        <span className="text-xs text-white font-mono shrink-0">{inst.strike % 1 === 0 ? inst.strike : inst.strike.toFixed(1)}</span>
+                        <span className="text-xs text-slate-500 shrink-0">{inst.expiry?.slice(0, 10)}</span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-gray-400 truncate hidden sm:inline">{inst.name}</span>
+                    )}
                   </div>
-                  <span className="text-xs text-gray-400">{inst.exchange}</span>
+                  <span className="text-xs text-gray-400 shrink-0">{inst.exchange}</span>
                 </button>
               ))}
             </div>
@@ -1147,11 +1277,16 @@ function PlaceOrderTab({
           <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 block">Type</label>
           <div className="grid grid-cols-4 gap-1.5">
             {['EQ', 'CE', 'PE', 'FUT'].map(t => {
-              const disabled = !isFnO && t !== 'EQ';
+              const disabled = isIndex ? t === 'EQ'   // indices: no EQ trading
+                             : !isFnO  ? t !== 'EQ'   // non-FnO stocks: EQ only
+                             : false;                  // FnO stocks: all types valid
+              const disabledTitle = isIndex && t === 'EQ' ? 'Indices cannot be traded as EQ'
+                                  : !isFnO && t !== 'EQ' ? 'Not available for non-FnO stocks'
+                                  : undefined;
               return (
                 <button key={t} onClick={() => !disabled && setInstrumentType(t)}
                   disabled={disabled}
-                  title={disabled ? 'Not available for non-FnO stocks' : undefined}
+                  title={disabledTitle}
                   className={`py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                     disabled
                       ? 'bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-300 dark:text-white/20 cursor-not-allowed'
@@ -1389,6 +1524,7 @@ function PlaceOrderTab({
 
         <div className="space-y-3">
           <RegimeCard regimeData={regimeData} isLoading={regimeLoading} symbol={symbol} />
+          {symbol && <RegimeAlignmentCard regimeData={regimeData} scenarioResult={scenarioResult} symbol={symbol} />}
           {symbol && <ScenarioCard scenarioResult={scenarioResult} isLoading={scenarioLoading} />}
           <BehavioralPanel intel={intel} symbol={symbol} />
 
@@ -1487,7 +1623,7 @@ export default function TerminalPage() {
   const [indices, setIndices]               = useState(null);
   const [user, setUser]                     = useState(null);
   const [regimeData, setRegimeData]         = useState({});   // { NIFTY: {...}, BANKNIFTY: {...} }
-  const [regimeLoading, setRegimeLoading]   = useState(false);
+  const [regimeLoading, setRegimeLoading]   = useState(true); // true = show spinner on first render
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then(d => setUser(d.user || null)).catch(() => {});
@@ -1821,7 +1957,8 @@ export default function TerminalPage() {
   }, []);
 
   // ── Select symbol
-  const selectSymbol = useCallback(async (sym) => {
+  const selectSymbol = useCallback(async (sym, inst = null) => {
+    setSpotPrice(null); // clear stale price immediately
     setSymbol(sym);
     setFormSearch(sym);
     setShowFormDropdown(false);
@@ -1836,7 +1973,8 @@ export default function TerminalPage() {
     setPatternIntel({ loading: false, result: null });
     setStationIntel({ loading: false, result: null });
     setOIIntel({ loading: false, result: null });
-    setInstrumentType(INDEX_SYMBOLS.includes(sym) ? 'CE' : 'EQ');
+    // Option instruments from search have optionType (CE/PE); indices default to CE; stocks to EQ
+    setInstrumentType(inst?.optionType || (INDEX_SYMBOLS.includes(sym) ? 'CE' : 'EQ'));
     try {
       const r = await fetch(`/api/ltp?symbol=${sym}`);
       const d = await r.json();
@@ -1844,11 +1982,16 @@ export default function TerminalPage() {
         setSpotPrice(d.ltp);
         const ls = d.lotSize && d.lotSize > 1 ? d.lotSize : 1;
         setLotSize(ls);
-        const isEQ = !INDEX_SYMBOLS.includes(sym);
+        const isEQ = !INDEX_SYMBOLS.includes(sym) && !inst?.optionType;
         setQuantity(isEQ ? Math.max(1, Math.floor(200000 / d.ltp)) : ls);
       }
     } catch {}
   }, []);
+
+  // ── Auto-correct EQ for index symbols (EQ is not a valid type for indices)
+  useEffect(() => {
+    if (INDEX_SYMBOLS.includes(symbol) && instrumentType === 'EQ') setInstrumentType('CE');
+  }, [symbol]);
 
   // ── NFO order type guard
   useEffect(() => {
@@ -1978,10 +2121,11 @@ export default function TerminalPage() {
     setPatternIntel({ loading: false, result: null });
     setStationIntel({ loading: false, result: null });
     setOIIntel({ loading: false, result: null });
-    // Fire behavioral + station + structure in parallel; OI only for index symbols
+    // Fire all agents in parallel; OI only for index symbols
     runIntelligence();
     runStationAnalysis();
     runStructureAnalysis();
+    runPatternAnalysis();
     if (OI_SYMBOLS.includes(symbol)) runOIAnalysis();
   }, [symbol, transactionType, instrumentType]);
 

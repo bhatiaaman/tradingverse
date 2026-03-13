@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/app/lib/providers';
 
-// In-memory cache (warm instance) + Redis (cross-restart / multi-instance)
+// ── In-memory + Redis cache for NSE EQ instruments ───────────────────────────
 let instrumentsCache = null;
 let cacheTimestamp = null;
 const CACHE_DURATION = 24 * 60 * 60 * 1000;
@@ -33,10 +33,14 @@ async function redisCacheSet(value) {
   } catch { /* non-critical */ }
 }
 
+// ── In-memory cache for NFO options (CE/PE) — too large for Redis ─────────────
+let optionsCache = null;          // flat array sorted by (underlying, expiry ASC, strike)
+let optionsCacheTimestamp = null;
+
 const INDICES = [
-  { symbol: 'NIFTY',      name: 'Nifty 50',     exchange: 'NSE', type: 'INDEX', lotSize: 65 },
+  { symbol: 'NIFTY',      name: 'Nifty 50',     exchange: 'NSE', type: 'INDEX', lotSize: 75 },
   { symbol: 'BANKNIFTY',  name: 'Bank Nifty',   exchange: 'NSE', type: 'INDEX', lotSize: 30 },
-  { symbol: 'FINNIFTY',   name: 'Fin Nifty',    exchange: 'NSE', type: 'INDEX', lotSize: 40 },
+  { symbol: 'FINNIFTY',   name: 'Fin Nifty',    exchange: 'NSE', type: 'INDEX', lotSize: 65 },
   { symbol: 'MIDCPNIFTY', name: 'Midcap Nifty', exchange: 'NSE', type: 'INDEX', lotSize: 120 },
   { symbol: 'SENSEX',     name: 'Sensex',        exchange: 'BSE', type: 'INDEX', lotSize: 10 },
   { symbol: 'BANKEX',     name: 'Bankex',        exchange: 'BSE', type: 'INDEX', lotSize: 15 },
@@ -94,6 +98,15 @@ function parseCSVLine(line) {
   return result;
 }
 
+// Format expiry date for display: "2025-03-27" → "27 Mar"
+function fmtExpiry(expiry) {
+  if (!expiry) return '';
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const d = new Date(expiry);
+  if (isNaN(d)) return expiry;
+  return `${d.getUTCDate()} ${months[d.getUTCMonth()]}`;
+}
+
 async function fetchAndCacheInstruments(dp) {
   const now = Date.now();
   // L1: in-memory (same process, fast)
@@ -105,7 +118,7 @@ async function fetchAndCacheInstruments(dp) {
   if (redisHit) {
     instrumentsCache = redisHit;
     cacheTimestamp   = now;
-    return instrumentsCache; // cache hit — no need to re-fetch from Kite
+    return instrumentsCache;
   }
 
   // Fetch NSE equity instruments — provider returns CSV text directly
@@ -116,25 +129,20 @@ async function fetchAndCacheInstruments(dp) {
   let nfoCsvText = null;
   try { nfoCsvText = await dp.getNFOInstrumentsCSV(); } catch { /* lot sizes optional */ }
 
-  // Build lot size map: underlying symbol → lot size
+  // Build lot size map: underlying symbol → lot size (from nearest FUT expiry)
   const lotSizeMap = {};
   if (nfoCsvText && typeof nfoCsvText === 'string') {
-    const nfoCsv   = nfoCsvText;
-    const nfoLines = nfoCsv.trim().split('\n');
+    const nfoLines = nfoCsvText.trim().split('\n');
     const nfoHdrs  = parseCSVLine(nfoLines[0]);
-    const tsIdx    = nfoHdrs.indexOf('tradingsymbol'); // e.g. COFORGE25FEBFUT
-    const nameIdx  = nfoHdrs.indexOf('name');           // e.g. COFORGE
+    const nameIdx  = nfoHdrs.indexOf('name');
     const typeIdx  = nfoHdrs.indexOf('instrument_type');
     const lotIdx   = nfoHdrs.indexOf('lot_size');
 
     for (let i = 1; i < nfoLines.length; i++) {
       const cols = parseCSVLine(nfoLines[i]);
       if (cols[typeIdx] === 'FUT') {
-        // Use 'name' column as underlying — this is the clean symbol
         const underlying = cols[nameIdx]?.trim();
         const lot = parseInt(cols[lotIdx]) || 0;
-        // Only store first occurrence (nearest expiry has correct lot size)
-        // Only store first occurrence (nearest expiry = current lot size)
         if (underlying && lot > 0 && !lotSizeMap[underlying]) {
           lotSizeMap[underlying] = lot;
         }
@@ -172,6 +180,83 @@ async function fetchAndCacheInstruments(dp) {
   return instruments;
 }
 
+// ── Options cache (in-memory only — NFO is too large for Redis) ───────────────
+async function fetchAndCacheOptions(dp) {
+  const now = Date.now();
+  if (optionsCache && optionsCacheTimestamp && (now - optionsCacheTimestamp) < CACHE_DURATION) {
+    return optionsCache;
+  }
+
+  const nfoCsvText = await dp.getNFOInstrumentsCSV();
+  if (!nfoCsvText || typeof nfoCsvText !== 'string') throw new Error('NFO CSV empty');
+
+  const nfoLines = nfoCsvText.trim().split('\n');
+  const hdrs     = parseCSVLine(nfoLines[0]);
+  const tsIdx    = hdrs.indexOf('tradingsymbol');
+  const nameIdx  = hdrs.indexOf('name');           // underlying, e.g. LT
+  const typeIdx  = hdrs.indexOf('instrument_type');
+  const expiryIdx = hdrs.indexOf('expiry');
+  const strikeIdx = hdrs.indexOf('strike');
+  const lotIdx   = hdrs.indexOf('lot_size');
+
+  const today = new Date().toISOString().slice(0, 10);
+  const instruments = [];
+
+  for (let i = 1; i < nfoLines.length; i++) {
+    const cols = parseCSVLine(nfoLines[i]);
+    const type = cols[typeIdx];
+    if (type !== 'CE' && type !== 'PE') continue;
+
+    const expiry = cols[expiryIdx]?.trim();
+    if (!expiry || expiry < today) continue; // skip expired contracts
+
+    const underlying = cols[nameIdx]?.trim();
+    const tradingsymbol = cols[tsIdx]?.trim();
+    const strike = parseFloat(cols[strikeIdx]) || 0;
+    const lotSize = parseInt(cols[lotIdx]) || 1;
+
+    if (!underlying || !tradingsymbol || strike <= 0) continue;
+
+    instruments.push({
+      symbol:     tradingsymbol,
+      name:       `${underlying} ${strike % 1 === 0 ? strike : strike.toFixed(1)} ${type} ${fmtExpiry(expiry)}`,
+      underlying,
+      strike,
+      optionType: type,
+      expiry,
+      exchange:   'NFO',
+      type,
+      lotSize,
+    });
+  }
+
+  // Sort: underlying ASC, then expiry ASC (nearest first), then strike ASC
+  instruments.sort((a, b) => {
+    if (a.underlying !== b.underlying) return a.underlying < b.underlying ? -1 : 1;
+    if (a.expiry !== b.expiry) return a.expiry < b.expiry ? -1 : 1;
+    return a.strike - b.strike;
+  });
+
+  optionsCache = instruments;
+  optionsCacheTimestamp = now;
+  return instruments;
+}
+
+// ── Option query parser ───────────────────────────────────────────────────────
+// Handles: "LT 3500 PE", "NIFTY 24000 CE", "LT 3500", "BANKNIFTY 51000"
+// Returns null if not an option-style query
+function parseOptionQuery(query) {
+  // Full: SYMBOL STRIKE CE|PE  (e.g. "LT 3500 PE", "NIFTY24000CE")
+  const full = query.match(/^([A-Z0-9&]+)\s*(\d{3,6}(?:\.\d+)?)\s*(CE|PE)$/);
+  if (full) return { underlying: full[1], strike: parseFloat(full[2]), optType: full[3] };
+
+  // Partial: SYMBOL STRIKE (no type yet — show both CE and PE)
+  const partial = query.match(/^([A-Z0-9&]+)\s+(\d{4,6}(?:\.\d+)?)$/);
+  if (partial) return { underlying: partial[1], strike: parseFloat(partial[2]), optType: null };
+
+  return null;
+}
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -184,6 +269,30 @@ export async function GET(request) {
 
     const dp = await getDataProvider();
 
+    // ── Option search path ─────────────────────────────────────────────────────
+    const optQuery = parseOptionQuery(query);
+    if (optQuery && dp.isConnected()) {
+      try {
+        const allOptions = await fetchAndCacheOptions(dp);
+        const { underlying, strike, optType } = optQuery;
+
+        const matches = allOptions
+          .filter(o => {
+            if (o.underlying !== underlying) return false;
+            if (strike !== null && Math.abs(o.strike - strike) > 0.01) return false;
+            if (optType && o.optionType !== optType) return false;
+            return true;
+          })
+          .slice(0, limit);
+
+        return NextResponse.json({ success: true, instruments: matches, total: matches.length });
+      } catch (err) {
+        console.error('Options search error:', err.message);
+        return NextResponse.json({ success: true, instruments: [], total: 0 });
+      }
+    }
+
+    // ── Equity search path ────────────────────────────────────────────────────
     let equityInstruments = [];
     if (dp.isConnected()) {
       try {

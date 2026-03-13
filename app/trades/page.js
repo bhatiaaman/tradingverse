@@ -145,11 +145,13 @@ function getNiftyLevelAlerts(indices) {
     const isMarketHours = () => {
       const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
       const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-      return mins >= 540 && mins <= 960; // 9:00 AM – 4:00 PM IST
+      return mins >= 555 && mins <= 960; // 9:15 AM – 4:00 PM IST
     };
     const isVisible = usePageVisibility();
     const [commentary, setCommentary] = useState(null);
     const [commentaryLoading, setCommentaryLoading] = useState(true);
+    const [commentaryRefreshedAt, setCommentaryRefreshedAt] = useState(null);
+    const [niftyRegime, setNiftyRegime] = useState(null);
     const [commentaryCollapsed, setCommentaryCollapsed] = useState(false);
     const prevCommentaryRef = useRef(null);
     const soundEnabledRef   = useRef(false); // only alert after first load
@@ -248,6 +250,7 @@ function getNiftyLevelAlerts(indices) {
         prevCommentaryRef.current = next;
         soundEnabledRef.current   = true;
         setCommentary(next);
+        setCommentaryRefreshedAt(new Date());
       } catch (error) {
         console.error('Failed to fetch commentary:', error);
       } finally {
@@ -330,6 +333,7 @@ function getNiftyLevelAlerts(indices) {
           prevCommentaryRef.current = next
           soundEnabledRef.current   = true
           setCommentary(next);
+          setCommentaryRefreshedAt(new Date());
         } catch (error) {
           console.error('Failed to fetch commentary:', error);
         } finally {
@@ -337,13 +341,26 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       
-      fetchCommentary();
-      
-      // Refresh every 5 minutes
+      // Fetch NIFTY intraday regime
+      const fetchRegime = async () => {
+        try {
+          const r = await fetch('/api/market-regime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: 'NIFTY', type: 'intraday' }) });
+          const d = await r.json();
+          if (d.regime && d.regime !== 'INITIALIZING' && !d.error) setNiftyRegime(d);
+        } catch {}
+      };
+
+      // Only fetch intraday data during market hours; outside hours there's nothing meaningful to compute
+      if (isMarketHours()) {
+        fetchCommentary();
+        fetchRegime();
+      }
+
+      // Refresh both every 5 minutes
       const interval = setInterval(() => {
-        if (isMarketHours() && isVisible) fetchCommentary();
+        if (isMarketHours() && isVisible) { fetchCommentary(); fetchRegime(); }
       }, 5 * 60 * 1000);
-      
+
       return () => clearInterval(interval);
     }, []);
 
@@ -616,6 +633,35 @@ function getNiftyLevelAlerts(indices) {
                       </div>
                     )}
 
+                    {/* NIFTY intraday regime */}
+                    {niftyRegime && (() => {
+                      const REGIME_STYLE = {
+                        TREND_DAY_UP:     { dot: 'bg-green-400',   text: 'text-green-300',   label: 'Trend Up'      },
+                        TREND_DAY_DOWN:   { dot: 'bg-red-400',     text: 'text-red-300',     label: 'Trend Down'    },
+                        RANGE_DAY:        { dot: 'bg-yellow-400',  text: 'text-yellow-300',  label: 'Range Day'     },
+                        BREAKOUT_DAY:     { dot: 'bg-blue-400',    text: 'text-blue-300',    label: 'Breakout'      },
+                        SHORT_SQUEEZE:    { dot: 'bg-emerald-400', text: 'text-emerald-300', label: 'Short Squeeze' },
+                        LONG_LIQUIDATION: { dot: 'bg-orange-400',  text: 'text-orange-300',  label: 'Long Liq.'     },
+                        TRAP_DAY:         { dot: 'bg-amber-400',   text: 'text-amber-300',   label: 'Trap Day'      },
+                        LOW_VOL_DRIFT:    { dot: 'bg-slate-400',   text: 'text-slate-300',   label: 'Low Vol Drift' },
+                      };
+                      const CONF_COLOR = { HIGH: 'text-emerald-400', MEDIUM: 'text-amber-400', LOW: 'text-slate-500' };
+                      const style = REGIME_STYLE[niftyRegime.regime] ?? { dot: 'bg-slate-400', text: 'text-slate-300', label: niftyRegime.regime };
+                      return (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-400 flex-shrink-0">Regime:</span>
+                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${style.dot}`} />
+                          <span className={`font-semibold ${style.text}`}>{style.label}</span>
+                          <span className={`text-[10px] font-bold ${CONF_COLOR[niftyRegime.confidence]}`}>{niftyRegime.confidence}</span>
+                          {niftyRegime.vwapPosition && niftyRegime.vwapPosition !== 'UNKNOWN' && (
+                            <span className={`text-[10px] px-1 py-0.5 rounded ${niftyRegime.vwapPosition === 'ABOVE' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'}`}>
+                              {niftyRegime.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     {/* Intraday bias narrative */}
                     {commentary.biasHistory?.length > 0 && (() => {
                       const narrative = getBiasNarrative(commentary.biasHistory, commentary.reversal);
@@ -649,6 +695,13 @@ function getNiftyLevelAlerts(indices) {
                         </div>
                       );
                     })()}
+
+                    {/* Refresh timestamp — makes clear data is live even when bias hasn't changed */}
+                    {commentaryRefreshedAt && (
+                      <span className="ml-auto text-[10px] text-slate-600 flex-shrink-0">
+                        refreshed {commentaryRefreshedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                      </span>
+                    )}
                   </div>
                 </div>
               )}

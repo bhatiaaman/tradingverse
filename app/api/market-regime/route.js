@@ -84,10 +84,13 @@ export async function POST(request) {
       if (!raw?.length) return NextResponse.json({ error: 'No candle data' }, { status: 503 });
 
       // Filter to today's IST session 09:15 – 15:30
-      const todayStr = getIST().toISOString().slice(0, 10);
+      // Always add fixed +330 min from UTC — Kite dates are UTC internally (parsed from ISO +0530 string).
+      // Using server's getTimezoneOffset() breaks on IST servers (offset = -330, cancels out).
+      const IST_OFFSET_MS = 330 * 60 * 1000;
+      const todayStr = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
       const candles  = raw
         .filter(c => {
-          const ist     = new Date(new Date(c.date).getTime() + (new Date(c.date).getTimezoneOffset() + 330) * 60000);
+          const ist     = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
           const dateStr = ist.toISOString().slice(0, 10);
           const mins    = ist.getUTCHours() * 60 + ist.getUTCMinutes();
           return dateStr === todayStr && mins >= 555 && mins <= 930; // 9:15–15:30
