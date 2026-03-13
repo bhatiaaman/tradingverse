@@ -108,20 +108,18 @@ async function fetchAndCacheInstruments(dp) {
     return instrumentsCache; // cache hit — no need to re-fetch from Kite
   }
 
-  // Fetch NSE equity instruments
-  const nseRes = await dp.getInstrumentsCSV('NSE');
-  if (!nseRes.ok) throw new Error(`NSE fetch failed: ${nseRes.status}`);
-  const nseCsv = await nseRes.text();
+  // Fetch NSE equity instruments — provider returns CSV text directly
+  const nseCsv = await dp.getInstrumentsCSV('NSE');
+  if (!nseCsv || typeof nseCsv !== 'string') throw new Error('NSE instruments CSV empty');
 
-  // Fetch NFO to get lot sizes — use tradingsymbol to extract underlying
-  const nfoRes = await dp.getNFOInstrumentsCSV();
+  // Fetch NFO to get lot sizes — provider returns CSV text directly
+  let nfoCsvText = null;
+  try { nfoCsvText = await dp.getNFOInstrumentsCSV(); } catch { /* lot sizes optional */ }
 
   // Build lot size map: underlying symbol → lot size
-  // Key insight: for FUT rows, tradingsymbol is like "COFORGE25FEBFUT"
-  // We extract the underlying by stripping the date+FUT suffix
   const lotSizeMap = {};
-  if (nfoRes.ok) {
-    const nfoCsv   = await nfoRes.text();
+  if (nfoCsvText && typeof nfoCsvText === 'string') {
+    const nfoCsv   = nfoCsvText;
     const nfoLines = nfoCsv.trim().split('\n');
     const nfoHdrs  = parseCSVLine(nfoLines[0]);
     const tsIdx    = nfoHdrs.indexOf('tradingsymbol'); // e.g. COFORGE25FEBFUT

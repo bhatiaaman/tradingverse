@@ -254,7 +254,7 @@ function RegimeBadge({ regime }) {
   if (!regime || regime === 'INITIALIZING') return null;
   const meta = REGIME_META[regime] ?? REGIME_META.INITIALIZING;
   return (
-    <span className={`hidden lg:inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${meta.badge}`}>
+    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${meta.badge}`}>
       <span className={`w-1 h-1 rounded-full flex-shrink-0 ${meta.dot}`} />
       {meta.label}
     </span>
