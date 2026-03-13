@@ -594,6 +594,11 @@ function getNiftyLevelAlerts(indices) {
                 </div>
                 
                 <div className="flex items-center gap-2">
+                  {!isMarketHours() && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-400 border border-slate-600/50">
+                      Markets Closed
+                    </span>
+                  )}
                   <span className={`text-xs font-semibold px-2 py-1 rounded ${
                     commentary.bias === 'BULLISH' ? 'text-green-400' :
                     commentary.bias === 'BEARISH' ? 'text-red-400' :
