@@ -175,6 +175,23 @@ async function fetchIntradayCandles(dp) {
       else if (last3[2] < last3[0]) trendDirection = 'DOWN';
     }
 
+    // Opening Range: first candle of the session (9:15–9:30)
+    const orCandle = todayCandles[0] || null;
+
+    // Swing pivot detection from 5-min candles (lookback = 3 candles each side)
+    // Returns the most recent swing highs and lows (up to 5 each) for S/R confluence
+    const swingHighs = [], swingLows = [];
+    const N = 3;
+    for (let i = N; i < todayCandles.length - N; i++) {
+      const c = todayCandles[i];
+      const isSwingHigh = todayCandles.slice(i - N, i).every(x => x.high <= c.high) &&
+                          todayCandles.slice(i + 1, i + N + 1).every(x => x.high <= c.high);
+      const isSwingLow  = todayCandles.slice(i - N, i).every(x => x.low  >= c.low) &&
+                          todayCandles.slice(i + 1, i + N + 1).every(x => x.low  >= c.low);
+      if (isSwingHigh) swingHighs.push(parseFloat(c.high.toFixed(2)));
+      if (isSwingLow)  swingLows.push(parseFloat(c.low.toFixed(2)));
+    }
+
     return {
       rsi:           calcRSI(closes),
       rsiHistory:    calcRSIHistory(closes, 14, 5),
@@ -186,6 +203,10 @@ async function fetchIntradayCandles(dp) {
       lastCandle,
       change5min,
       trendDirection,
+      orHigh:      orCandle?.high || null,
+      orLow:       orCandle?.low  || null,
+      swingHighs:  swingHighs.slice(-5),   // most recent 5
+      swingLows:   swingLows.slice(-5),
     };
   } catch (err) {
     console.error('[commentary] Intraday candles error:', err.message);
@@ -400,6 +421,92 @@ function findConflicts(data) {
 // LAYER 3: Commentary Generator
 // ─────────────────────────────────────────────────────────────────────
 
+// ── BankNifty relative strength vs Nifty ─────────────────────────────────────
+function computeBankRelStrength(niftyChangePct, bankNiftyChangePct) {
+  if (niftyChangePct == null || bankNiftyChangePct == null) return null;
+  const diff = bankNiftyChangePct - niftyChangePct;
+  if (diff > 0.5)  return { diff: parseFloat(diff.toFixed(2)), label: 'BankNifty outperforming',   status: 'leading'  };
+  if (diff < -0.5) return { diff: parseFloat(diff.toFixed(2)), label: 'BankNifty underperforming', status: 'lagging'  };
+  return               { diff: parseFloat(diff.toFixed(2)), label: 'BankNifty in line with Nifty', status: 'inline'   };
+}
+
+// ── Multi-source S/R confluence scorer ───────────────────────────────────────
+// Collects every potential S/R level from all sources, clusters nearby levels
+// within 0.4%, sums weights, returns strongest support below spot and strongest
+// resistance above spot — each with a human-readable sources list.
+//
+// Source weights (institutional > price-action > technical):
+//   oiWall (put/call):  3   — real money positioned there
+//   maxPain:            2   — option expiry gravity
+//   orLevel (H/L):      2   — opening range is universally watched
+//   swingPivot:         2   — actual price-action rejection
+//   vwap:               2   — institutional benchmark
+//   prevClose:          1   — reference gap level
+//   dayExtremes (H/L):  1   — today's range edges
+//   ema9 / ema21:       1   — trend following reference
+//
+function buildSRLevels(spot, {
+  oiSupport, oiResistance, maxPain, orHigh, orLow,
+  swingHighs = [], swingLows = [],
+  vwap, prevClose, niftyHigh, niftyLow, ema9, ema21,
+}) {
+  // 1. Seed candidate levels
+  const candidates = [];
+  const add = (price, weight, label, side) => {
+    if (price && !isNaN(price) && isFinite(price)) {
+      candidates.push({ price: parseFloat(price), weight, label, side });
+    }
+  };
+
+  add(oiSupport,   3, 'OI put wall',   'support');
+  add(oiResistance,3, 'OI call wall',  'resistance');
+  add(maxPain,     2, 'Max Pain',      spot > maxPain ? 'support' : 'resistance');
+  add(orHigh,      2, 'OR high',       'resistance');
+  add(orLow,       2, 'OR low',        'support');
+  add(vwap,        2, 'VWAP',          spot > vwap ? 'support' : 'resistance');
+  add(prevClose,   1, 'Prev close',    spot > prevClose ? 'support' : 'resistance');
+  add(niftyHigh,   1, 'Day high',      'resistance');
+  add(niftyLow,    1, 'Day low',       'support');
+  add(ema9,        1, 'EMA9',          spot > ema9 ? 'support' : 'resistance');
+  add(ema21,       1, 'EMA21',         spot > ema21 ? 'support' : 'resistance');
+  swingHighs.forEach(p => add(p, 2, 'Swing high', 'resistance'));
+  swingLows.forEach(p  => add(p, 2, 'Swing low',  'support'));
+
+  // 2. Cluster levels within 0.4% of each other
+  const CLUSTER_BAND = 0.004;
+  const clusters = [];
+  for (const c of candidates) {
+    const existing = clusters.find(cl => Math.abs(cl.price - c.price) / cl.price <= CLUSTER_BAND);
+    if (existing) {
+      existing.weight += c.weight;
+      existing.price   = (existing.price + c.price) / 2; // merge toward centroid
+      if (!existing.sources.includes(c.label)) existing.sources.push(c.label);
+    } else {
+      clusters.push({ price: c.price, weight: c.weight, sources: [c.label], side: c.side });
+    }
+  }
+
+  // 3. Pick best support (below spot) and best resistance (above spot)
+  const supports    = clusters.filter(c => c.price < spot).sort((a, b) => b.weight - a.weight);
+  const resistances = clusters.filter(c => c.price > spot).sort((a, b) => b.weight - a.weight);
+
+  const fmt = (cl) => cl ? {
+    price:    parseFloat(cl.price.toFixed(0)),
+    weight:   cl.weight,
+    sources:  cl.sources,
+    label:    cl.sources.slice(0, 2).join(' + '),  // top 2 sources for display
+    strong:   cl.weight >= 5,
+  } : null;
+
+  return {
+    support:    fmt(supports[0])    || null,
+    resistance: fmt(resistances[0]) || null,
+    // Legacy scalar fallback for code that still reads .support/.resistance as numbers
+    supportPrice:    supports[0]    ? parseFloat(supports[0].price.toFixed(0))    : null,
+    resistancePrice: resistances[0] ? parseFloat(resistances[0].price.toFixed(0)) : null,
+  };
+}
+
 function generateLiveCommentary(marketData, optionChain, intraday) {
   const spot        = parseFloat(marketData.indices?.nifty          || 0);
   const prevClose   = parseFloat(marketData.indices?.niftyPrevClose || spot);
@@ -408,11 +515,36 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
   const ema9        = parseFloat(marketData.indices?.niftyEMA9      || 0) || null;
   const vix         = parseFloat(marketData.indices?.vix             || 0);
 
+  // BankNifty relative strength
+  const niftyChangePct    = parseFloat(marketData.indices?.niftyChangePercent    ?? 0) || null;
+  const bankNiftyChangePct = parseFloat(marketData.indices?.bankNiftyChangePercent ?? 0) || null;
+  const bankRelStrength   = computeBankRelStrength(niftyChangePct, bankNiftyChangePct);
+
   const pcr         = optionChain?.pcr         || null;
-  const support     = optionChain?.support     || niftyLow;
-  const resistance  = optionChain?.resistance  || niftyHigh;
+  const oiSupport   = optionChain?.support     || null;
+  const oiResistance= optionChain?.resistance  || null;
   const maxPain     = optionChain?.maxPain     || null;
   const marketActivity = optionChain?.marketActivity || null;
+
+  const orHigh = intraday?.orHigh || null;
+  const orLow  = intraday?.orLow  || null;
+
+  // Build confluent S/R levels from all sources
+  const srLevels = buildSRLevels(spot, {
+    oiSupport, oiResistance, maxPain,
+    orHigh, orLow,
+    swingHighs: intraday?.swingHighs || [],
+    swingLows:  intraday?.swingLows  || [],
+    vwap:       intraday?.vwap || null,
+    prevClose,
+    niftyHigh, niftyLow,
+    ema9,
+    ema21:      intraday?.ema21 || null,
+  });
+
+  // Scalar S/R used throughout existing analysis functions
+  const support    = srLevels.supportPrice    ?? oiSupport    ?? niftyLow;
+  const resistance = srLevels.resistancePrice ?? oiResistance ?? niftyHigh;
 
   const ema21     = intraday?.ema21     || null;
   const rsi       = intraday?.rsi       || null;
@@ -488,6 +620,12 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
   if (vix > 20)  warnings.push(`⚠️ VIX elevated (${vix.toFixed(1)}) - reduce position size`);
   if (pcr && pcr > 1.2 && bias === 'BEARISH') warnings.push(`⚠️ PCR ${pcr.toFixed(2)} shows heavy put writing - shorts risky`);
   if (pcr && pcr < 0.8 && bias === 'BULLISH') warnings.push(`⚠️ PCR ${pcr.toFixed(2)} shows excessive call buying - longs risky`);
+  // BankNifty relative strength — significant divergence is a market warning
+  if (bankRelStrength?.status === 'lagging' && bias !== 'BEARISH') {
+    warnings.push(`BankNifty lagging Nifty by ${Math.abs(bankRelStrength.diff).toFixed(1)}% — financial sector weakness may drag`);
+  } else if (bankRelStrength?.status === 'leading' && bias !== 'BULLISH') {
+    warnings.push(`BankNifty leading Nifty by ${bankRelStrength.diff.toFixed(1)}% — financial sector driving momentum`);
+  }
 
   // ── Priority 1: High-confidence reversal zone ──
   if (reversalResult.reversalZone && reversalResult.confidence === 'HIGH') {
@@ -553,6 +691,10 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
     reversal:        reversalResult.reversalZone ? reversalResult : null,
     structure:       priceStructure.structure,
     positionInRange: priceStructure.positionInRange?.toFixed(0),
+    bankRelStrength,
+    orHigh:     orHigh ? parseFloat(orHigh.toFixed(0)) : null,
+    orLow:      orLow  ? parseFloat(orLow.toFixed(0))  : null,
+    srLevels,   // { support: { price, label, strong }, resistance: { price, label, strong } }
   };
 }
 

@@ -50,6 +50,13 @@ function classifyScenario(tradeBias, zoneState, zoneType, zoneDistance, stationL
 
   if (zoneState === 'INSIDE_ZONE') return 'INSIDE_ZONE';
 
+  if (zoneState === 'FAILED_BREAK') {
+    // Break didn't hold — zone rejected price back. Trade in direction of rejection.
+    if (zoneType === 'RESISTANCE' && tradeBias === 'BEARISH') return 'MEAN_REVERSION_SELL';
+    if (zoneType === 'SUPPORT'    && tradeBias === 'BULLISH') return 'MEAN_REVERSION_BUY';
+    return 'COUNTER_TREND'; // e.g. buying after failed breakout
+  }
+
   if (zoneState === 'BREAK_RETEST') {
     // Zone was broken then retested — entering in direction of break
     if (zoneType === 'RESISTANCE' && tradeBias === 'BULLISH') return 'BREAK_RETEST_LONG';
@@ -126,6 +133,12 @@ function gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structur
       const aligned = (z.type === 'RESISTANCE' && tradeBias === 'BEARISH') ||
                       (z.type === 'SUPPORT'    && tradeBias === 'BULLISH');
       signals.push({ aligned, label: `Rejection wick at ${zLabel} — zone ${aligned ? 'confirmed' : 'conflicting'}`, weight: 3 });
+    } else if (zoneState === 'FAILED_BREAK') {
+      // Zone held — resistance rejected breakout, or support rejected breakdown
+      const aligned = (z.type === 'RESISTANCE' && tradeBias === 'BEARISH') ||
+                      (z.type === 'SUPPORT'    && tradeBias === 'BULLISH');
+      const verb = z.type === 'RESISTANCE' ? 'Failed breakout' : 'Failed breakdown';
+      signals.push({ aligned, label: `${verb} at ${zLabel} — zone ${aligned ? 'confirmed rejection' : 'fighting zone'}`, weight: 3 });
     } else if (zoneState === 'BREAK_RETEST') {
       const aligned = (z.type === 'RESISTANCE' && tradeBias === 'BULLISH') ||
                       (z.type === 'SUPPORT'    && tradeBias === 'BEARISH');

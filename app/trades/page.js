@@ -625,16 +625,31 @@ function getNiftyLevelAlerts(indices) {
               {/* Collapsible Content */}
               {!commentaryCollapsed && (
                 <div className="px-4 pb-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm mb-3">
-                    {marketData?.indices?.niftyPreviousClose && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-400">Watch Level:</span>
-                        <span className="font-mono font-semibold text-blue-300">
-                          {marketData.indices.niftyPreviousClose}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                  {/* Confluent S/R levels */}
+                  {(commentary.srLevels?.support || commentary.srLevels?.resistance) && (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-xs">
+                      {commentary.srLevels.support && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-400">Support:</span>
+                          <span className={`font-mono font-semibold ${commentary.srLevels.support.strong ? 'text-sky-300' : 'text-sky-500'}`}>
+                            {commentary.srLevels.support.price}
+                          </span>
+                          <span className="text-slate-500">{commentary.srLevels.support.label}</span>
+                          {commentary.srLevels.support.strong && <span className="text-[10px] px-1 py-0.5 rounded bg-sky-900/40 text-sky-400">strong</span>}
+                        </div>
+                      )}
+                      {commentary.srLevels.resistance && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-400">Resistance:</span>
+                          <span className={`font-mono font-semibold ${commentary.srLevels.resistance.strong ? 'text-amber-300' : 'text-amber-500'}`}>
+                            {commentary.srLevels.resistance.price}
+                          </span>
+                          <span className="text-slate-500">{commentary.srLevels.resistance.label}</span>
+                          {commentary.srLevels.resistance.strong && <span className="text-[10px] px-1 py-0.5 rounded bg-amber-900/40 text-amber-400">strong</span>}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex items-start gap-2 bg-cyan-900/20 border border-cyan-700/30 rounded-lg p-3">
                     <AlertCircle className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
@@ -654,6 +669,28 @@ function getNiftyLevelAlerts(indices) {
                         {commentary.declines > 0 && (
                           <span className="text-slate-500">({(commentary.advances / commentary.declines).toFixed(1)}:1)</span>
                         )}
+                      </div>
+                    )}
+
+                    {/* BankNifty relative strength vs Nifty */}
+                    {commentary.bankRelStrength && commentary.bankRelStrength.status !== 'inline' && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-400 flex-shrink-0">BankNifty:</span>
+                        <span className={`font-semibold text-xs ${
+                          commentary.bankRelStrength.status === 'lagging' ? 'text-orange-400' : 'text-emerald-400'
+                        }`}>
+                          {commentary.bankRelStrength.status === 'lagging' ? '▼' : '▲'} {commentary.bankRelStrength.label}
+                          <span className="font-mono ml-1 opacity-70">({commentary.bankRelStrength.diff > 0 ? '+' : ''}{commentary.bankRelStrength.diff}%)</span>
+                        </span>
+                      </div>
+                    )}
+
+                    {/* OR levels */}
+                    {(commentary.orHigh || commentary.orLow) && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-400 flex-shrink-0">OR:</span>
+                        {commentary.orHigh && <span className="font-mono text-xs text-green-400">{commentary.orHigh}H</span>}
+                        {commentary.orLow  && <span className="font-mono text-xs text-red-400">{commentary.orLow}L</span>}
                       </div>
                     )}
 

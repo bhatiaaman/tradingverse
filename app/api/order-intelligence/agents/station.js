@@ -28,7 +28,12 @@ function getTradeBias(instrumentType, transactionType) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zone State Machine
-// Returns: 'BREAK_RETEST' | 'REJECTION' | 'INSIDE_ZONE' | 'AT_ZONE' | 'APPROACHING' | 'BROKEN'
+// Returns: 'BREAK_RETEST' | 'FAILED_BREAK' | 'REJECTION' | 'INSIDE_ZONE' | 'AT_ZONE' | 'APPROACHING' | 'BROKEN'
+//
+// FAILED_BREAK: A BOS happened (price briefly closed beyond zone) but price
+// has since returned to the zone from the wrong side — the break didn't hold.
+//   - Resistance BOS upward + price now below zone.price → failed breakout
+//   - Support BOS downward + price now above zone.price → failed breakdown
 // ─────────────────────────────────────────────────────────────────────────────
 function determineZoneState(zone, candles15m, spotPrice) {
   if (!zone || !candles15m?.length) return 'APPROACHING';
@@ -54,7 +59,15 @@ function determineZoneState(zone, candles15m, spotPrice) {
     }
   }
   const hasBOS = bosIndex >= 0;
-  if (hasBOS && atZone)  return 'BREAK_RETEST';
+  if (hasBOS && atZone) {
+    // Distinguish true retest from failed break:
+    // A genuine resistance→support flip: price approaches from ABOVE (spotPrice >= zone.price)
+    // A genuine support→resistance flip: price approaches from BELOW (spotPrice <= zone.price)
+    // If price is on the wrong side of zone.price, the original break failed.
+    if (zone.type === 'RESISTANCE' && spotPrice < zone.price) return 'FAILED_BREAK';
+    if (zone.type === 'SUPPORT'    && spotPrice > zone.price) return 'FAILED_BREAK';
+    return 'BREAK_RETEST';
+  }
   if (hasBOS && !atZone) return 'BROKEN'; // Zone broken, price hasn't retested yet
 
   // ── Rejection wick on last candle ─────────────────────────────────────────
@@ -164,6 +177,32 @@ function checkZoneAlignment(data) {
     }
   }
 
+  // ── Failed break: zone held — trade in direction of rejection ─────────────
+  if (zoneState === 'FAILED_BREAK') {
+    if (zone.type === 'RESISTANCE' && tradeBias === 'BEARISH') {
+      return { passed: true, title: `Failed breakout at Resistance ₹${zone.price.toFixed(0)} — resistance held, short aligned` };
+    }
+    if (zone.type === 'SUPPORT' && tradeBias === 'BULLISH') {
+      return { passed: true, title: `Failed breakdown at Support ₹${zone.price.toFixed(0)} — support held, long aligned` };
+    }
+    if (zone.type === 'RESISTANCE' && tradeBias === 'BULLISH') {
+      return {
+        type: 'ZONE_ALIGNMENT_CONFLICT', severity: 'warning',
+        title: `Buying after failed breakout at ₹${zone.price.toFixed(0)} — resistance rejected`,
+        detail: `Price broke above ₹${zone.price.toFixed(0)} but failed to hold. Resistance has reasserted itself — buying here means fighting fresh supply overhead.`,
+        riskScore: 15,
+      };
+    }
+    if (zone.type === 'SUPPORT' && tradeBias === 'BEARISH') {
+      return {
+        type: 'ZONE_ALIGNMENT_CONFLICT', severity: 'warning',
+        title: `Selling after failed breakdown at ₹${zone.price.toFixed(0)} — support held`,
+        detail: `Price broke below ₹${zone.price.toFixed(0)} but failed to hold. Support has reasserted itself — selling here means fighting fresh demand below.`,
+        riskScore: 15,
+      };
+    }
+  }
+
   // ── BOS flip: resistance broken upward → now acts as support ──────────────
   if (zoneState === 'BREAK_RETEST') {
     const bullishFlip = zone.type === 'RESISTANCE' && tradeBias === 'BULLISH';
@@ -223,6 +262,10 @@ function checkZoneScenario(data) {
   const zoneLabel = zone.type.charAt(0) + zone.type.slice(1).toLowerCase();
 
   switch (zoneState) {
+    case 'FAILED_BREAK':
+      if (zone.type === 'RESISTANCE')
+        return { passed: true, title: `Failed breakout — Resistance ₹${zone.price.toFixed(0)} rejected price, back below zone` };
+      return { passed: true, title: `Failed breakdown — Support ₹${zone.price.toFixed(0)} rejected price, back above zone` };
     case 'BREAK_RETEST':
       return { passed: true, title: `Break+Retest at ${zoneLabel} ₹${zone.price.toFixed(0)} — high-probability continuation` };
     case 'REJECTION':
