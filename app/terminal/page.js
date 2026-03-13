@@ -104,10 +104,7 @@ const CONFIDENCE_STYLE = {
   LOW:    'text-slate-400',
 };
 
-const BULLISH_SCENARIOS = ['MOMENTUM_LONG', 'MEAN_REVERSION_BUY', 'REJECTION_BUY', 'BREAK_RETEST_LONG', 'BREAKOUT_LONG'];
-const BEARISH_SCENARIOS = ['MOMENTUM_SHORT', 'MEAN_REVERSION_SELL', 'REJECTION_SELL', 'BREAK_RETEST_SHORT', 'BREAKDOWN_SHORT'];
-
-function ScenarioCard({ scenarioResult, isLoading, onQuickTrade }) {
+function ScenarioCard({ scenarioResult, isLoading }) {
   const [open, setOpen] = useState(true);
 
   if (isLoading && !scenarioResult) return (
@@ -138,8 +135,6 @@ function ScenarioCard({ scenarioResult, isLoading, onQuickTrade }) {
     </div>
   );
   const palette = SCENARIO_COLORS[color] ?? SCENARIO_COLORS.slate;
-  const quickDir = BULLISH_SCENARIOS.includes(scenario) ? 'BUY' : BEARISH_SCENARIOS.includes(scenario) ? 'SELL' : null;
-
   return (
     <div className={`rounded-xl border ${palette.border} overflow-hidden`}>
       <div className={`h-0.5 ${palette.bar}`} />
@@ -159,16 +154,6 @@ function ScenarioCard({ scenarioResult, isLoading, onQuickTrade }) {
           </div>
           <div className="flex items-center gap-2 ml-2 flex-shrink-0">
             <span className={`text-xs font-bold tracking-wide ${CONFIDENCE_STYLE[confidence]}`}>{confidence}</span>
-            {quickDir && onQuickTrade && (
-              <button
-                onClick={e => { e.stopPropagation(); onQuickTrade(quickDir); }}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-colors ${
-                  quickDir === 'BUY'
-                    ? 'border-green-500/50 text-green-600 dark:text-green-400 hover:bg-green-500/20'
-                    : 'border-red-500/50 text-red-600 dark:text-red-400 hover:bg-red-500/20'
-                }`}
-              >→ {quickDir}</button>
-            )}
             <ChevronDown size={13} className={`text-gray-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
           </div>
         </button>
@@ -1157,7 +1142,7 @@ function PlaceOrderTab({
   acknowledged, setAcknowledged, dangerModal, setDangerModal, orderWarnings,
   onSymbolSearch, onSymbolSelect, onPlaceOrder, onExecuteOrder, onRunIntel,
   onRunStructure, onRunPattern, onRunStation, onRunOI,
-  regimeData, regimeLoading, onQuickTrade,
+  regimeData, regimeLoading,
 }) {
   const isNFO   = instrumentType === 'CE' || instrumentType === 'PE' || instrumentType === 'FUT';
   const isIndex = INDEX_SYMBOLS.includes(symbol);
@@ -1551,7 +1536,7 @@ function PlaceOrderTab({
           {/* ── 1×2 grid: Scenario + Regime ── */}
           {symbol && (
             <div className="grid grid-cols-2 gap-3">
-              <ScenarioCard scenarioResult={scenarioResult} isLoading={scenarioLoading} onQuickTrade={onQuickTrade} />
+              <ScenarioCard scenarioResult={scenarioResult} isLoading={scenarioLoading} />
               <CompactRegimeCard regimeData={regimeData} isLoading={regimeLoading} symbol={symbol} />
             </div>
           )}
