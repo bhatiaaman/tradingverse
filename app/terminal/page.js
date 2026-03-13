@@ -219,10 +219,10 @@ function computeRegimeAlignment(regime, scenario) {
     return { status: 'CAUTION', title: 'Wait — price inside zone', msg: 'No trade until price breaks and holds outside the zone. Premature entry has low edge.' };
   }
 
-  const bullish       = ['MOMENTUM_LONG',  'ZONE_SUPPORT_BUY',      'MEAN_REVERSION_BUY',  'BREAKOUT_LONG' ].includes(scenario);
-  const bearish       = ['MOMENTUM_SHORT', 'ZONE_REJECTION_SELL',   'MEAN_REVERSION_SELL', 'BREAKOUT_SHORT'].includes(scenario);
-  const breakout      = ['BREAKOUT_LONG',  'BREAKOUT_SHORT'].includes(scenario);
-  const meanRev       = ['MEAN_REVERSION_BUY', 'MEAN_REVERSION_SELL'].includes(scenario);
+  const bullish  = ['MOMENTUM_LONG',  'MEAN_REVERSION_BUY',  'REJECTION_BUY',  'BREAK_RETEST_LONG',  'BREAKOUT_LONG'  ].includes(scenario);
+  const bearish  = ['MOMENTUM_SHORT', 'MEAN_REVERSION_SELL', 'REJECTION_SELL', 'BREAK_RETEST_SHORT', 'BREAKDOWN_SHORT'].includes(scenario);
+  const breakout = ['BREAKOUT_LONG',  'BREAK_RETEST_LONG',   'BREAKDOWN_SHORT','BREAK_RETEST_SHORT'  ].includes(scenario);
+  const meanRev  = ['MEAN_REVERSION_BUY', 'MEAN_REVERSION_SELL', 'REJECTION_BUY', 'REJECTION_SELL'  ].includes(scenario);
   const counterTrend  = scenario === 'COUNTER_TREND';
 
   // COUNTER_TREND = trade conflicts with the zone (e.g. selling at support, buying at resistance)
