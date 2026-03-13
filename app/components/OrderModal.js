@@ -60,6 +60,144 @@ function ScenarioCard({ scenarioResult }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Verdict Card — intraday regime × scenario alignment (ported from terminal)
+// Dark-only (modal is always dark)
+// ─────────────────────────────────────────────────────────────────────────────
+const MODAL_REGIME_META = {
+  TREND_DAY_UP:     { label: 'Trend Day ↑',     dot: 'bg-green-400'   },
+  TREND_DAY_DOWN:   { label: 'Trend Day ↓',     dot: 'bg-red-400'     },
+  RANGE_DAY:        { label: 'Range Day',        dot: 'bg-amber-400'   },
+  BREAKOUT_DAY:     { label: 'Breakout Day',     dot: 'bg-blue-400'    },
+  SHORT_SQUEEZE:    { label: 'Short Squeeze',    dot: 'bg-emerald-400' },
+  LONG_LIQUIDATION: { label: 'Long Liquidation', dot: 'bg-red-500'     },
+  TRAP_DAY:         { label: 'Trap Day ⚠',       dot: 'bg-orange-400'  },
+  LOW_VOL_DRIFT:    { label: 'Low Vol Drift',    dot: 'bg-slate-400'   },
+  INITIALIZING:     { label: 'Starting…',        dot: 'bg-slate-500'   },
+};
+
+const MODAL_ALIGN_STATUS = {
+  ALIGNED:  { border: 'border-green-500/40',  bg: 'bg-green-500/8',  text: 'text-green-400',  label: 'Aligned',   action: 'Go ahead',      icon: '✓' },
+  CAUTION:  { border: 'border-amber-500/40',  bg: 'bg-amber-500/8',  text: 'text-amber-400',  label: 'Caution',   action: 'Reduce size',   icon: '⚠' },
+  CONFLICT: { border: 'border-orange-500/40', bg: 'bg-orange-500/8', text: 'text-orange-400', label: 'Conflict',  action: 'Skip or halve', icon: '↕' },
+  DANGER:   { border: 'border-red-500/40',    bg: 'bg-red-500/8',    text: 'text-red-400',    label: 'High Risk', action: 'Avoid',         icon: '⛔' },
+  NEUTRAL:  { border: 'border-white/10',      bg: 'bg-white/[0.02]', text: 'text-slate-400',  label: 'Neutral',   action: 'Scalp only',    icon: '–' },
+};
+
+const BULLISH_SCENARIOS = ['MOMENTUM_LONG',  'MEAN_REVERSION_BUY',  'REJECTION_BUY',  'BREAK_RETEST_LONG',  'BREAKOUT_LONG'];
+const BEARISH_SCENARIOS = ['MOMENTUM_SHORT', 'MEAN_REVERSION_SELL', 'REJECTION_SELL', 'BREAK_RETEST_SHORT', 'BREAKDOWN_SHORT'];
+
+function computeRegimeAlignment(regime, scenario, transactionType) {
+  if (!regime || !scenario || scenario === 'UNCLEAR') return null;
+  if (scenario === 'INSIDE_ZONE') {
+    if (regime === 'TRAP_DAY')    return { status: 'DANGER',  msg: 'Price stuck in a zone on a trap day — high fakeout risk both ways. Stay flat.' };
+    if (regime === 'BREAKOUT_DAY') return { status: 'CAUTION', msg: 'Breakout day active — wait for the zone to break with volume. Do not anticipate.' };
+    return { status: 'CAUTION', msg: 'No trade until price breaks and holds outside the zone. Premature entry has low edge.' };
+  }
+  const bullish  = BULLISH_SCENARIOS.includes(scenario);
+  const bearish  = BEARISH_SCENARIOS.includes(scenario);
+  const breakout = ['BREAKOUT_LONG','BREAK_RETEST_LONG','BREAKDOWN_SHORT','BREAK_RETEST_SHORT'].includes(scenario);
+  const meanRev  = ['MEAN_REVERSION_BUY','MEAN_REVERSION_SELL','REJECTION_BUY','REJECTION_SELL'].includes(scenario);
+
+  if (scenario === 'COUNTER_TREND') {
+    const isSelling = transactionType === 'SELL';
+    const isBuying  = transactionType === 'BUY';
+    if (regime === 'TREND_DAY_DOWN') {
+      if (isSelling) return { status: 'CAUTION',  msg: 'Market is trending down — confirms short. But support zone nearby may slow the move. Use tight stop.' };
+      if (isBuying)  return { status: 'CONFLICT', msg: 'Buying against a downtrend into a support zone — low edge. Avoid or use very tight stop.' };
+    }
+    if (regime === 'TREND_DAY_UP') {
+      if (isBuying)  return { status: 'CAUTION',  msg: 'Market is trending up — confirms long. But resistance zone nearby may cap the move. Use tight stop.' };
+      if (isSelling) return { status: 'CONFLICT', msg: 'Shorting against an uptrend into a resistance zone — low edge. Avoid or use very tight stop.' };
+    }
+    if (regime === 'TRAP_DAY')  return { status: 'DANGER',  msg: 'Trap day makes fakeouts likely — zone conflicts are especially dangerous. Avoid.' };
+    if (regime === 'RANGE_DAY') return { status: 'ALIGNED', msg: 'Range day — zones tend to hold. Counter-trend trade fits well here.' };
+    return { status: 'CAUTION', msg: 'Trade goes against the zone signal. Confirm the zone has broken before entering.' };
+  }
+  if (regime === 'TREND_DAY_UP')     { if (bullish) return { status: 'ALIGNED',  msg: 'Trend day up confirms your long. Proceed at normal size.' };     if (bearish) return { status: 'CONFLICT', msg: 'Selling into an up-trend day. Halve size or skip.' }; }
+  if (regime === 'TREND_DAY_DOWN')   { if (bearish) return { status: 'ALIGNED',  msg: 'Trend day down confirms your short. Proceed at normal size.' };  if (bullish) return { status: 'CONFLICT', msg: 'Buying into a down-trend day. Halve size or skip.' }; }
+  if (regime === 'TRAP_DAY')         { if (breakout) return { status: 'DANGER',  msg: 'Breakouts are failing today. Skip or use tiny size.' };            if (meanRev)  return { status: 'ALIGNED', msg: 'Fades and mean reversion are the play on trap days.' }; return { status: 'CAUTION', msg: 'Trap day raises risk on all setups. Keep size small.' }; }
+  if (regime === 'RANGE_DAY')        { if (breakout) return { status: 'CAUTION', msg: 'Wait for OR break + volume confirmation before entering.' }; return { status: 'NEUTRAL', msg: 'Scalp only — tight stops, no runners, fade the extremes.' }; }
+  if (regime === 'SHORT_SQUEEZE')    { if (bearish)  return { status: 'DANGER',  msg: 'Active short squeeze — covering pressure drives prices up. Do not short.' }; if (bullish) return { status: 'CAUTION', msg: 'Squeeze may be near exhaustion. Wait for pullback.' }; }
+  if (regime === 'LONG_LIQUIDATION') { if (bullish)  return { status: 'DANGER',  msg: 'Forced selling underway — longs still exiting. Do not buy.' };               if (bearish) return { status: 'CAUTION', msg: 'Liquidation near exhaustion — risk of sharp bounce. Tight stop.' }; }
+  if (regime === 'BREAKOUT_DAY')     { if (breakout) return { status: 'ALIGNED', msg: 'Session character supports directional breakouts. Normal size.' };            if (meanRev)  return { status: 'CONFLICT', msg: 'Breakout days extend — fades carry extra risk.' }; return { status: 'NEUTRAL', msg: 'Session favors momentum over mean reversion.' }; }
+  if (regime === 'LOW_VOL_DRIFT')    { return { status: 'CAUTION', msg: 'Low volume — setups lack follow-through. Scalp only or sit out.' }; }
+  return null;
+}
+
+function getModalSectorAlign(bias, isBullish, isBearish) {
+  if (!bias || bias === 'NEUTRAL') return null;
+  if (bias === 'BULLISH' && isBullish) return 'confirm';
+  if (bias === 'BULLISH' && isBearish) return 'conflict';
+  if (bias === 'BEARISH' && isBearish) return 'confirm';
+  if (bias === 'BEARISH' && isBullish) return 'conflict';
+  return 'neutral';
+}
+
+function modalConfluenceIcon(align) {
+  if (align === 'confirm')  return { icon: '✓', cls: 'text-green-400' };
+  if (align === 'conflict') return { icon: '✗', cls: 'text-red-400'   };
+  return { icon: '–', cls: 'text-slate-500' };
+}
+
+function ModalVerdictCard({ regimeData, scenarioResult, symbol, isLoading, sector, transactionType }) {
+  const key      = symbol?.toUpperCase() === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
+  const regime   = regimeData?.[key];
+  const scenario = scenarioResult?.scenario;
+
+  if (isLoading && !regime) return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 flex items-center gap-2">
+      <Loader2 size={13} className="animate-spin text-slate-500" />
+      <span className="text-xs text-slate-400">Detecting regime…</span>
+    </div>
+  );
+
+  if (!regime || regime.error || regime.regime === 'INITIALIZING' || !scenario || scenario === 'UNCLEAR') return null;
+
+  const alignment = computeRegimeAlignment(regime.regime, scenario, transactionType);
+  if (!alignment) return null;
+
+  const st        = MODAL_ALIGN_STATUS[alignment.status] ?? MODAL_ALIGN_STATUS.NEUTRAL;
+  const isBullish = BULLISH_SCENARIOS.includes(scenario);
+  const isBearish = BEARISH_SCENARIOS.includes(scenario);
+  const sectorAlign = getModalSectorAlign(sector?.bias, isBullish, isBearish);
+
+  return (
+    <div className={`rounded-xl border-2 ${st.border} ${st.bg} overflow-hidden`}>
+      <div className="px-3 py-2.5">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className="text-base leading-none">{st.icon}</span>
+          <span className={`text-sm font-black tracking-tight ${st.text}`}>{st.action}</span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${st.border} ${st.text}`}>{st.label}</span>
+        </div>
+        <p className={`text-[11px] font-medium leading-relaxed ${st.text} opacity-80`}>{alignment.msg}</p>
+      </div>
+      <div className={`px-3 py-1.5 border-t ${st.border} flex items-center gap-2 text-[10px] text-slate-500`}>
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${MODAL_REGIME_META[regime.regime]?.dot ?? 'bg-slate-400'}`} />
+        <span>{MODAL_REGIME_META[regime.regime]?.label ?? regime.regime}</span>
+        <span className="opacity-40">×</span>
+        <span>{scenarioResult?.label}</span>
+        {scenarioResult?.tradeIntent && (
+          <span className="ml-auto opacity-70">{scenarioResult.tradeIntent}</span>
+        )}
+      </div>
+      {sectorAlign && sectorAlign !== 'neutral' && sector?.name && (
+        <div className={`px-3 py-1.5 border-t ${st.border} flex items-center gap-2 text-[10px] text-slate-500`}>
+          {(() => {
+            const { icon, cls } = modalConfluenceIcon(sectorAlign);
+            return (
+              <span className="flex items-center gap-1.5">
+                <span className={`font-bold ${cls}`}>{icon}</span>
+                <span>{sector.name} — {sector.bias?.toLowerCase()}</span>
+              </span>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OrderModal({
   isOpen,
   onClose,
@@ -103,6 +241,8 @@ export default function OrderModal({
   const [activeTab, setActiveTab] = useState('order');
   const [deepIntelLoading, setDeepIntelLoading] = useState(false);
   const [deepIntelResult, setDeepIntelResult] = useState(null);
+  const [regimeData, setRegimeData]   = useState(null);
+  const [regimeLoading, setRegimeLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -237,6 +377,7 @@ export default function OrderModal({
       setShowInsightDetails(false);
       setActiveTab('order');
       setDeepIntelResult(null);
+      setRegimeData(null);
       if (optionType && price) {
         setStrike(getExpectedStrike(symbol, price, optionType));
       } else {
@@ -330,11 +471,28 @@ export default function OrderModal({
     }
   };
 
+  // ─── FETCH INTRADAY REGIME (NIFTY + BANKNIFTY) ──────────────────────
+  const fetchRegime = async () => {
+    setRegimeLoading(true);
+    try {
+      const [nifty, bnf] = await Promise.allSettled([
+        fetch('/api/market-regime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: 'NIFTY', type: 'intraday' }) }).then(r => r.json()),
+        fetch('/api/market-regime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: 'BANKNIFTY', type: 'intraday' }) }).then(r => r.json()),
+      ]);
+      setRegimeData({
+        NIFTY:     nifty.status === 'fulfilled' ? nifty.value : null,
+        BANKNIFTY: bnf.status   === 'fulfilled' ? bnf.value   : null,
+      });
+    } catch {}
+    finally { setRegimeLoading(false); }
+  };
+
   // Trigger quick + deep analysis when modal opens or transaction type changes
   useEffect(() => {
     if (isOpen && symbol && transactionType && isLoggedIn) {
       fetchQuickInsights();
       fetchDeepIntel();
+      fetchRegime();
     }
   }, [isOpen, symbol, transactionType, isLoggedIn, kiteOptionSymbol]);
 
@@ -618,6 +776,16 @@ export default function OrderModal({
           {/* ── ANALYSIS TAB ─────────────────────────────────────────────────── */}
           {activeTab === 'analysis' && (
           <div className="p-5 space-y-3">
+            {/* Verdict Card — regime × scenario alignment (top of intelligence) */}
+            <ModalVerdictCard
+              regimeData={regimeData}
+              scenarioResult={deepIntelResult?.scenario}
+              symbol={symbol}
+              isLoading={regimeLoading || deepIntelLoading}
+              sector={deepIntelResult?.sector}
+              transactionType={transactionType}
+            />
+
             {/* Scenario synthesis — shown once deep intel (station) is loaded */}
             {deepIntelResult?.scenario && (
               <ScenarioCard scenarioResult={deepIntelResult.scenario} />
