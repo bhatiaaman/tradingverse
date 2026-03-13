@@ -136,9 +136,12 @@ function checkDuplicateOrder(data) {
   const symbol = data.order.symbol?.toUpperCase();
   if (!open?.length || !symbol) return null;
 
-  const dupe = open.find(o =>
-    o.tradingsymbol?.toUpperCase().startsWith(symbol)
-  );
+  const dupe = open.find(o => {
+    const t = o.tradingsymbol?.toUpperCase() ?? '';
+    // Exact match OR symbol followed immediately by a digit (options/futures suffix)
+    // Prevents "SBI" matching "SBILIFE" or "NIFTY" matching "NIFTYBEES"
+    return t === symbol || (t.startsWith(symbol) && /\d/.test(t[symbol.length]));
+  });
   if (!dupe) return null;
 
   return {

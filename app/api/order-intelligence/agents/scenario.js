@@ -186,8 +186,8 @@ function gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structur
   }
 
   // ── OI wall ───────────────────────────────────────────────────────────────
-  if (oiData?.resistance && oiData?.spotPrice) {
-    const band = oiData.spotPrice * 0.01; // 1% proximity
+  if (oiData?.spotPrice && (oiData?.resistance || oiData?.support)) {
+    const band = oiData.spotPrice * 0.0075; // 0.75% — matches oi.js wall proximity threshold
     const nearCE = Math.abs(oiData.spotPrice - oiData.resistance) <= band;
     const nearPE = oiData.support && Math.abs(oiData.spotPrice - oiData.support) <= band;
     if (nearCE) {

@@ -324,8 +324,7 @@ function checkVolume(data) {
 
   const volRatio = lastVol / avgVol20;
   if (volRatio >= 0.5) {
-    const dir = getTradeBias(data.order.instrumentType, data.order.transactionType) === 'BULLISH' ? 'upmove' : 'downmove';
-    return { passed: true, title: `Volume confirms ${dir}` };
+    return { passed: true, title: `Volume adequate (${Math.round(volRatio * 100)}% of avg)` };
   }
 
   return {

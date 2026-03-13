@@ -63,20 +63,18 @@ function detectPatterns(candles) {
   const lowerWick3 = Math.min(c3.open, c3.close) - c3.low;
 
   if (lowerWick3 > body(c3) * 2 && upperWick3 < body(c3) * 0.5 && range(c3) > 0) {
-    const name = isBull(c3) ? 'Hammer' : 'Hanging Man';
-    patterns.push({ name, candles: 1, direction: isBull(c3) ? 'bullish' : 'bearish',
-      meaning: isBull(c3)
-        ? 'Buyers rejected lower prices — potential reversal up.'
-        : 'Hanging Man after uptrend signals potential reversal down.',
+    // Both red and green Hammers are bullish — long lower wick = buyers rejected lower prices.
+    // Hanging Man is same shape but in uptrend context; without trend check, default to bullish.
+    patterns.push({ name: 'Hammer', candles: 1, direction: 'bullish',
+      meaning: 'Buyers rejected lower prices — potential reversal up.',
       strength: 'moderate' });
   }
 
   if (upperWick3 > body(c3) * 2 && lowerWick3 < body(c3) * 0.5 && range(c3) > 0) {
-    const name = isBear(c3) ? 'Shooting Star' : 'Inverted Hammer';
-    patterns.push({ name, candles: 1, direction: isBear(c3) ? 'bearish' : 'neutral',
-      meaning: isBear(c3)
-        ? 'Sellers rejected higher prices — potential reversal down.'
-        : 'Inverted Hammer — needs bullish confirmation next candle.',
+    // Both red and green Shooting Stars are bearish — long upper wick = sellers rejected higher prices.
+    // Inverted Hammer is same shape at bottoms; without trend check, default to bearish.
+    patterns.push({ name: 'Shooting Star', candles: 1, direction: 'bearish',
+      meaning: 'Sellers rejected higher prices — potential reversal down.',
       strength: 'moderate' });
   }
 
@@ -116,14 +114,18 @@ function detectPatterns(candles) {
 
   if (isBull(c1) && isBull(c2) && isBull(c3) &&
       c2.close > c1.close && c3.close > c2.close &&
-      body(c2) > body(c1) * 0.7 && body(c3) > body(c2) * 0.7) {
+      body(c2) > body(c1) * 0.7 && body(c3) > body(c2) * 0.7 &&
+      c2.open >= c1.open && c2.open <= c1.close &&   // c2 opens within c1's body
+      c3.open >= c2.open && c3.open <= c2.close) {   // c3 opens within c2's body
     patterns.push({ name: 'Three White Soldiers', candles: 3, direction: 'bullish',
       meaning: 'Three consecutive strong bullish candles — sustained buying pressure.', strength: 'strong' });
   }
 
   if (isBear(c1) && isBear(c2) && isBear(c3) &&
       c2.close < c1.close && c3.close < c2.close &&
-      body(c2) > body(c1) * 0.7 && body(c3) > body(c2) * 0.7) {
+      body(c2) > body(c1) * 0.7 && body(c3) > body(c2) * 0.7 &&
+      c2.open <= c1.open && c2.open >= c1.close &&   // c2 opens within c1's body
+      c3.open <= c2.open && c3.open >= c2.close) {   // c3 opens within c2's body
     patterns.push({ name: 'Three Black Crows', candles: 3, direction: 'bearish',
       meaning: 'Three consecutive strong bearish candles — sustained selling pressure.', strength: 'strong' });
   }
@@ -159,12 +161,12 @@ function analyzeVolume(candles) {
       detail: 'Price and volume diverging — trend may be weakening.',
       actionable: 'Volume divergence: move not confirmed by participation.' };
   }
-  if (volRatio < 1 && Math.abs(lastCandle.close - prevCandle.close) > 0.5 * prevCandle.close) {
+  if (volRatio < 1 && Math.abs(lastCandle.close - prevCandle.close) > 0.005 * prevCandle.close) {
     return { signal: 'fakeout',
       detail: 'Breakout lacks volume confirmation — risk of fakeout.',
       actionable: 'Low volume breakout — high fakeout risk.' };
   }
-  if (volRatio > 1.5 && Math.abs(lastCandle.close - prevCandle.close) < 0.1 * prevCandle.close) {
+  if (volRatio > 1.5 && Math.abs(lastCandle.close - prevCandle.close) < 0.002 * prevCandle.close) {
     return { signal: 'churn',
       detail: `Churn: ${volRatio.toFixed(1)}× avg volume, little price movement.`,
       actionable: 'High volume churn — large players absorbing, direction unclear.' };

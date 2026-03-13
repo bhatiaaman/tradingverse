@@ -68,7 +68,14 @@ function determineZoneState(zone, candles15m, spotPrice) {
     if (zone.type === 'SUPPORT'    && spotPrice > zone.price) return 'FAILED_BREAK';
     return 'BREAK_RETEST';
   }
-  if (hasBOS && !atZone) return 'BROKEN'; // Zone broken, price hasn't retested yet
+  if (hasBOS && !atZone) {
+    // Check which side of zone price currently sits on.
+    // If price has fallen back BELOW resistance (or risen back ABOVE support),
+    // the break failed — don't call it BROKEN (bullish) when price is below the zone.
+    if (zone.type === 'RESISTANCE' && spotPrice < zone.price - band) return 'FAILED_BREAK';
+    if (zone.type === 'SUPPORT'    && spotPrice > zone.price + band) return 'FAILED_BREAK';
+    return 'BROKEN'; // price still on break side — zone broken, awaiting retest
+  }
 
   // ── Rejection wick on last candle ─────────────────────────────────────────
   if (atZone && recent.length > 0) {
@@ -213,6 +220,23 @@ function checkZoneAlignment(data) {
     if (bearishFlip) {
       return { passed: true, title: `Support ₹${zone.price.toFixed(0)} flipped to resistance after BOS — aligned` };
     }
+    // Opposing direction: trading against the flipped zone
+    if (zone.type === 'RESISTANCE' && tradeBias === 'BEARISH') {
+      return {
+        type: 'ZONE_ALIGNMENT_CONFLICT', severity: 'warning',
+        title: `Selling into flipped support ₹${zone.price.toFixed(0)} — resistance now acts as support`,
+        detail: `Resistance ₹${zone.price.toFixed(0)} broke upward (BOS confirmed) and is retesting as support. Selling here means fighting fresh demand at the flipped level. Wait for confirmed break below this level or trade from higher resistance.`,
+        riskScore: 15,
+      };
+    }
+    if (zone.type === 'SUPPORT' && tradeBias === 'BULLISH') {
+      return {
+        type: 'ZONE_ALIGNMENT_CONFLICT', severity: 'warning',
+        title: `Buying into flipped resistance ₹${zone.price.toFixed(0)} — support now acts as resistance`,
+        detail: `Support ₹${zone.price.toFixed(0)} broke downward (BOS confirmed) and is retesting as resistance. Buying here means fighting fresh supply at the flipped level. Wait for confirmed break above this level or trade from lower support.`,
+        riskScore: 15,
+      };
+    }
   }
 
   // ── Aligned (no flip needed) ───────────────────────────────────────────────
@@ -266,8 +290,16 @@ function checkZoneScenario(data) {
       if (zone.type === 'RESISTANCE')
         return { passed: true, title: `Failed breakout — Resistance ₹${zone.price.toFixed(0)} rejected price, back below zone` };
       return { passed: true, title: `Failed breakdown — Support ₹${zone.price.toFixed(0)} rejected price, back above zone` };
-    case 'BREAK_RETEST':
-      return { passed: true, title: `Break+Retest at ${zoneLabel} ₹${zone.price.toFixed(0)} — high-probability continuation` };
+    case 'BREAK_RETEST': {
+      const tradeBias = getTradeBias(data.order?.instrumentType, data.order?.transactionType);
+      const aligned =
+        (zone.type === 'RESISTANCE' && tradeBias === 'BULLISH') ||
+        (zone.type === 'SUPPORT'    && tradeBias === 'BEARISH');
+      const flipLabel = zone.type === 'RESISTANCE' ? 'flipped support' : 'flipped resistance';
+      return { passed: true, title: aligned
+        ? `Break+Retest at ${zoneLabel} ₹${zone.price.toFixed(0)} — high-probability continuation`
+        : `Break+Retest at ${zoneLabel} ₹${zone.price.toFixed(0)} — zone flipped to ${flipLabel}, trade is counter-break` };
+    }
     case 'REJECTION':
       return { passed: true, title: `Rejection from ${zoneLabel} ₹${zone.price.toFixed(0)} — wick confirms reversal` };
     case 'BROKEN': {
