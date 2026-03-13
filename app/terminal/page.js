@@ -104,7 +104,10 @@ const CONFIDENCE_STYLE = {
   LOW:    'text-slate-400',
 };
 
-function ScenarioCard({ scenarioResult, isLoading }) {
+const BULLISH_SCENARIOS = ['MOMENTUM_LONG', 'MEAN_REVERSION_BUY', 'REJECTION_BUY', 'BREAK_RETEST_LONG', 'BREAKOUT_LONG'];
+const BEARISH_SCENARIOS = ['MOMENTUM_SHORT', 'MEAN_REVERSION_SELL', 'REJECTION_SELL', 'BREAK_RETEST_SHORT', 'BREAKDOWN_SHORT'];
+
+function ScenarioCard({ scenarioResult, isLoading, onQuickTrade }) {
   const [open, setOpen] = useState(true);
 
   if (isLoading && !scenarioResult) return (
@@ -135,6 +138,7 @@ function ScenarioCard({ scenarioResult, isLoading }) {
     </div>
   );
   const palette = SCENARIO_COLORS[color] ?? SCENARIO_COLORS.slate;
+  const quickDir = BULLISH_SCENARIOS.includes(scenario) ? 'BUY' : BEARISH_SCENARIOS.includes(scenario) ? 'SELL' : null;
 
   return (
     <div className={`rounded-xl border ${palette.border} overflow-hidden`}>
@@ -155,6 +159,16 @@ function ScenarioCard({ scenarioResult, isLoading }) {
           </div>
           <div className="flex items-center gap-2 ml-2 flex-shrink-0">
             <span className={`text-xs font-bold tracking-wide ${CONFIDENCE_STYLE[confidence]}`}>{confidence}</span>
+            {quickDir && onQuickTrade && (
+              <button
+                onClick={e => { e.stopPropagation(); onQuickTrade(quickDir); }}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-colors ${
+                  quickDir === 'BUY'
+                    ? 'border-green-500/50 text-green-600 dark:text-green-400 hover:bg-green-500/20'
+                    : 'border-red-500/50 text-red-600 dark:text-red-400 hover:bg-red-500/20'
+                }`}
+              >→ {quickDir}</button>
+            )}
             <ChevronDown size={13} className={`text-gray-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
           </div>
         </button>
@@ -1143,7 +1157,7 @@ function PlaceOrderTab({
   acknowledged, setAcknowledged, dangerModal, setDangerModal, orderWarnings,
   onSymbolSearch, onSymbolSelect, onPlaceOrder, onExecuteOrder, onRunIntel,
   onRunStructure, onRunPattern, onRunStation, onRunOI,
-  regimeData, regimeLoading,
+  regimeData, regimeLoading, onQuickTrade,
 }) {
   const isNFO   = instrumentType === 'CE' || instrumentType === 'PE' || instrumentType === 'FUT';
   const isIndex = INDEX_SYMBOLS.includes(symbol);
@@ -1537,7 +1551,7 @@ function PlaceOrderTab({
           {/* ── 1×2 grid: Scenario + Regime ── */}
           {symbol && (
             <div className="grid grid-cols-2 gap-3">
-              <ScenarioCard scenarioResult={scenarioResult} isLoading={scenarioLoading} />
+              <ScenarioCard scenarioResult={scenarioResult} isLoading={scenarioLoading} onQuickTrade={onQuickTrade} />
               <CompactRegimeCard regimeData={regimeData} isLoading={regimeLoading} symbol={symbol} />
             </div>
           )}
@@ -2013,6 +2027,36 @@ export default function TerminalPage() {
     if (INDEX_SYMBOLS.includes(symbol) && instrumentType === 'EQ') setInstrumentType('CE');
   }, [symbol]);
 
+  // ── Last-used order settings per symbol (localStorage)
+  useEffect(() => {
+    if (!symbol) return;
+    try {
+      const saved = localStorage.getItem(`tv_order_${symbol}`);
+      if (saved) {
+        const { productType: pt, orderType: ot } = JSON.parse(saved);
+        if (pt) setProductType(pt);
+        if (ot) setOrderType(ot);
+      }
+    } catch {}
+  }, [symbol]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!symbol) return;
+    try { localStorage.setItem(`tv_order_${symbol}`, JSON.stringify({ productType, orderType })); } catch {}
+  }, [symbol, productType, orderType]);
+
+  // ── Keyboard shortcuts: B = BUY, S = SELL, Esc = close modals
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+      if (e.key === 'b' || e.key === 'B') setTransactionType('BUY');
+      if (e.key === 's' || e.key === 'S') setTransactionType('SELL');
+      if (e.key === 'Escape') setDangerModal(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── NFO order type guard
   useEffect(() => {
     const isNFO = instrumentType === 'CE' || instrumentType === 'PE' || instrumentType === 'FUT';
@@ -2305,6 +2349,7 @@ export default function TerminalPage() {
                 onRunStructure={runStructureAnalysis} onRunPattern={runPatternAnalysis}
                 onRunStation={runStationAnalysis} onRunOI={runOIAnalysis}
                 regimeData={regimeData} regimeLoading={regimeLoading}
+                onQuickTrade={dir => setTransactionType(dir)}
               />
             )}
           </div>
