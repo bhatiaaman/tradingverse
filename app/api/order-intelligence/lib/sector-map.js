@@ -151,6 +151,8 @@ const SECTOR_MAP = {
   APLAPOLLO:       'Metal',
   RATNAMANI:       'Metal',
   JINDALSAW:       'Metal',
+  JINDALSTEL:      'Metal',
+  JSPL:            'Metal',
   JSWINFRA:        'Infra',   // infra arm of JSW
 
   // ── FMCG ──────────────────────────────────────────────────────────────────

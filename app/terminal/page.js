@@ -208,7 +208,7 @@ const ALIGN_STATUS = {
   NEUTRAL:  { border: 'border-gray-200 dark:border-white/10', bg: 'bg-gray-50 dark:bg-white/[0.02]', dot: 'bg-slate-400', text: 'text-gray-600 dark:text-slate-400', label: 'Neutral', action: 'Scalp only', icon: '–' },
 };
 
-function computeRegimeAlignment(regime, scenario) {
+function computeRegimeAlignment(regime, scenario, transactionType) {
   if (!regime || !scenario || scenario === 'UNCLEAR') return null;
 
   // INSIDE_ZONE — no directional trade regardless of regime
@@ -225,13 +225,22 @@ function computeRegimeAlignment(regime, scenario) {
   const counterTrend  = scenario === 'COUNTER_TREND';
 
   // COUNTER_TREND = trade conflicts with the zone (e.g. selling at support, buying at resistance)
-  // Regime tells us if the zone is likely to hold or break
+  // Use transactionType to know actual trade direction — COUNTER_TREND at support could mean SELL
+  // (zone says buy/hold, user is selling) which may actually align with a downtrend regime.
   if (counterTrend) {
-    if (regime === 'TREND_DAY_DOWN') return { status: 'CONFLICT', title: 'Buying into a downtrend',  msg: 'Market is in a strong downtrend. Buying here goes against the tide — avoid if possible, or use very tight stop and minimal size.' };
-    if (regime === 'TREND_DAY_UP')   return { status: 'CONFLICT', title: 'Selling into an uptrend',  msg: 'Market is trending up hard. Shorting here is low-edge — avoid if possible, or use very tight stop and minimal size.' };
-    if (regime === 'TRAP_DAY')       return { status: 'DANGER',   title: 'Trap day + zone conflict', msg: 'Trap day makes fakeouts likely — zone conflicts are especially dangerous today. Avoid.' };
-    if (regime === 'RANGE_DAY')      return { status: 'ALIGNED',  title: 'Zone holds in range',      msg: 'Range day — zones tend to hold. Counter-trend trade fits well here.' };
-    return                                   { status: 'CAUTION',  title: 'Zone conflict',            msg: 'Trade goes against the zone signal. Confirm the zone has broken before entering.' };
+    const isSelling = transactionType === 'SELL';
+    const isBuying  = transactionType === 'BUY';
+    if (regime === 'TREND_DAY_DOWN') {
+      if (isSelling) return { status: 'CAUTION',  title: 'Selling into support — trend confirms', msg: 'Market is trending down — market confirms your short. But a support zone is nearby and may slow the move. Use tight stop.' };
+      if (isBuying)  return { status: 'CONFLICT', title: 'Buying against the downtrend',          msg: 'Market is in a strong downtrend. Buying against support-zone breakdown is low-edge — avoid if possible, or use very tight stop.' };
+    }
+    if (regime === 'TREND_DAY_UP') {
+      if (isBuying)  return { status: 'CAUTION',  title: 'Buying into resistance — trend confirms', msg: 'Market is trending up — market confirms your long. But a resistance zone is nearby and may cap the move. Use tight stop.' };
+      if (isSelling) return { status: 'CONFLICT', title: 'Selling against the uptrend',             msg: 'Market is trending up hard. Shorting into resistance-zone breakout is low-edge — avoid if possible, or use very tight stop.' };
+    }
+    if (regime === 'TRAP_DAY')  return { status: 'DANGER',   title: 'Trap day + zone conflict', msg: 'Trap day makes fakeouts likely — zone conflicts are especially dangerous today. Avoid.' };
+    if (regime === 'RANGE_DAY') return { status: 'ALIGNED',  title: 'Zone holds in range',      msg: 'Range day — zones tend to hold. Counter-trend trade fits well here.' };
+    return                             { status: 'CAUTION',  title: 'Zone conflict',            msg: 'Trade goes against the zone signal. Confirm the zone has broken before entering.' };
   }
 
   if (regime === 'TREND_DAY_UP') {
@@ -271,7 +280,48 @@ function computeRegimeAlignment(regime, scenario) {
 }
 
 // ── Verdict Card — top of intelligence, full-width, bold yes/no decision ─────
-function VerdictCard({ regimeData, scenarioResult, symbol, isLoading }) {
+const BULLISH_SCENARIOS = ['MOMENTUM_LONG', 'MEAN_REVERSION_BUY', 'REJECTION_BUY', 'BREAK_RETEST_LONG', 'BREAKOUT_LONG'];
+const BEARISH_SCENARIOS = ['MOMENTUM_SHORT', 'MEAN_REVERSION_SELL', 'REJECTION_SELL', 'BREAK_RETEST_SHORT', 'BREAKDOWN_SHORT'];
+
+function getOrbLabel(orb) {
+  if (!orb) return null;
+  const weak = orb.volumeRatio != null && orb.volumeRatio < 1.0;
+  const vol  = orb.volumeRatio ? ` ${orb.volumeRatio}× vol${weak ? ' ⚠' : ''}` : '';
+  if (orb.status === 'BROKE_UP')   return `ORB break up${vol}`;
+  if (orb.status === 'BROKE_DOWN') return `ORB break down${vol}`;
+  if (orb.status === 'ABOVE_OR')   return 'Above OR';
+  if (orb.status === 'BELOW_OR')   return 'Below OR';
+  if (orb.status === 'INSIDE_OR')  return 'Inside OR';
+  return null;
+}
+
+function confluenceIcon(align) {
+  if (align === 'confirm')  return { icon: '✓', cls: 'text-green-500 dark:text-green-400' };
+  if (align === 'conflict') return { icon: '✗', cls: 'text-red-500 dark:text-red-400' };
+  return { icon: '–', cls: 'text-slate-400' };
+}
+
+function getOrbAlign(orb, isBullish, isBearish) {
+  if (!orb) return null;
+  const up   = orb.status === 'BROKE_UP'   || orb.status === 'ABOVE_OR';
+  const down = orb.status === 'BROKE_DOWN' || orb.status === 'BELOW_OR';
+  if (up   && isBullish) return 'confirm';
+  if (up   && isBearish) return 'conflict';
+  if (down && isBearish) return 'confirm';
+  if (down && isBullish) return 'conflict';
+  return 'neutral';
+}
+
+function getSectorAlign(changePct, isBullish, isBearish) {
+  if (changePct == null) return null;
+  if (changePct >  0.3 && isBullish) return 'confirm';
+  if (changePct >  0.3 && isBearish) return 'conflict';
+  if (changePct < -0.3 && isBearish) return 'confirm';
+  if (changePct < -0.3 && isBullish) return 'conflict';
+  return 'neutral';
+}
+
+function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockContext, transactionType }) {
   const key      = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
   const regime   = regimeData?.[key];
   const scenario = scenarioResult?.scenario;
@@ -289,10 +339,20 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading }) {
 
   if (!regime || !scenario || scenario === 'UNCLEAR') return null;
 
-  const alignment = computeRegimeAlignment(regime.regime, scenario);
+  const alignment = computeRegimeAlignment(regime.regime, scenario, transactionType);
   if (!alignment) return null;
 
-  const st = ALIGN_STATUS[alignment.status];
+  const st        = ALIGN_STATUS[alignment.status];
+  const isBullish = BULLISH_SCENARIOS.includes(scenario);
+  const isBearish = BEARISH_SCENARIOS.includes(scenario);
+
+  // Confluence signals from stockContext
+  const orb         = stockContext?.orb;
+  const sector      = stockContext?.sector;
+  const orbLabel    = getOrbLabel(orb);
+  const orbAlign    = getOrbAlign(orb, isBullish, isBearish);
+  const sectorAlign = getSectorAlign(sector?.changePct, isBullish, isBearish);
+  const hasCfluence = orbLabel || sector;
 
   return (
     <div className={`rounded-xl border-2 ${st.border} ${st.bg} overflow-hidden`}>
@@ -315,6 +375,29 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading }) {
           <span className="ml-auto opacity-70">{scenarioResult.tradeIntent}</span>
         )}
       </div>
+      {hasCfluence && (
+        <div className={`px-4 py-1.5 border-t ${st.border} flex items-center gap-3 text-[10px] text-slate-500 dark:text-slate-500`}>
+          {orbLabel && orbAlign && (() => {
+            const { icon, cls } = confluenceIcon(orbAlign);
+            return (
+              <span className="flex items-center gap-1">
+                <span className={`font-bold ${cls}`}>{icon}</span>
+                <span>{orbLabel}</span>
+              </span>
+            );
+          })()}
+          {sector && sectorAlign && (() => {
+            const { icon, cls } = confluenceIcon(sectorAlign);
+            const sign = sector.changePct >= 0 ? '+' : '';
+            return (
+              <span className="flex items-center gap-1">
+                <span className={`font-bold ${cls}`}>{icon}</span>
+                <span>{sector.name} {sign}{sector.changePct}%</span>
+              </span>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 }
@@ -1142,7 +1225,7 @@ function PlaceOrderTab({
   acknowledged, setAcknowledged, dangerModal, setDangerModal, orderWarnings,
   onSymbolSearch, onSymbolSelect, onPlaceOrder, onExecuteOrder, onRunIntel,
   onRunStructure, onRunPattern, onRunStation, onRunOI,
-  regimeData, regimeLoading,
+  regimeData, regimeLoading, stockContext,
 }) {
   const isNFO   = instrumentType === 'CE' || instrumentType === 'PE' || instrumentType === 'FUT';
   const isIndex = INDEX_SYMBOLS.includes(symbol);
@@ -1531,7 +1614,7 @@ function PlaceOrderTab({
 
         <div className="space-y-3">
           {/* ── Verdict — full width ── */}
-          {symbol && <VerdictCard regimeData={regimeData} scenarioResult={scenarioResult} symbol={symbol} isLoading={scenarioLoading} />}
+          {symbol && <VerdictCard regimeData={regimeData} scenarioResult={scenarioResult} symbol={symbol} isLoading={scenarioLoading} stockContext={stockContext} transactionType={transactionType} />}
 
           {/* ── 1×2 grid: Scenario + Regime ── */}
           {symbol && (
@@ -1718,6 +1801,7 @@ export default function TerminalPage() {
   const [patternIntel, setPatternIntel]     = useState({ loading: false, result: null });
   const [stationIntel, setStationIntel]     = useState({ loading: false, result: null });
   const [oiIntel, setOIIntel]               = useState({ loading: false, result: null });
+  const [stockContext, setStockContext]     = useState(null); // ORB + sector for VerdictCard
   const [acknowledged, setAcknowledged]     = useState(false);
   const [dangerModal, setDangerModal]       = useState(false);
   const [orderWarnings, setOrderWarnings]   = useState({ tier1: [], tier2: [], hasBehavioralDanger: false });
@@ -2030,6 +2114,20 @@ export default function TerminalPage() {
     try { localStorage.setItem(`tv_order_${symbol}`, JSON.stringify({ productType, orderType })); } catch {}
   }, [symbol, productType, orderType]);
 
+  // ── Stock context: ORB (15-min) + sector — fetched on symbol change
+  useEffect(() => {
+    if (!symbol) { setStockContext(null); return; }
+    setStockContext(null); // reset while loading
+    fetch('/api/stock-context', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol }),
+    })
+      .then(r => r.json())
+      .then(d => setStockContext(d))
+      .catch(() => {});
+  }, [symbol]);
+
   // ── Keyboard shortcuts: B = BUY, S = SELL, Esc = close modals
   useEffect(() => {
     const onKey = (e) => {
@@ -2334,6 +2432,7 @@ export default function TerminalPage() {
                 onRunStructure={runStructureAnalysis} onRunPattern={runPatternAnalysis}
                 onRunStation={runStationAnalysis} onRunOI={runOIAnalysis}
                 regimeData={regimeData} regimeLoading={regimeLoading}
+                stockContext={stockContext}
                 onQuickTrade={dir => setTransactionType(dir)}
               />
             )}
