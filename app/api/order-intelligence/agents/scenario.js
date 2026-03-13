@@ -26,6 +26,16 @@ function getTradeBias(instrumentType, transactionType) {
   return transactionType === 'BUY' ? 'BULLISH' : 'BEARISH';
 }
 
+function getTradeIntent(instrumentType, transactionType) {
+  const tx = transactionType === 'BUY' ? 'Buying' : 'Selling';
+  const bias = getTradeBias(instrumentType, transactionType);
+  const biasLabel = bias === 'BULLISH' ? 'Bullish' : 'Bearish';
+  if (instrumentType === 'CE' || instrumentType === 'PE') {
+    return `${tx} ${instrumentType} → ${biasLabel}`;
+  }
+  return `${tx} → ${biasLabel}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Classify the primary scenario based on zone state + trade bias
 // ─────────────────────────────────────────────────────────────────────────────
@@ -213,6 +223,7 @@ function scoreConfidence(signals, scenario) {
 // ─────────────────────────────────────────────────────────────────────────────
 export function runScenarioAgent({ order, sentiment, stationOutput, oiData, structureChecks }) {
   const tradeBias    = getTradeBias(order?.instrumentType, order?.transactionType);
+  const tradeIntent  = getTradeIntent(order?.instrumentType, order?.transactionType);
   const zoneState    = stationOutput?.zoneState   ?? null;
   const zone         = stationOutput?.nearestStation ?? null;
   const zoneType     = zone?.type   ?? null;
@@ -231,11 +242,29 @@ export function runScenarioAgent({ order, sentiment, stationOutput, oiData, stru
   // Downgrade color when confidence is low — don't show misleading green/red
   const color = confidence === 'LOW' ? 'slate' : meta.color;
 
+  // For COUNTER_TREND: build a specific summary so it's clear what's conflicting
+  let summary = meta.summary;
+  if (scenario === 'COUNTER_TREND') {
+    const mktBias = sentiment?.intradayBias ?? 'NEUTRAL';
+    const mktAligned = mktBias !== 'NEUTRAL' && mktBias === tradeBias;
+    const zoneConflicts = !!zone;
+    if (mktAligned && zoneConflicts) {
+      summary = `Zone signal conflicts with your trade — market trend aligns`;
+    } else if (!mktAligned && mktBias !== 'NEUTRAL' && zoneConflicts) {
+      summary = `Both zone and market trend conflict with your trade`;
+    } else if (!mktAligned && mktBias !== 'NEUTRAL') {
+      summary = `Market trend conflicts with your trade direction`;
+    } else {
+      summary = `Zone signal conflicts with your trade direction`;
+    }
+  }
+
   return {
     scenario,
     label:       meta.label,
     color,
-    summary:     meta.summary,
+    summary,
+    tradeIntent,
     confidence,
     forSignals,
     againstSignals,

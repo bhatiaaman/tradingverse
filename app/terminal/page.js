@@ -121,7 +121,7 @@ function ScenarioCard({ scenarioResult, isLoading }) {
   // Don't render when scenario is unclear (station not run yet)
   if (!scenarioResult || scenarioResult.scenario === 'UNCLEAR') return null;
 
-  const { label, color, confidence, summary, forSignals, againstSignals, scenario } = scenarioResult;
+  const { label, color, confidence, summary, tradeIntent, forSignals, againstSignals, scenario } = scenarioResult;
 
   // Don't render "Open Space LOW" with no supporting signals — pure noise, station found nothing meaningful
   const isMomentum = scenario === 'MOMENTUM_LONG' || scenario === 'MOMENTUM_SHORT';
@@ -136,7 +136,12 @@ function ScenarioCard({ scenarioResult, isLoading }) {
           <div className="flex items-center gap-2">
             <Target size={15} className="text-indigo-500 dark:text-indigo-400 flex-shrink-0" />
             <div className="text-left">
-              <div className="text-sm font-bold text-gray-900 dark:text-white leading-tight">{label}</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-gray-900 dark:text-white leading-tight">{label}</span>
+                {tradeIntent && (
+                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400 leading-none">{tradeIntent}</span>
+                )}
+              </div>
               <div className="text-xs text-gray-400 font-normal mt-0.5">{summary}</div>
             </div>
           </div>
