@@ -123,9 +123,17 @@ function ScenarioCard({ scenarioResult, isLoading }) {
 
   const { label, color, confidence, summary, tradeIntent, forSignals, againstSignals, scenario } = scenarioResult;
 
-  // Don't render "Open Space LOW" with no supporting signals — pure noise, station found nothing meaningful
+  // For "Open Space LOW" with no signals — show a minimal card instead of hiding
   const isMomentum = scenario === 'MOMENTUM_LONG' || scenario === 'MOMENTUM_SHORT';
-  if (isMomentum && confidence === 'LOW' && forSignals.length === 0) return null;
+  if (isMomentum && confidence === 'LOW' && forSignals.length === 0) return (
+    <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/[0.02] px-3 py-3 flex items-center gap-2">
+      <Target size={13} className="text-slate-400 flex-shrink-0" />
+      <div>
+        <div className="text-xs font-semibold text-gray-700 dark:text-slate-300">Open Space</div>
+        <div className="text-[10px] text-gray-400 dark:text-slate-500">No zone within 2% — check regime for direction</div>
+      </div>
+    </div>
+  );
   const palette = SCENARIO_COLORS[color] ?? SCENARIO_COLORS.slate;
 
   return (
@@ -281,8 +289,6 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading }) {
   );
 
   if (!regime || !scenario || scenario === 'UNCLEAR') return null;
-  const isMomentum = scenario === 'MOMENTUM_LONG' || scenario === 'MOMENTUM_SHORT';
-  if (isMomentum && scenarioResult?.confidence === 'LOW' && !scenarioResult?.forSignals?.length) return null;
 
   const alignment = computeRegimeAlignment(regime.regime, scenario);
   if (!alignment) return null;
