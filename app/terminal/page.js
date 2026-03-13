@@ -220,11 +220,11 @@ function computeRegimeAlignment(regime, scenario) {
   // COUNTER_TREND = trade conflicts with the zone (e.g. selling at support, buying at resistance)
   // Regime tells us if the zone is likely to hold or break
   if (counterTrend) {
-    if (regime === 'TREND_DAY_DOWN') return { status: 'CAUTION',  title: 'Zone vs trend conflict',   msg: 'Trend day supports the breakdown, but the zone may bounce. Use a tight stop above support.' };
-    if (regime === 'TREND_DAY_UP')   return { status: 'CAUTION',  title: 'Zone vs trend conflict',   msg: 'Trend day supports the breakout, but the zone may push back. Wait for zone to break first.' };
-    if (regime === 'TRAP_DAY')       return { status: 'DANGER',   title: 'Trap day + zone conflict', msg: 'Trap day makes fakeouts likely — zone conflicts are especially dangerous today.' };
+    if (regime === 'TREND_DAY_DOWN') return { status: 'CONFLICT', title: 'Buying into a downtrend',  msg: 'Market is in a strong downtrend. Buying here goes against the tide — avoid if possible, or use very tight stop and minimal size.' };
+    if (regime === 'TREND_DAY_UP')   return { status: 'CONFLICT', title: 'Selling into an uptrend',  msg: 'Market is trending up hard. Shorting here is low-edge — avoid if possible, or use very tight stop and minimal size.' };
+    if (regime === 'TRAP_DAY')       return { status: 'DANGER',   title: 'Trap day + zone conflict', msg: 'Trap day makes fakeouts likely — zone conflicts are especially dangerous today. Avoid.' };
     if (regime === 'RANGE_DAY')      return { status: 'ALIGNED',  title: 'Zone holds in range',      msg: 'Range day — zones tend to hold. Counter-trend trade fits well here.' };
-    return                                   { status: 'NEUTRAL',  title: 'Zone conflict',            msg: 'Trade goes against the zone. Check if zone is broken before entering.' };
+    return                                   { status: 'CAUTION',  title: 'Zone conflict',            msg: 'Trade goes against the zone signal. Confirm the zone has broken before entering.' };
   }
 
   if (regime === 'TREND_DAY_UP') {
@@ -264,10 +264,21 @@ function computeRegimeAlignment(regime, scenario) {
 }
 
 // ── Verdict Card — top of intelligence, full-width, bold yes/no decision ─────
-function VerdictCard({ regimeData, scenarioResult, symbol }) {
+function VerdictCard({ regimeData, scenarioResult, symbol, isLoading }) {
   const key      = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
   const regime   = regimeData?.[key];
   const scenario = scenarioResult?.scenario;
+
+  // Show loading skeleton while agents are running on first load
+  if (isLoading && !scenarioResult) return (
+    <div className="rounded-xl border-2 border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.02] px-4 py-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Loader2 size={14} className="animate-spin text-gray-400" />
+        <span className="text-xs text-gray-400">Analysing setup…</span>
+      </div>
+      <div className="h-3 bg-black/5 dark:bg-white/5 rounded animate-pulse w-3/4" />
+    </div>
+  );
 
   if (!regime || !scenario || scenario === 'UNCLEAR') return null;
   const isMomentum = scenario === 'MOMENTUM_LONG' || scenario === 'MOMENTUM_SHORT';
@@ -1515,7 +1526,7 @@ function PlaceOrderTab({
 
         <div className="space-y-3">
           {/* ── Verdict — full width ── */}
-          {symbol && <VerdictCard regimeData={regimeData} scenarioResult={scenarioResult} symbol={symbol} />}
+          {symbol && <VerdictCard regimeData={regimeData} scenarioResult={scenarioResult} symbol={symbol} isLoading={scenarioLoading} />}
 
           {/* ── 1×2 grid: Scenario + Regime ── */}
           {symbol && (
