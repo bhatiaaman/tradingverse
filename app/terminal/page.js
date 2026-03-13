@@ -192,92 +192,13 @@ const REGIME_CONF = {
   LOW:    'text-slate-500',
 };
 
-function RegimeCard({ regimeData, isLoading, symbol }) {
-  const [open, setOpen] = useState(false);
-  const key  = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
-  const data = regimeData?.[key];
-
-  if (isLoading && !data) return (
-    <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.02] px-4 py-3 flex items-center gap-2">
-      <Loader2 size={12} className="animate-spin text-slate-400 flex-shrink-0" />
-      <span className="text-xs text-slate-500">Detecting market regime…</span>
-    </div>
-  );
-  if (!data || data.error || data.regime === 'INITIALIZING') {
-    if (!isLoading) return (
-      <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/[0.02] px-4 py-2.5 flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-slate-400 flex-shrink-0" />
-        <span className="text-xs text-slate-500">
-          {!data ? 'Regime unavailable' : data.error ? `Regime: ${data.error}` : 'Awaiting open range (first 15 min)…'}
-        </span>
-      </div>
-    );
-    return null;
-  }
-
-  const meta = REGIME_META[data.regime] ?? REGIME_META.INITIALIZING;
-
-  // IST timeline labels (UTC+5:30)
-  const fmtIST = (iso) => {
-    const d = new Date(new Date(iso).getTime() + 330 * 60000);
-    return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
-  };
-
-  return (
-    <div className="rounded-xl border border-gray-200 dark:border-white/10 overflow-hidden bg-white dark:bg-white/[0.02]">
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.dot}`} />
-        <span className="text-xs font-bold text-gray-900 dark:text-white flex-1">{meta.label}</span>
-        {data.vwapPosition && data.vwapPosition !== 'UNKNOWN' && (
-          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-            data.vwapPosition === 'ABOVE'
-              ? 'bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400'
-              : 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400'
-          }`}>{data.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP {data.vwap ? data.vwap.toLocaleString('en-IN') : ''}</span>
-        )}
-        <span className={`text-[10px] font-bold ${REGIME_CONF[data.confidence]}`}>{data.confidence}</span>
-        <span className="text-[9px] text-slate-400 dark:text-slate-600">{data.symbol}</span>
-        <ChevronDown size={11} className={`text-slate-400 dark:text-slate-600 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-
-      {open && (
-        <div className="px-3 pb-3 space-y-1.5 border-t border-gray-100 dark:border-white/5 pt-2">
-          {data.signals?.map((s, i) => (
-            <div key={i} className="flex items-start gap-2 text-[11px] text-gray-600 dark:text-slate-400">
-              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1 ${meta.dot}`} />
-              {s}
-            </div>
-          ))}
-          {(data.orHigh || data.vwap) && (
-            <div className="flex items-center gap-3 pt-1.5 border-t border-gray-100 dark:border-white/5 text-[10px] text-slate-500 flex-wrap">
-              {data.orHigh && <span>OR {data.orLow?.toLocaleString('en-IN')} – {data.orHigh?.toLocaleString('en-IN')}</span>}
-              {data.vwap   && <span>VWAP {data.vwap?.toLocaleString('en-IN')}</span>}
-              {data.sessionProgress > 0 && <span className="ml-auto">{data.sessionProgress}% session</span>}
-            </div>
-          )}
-          {data.timeline?.length > 1 && (
-            <div className="flex items-center gap-1 pt-1">
-              <span className="text-[9px] text-slate-400 mr-1 flex-shrink-0">Today</span>
-              {data.timeline.map((t, i) => {
-                const m = REGIME_META[t.regime] ?? REGIME_META.INITIALIZING;
-                return <div key={i} title={`${t.regime} @ ${fmtIST(t.time)}`} className={`h-2 flex-1 rounded-sm ${m.dot} opacity-70`} />;
-              })}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Regime × Scenario alignment card ─────────────────────────────────────────
 const ALIGN_STATUS = {
-  ALIGNED:  { border: 'border-green-500/40',  bg: 'bg-green-50 dark:bg-green-500/8',   dot: 'bg-green-500',  text: 'text-green-700 dark:text-green-400',  label: 'Aligned',      icon: '✓' },
-  CAUTION:  { border: 'border-amber-500/40',  bg: 'bg-amber-50 dark:bg-amber-500/8',   dot: 'bg-amber-500',  text: 'text-amber-700 dark:text-amber-400',  label: 'Caution',      icon: '⚠' },
-  CONFLICT: { border: 'border-orange-500/40', bg: 'bg-orange-50 dark:bg-orange-500/8', dot: 'bg-orange-500', text: 'text-orange-700 dark:text-orange-400', label: 'Conflict',     icon: '↕' },
-  DANGER:   { border: 'border-red-500/40',    bg: 'bg-red-50 dark:bg-red-500/8',       dot: 'bg-red-500',    text: 'text-red-700 dark:text-red-400',       label: 'High Risk',    icon: '⛔' },
-  NEUTRAL:  { border: 'border-gray-200 dark:border-white/10', bg: 'bg-gray-50 dark:bg-white/[0.02]', dot: 'bg-slate-400', text: 'text-gray-600 dark:text-slate-400', label: 'Neutral', icon: '–' },
+  ALIGNED:  { border: 'border-green-500/40',  bg: 'bg-green-50 dark:bg-green-500/8',   dot: 'bg-green-500',  text: 'text-green-700 dark:text-green-400',  label: 'Aligned',   action: 'Go ahead',      icon: '✓' },
+  CAUTION:  { border: 'border-amber-500/40',  bg: 'bg-amber-50 dark:bg-amber-500/8',   dot: 'bg-amber-500',  text: 'text-amber-700 dark:text-amber-400',  label: 'Caution',   action: 'Reduce size',   icon: '⚠' },
+  CONFLICT: { border: 'border-orange-500/40', bg: 'bg-orange-50 dark:bg-orange-500/8', dot: 'bg-orange-500', text: 'text-orange-700 dark:text-orange-400', label: 'Conflict',  action: 'Skip or halve', icon: '↕' },
+  DANGER:   { border: 'border-red-500/40',    bg: 'bg-red-50 dark:bg-red-500/8',       dot: 'bg-red-500',    text: 'text-red-700 dark:text-red-400',       label: 'High Risk', action: 'Avoid',         icon: '⛔' },
+  NEUTRAL:  { border: 'border-gray-200 dark:border-white/10', bg: 'bg-gray-50 dark:bg-white/[0.02]', dot: 'bg-slate-400', text: 'text-gray-600 dark:text-slate-400', label: 'Neutral', action: 'Scalp only', icon: '–' },
 };
 
 function computeRegimeAlignment(regime, scenario) {
@@ -334,13 +255,13 @@ function computeRegimeAlignment(regime, scenario) {
   return null;
 }
 
-function RegimeAlignmentCard({ regimeData, scenarioResult, symbol }) {
+// ── Verdict Card — top of intelligence, full-width, bold yes/no decision ─────
+function VerdictCard({ regimeData, scenarioResult, symbol }) {
   const key      = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
   const regime   = regimeData?.[key];
   const scenario = scenarioResult?.scenario;
 
   if (!regime || !scenario || scenario === 'UNCLEAR') return null;
-  // Skip noisy MOMENTUM+LOW+no signals case
   const isMomentum = scenario === 'MOMENTUM_LONG' || scenario === 'MOMENTUM_SHORT';
   if (isMomentum && scenarioResult?.confidence === 'LOW' && !scenarioResult?.forSignals?.length) return null;
 
@@ -350,17 +271,74 @@ function RegimeAlignmentCard({ regimeData, scenarioResult, symbol }) {
   const st = ALIGN_STATUS[alignment.status];
 
   return (
-    <div className={`rounded-xl border ${st.border} ${st.bg} px-3 py-2.5`}>
-      <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-base leading-none">{st.icon}</span>
-        <span className={`text-xs font-bold ${st.text}`}>{alignment.title}</span>
-        <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded border ${st.border} ${st.text}`}>{st.label}</span>
+    <div className={`rounded-xl border-2 ${st.border} ${st.bg} overflow-hidden`}>
+      <div className="px-4 py-3 flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg leading-none">{st.icon}</span>
+            <span className={`text-base font-black tracking-tight ${st.text}`}>{st.action}</span>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${st.border} ${st.text}`}>{st.label}</span>
+          </div>
+          <p className={`text-xs font-medium leading-relaxed ${st.text} opacity-80`}>{alignment.msg}</p>
+        </div>
       </div>
-      <p className="text-[11px] text-gray-600 dark:text-slate-400 leading-relaxed">{alignment.msg}</p>
-      <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-500">
+      <div className={`px-4 py-1.5 border-t ${st.border} flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-500`}>
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${REGIME_META[regime.regime]?.dot ?? 'bg-slate-400'}`} />
         <span>{REGIME_META[regime.regime]?.label ?? regime.regime}</span>
-        <span className="text-slate-300 dark:text-slate-700">×</span>
+        <span className="opacity-40">×</span>
         <span>{scenarioResult?.label}</span>
+        {scenarioResult?.tradeIntent && (
+          <span className="ml-auto opacity-70">{scenarioResult.tradeIntent}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Compact Regime Card — for the 1×2 grid beside ScenarioCard ───────────────
+function CompactRegimeCard({ regimeData, isLoading, symbol }) {
+  const key  = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
+  const data = regimeData?.[key];
+
+  if (isLoading && !data) return (
+    <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/[0.02] p-3 flex items-center gap-2">
+      <Loader2 size={12} className="animate-spin text-slate-400" />
+      <span className="text-xs text-slate-500">Detecting regime…</span>
+    </div>
+  );
+  if (!data || data.error || data.regime === 'INITIALIZING') return (
+    <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/[0.02] p-3 flex items-center gap-2">
+      <div className="w-2 h-2 rounded-full bg-slate-400 flex-shrink-0" />
+      <span className="text-xs text-slate-500">{data?.error ? `Regime: ${data.error}` : 'Awaiting open range…'}</span>
+    </div>
+  );
+
+  const meta = REGIME_META[data.regime] ?? REGIME_META.INITIALIZING;
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/[0.02] overflow-hidden">
+      <div className={`h-0.5 ${meta.dot}`} />
+      <div className="p-3">
+        <div className="flex items-center gap-1.5 mb-2">
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.dot}`} />
+          <span className="text-xs font-bold text-gray-900 dark:text-white flex-1 leading-tight">{meta.label}</span>
+          <span className={`text-[10px] font-bold ${REGIME_CONF[data.confidence]}`}>{data.confidence}</span>
+        </div>
+        {data.vwapPosition && data.vwapPosition !== 'UNKNOWN' && (
+          <div className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded mb-2 ${
+            data.vwapPosition === 'ABOVE'
+              ? 'bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400'
+              : 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400'
+          }`}>
+            {data.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP {data.vwap ? data.vwap.toLocaleString('en-IN') : ''}
+          </div>
+        )}
+        {data.signals?.slice(0, 2).map((s, i) => (
+          <div key={i} className="flex items-start gap-1.5 text-[10px] text-gray-500 dark:text-slate-400 leading-relaxed">
+            <div className={`w-1 h-1 rounded-full flex-shrink-0 mt-1.5 ${meta.dot}`} />
+            <span>{s}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -381,7 +359,7 @@ function RegimeBadge({ regime }) {
 }
 
 function BehavioralPanel({ intel, symbol }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   if (!symbol) return (
     <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4">
       <div className="flex items-center gap-2 mb-2">
@@ -440,7 +418,7 @@ function BehavioralPanel({ intel, symbol }) {
 // Generic agent panel factory
 // ─────────────────────────────────────────────────────────────────────────────
 function AgentPanel({ intel, dataKey, icon: Icon, iconClass, title, subtitle, onRun, runLabel = 'Run', disabled = false }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   const headerContent = (
     <div className="flex items-center gap-2">
@@ -1528,16 +1506,24 @@ function PlaceOrderTab({
         </div>
 
         <div className="space-y-3">
-          <RegimeCard regimeData={regimeData} isLoading={regimeLoading} symbol={symbol} />
-          {symbol && <RegimeAlignmentCard regimeData={regimeData} scenarioResult={scenarioResult} symbol={symbol} />}
-          {symbol && <ScenarioCard scenarioResult={scenarioResult} isLoading={scenarioLoading} />}
-          <BehavioralPanel intel={intel} symbol={symbol} />
+          {/* ── Verdict — full width ── */}
+          {symbol && <VerdictCard regimeData={regimeData} scenarioResult={scenarioResult} symbol={symbol} />}
 
+          {/* ── 1×2 grid: Scenario + Regime ── */}
+          {symbol && (
+            <div className="grid grid-cols-2 gap-3">
+              <ScenarioCard scenarioResult={scenarioResult} isLoading={scenarioLoading} />
+              <CompactRegimeCard regimeData={regimeData} isLoading={regimeLoading} symbol={symbol} />
+            </div>
+          )}
+
+          {/* ── Agents accordion — Behavioral first ── */}
+          <BehavioralPanel intel={intel} symbol={symbol} />
           <AgentPanel
-            intel={structureIntel} dataKey="structure"
-            icon={Activity} iconClass="text-cyan-500 dark:text-cyan-400"
-            title="Structure" subtitle="Market conditions & signals"
-            onRun={onRunStructure} disabled={!symbol}
+            intel={stationIntel} dataKey="station"
+            icon={Target} iconClass="text-violet-500 dark:text-violet-400"
+            title="Station" subtitle="S/R zones — right place to trade?"
+            onRun={onRunStation} disabled={!symbol}
           />
           <AgentPanel
             intel={patternIntel} dataKey="pattern"
@@ -1546,10 +1532,10 @@ function PlaceOrderTab({
             onRun={onRunPattern} disabled={!symbol}
           />
           <AgentPanel
-            intel={stationIntel} dataKey="station"
-            icon={Target} iconClass="text-violet-500 dark:text-violet-400"
-            title="Station" subtitle="S/R zones — right place to trade?"
-            onRun={onRunStation} disabled={!symbol}
+            intel={structureIntel} dataKey="structure"
+            icon={Activity} iconClass="text-cyan-500 dark:text-cyan-400"
+            title="Structure" subtitle="Market conditions & signals"
+            onRun={onRunStructure} disabled={!symbol}
           />
           <AgentPanel
             intel={oiIntel} dataKey="oi"
