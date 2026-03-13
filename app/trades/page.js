@@ -350,11 +350,9 @@ function getNiftyLevelAlerts(indices) {
         } catch {}
       };
 
-      // Only fetch intraday data during market hours; outside hours there's nothing meaningful to compute
-      if (isMarketHours()) {
-        fetchCommentary();
-        fetchRegime();
-      }
+      // Always fetch on mount so summary section is always populated
+      fetchCommentary();
+      fetchRegime();
 
       // Refresh both every 5 minutes
       const interval = setInterval(() => {
@@ -552,8 +550,29 @@ function getNiftyLevelAlerts(indices) {
         {/* MAIN CONTENT */}
         <main className="max-w-[1400px] mx-auto px-6 py-6">
 
-          {commentary && (
-            <div className="mb-4 bg-gradient-to-r from-purple-900/50 via-blue-900/50 to-purple-900/50 border border-purple-700/50 rounded-xl backdrop-blur-sm overflow-hidden">
+          <div className="mb-4 bg-gradient-to-r from-purple-900/50 via-blue-900/50 to-purple-900/50 border border-purple-700/50 rounded-xl backdrop-blur-sm overflow-hidden">
+            {commentaryLoading && !commentary ? (
+              /* Loading skeleton */
+              <div className="p-4 flex items-center gap-3">
+                <div className="w-4 h-4 rounded-full border-2 border-purple-400/40 border-t-purple-400 animate-spin flex-shrink-0" />
+                <span className="text-sm text-slate-400">Loading market summary…</span>
+              </div>
+            ) : !commentary ? (
+              /* Market closed / no data */
+              <div className="p-4 flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-slate-500 flex-shrink-0" />
+                <span className="text-sm text-slate-400">Market closed — summary available during trading hours (9:15 AM – 4:00 PM IST)</span>
+                {niftyRegime && (() => {
+                  const REGIME_STYLE = {
+                    TREND_DAY_UP: { text: 'text-green-400', label: 'Trend Up' }, TREND_DAY_DOWN: { text: 'text-red-400', label: 'Trend Down' },
+                    RANGE_DAY: { text: 'text-yellow-400', label: 'Range Day' }, TRAP_DAY: { text: 'text-amber-400', label: 'Trap Day' },
+                  };
+                  const s = REGIME_STYLE[niftyRegime.regime] ?? { text: 'text-slate-400', label: niftyRegime.regime };
+                  return <span className={`ml-auto text-xs font-semibold ${s.text}`}>Last regime: {s.label}</span>;
+                })()}
+              </div>
+            ) : (
+              <div>{/* commentary content starts */}
               {/* Collapsible Header */}
               <div
                 onClick={() => setCommentaryCollapsed(!commentaryCollapsed)}
@@ -706,7 +725,8 @@ function getNiftyLevelAlerts(indices) {
                 </div>
               )}
             </div>
-          )}
+            )}  {/* end commentary content / ternary */}
+          </div>
 
           {/* Top Market Data Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-1 mb-4">
