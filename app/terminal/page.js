@@ -203,6 +203,14 @@ const ALIGN_STATUS = {
 
 function computeRegimeAlignment(regime, scenario) {
   if (!regime || !scenario || scenario === 'UNCLEAR') return null;
+
+  // INSIDE_ZONE — no directional trade regardless of regime
+  if (scenario === 'INSIDE_ZONE') {
+    if (regime === 'TRAP_DAY') return { status: 'DANGER',  title: 'Trap day inside zone', msg: 'Price stuck in a zone on a trap day — high fakeout risk both ways. Stay flat.' };
+    if (regime === 'BREAKOUT_DAY') return { status: 'CAUTION', title: 'Watch for zone break', msg: 'Breakout day active — wait for the zone to break with volume. Do not anticipate.' };
+    return { status: 'CAUTION', title: 'Wait — price inside zone', msg: 'No trade until price breaks and holds outside the zone. Premature entry has low edge.' };
+  }
+
   const bullish       = ['MOMENTUM_LONG',  'ZONE_SUPPORT_BUY',      'MEAN_REVERSION_BUY',  'BREAKOUT_LONG' ].includes(scenario);
   const bearish       = ['MOMENTUM_SHORT', 'ZONE_REJECTION_SELL',   'MEAN_REVERSION_SELL', 'BREAKOUT_SHORT'].includes(scenario);
   const breakout      = ['BREAKOUT_LONG',  'BREAKOUT_SHORT'].includes(scenario);
@@ -1518,6 +1526,10 @@ function PlaceOrderTab({
           )}
 
           {/* ── Agents accordion — Behavioral first ── */}
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Agent Analysis</span>
+            <div className="flex-1 h-px bg-gray-100 dark:bg-white/5" />
+          </div>
           <BehavioralPanel intel={intel} symbol={symbol} />
           <AgentPanel
             intel={stationIntel} dataKey="station"
