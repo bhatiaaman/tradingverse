@@ -167,6 +167,100 @@ function ScenarioCard({ scenarioResult, isLoading }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// RegimeCard — intraday market regime (NIFTY / BANKNIFTY)
+// ─────────────────────────────────────────────────────────────────────────────
+const REGIME_META = {
+  TREND_DAY_UP:     { label: 'Trend Day ↑',     dot: 'bg-green-400',   badge: 'bg-green-500/15 text-green-400 border-green-500/30'      },
+  TREND_DAY_DOWN:   { label: 'Trend Day ↓',     dot: 'bg-red-400',     badge: 'bg-red-500/15 text-red-400 border-red-500/30'            },
+  RANGE_DAY:        { label: 'Range Day',        dot: 'bg-amber-400',   badge: 'bg-amber-500/15 text-amber-400 border-amber-500/30'      },
+  BREAKOUT_DAY:     { label: 'Breakout Day',     dot: 'bg-blue-400',    badge: 'bg-blue-500/15 text-blue-400 border-blue-500/30'         },
+  SHORT_SQUEEZE:    { label: 'Short Squeeze',    dot: 'bg-emerald-400', badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+  LONG_LIQUIDATION: { label: 'Long Liquidation', dot: 'bg-red-500',     badge: 'bg-red-600/15 text-red-400 border-red-600/30'            },
+  TRAP_DAY:         { label: 'Trap Day ⚠',       dot: 'bg-orange-400',  badge: 'bg-orange-500/15 text-orange-400 border-orange-500/30'   },
+  LOW_VOL_DRIFT:    { label: 'Low Vol Drift',    dot: 'bg-slate-400',   badge: 'bg-slate-500/15 text-slate-400 border-slate-600/30'      },
+  INITIALIZING:     { label: 'Starting…',        dot: 'bg-slate-500',   badge: 'bg-slate-500/10 text-slate-500 border-slate-600/20'      },
+};
+const REGIME_CONF = { HIGH: 'text-emerald-400', MEDIUM: 'text-amber-400', LOW: 'text-slate-500' };
+
+function RegimeCard({ regimeData, isLoading, symbol }) {
+  const [open, setOpen] = useState(false);
+  const key  = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
+  const data = regimeData?.[key];
+
+  if (isLoading && !data) return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 flex items-center gap-2">
+      <Loader2 size={12} className="animate-spin text-slate-500 flex-shrink-0" />
+      <span className="text-xs text-slate-500">Detecting market regime…</span>
+    </div>
+  );
+  if (!data || data.error || data.regime === 'INITIALIZING') return null;
+
+  const meta = REGIME_META[data.regime] ?? REGIME_META.INITIALIZING;
+
+  return (
+    <div className="rounded-xl border border-white/10 overflow-hidden bg-white/[0.02]">
+      <button onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-white/5 transition-colors">
+        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.dot}`} />
+        <span className="text-xs font-bold text-white flex-1">{meta.label}</span>
+        {data.vwapPosition && data.vwapPosition !== 'UNKNOWN' && (
+          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+            data.vwapPosition === 'ABOVE' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
+          }`}>{data.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP</span>
+        )}
+        <span className={`text-[10px] font-bold ${REGIME_CONF[data.confidence]}`}>{data.confidence}</span>
+        <span className="text-[9px] text-slate-600">{data.symbol}</span>
+        <ChevronDown size={11} className={`text-slate-600 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 space-y-1.5">
+          {data.signals?.map((s, i) => (
+            <div key={i} className="flex items-start gap-2 text-[11px] text-slate-400">
+              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1 ${meta.dot}`} />
+              {s}
+            </div>
+          ))}
+          {(data.orHigh || data.vwap) && (
+            <div className="flex items-center gap-3 pt-1.5 border-t border-white/5 text-[10px] text-slate-500 flex-wrap">
+              {data.orHigh && <span>OR {data.orLow?.toLocaleString('en-IN')} – {data.orHigh?.toLocaleString('en-IN')}</span>}
+              {data.vwap   && <span>VWAP {data.vwap?.toLocaleString('en-IN')}</span>}
+              {data.sessionProgress > 0 && <span className="ml-auto">{data.sessionProgress}% session</span>}
+            </div>
+          )}
+          {/* Regime timeline — colored blocks for each transition today */}
+          {data.timeline?.length > 1 && (
+            <div className="flex items-center gap-1 pt-1">
+              <span className="text-[9px] text-slate-600 mr-1 flex-shrink-0">Today</span>
+              {data.timeline.map((t, i) => {
+                const m = REGIME_META[t.regime] ?? REGIME_META.INITIALIZING;
+                const d = new Date(t.time);
+                const hhmm = `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
+                return <div key={i} title={`${t.regime} @ ${hhmm}`} className={`h-2 flex-1 rounded-sm ${m.dot} opacity-70`} />;
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RegimeBadge — tiny inline badge for the top header bar
+// ─────────────────────────────────────────────────────────────────────────────
+function RegimeBadge({ regime }) {
+  if (!regime || regime === 'INITIALIZING') return null;
+  const meta = REGIME_META[regime] ?? REGIME_META.INITIALIZING;
+  return (
+    <span className={`hidden lg:inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${meta.badge}`}>
+      <span className={`w-1 h-1 rounded-full flex-shrink-0 ${meta.dot}`} />
+      {meta.label}
+    </span>
+  );
+}
+
 function BehavioralPanel({ intel, symbol }) {
   const [open, setOpen] = useState(true);
   if (!symbol) return (
@@ -348,7 +442,7 @@ function NiftyRangeBar({ indices }) {
   );
 }
 
-function TopBar({ indices, kiteConnected, user, setUser }) {
+function TopBar({ indices, kiteConnected, user, setUser, regimeData }) {
   const { isDark, toggleTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -366,6 +460,7 @@ function TopBar({ indices, kiteConnected, user, setUser }) {
 
       <div className="flex items-center gap-3 sm:gap-6 overflow-hidden">
         <IndexTicker label="NIFTY" price={indices?.nifty} changePct={indices?.niftyChangePercent} />
+        <RegimeBadge regime={regimeData?.NIFTY?.regime} />
         <NiftyRangeBar indices={indices} />
         <span className="hidden sm:contents">
           <IndexTicker label="BANKNIFTY" price={indices?.bankNifty} changePct={indices?.bankNiftyChangePercent} />
@@ -926,6 +1021,7 @@ function PlaceOrderTab({
   acknowledged, setAcknowledged, dangerModal, setDangerModal, orderWarnings,
   onSymbolSearch, onSymbolSelect, onPlaceOrder, onExecuteOrder, onRunIntel,
   onRunStructure, onRunPattern, onRunStation, onRunOI,
+  regimeData, regimeLoading,
 }) {
   const isNFO   = instrumentType === 'CE' || instrumentType === 'PE' || instrumentType === 'FUT';
   const isIndex = INDEX_SYMBOLS.includes(symbol);
@@ -1292,6 +1388,7 @@ function PlaceOrderTab({
         </div>
 
         <div className="space-y-3">
+          <RegimeCard regimeData={regimeData} isLoading={regimeLoading} symbol={symbol} />
           {symbol && <ScenarioCard scenarioResult={scenarioResult} isLoading={scenarioLoading} />}
           <BehavioralPanel intel={intel} symbol={symbol} />
 
@@ -1389,6 +1486,8 @@ export default function TerminalPage() {
   const [kiteConnected, setKiteConnected]   = useState(false);
   const [indices, setIndices]               = useState(null);
   const [user, setUser]                     = useState(null);
+  const [regimeData, setRegimeData]         = useState({});   // { NIFTY: {...}, BANKNIFTY: {...} }
+  const [regimeLoading, setRegimeLoading]   = useState(false);
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then(d => setUser(d.user || null)).catch(() => {});
@@ -1530,6 +1629,28 @@ export default function TerminalPage() {
     const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchIndices(); }, 60_000);
     return () => clearInterval(iv);
   }, [isVisible, fetchIndices]);
+
+  // ── Intraday regime (NIFTY + BANKNIFTY, every 5 min during market hours) ──
+  const fetchRegime = useCallback(async () => {
+    setRegimeLoading(true);
+    try {
+      const [nifty, bnf] = await Promise.allSettled([
+        fetch('/api/market-regime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: 'NIFTY',     type: 'intraday' }) }).then(r => r.json()),
+        fetch('/api/market-regime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: 'BANKNIFTY', type: 'intraday' }) }).then(r => r.json()),
+      ]);
+      setRegimeData({
+        NIFTY:     nifty.status     === 'fulfilled' ? nifty.value     : null,
+        BANKNIFTY: bnf.status === 'fulfilled' ? bnf.value : null,
+      });
+    } catch {}
+    finally { setRegimeLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    fetchRegime();
+    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchRegime(); }, 5 * 60_000);
+    return () => clearInterval(iv);
+  }, [isVisible, fetchRegime]);
 
   // ── Watchlist quotes (polls active tab's symbols)
   const fetchWatchQuotes = useCallback(async (symbols) => {
@@ -1957,7 +2078,7 @@ export default function TerminalPage() {
   // ── Render
   return (
     <div className="h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-white flex flex-col overflow-hidden">
-      <TopBar indices={indices} kiteConnected={kiteConnected} user={user} setUser={setUser} />
+      <TopBar indices={indices} kiteConnected={kiteConnected} user={user} setUser={setUser} regimeData={regimeData} />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Watchlist: always visible on md+, mobile-controlled */}
@@ -2019,6 +2140,7 @@ export default function TerminalPage() {
                 onPlaceOrder={handlePlaceOrder} onExecuteOrder={executePlaceOrder} onRunIntel={runIntelligence}
                 onRunStructure={runStructureAnalysis} onRunPattern={runPatternAnalysis}
                 onRunStation={runStationAnalysis} onRunOI={runOIAnalysis}
+                regimeData={regimeData} regimeLoading={regimeLoading}
               />
             )}
           </div>

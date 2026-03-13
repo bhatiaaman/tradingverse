@@ -1,5 +1,6 @@
 import Nav from '../components/Nav'
 import Link from 'next/link'
+import MarketPhaseSection from './MarketPhaseSection'
 
 const TOOLS = [
   {
@@ -95,6 +96,11 @@ export default function InvestingPage() {
         <p className="text-slate-600 dark:text-slate-400 text-base leading-7 max-w-xl">
           Tools for medium to long-term investors — combining technical strength, relative performance, sector dynamics, and AI to build better positions.
         </p>
+      </div>
+
+      {/* Market Phase — swing context for NIFTY / BANKNIFTY */}
+      <div className="max-w-5xl mx-auto px-6 pb-4">
+        <MarketPhaseSection />
       </div>
 
       {/* Tools grid */}

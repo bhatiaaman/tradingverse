@@ -24,9 +24,11 @@ async function redisCacheGet() {
 
 async function redisCacheSet(value) {
   try {
-    const encoded = encodeURIComponent(JSON.stringify(value));
-    await fetch(`${REDIS_URL}/set/${REDIS_KEY}/${encoded}?ex=${REDIS_TTL}`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+    // Use POST pipeline — instruments list is too large for a URL-encoded GET
+    await fetch(REDIS_URL, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify(['SET', REDIS_KEY, JSON.stringify(value), 'EX', REDIS_TTL]),
     });
   } catch { /* non-critical */ }
 }
@@ -103,7 +105,7 @@ async function fetchAndCacheInstruments(dp) {
   if (redisHit) {
     instrumentsCache = redisHit;
     cacheTimestamp   = now;
-    return redisHit;
+    return instrumentsCache; // cache hit — no need to re-fetch from Kite
   }
 
   // Fetch NSE equity instruments
