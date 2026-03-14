@@ -444,12 +444,13 @@ function ChartPageInner() {
           priceFormat:  { type: 'volume' },
           priceScaleId: 'volume',
         });
-        chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+        // top:0.75 = volume takes bottom 25% (was 20%); bottom:0.02 = small gap above time axis
+        chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.75, bottom: 0.02 } });
         volSeries.setData(display.map((c, i) => ({
           time:  c.time,
           value: c.volume,
           color: i === 0 || c.close >= display[i - 1]?.close
-            ? 'rgba(0,212,170,0.2)' : 'rgba(255,71,87,0.2)',
+            ? 'rgba(0,212,170,0.3)' : 'rgba(255,71,87,0.3)',
         })));
       }
 
@@ -706,7 +707,7 @@ function ChartPageInner() {
       el.removeEventListener('touchmove',   onTouchMove);
       el.removeEventListener('touchend',    onTouchEnd);
     };
-  }, [candles, dailyCandles, chartInterval, stationData, settings, isDark]);
+  }, [candles, dailyCandles, chartInterval, stationData, settings, isDark, isMobile]);
 
   const toggle = key => setSettings(s => ({ ...s, [key]: !s[key] }));
 
