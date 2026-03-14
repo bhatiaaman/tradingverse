@@ -366,13 +366,11 @@ export async function GET() {
   try {
     const cached = await redisGet(CACHE_KEY);
 
-    if (cached && !isMarketHours()) {
-      return Response.json({ ...cached, fromCache: true, offMarketHours: true });
-    }
     if (cached?.updatedAt) {
       const age = Date.now() - new Date(cached.updatedAt).getTime();
-      if (age < FRESH_TTL) {
-        return Response.json({ ...cached, fromCache: true, cacheAge: age });
+      const maxAge = isMarketHours() ? FRESH_TTL : 30 * 60 * 1000; // 1 min live, 30 min off-hours
+      if (age < maxAge) {
+        return Response.json({ ...cached, fromCache: true, offMarketHours: !isMarketHours(), cacheAge: age });
       }
     }
 

@@ -337,7 +337,32 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockConte
     </div>
   );
 
-  if (!regime || !scenario || scenario === 'UNCLEAR') return null;
+  // Scenario loaded but regime not yet — show a slim loading/fallback so card doesn't disappear
+  if (!regime || !scenario || scenario === 'UNCLEAR') {
+    if (isLoading) return (
+      <div className="rounded-xl border-2 border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.02] px-4 py-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <Loader2 size={14} className="animate-spin text-gray-400" />
+          <span className="text-xs text-gray-400">Analysing setup…</span>
+        </div>
+        <div className="h-3 bg-black/5 dark:bg-white/5 rounded animate-pulse w-3/4" />
+      </div>
+    );
+    if (scenario && scenario !== 'UNCLEAR' && scenarioResult) {
+      // Agents done but regime unavailable — show scenario-only context
+      return (
+        <div className="rounded-xl border-2 border-white/10 bg-white/[0.02] px-4 py-2.5 flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${scenarioResult.color ? `bg-${scenarioResult.color}-500` : 'bg-slate-400'}`} />
+          <span className="text-xs text-slate-300">{scenarioResult.label}</span>
+          <span className={`text-[10px] font-bold tracking-wide ml-1 ${
+            scenarioResult.confidence === 'HIGH' ? 'text-emerald-400' :
+            scenarioResult.confidence === 'MEDIUM' ? 'text-amber-400' : 'text-slate-500'
+          }`}>{scenarioResult.confidence}</span>
+        </div>
+      );
+    }
+    return null;
+  }
 
   const alignment = computeRegimeAlignment(regime.regime, scenario, transactionType);
   if (!alignment) return null;

@@ -241,10 +241,10 @@ function getNiftyLevelAlerts(indices) {
     }, []);
 
     // Fetch commentary (used by both interval and manual refresh button)
-    const fetchCommentaryNow = useCallback(async () => {
+    const fetchCommentaryNow = useCallback(async (forceRefresh = false) => {
       setCommentaryLoading(true);
       try {
-        const response = await fetch('/api/market-commentary');
+        const response = await fetch(`/api/market-commentary${forceRefresh ? '?refresh=1' : ''}`);
         const data = await response.json();
         const next = data.commentary;
         prevCommentaryRef.current = next;
@@ -606,7 +606,7 @@ function getNiftyLevelAlerts(indices) {
                     {commentary.bias}
                   </span>
                   <button
-                    onClick={e => { e.stopPropagation(); fetchCommentaryNow(); }}
+                    onClick={e => { e.stopPropagation(); fetchCommentaryNow(true); }}
                     disabled={commentaryLoading}
                     className="p-1 hover:bg-blue-900/40 rounded transition-colors disabled:opacity-40"
                     title="Refresh commentary"
