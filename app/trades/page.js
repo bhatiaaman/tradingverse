@@ -605,6 +605,11 @@ function getNiftyLevelAlerts(indices) {
                   }`}>
                     {commentary.bias}
                   </span>
+                  {commentaryRefreshedAt && !commentaryLoading && (
+                    <span className="text-[10px] text-slate-600 tabular-nums">
+                      {commentaryRefreshedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                    </span>
+                  )}
                   <button
                     onClick={e => { e.stopPropagation(); fetchCommentaryNow(true); }}
                     disabled={commentaryLoading}

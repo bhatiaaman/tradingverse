@@ -1546,8 +1546,18 @@ function PlaceOrderTab({
 
         {/* Order result banner */}
         {orderResult && orderResult.success && (
-          <div className="p-3 rounded-xl text-xs flex items-center gap-2 bg-green-500/10 border border-green-500/30 text-green-600 dark:text-green-300">
-            <CheckCircle size={13} /> Order #{orderResult.order_id} placed successfully
+          <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-600 dark:text-green-300">
+            <div className="flex items-center gap-2 text-xs font-semibold mb-1.5">
+              <CheckCircle size={13} /> Order placed — #{orderResult.order_id}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap text-[11px] text-green-700 dark:text-green-400">
+              <span className={`font-bold ${orderResult.transactionType === 'BUY' ? 'text-green-500' : 'text-red-400'}`}>{orderResult.transactionType}</span>
+              <span className="font-semibold">{orderResult.symbol}</span>
+              <span>×{orderResult.qty}</span>
+              <span>@</span>
+              <span className="font-mono">{orderResult.orderType === 'MARKET' ? 'MKT' : `₹${Number(orderResult.price).toLocaleString('en-IN')}`}</span>
+              <span className="opacity-60">· {orderResult.productType}</span>
+            </div>
           </div>
         )}
         {orderResult && !orderResult.success && orderResult.error === 'Please login to place orders.' && (
@@ -1627,12 +1637,6 @@ function PlaceOrderTab({
                 className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors" title="Re-run behavioral">
                 <RefreshCw size={12} className={`text-gray-400 ${intel.loading ? 'animate-spin' : ''}`} />
               </button>
-            )}
-            {symbol && (
-              <Link href={`/orders?symbol=${symbol}&type=${instrumentType}&transaction=${transactionType}`}
-                className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 flex items-center gap-1 transition-colors" target="_blank">
-                Full analysis <ExternalLink size={11} />
-              </Link>
             )}
           </div>
         </div>
@@ -1890,8 +1894,9 @@ export default function TerminalPage() {
 
   useEffect(() => {
     fetchIndices();
-    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchIndices(); }, 60_000);
-    return () => clearInterval(iv);
+    const warmup = setTimeout(fetchIndices, 30_000);
+    const iv = setInterval(() => { if (isVisible) fetchIndices(); }, isMarketHours() ? 60_000 : 5 * 60_000);
+    return () => { clearTimeout(warmup); clearInterval(iv); };
   }, [isVisible, fetchIndices]);
 
   // ── Intraday regime (NIFTY + BANKNIFTY, every 5 min during market hours) ──
@@ -2330,7 +2335,8 @@ export default function TerminalPage() {
       const r = await fetch('/api/place-order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const d = await r.json();
       if (d.success) {
-        setOrderResult({ success: true, order_id: d.order_id });
+        const execPrice = orderType === 'MARKET' ? spotPrice : parseFloat(price) || spotPrice;
+        setOrderResult({ success: true, order_id: d.order_id, symbol: ts, qty: parseInt(quantity), price: execPrice, orderType, transactionType, productType });
         setPrice(''); setTriggerPrice('');
         setTimeout(() => { fetchPositions(); fetchPanelOrders(); runIntelligence(); }, 1200);
       } else if (r.status === 401) {

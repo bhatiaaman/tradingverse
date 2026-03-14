@@ -88,14 +88,16 @@ const BULLISH_SCENARIOS = ['MOMENTUM_LONG',  'MEAN_REVERSION_BUY',  'REJECTION_B
 const BEARISH_SCENARIOS = ['MOMENTUM_SHORT', 'MEAN_REVERSION_SELL', 'REJECTION_SELL', 'BREAK_RETEST_SHORT', 'BREAKDOWN_SHORT'];
 
 function computeRegimeAlignment(regime, scenario, transactionType) {
-  if (!regime || !scenario || scenario === 'UNCLEAR') return null;
+  if (!scenario || scenario === 'UNCLEAR') return null;
   if (scenario === 'INSIDE_ZONE') {
     if (regime === 'TRAP_DAY')    return { status: 'DANGER',  msg: 'Price stuck in a zone on a trap day — high fakeout risk both ways. Stay flat.' };
     if (regime === 'BREAKOUT_DAY') return { status: 'CAUTION', msg: 'Breakout day active — wait for the zone to break with volume. Do not anticipate.' };
     return { status: 'CAUTION', msg: 'No trade until price breaks and holds outside the zone. Premature entry has low edge.' };
   }
-  const bullish  = BULLISH_SCENARIOS.includes(scenario);
-  const bearish  = BEARISH_SCENARIOS.includes(scenario);
+  // All remaining scenarios need a valid regime
+  if (!regime) return null;
+  const bullish  = BULLISH_SCENARIOS.includes(scenario) || scenario === 'OPEN_SPACE_LONG';
+  const bearish  = BEARISH_SCENARIOS.includes(scenario) || scenario === 'OPEN_SPACE_SHORT';
   const breakout = ['BREAKOUT_LONG','BREAK_RETEST_LONG','BREAKDOWN_SHORT','BREAK_RETEST_SHORT'].includes(scenario);
   const meanRev  = ['MEAN_REVERSION_BUY','MEAN_REVERSION_SELL','REJECTION_BUY','REJECTION_SELL'].includes(scenario);
 

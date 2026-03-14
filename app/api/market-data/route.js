@@ -29,8 +29,10 @@ function isMarketHours() {
   const now = new Date();
   const istOffset = 5.5 * 60 * 60 * 1000;
   const istTime = new Date(now.getTime() + istOffset);
+  const day = istTime.getUTCDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
   const hours = istTime.getUTCHours();
-  return hours >= 7 && hours < 22;
+  return hours >= 9 && hours < 16; // 9:00–16:00 IST covers market (9:15–15:30)
 }
 
 const MARKET_INDICES = {
@@ -111,8 +113,15 @@ async function fetchNiftyHistoricalFromKite(dp) {
       });
       if (completedCandles.length < 2) return null;
 
-      const closePrices    = completedCandles.map(c => c.close);
-      const yesterdayClose = closePrices[closePrices.length - 1];
+      const closePrices = completedCandles.map(c => c.close);
+      // During market hours: previousClose = last completed day's close (yesterday)
+      //   niftyData.price = live ≠ yesterdayClose → correct change%
+      // Outside market hours: niftyData.price = last traded = closePrices[-1] (today is closed)
+      //   If we use closePrices[-1] as previousClose, change = 0 — wrong.
+      //   Use closePrices[-2] (day before last) so we show the last trading day's actual move.
+      const yesterdayClose = isMarketHours()
+        ? closePrices[closePrices.length - 1]
+        : closePrices[closePrices.length - 2];
 
       // Weekly H/L: max high / min low across last 5 COMPLETE trading days
       const last5      = completedCandles.slice(-5);
