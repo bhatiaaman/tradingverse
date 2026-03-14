@@ -251,7 +251,9 @@ function ChartPageInner() {
   const [isMobile, setIsMobile]           = useState(false);
 
   const containerRef     = useRef(null);
+  const volContainerRef  = useRef(null);
   const chartRef         = useRef(null);
+  const volChartRef      = useRef(null);
   const candleSeriesRef  = useRef(null);
   const displayRef       = useRef([]);
   const priceShiftRef    = useRef(0);
@@ -321,6 +323,17 @@ function ChartPageInner() {
     check();
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
+  }, []);
+
+  // Fix layout after orientation change — refit content after browser reflow
+  useEffect(() => {
+    const onOrientationChange = () => {
+      setTimeout(() => {
+        chartRef.current?.timeScale().fitContent();
+      }, 150);
+    };
+    window.addEventListener('orientationchange', onOrientationChange);
+    return () => window.removeEventListener('orientationchange', onOrientationChange);
   }, []);
 
   // Auto-refresh every 60s during market hours
@@ -438,22 +451,6 @@ function ChartPageInner() {
       });
       candleSeries.setData(display);
 
-      // ── Volume ───────────────────────────────────────────────────────────────
-      if (settings.showVolume) {
-        const volSeries = chart.addHistogramSeries({
-          priceFormat:  { type: 'volume' },
-          priceScaleId: 'volume',
-        });
-        // top:0.75 = volume takes bottom 25% (was 20%); bottom:0.02 = small gap above time axis
-        chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.75, bottom: 0.02 } });
-        volSeries.setData(display.map((c, i) => ({
-          time:  c.time,
-          value: c.volume,
-          color: i === 0 || c.close >= display[i - 1]?.close
-            ? 'rgba(0,212,170,0.3)' : 'rgba(255,71,87,0.3)',
-        })));
-      }
-
       // ── VWAP (intraday only) ─────────────────────────────────────────────────
       if (settings.showVwap && isIntraday) {
         const vwapData = computeVWAP(display);
@@ -546,6 +543,40 @@ function ChartPageInner() {
       }
 
       chart.timeScale().fitContent();
+
+      // ── Separate volume pane ─────────────────────────────────────────────────
+      if (settings.showVolume && volContainerRef.current) {
+        volContainerRef.current.innerHTML = '';
+        const volChart = LWC.createChart(volContainerRef.current, {
+          layout:     { background: { color: theme.bg }, textColor: theme.scaleText, fontSize: 10, fontFamily: 'monospace' },
+          grid:       { vertLines: { visible: false }, horzLines: { visible: false } },
+          crosshair:  { mode: 0, vertLine: { color: 'rgba(120,140,160,0.5)', labelVisible: false }, horzLine: { visible: false } },
+          handleScroll: false,
+          handleScale:  false,
+          rightPriceScale: { textColor: theme.scaleText, borderColor: 'transparent', scaleMargins: { top: 0.05, bottom: 0 } },
+          timeScale:   { visible: false, borderColor: 'transparent' },
+          autoSize:    true,
+        });
+        const volSeries = volChart.addHistogramSeries({
+          priceFormat:     { type: 'volume' },
+          lastValueVisible: false,
+          priceLineVisible: false,
+        });
+        volSeries.setData(display.map((c, i) => ({
+          time:  c.time,
+          value: c.volume,
+          color: i === 0 || c.close >= display[i - 1]?.close
+            ? 'rgba(0,212,170,0.55)' : 'rgba(255,71,87,0.55)',
+        })));
+        volChart.timeScale().fitContent();
+        volChartRef.current = volChart;
+        // One-directional sync: main chart drives vol chart time range
+        chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+          if (range && volChartRef.current) {
+            volChartRef.current.timeScale().setVisibleLogicalRange(range);
+          }
+        });
+      }
 
       // ── OHLC on crosshair hover ───────────────────────────────────────────────
       chart.subscribeCrosshairMove(param => {
@@ -698,6 +729,7 @@ function ChartPageInner() {
 
     return () => {
       if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
+      if (volChartRef.current) { volChartRef.current.remove(); volChartRef.current = null; }
       candleSeriesRef.current = null;
       el.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
@@ -726,7 +758,7 @@ function ChartPageInner() {
                  (settings.showEma9D && isIntraday) || (settings.showEma9W && !isIntraday);
 
   return (
-    <div className={`h-screen flex flex-col overflow-hidden ${theme.pageBg} ${theme.text1}`}>
+    <div className={`h-[100dvh] flex flex-col overflow-hidden ${theme.pageBg} ${theme.text1}`}>
 
       {/* ── Header ───────────────────────────────────────────────────────────── */}
       <header className={`${theme.headerBg} border-b ${theme.headerBorder} flex-shrink-0`}>
@@ -829,54 +861,57 @@ function ChartPageInner() {
       </header>
 
       {/* ── Chart area ───────────────────────────────────────────────────────── */}
-      <div className="flex-1 relative min-h-0">
+      <div className="flex-1 flex flex-col min-h-0">
 
-        {/* Loading spinner */}
-        {loading && (
-          <div className={`absolute inset-0 flex items-center justify-center z-10 ${theme.pageBg}`}>
-            <div className={`flex items-center gap-2 ${theme.text2} text-sm`}>
-              <span className="w-4 h-4 border-2 border-slate-400 border-t-indigo-500 rounded-full animate-spin" />
-              Loading…
-            </div>
-          </div>
-        )}
+        {/* Main chart wrapper */}
+        <div className="flex-1 relative min-h-0">
 
-        {/* Error state */}
-        {!loading && candles.length === 0 && (
-          <div className={`absolute inset-0 flex items-center justify-center z-10 ${theme.pageBg}`}>
-            <div className={`flex flex-col items-center gap-4 ${theme.dropdownBg} border ${theme.dropdownBdr} rounded-2xl px-8 py-6`}>
-              <span className="text-2xl">⚠</span>
-              <div className="text-center">
-                <p className={`${theme.text1} font-semibold text-sm`}>Could not load chart data</p>
-                <p className={`${theme.text2} text-xs mt-1`}>Symbol: {symbol}</p>
+          {/* Loading spinner */}
+          {loading && (
+            <div className={`absolute inset-0 flex items-center justify-center z-10 ${theme.pageBg}`}>
+              <div className={`flex items-center gap-2 ${theme.text2} text-sm`}>
+                <span className="w-4 h-4 border-2 border-slate-400 border-t-indigo-500 rounded-full animate-spin" />
+                Loading…
               </div>
-              <button
-                onClick={fetchAll}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors"
-              >
-                Retry
-              </button>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* LightweightCharts mount point */}
-        <div ref={containerRef} className="w-full h-full" />
+          {/* Error state */}
+          {!loading && candles.length === 0 && (
+            <div className={`absolute inset-0 flex items-center justify-center z-10 ${theme.pageBg}`}>
+              <div className={`flex flex-col items-center gap-4 ${theme.dropdownBg} border ${theme.dropdownBdr} rounded-2xl px-8 py-6`}>
+                <span className="text-2xl">⚠</span>
+                <div className="text-center">
+                  <p className={`${theme.text1} font-semibold text-sm`}>Could not load chart data</p>
+                  <p className={`${theme.text2} text-xs mt-1`}>Symbol: {symbol}</p>
+                </div>
+                <button
+                  onClick={fetchAll}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          )}
 
-        {/* Reset view button — bottom-left, above volume bars, clear of price scale */}
-        {!loading && candles.length > 0 && (
-          <button
-            onClick={() => resetViewRef.current?.()}
-            className={`absolute bottom-24 left-3 z-10 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono ${theme.badgeBg} border ${theme.badgeBorder} ${theme.text2} opacity-50 hover:opacity-100 active:opacity-100 transition-opacity`}
-            title="Reset view (or double-click / double-tap)"
-          >
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-              <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-              <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
-            </svg>
-            Reset
-          </button>
-        )}
+          {/* LightweightCharts mount point */}
+          <div ref={containerRef} className="w-full h-full" />
+
+          {/* Reset view button — bottom-left, clear of price scale */}
+          {!loading && candles.length > 0 && (
+            <button
+              onClick={() => resetViewRef.current?.()}
+              className={`absolute bottom-6 left-3 z-10 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono ${theme.badgeBg} border ${theme.badgeBorder} ${theme.text2} opacity-50 hover:opacity-100 active:opacity-100 transition-opacity`}
+              title="Reset view (or double-click / double-tap)"
+            >
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+              </svg>
+              Reset
+            </button>
+          )}
 
         {/* Symbol · interval + OHLCV — top-left */}
         {(() => {
@@ -954,36 +989,48 @@ function ChartPageInner() {
           </div>
         )}
 
-        {/* VWAP badge — bottom-left */}
-        {settings.showVwap && isIntraday && vwap != null && (
-          <div className={`absolute bottom-14 sm:bottom-20 left-3 z-10 flex items-center gap-1.5 ${theme.badgeBg} border ${theme.vwapBorder} rounded-lg px-2.5 py-1 pointer-events-none select-none`}>
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-            <span className="text-[10px] text-amber-500 font-mono font-semibold">VWAP</span>
-            <span className={`text-[10px] ${theme.text2} font-mono`}>₹{vwap.toFixed(1)}</span>
+          {/* VWAP badge — bottom-left */}
+          {settings.showVwap && isIntraday && vwap != null && (
+            <div className={`absolute bottom-10 left-3 z-10 flex items-center gap-1.5 ${theme.badgeBg} border ${theme.vwapBorder} rounded-lg px-2.5 py-1 pointer-events-none select-none`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+              <span className="text-[10px] text-amber-500 font-mono font-semibold">VWAP</span>
+              <span className={`text-[10px] ${theme.text2} font-mono`}>₹{vwap.toFixed(1)}</span>
+            </div>
+          )}
+
+          {/* Regime badge — bottom-left below VWAP */}
+          {regime && (
+            <div className={`absolute bottom-3 left-3 z-10 flex items-center gap-1.5 ${theme.badgeBg} border ${theme.badgeBorder} rounded-lg px-2.5 py-1.5 pointer-events-none select-none`}>
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${regime.dot}`} />
+              <span className={`text-xs font-semibold ${theme.text1}`}>{regime.label}</span>
+              {regimeData?.confidence && (
+                <span className={`text-[10px] font-bold ${confColor}`}>{regimeData.confidence}</span>
+              )}
+            </div>
+          )}
+
+          {/* Scenario badge — bottom-right */}
+          {scenarioResult?.label && scenarioResult.scenario !== 'UNCLEAR' && (
+            <div className={`absolute bottom-3 right-3 z-10 flex items-center gap-1 ${theme.badgeBg} border ${theme.badgeBorder} rounded-lg px-2.5 py-1.5 pointer-events-none select-none`}>
+              <span className={`text-xs ${theme.text2}`}>{scenarioResult.label}</span>
+              {scenarioResult.confidence && (
+                <span className={`text-[10px] font-bold ml-1 ${scenarioConfCls}`}>{scenarioResult.confidence}</span>
+              )}
+            </div>
+          )}
+        </div>{/* end main chart wrapper */}
+
+        {/* Volume pane — separate LWC instance, hideable */}
+        {settings.showVolume && (
+          <div className={`h-16 sm:h-20 flex-shrink-0 relative border-t ${theme.headerBorder}`}>
+            <div ref={volContainerRef} className="w-full h-full" />
+            <div className={`absolute top-1 left-2 text-[9px] font-mono pointer-events-none select-none ${theme.text2}`}>
+              VOL
+            </div>
           </div>
         )}
 
-        {/* Regime badge — bottom-left below VWAP */}
-        {regime && (
-          <div className={`absolute bottom-6 sm:bottom-10 left-3 z-10 flex items-center gap-1.5 ${theme.badgeBg} border ${theme.badgeBorder} rounded-lg px-2.5 py-1.5 pointer-events-none select-none`}>
-            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${regime.dot}`} />
-            <span className={`text-xs font-semibold ${theme.text1}`}>{regime.label}</span>
-            {regimeData?.confidence && (
-              <span className={`text-[10px] font-bold ${confColor}`}>{regimeData.confidence}</span>
-            )}
-          </div>
-        )}
-
-        {/* Scenario badge — bottom-right */}
-        {scenarioResult?.label && scenarioResult.scenario !== 'UNCLEAR' && (
-          <div className={`absolute bottom-6 sm:bottom-10 right-3 z-10 flex items-center gap-1 ${theme.badgeBg} border ${theme.badgeBorder} rounded-lg px-2.5 py-1.5 pointer-events-none select-none`}>
-            <span className={`text-xs ${theme.text2}`}>{scenarioResult.label}</span>
-            {scenarioResult.confidence && (
-              <span className={`text-[10px] font-bold ml-1 ${scenarioConfCls}`}>{scenarioResult.confidence}</span>
-            )}
-          </div>
-        )}
-      </div>
+      </div>{/* end chart area */}
 
       {/* ── Settings panel: bottom sheet on mobile, dropdown on desktop ──────── */}
       {showSettings && (
