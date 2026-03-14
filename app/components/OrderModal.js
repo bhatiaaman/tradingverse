@@ -142,20 +142,47 @@ function modalConfluenceIcon(align) {
 
 function ModalVerdictCard({ regimeData, scenarioResult, symbol, isLoading, sector, transactionType }) {
   const key      = symbol?.toUpperCase() === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
-  const regime   = regimeData?.[key];
+  const rawRegime = regimeData?.[key];
+  const regime   = rawRegime && !rawRegime.error && rawRegime.regime !== 'INITIALIZING' ? rawRegime : null;
   const scenario = scenarioResult?.scenario;
 
-  if (isLoading && !regime) return (
+  // Still loading with nothing to show yet
+  if (isLoading && !regime && !scenarioResult) return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 flex items-center gap-2">
       <Loader2 size={13} className="animate-spin text-slate-500" />
-      <span className="text-xs text-slate-400">Detecting regime…</span>
+      <span className="text-xs text-slate-400">Analyzing setup…</span>
     </div>
   );
 
-  if (!regime || regime.error || regime.regime === 'INITIALIZING' || !scenario || scenario === 'UNCLEAR') return null;
+  // Nothing loaded at all
+  if (!regime && !scenarioResult) return null;
 
-  const alignment = computeRegimeAlignment(regime.regime, scenario, transactionType);
-  if (!alignment) return null;
+  const alignment = regime && scenario && scenario !== 'UNCLEAR'
+    ? computeRegimeAlignment(regime.regime, scenario, transactionType)
+    : null;
+
+  // No clear alignment — show scenario or regime info as fallback
+  if (!alignment) {
+    const hasScenario = scenarioResult && scenario && scenario !== 'UNCLEAR';
+    return (
+      <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 space-y-1">
+        {regime && (
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${MODAL_REGIME_META[regime.regime]?.dot ?? 'bg-slate-400'}`} />
+            <span className="text-xs font-semibold text-slate-300">{MODAL_REGIME_META[regime.regime]?.label ?? regime.regime}</span>
+            <span className="text-[10px] text-slate-500 ml-auto">Market regime</span>
+          </div>
+        )}
+        {hasScenario ? (
+          <p className="text-[11px] text-slate-400">{scenarioResult.label} — <span className="text-slate-500">{scenarioResult.confidence} confidence</span></p>
+        ) : (
+          <p className="text-[11px] text-slate-500">
+            {isLoading ? 'Running scenario analysis…' : 'No clear setup — wait for better entry.'}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   const st        = MODAL_ALIGN_STATUS[alignment.status] ?? MODAL_ALIGN_STATUS.NEUTRAL;
   const isBullish = BULLISH_SCENARIOS.includes(scenario);
@@ -173,9 +200,13 @@ function ModalVerdictCard({ regimeData, scenarioResult, symbol, isLoading, secto
         <p className={`text-[11px] font-medium leading-relaxed ${st.text} opacity-80`}>{alignment.msg}</p>
       </div>
       <div className={`px-3 py-1.5 border-t ${st.border} flex items-center gap-2 text-[10px] text-slate-500`}>
-        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${MODAL_REGIME_META[regime.regime]?.dot ?? 'bg-slate-400'}`} />
-        <span>{MODAL_REGIME_META[regime.regime]?.label ?? regime.regime}</span>
-        <span className="opacity-40">×</span>
+        {regime && (
+          <>
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${MODAL_REGIME_META[regime.regime]?.dot ?? 'bg-slate-400'}`} />
+            <span>{MODAL_REGIME_META[regime.regime]?.label ?? regime.regime}</span>
+            <span className="opacity-40">×</span>
+          </>
+        )}
         <span>{scenarioResult?.label}</span>
         {scenarioResult?.tradeIntent && (
           <span className="ml-auto opacity-70">{scenarioResult.tradeIntent}</span>
@@ -232,10 +263,6 @@ export default function OrderModal({
   const [lotSize, setLotSize] = useState(1);
   const [fetchingLtp, setFetchingLtp] = useState(false);
 
-  // ─── QUICK INSIGHTS STATE ────────────────────────────────────────────
-  const [insightsLoading, setInsightsLoading] = useState(false);
-  const [insightsResult, setInsightsResult] = useState(null);
-  const [showInsightDetails, setShowInsightDetails] = useState(false);
   const [avgDownAlert, setAvgDownAlert] = useState(null); // Averaging down warning
   const [positions, setPositions] = useState([]);
   const [activeTab, setActiveTab] = useState('order');
@@ -373,8 +400,6 @@ export default function OrderModal({
       setKiteOptionSymbol(null);
       setOptionLtp(null);
       setExpiryDay(null);
-      setInsightsResult(null);
-      setShowInsightDetails(false);
       setActiveTab('order');
       setDeepIntelResult(null);
       setRegimeData(null);
@@ -385,57 +410,6 @@ export default function OrderModal({
       }
     }
   }, [isOpen, defaultType, price, optionType, symbol]);
-
-  // ─── FETCH QUICK INSIGHTS ────────────────────────────────────────────
-  const fetchQuickInsights = async () => {
-    if (!symbol || !transactionType) return;
-    setInsightsLoading(true);
-    try {
-      const [sentRes, posRes, ordRes] = await Promise.allSettled([
-        fetch('/api/sentiment').then(r => r.json()),
-        fetch('/api/kite-positions').then(r => r.json()),
-        fetch('/api/kite-orders?limit=10').then(r => r.json()),
-      ]);
-      
-      const sentimentCtx = sentRes.status === 'fulfilled' ? sentRes.value : null;
-      const positions = posRes.status === 'fulfilled' ? posRes.value?.positions || [] : [];
-      const openOrders = ordRes.status === 'fulfilled' ? ordRes.value?.orders || [] : [];
-      
-      const res = await fetch('/api/behavioral-agent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          symbol,
-          tradingsymbol: kiteOptionSymbol || optionSymbol || symbol,
-          exchange: optionType ? 'NFO' : 'NSE',
-          instrumentType: optionType || 'EQ',
-          transactionType,
-          quantity: quantity || 1,
-          price: optionType ? (optionLtp || price) : price,
-          spotPrice: price || 0,
-          context: {
-            positions,
-            openOrders,
-            sentimentScore: sentimentCtx?.overall?.score,
-            sentimentBias: sentimentCtx?.overall?.mood,
-            intradayScore: sentimentCtx?.timeframes?.intraday?.score,
-            intradayBias: sentimentCtx?.timeframes?.intraday?.bias,
-            vix: null,
-            sectorData: [],
-            pcr: null,
-            optionChain: null,
-          },
-        }),
-      });
-      
-      const data = await res.json();
-      setInsightsResult(data);
-    } catch (err) {
-      console.error('Quick insights error:', err);
-    } finally {
-      setInsightsLoading(false);
-    }
-  };
 
   // ─── FETCH DEEP INTELLIGENCE (5 agents) ─────────────────────────────
   const fetchDeepIntel = async () => {
@@ -487,10 +461,9 @@ export default function OrderModal({
     finally { setRegimeLoading(false); }
   };
 
-  // Trigger quick + deep analysis when modal opens or transaction type changes
+  // Trigger deep analysis + regime when modal opens or transaction type changes
   useEffect(() => {
     if (isOpen && symbol && transactionType && isLoggedIn) {
-      fetchQuickInsights();
       fetchDeepIntel();
       fetchRegime();
     }
@@ -608,12 +581,6 @@ export default function OrderModal({
       case 'caution': return { bg: 'bg-yellow-900/15', border: 'border-yellow-500/20', text: 'text-yellow-400', dot: 'bg-yellow-500', stroke: '#eab308' };
       default: return { bg: 'bg-green-900/20', border: 'border-green-500/30', text: 'text-green-400', dot: 'bg-green-500', stroke: '#22c55e' };
     }
-  };
-
-  const getDirectionColor = (suitable) => {
-    return suitable
-      ? { bg: 'bg-green-900/20', border: 'border-green-500/30', text: 'text-green-400', icon: '✅' }
-      : { bg: 'bg-amber-900/20', border: 'border-amber-500/30', text: 'text-amber-400', icon: '⚠' };
   };
 
   return (
@@ -767,9 +734,10 @@ export default function OrderModal({
                 activeTab === 'analysis' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'
               }`}>
               Intelligence
-              {insightsResult && (insightsResult.verdict === 'danger' || insightsResult.verdict === 'warning' || insightsResult.verdict === 'caution') && (
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-              )}
+              {deepIntelResult && (() => {
+                const totalRisk = ['behavioral','structure','pattern','station','oi'].reduce((s,k) => s + (deepIntelResult[k]?.riskScore || 0), 0);
+                return totalRisk >= 10 ? <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" /> : null;
+              })()}
             </button>
           </div>
 
@@ -790,160 +758,6 @@ export default function OrderModal({
             {deepIntelResult?.scenario && (
               <ScenarioCard scenarioResult={deepIntelResult.scenario} />
             )}
-            {insightsLoading && (
-              <div className="p-3 bg-slate-700/50 border border-white/10 rounded-xl flex items-center gap-2">
-                <Brain size={16} className="text-purple-400 animate-pulse" />
-                <span className="text-xs text-slate-300">Analyzing trade setup...</span>
-              </div>
-            )}
-            {insightsResult && !insightsLoading && (() => {
-              const vc = getVerdictColor(insightsResult.verdict);
-              const warnings = insightsResult.insights?.filter(i => i.level === 'warning') || [];
-              const cautions = insightsResult.insights?.filter(i => i.level === 'caution') || [];
-              const infos    = insightsResult.insights?.filter(i => i.level === 'info') || [];
-              const clears   = insightsResult.insights?.filter(i => i.level === 'clear') || [];
-              const ordered  = [...warnings, ...cautions, ...infos, ...clears];
-              const cardCfg  = {
-                warning: { bg: 'bg-red-900/30',   border: 'border-red-500/30',   text: 'text-red-300'   },
-                caution: { bg: 'bg-amber-900/25', border: 'border-amber-500/25', text: 'text-amber-300' },
-                info:    { bg: 'bg-blue-900/20',  border: 'border-blue-500/20',  text: 'text-blue-300'  },
-                clear:   { bg: 'bg-green-900/15', border: 'border-green-500/20', text: 'text-green-300' },
-              };
-              return (
-                <div className="space-y-2">
-                  <div className={`p-3 rounded-xl border ${vc.bg} ${vc.border}`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="relative">
-                          <svg width="36" height="36" viewBox="0 0 32 32" className="-rotate-90">
-                            <circle cx="16" cy="16" r="14" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
-                            <circle cx="16" cy="16" r="14" fill="none" stroke={vc.stroke} strokeWidth="3"
-                              strokeDasharray={`${(insightsResult.riskScore / 100) * 88} 88`} strokeLinecap="round" />
-                          </svg>
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className={`text-xs font-bold ${vc.text}`}>{insightsResult.riskScore}</span>
-                          </div>
-                        </div>
-                        <div>
-                          <div className={`text-sm font-semibold ${vc.text}`}>
-                            {insightsResult.verdict === 'danger' ? 'High Risk' :
-                             insightsResult.verdict === 'warning' ? 'Caution' :
-                             insightsResult.verdict === 'caution' ? 'Review' : 'Looks Good'}
-                          </div>
-                          <div className="text-[10px] text-slate-500">Risk Score</div>
-                        </div>
-                      </div>
-                      <button type="button" onClick={fetchQuickInsights} title="Refresh" className="p-1.5 hover:bg-white/5 rounded transition-colors">
-                        <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
-                      </button>
-                    </div>
-                  </div>
-                  {insightsResult.directionVerdict && (() => {
-                    const dc = getDirectionColor(insightsResult.directionVerdict.suitable);
-                    return (
-                      <div className={`p-2.5 rounded-lg border ${dc.bg} ${dc.border}`}>
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <span className="text-sm">{dc.icon}</span>
-                          <span className={`text-xs font-semibold ${dc.text}`}>
-                            {insightsResult.directionVerdict.suitable ? 'GOOD SETUP' : 'WEAK SETUP'} FOR {insightsResult.directionVerdict.action || 'THIS TRADE'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-400 leading-relaxed">{insightsResult.directionVerdict.reason}</p>
-                      </div>
-                    );
-                  })()}
-                  {ordered.length > 0 && (
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {warnings.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/20 text-red-400">{warnings.length} warning{warnings.length > 1 ? 's' : ''}</span>}
-                      {cautions.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-400">{cautions.length} caution{cautions.length > 1 ? 's' : ''}</span>}
-                      {infos.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/20 text-blue-400">{infos.length} info</span>}
-                      {clears.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-400">{clears.length} clear</span>}
-                      {insightsResult.deepAnalysis && <span className="ml-auto text-[10px] text-slate-500">⚡ live data</span>}
-                    </div>
-                  )}
-                  <div className="space-y-1.5">
-                    {ordered.map((ins, i) => {
-                      const cfg = cardCfg[ins.level] || cardCfg.info;
-                      return (
-                        <div key={i} className={`p-2.5 rounded-lg border ${cfg.bg} ${cfg.border}`}>
-                          <div className="flex items-start gap-2">
-                            {ins.icon && <span className="text-sm leading-tight flex-shrink-0">{ins.icon}</span>}
-                            <div className="min-w-0">
-                              <div className={`text-[11px] font-semibold ${cfg.text} leading-snug`}>{ins.title}</div>
-                              {ins.detail && <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">{ins.detail}</div>}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {insightsResult.stationAnalysis?.available && insightsResult.stationAnalysis.nearestStation && (() => {
-                    const nearest = insightsResult.stationAnalysis.nearestStation;
-                    const evaluation = insightsResult.stationAnalysis.tradeEvaluation;
-                    const stationLabel = nearest.name || nearest.level || nearest.type || 'Key Level';
-                    return (
-                      <div className="pt-1 border-t border-white/10">
-                        <div className="text-[10px] text-slate-500 mb-1.5 uppercase tracking-wider">Nearest Station</div>
-                        <div className="p-2.5 bg-indigo-900/25 border border-indigo-500/25 rounded-lg">
-                          <div className="flex items-start gap-2">
-                            <span className="text-base leading-none">🚉</span>
-                            <div>
-                              <div className="text-[11px] font-semibold text-indigo-300 leading-snug">
-                                {stationLabel}
-                                {nearest.price && <span className="text-slate-400 font-normal ml-1.5">₹{Number(nearest.price).toLocaleString('en-IN')}</span>}
-                              </div>
-                              {nearest.type && nearest.type !== stationLabel && <div className="text-[10px] text-slate-500 capitalize">{nearest.type}</div>}
-                              {evaluation?.reasoning && <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">{evaluation.reasoning}</p>}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              );
-            })()}
-
-            {/* ── Reconciliation banner (shown when both analyses are loaded) ── */}
-            {insightsResult && deepIntelResult && !insightsLoading && !deepIntelLoading && (() => {
-              const SEVERITY = { danger: 3, warning: 2, caution: 1, clear: 0 };
-              const AGENTS_LIST = ['behavioral', 'structure', 'pattern', 'station', 'oi'];
-              const deepTotalRisk = AGENTS_LIST.reduce((s, k) => s + (deepIntelResult[k]?.riskScore || 0), 0);
-              const deepVerdict = deepTotalRisk >= 40 ? 'danger' : deepTotalRisk >= 20 ? 'warning' : deepTotalRisk >= 10 ? 'caution' : 'clear';
-              const qS = SEVERITY[insightsResult.verdict] ?? 0;
-              const dS = SEVERITY[deepVerdict] ?? 0;
-              const gap = dS - qS; // positive = deep is worse than quick
-
-              let banner = null;
-              if (qS === 0 && dS === 0) {
-                banner = { icon: '✅', text: 'Aligned', detail: 'Both 5-min entry and multi-timeframe structure support this trade.', color: 'bg-green-900/20 border-green-500/20 text-green-300' };
-              } else if (gap >= 2) {
-                // Quick looks fine but deep flags real risk
-                banner = { icon: '⚠️', text: 'Scalp-only', detail: '5-min entry looks ok but structure flags risk across higher timeframes. Treat as intraday only — avoid positional. Have a strict SL.', color: 'bg-amber-900/30 border-amber-500/30 text-amber-300' };
-              } else if (gap <= -2) {
-                // Quick flags risk but deep structure is fine
-                banner = { icon: 'ℹ️', text: 'Timing issue', detail: 'Structure supports the trade but 5-min entry is suboptimal. Wait for a better entry signal before placing.', color: 'bg-blue-900/20 border-blue-500/20 text-blue-300' };
-              } else if (qS >= 2 && dS >= 2) {
-                // Both flag serious risk
-                banner = { icon: '🚫', text: 'Avoid', detail: 'Both 5-min analysis and structure flag risk. High probability of loss — consider sitting out.', color: 'bg-red-900/25 border-red-500/25 text-red-300' };
-              } else if (gap > 0) {
-                // Mild conflict: quick ok, deep slightly negative
-                banner = { icon: '↔️', text: 'Minor conflict', detail: '5-min entry is fine but structure raises minor concerns. Trade with reduced size or tighter stop.', color: 'bg-slate-700/60 border-slate-600/40 text-slate-300' };
-              } else if (gap < 0) {
-                // Mild conflict: quick caution, deep fine
-                banner = { icon: '↔️', text: 'Mixed signals', detail: 'Structure looks good but 5-min timing is off. Wait for the entry to improve.', color: 'bg-slate-700/60 border-slate-600/40 text-slate-300' };
-              }
-              if (!banner) return null;
-              return (
-                <div className={`p-2.5 rounded-lg border ${banner.color}`}>
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <span className="text-sm leading-none">{banner.icon}</span>
-                    <span className="text-[11px] font-bold">{banner.text}</span>
-                  </div>
-                  <p className="text-[10px] opacity-80 leading-relaxed">{banner.detail}</p>
-                </div>
-              );
-            })()}
 
             {/* ── Deep Analysis ──────────────────────────────────────────── */}
             <div className="border-t border-white/10 pt-3">
@@ -1042,95 +856,15 @@ export default function OrderModal({
           {/* ── ORDER TAB ────────────────────────────────────────────────────── */}
           {activeTab === 'order' && (
           <div className="p-5 space-y-4">
-            {/* Condensed insights pill */}
-            {insightsLoading && (
-              <div className="p-2.5 bg-slate-700/50 border border-white/10 rounded-lg flex items-center gap-2">
-                <Brain size={14} className="text-purple-400 animate-pulse" />
-                <span className="text-xs text-slate-300">Analyzing...</span>
-              </div>
-            )}
-            {insightsResult && !insightsLoading && (() => {
-              const vc = getVerdictColor(insightsResult.verdict);
-              const issueCount = insightsResult.insights?.filter(i => i.level === 'warning' || i.level === 'caution').length || 0;
-              return (
-                <button type="button" onClick={() => setActiveTab('analysis')}
-                  className={`w-full flex items-center justify-between p-2.5 rounded-lg border ${vc.bg} ${vc.border} hover:opacity-80 transition-opacity text-left`}>
-                  <div className="flex items-center gap-2">
-                    <div className="relative flex-shrink-0">
-                      <svg width="26" height="26" viewBox="0 0 32 32" className="-rotate-90">
-                        <circle cx="16" cy="16" r="14" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
-                        <circle cx="16" cy="16" r="14" fill="none" stroke={vc.stroke} strokeWidth="3"
-                          strokeDasharray={`${(insightsResult.riskScore / 100) * 88} 88`} strokeLinecap="round" />
-                      </svg>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className={`text-[9px] font-bold ${vc.text}`}>{insightsResult.riskScore}</span>
-                      </div>
-                    </div>
-                    <div>
-                      <div className={`text-xs font-semibold ${vc.text}`}>
-                        {insightsResult.verdict === 'danger' ? 'High Risk' :
-                         insightsResult.verdict === 'warning' ? 'Caution' :
-                         insightsResult.verdict === 'caution' ? 'Review' : 'Looks Good'}
-                      </div>
-                      {issueCount > 0
-                        ? <div className="text-[10px] text-slate-500">{issueCount} issue{issueCount > 1 ? 's' : ''} · tap for analysis</div>
-                        : <div className="text-[10px] text-slate-500">{insightsResult.insights?.length || 0} checks passed</div>
-                      }
-                    </div>
-                  </div>
-                  <span className="text-[10px] text-blue-400 flex-shrink-0">Full Analysis →</span>
-                </button>
-              );
-            })()}
-
-            {/* ── Compact scenario strip (shown once station/intel loads, hide empty momentum) ── */}
-            {deepIntelResult?.scenario && deepIntelResult.scenario.scenario !== 'UNCLEAR' && !(
-              (deepIntelResult.scenario.scenario === 'MOMENTUM_LONG' || deepIntelResult.scenario.scenario === 'MOMENTUM_SHORT') &&
-              deepIntelResult.scenario.confidence === 'LOW' && deepIntelResult.scenario.forSignals?.length === 0
-            ) && (() => {
-              const sc = deepIntelResult.scenario;
-              const palette = SCENARIO_COLORS[sc.color] ?? SCENARIO_COLORS.slate;
-              return (
-                <button type="button" onClick={() => setActiveTab('analysis')}
-                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg border ${palette.badge} hover:opacity-80 transition-opacity text-left`}>
-                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${palette.dot}`} />
-                  <span className="text-xs font-medium flex-1 truncate">{sc.label}</span>
-                  <span className={`text-[10px] font-bold tracking-wide ${CONFIDENCE_STYLE[sc.confidence]}`}>{sc.confidence}</span>
-                  <span className="text-[10px] text-blue-400 flex-shrink-0">Details →</span>
-                </button>
-              );
-            })()}
-
-            {/* ── Reconciliation banner in Order tab (shown when deep analysis ran) ── */}
-            {insightsResult && deepIntelResult && !insightsLoading && !deepIntelLoading && (() => {
-              const SEVERITY = { danger: 3, warning: 2, caution: 1, clear: 0 };
-              const AGENTS_LIST = ['behavioral', 'structure', 'pattern', 'station', 'oi'];
-              const deepTotalRisk = AGENTS_LIST.reduce((s, k) => s + (deepIntelResult[k]?.riskScore || 0), 0);
-              const deepVerdict = deepTotalRisk >= 40 ? 'danger' : deepTotalRisk >= 20 ? 'warning' : deepTotalRisk >= 10 ? 'caution' : 'clear';
-              const qS = SEVERITY[insightsResult.verdict] ?? 0;
-              const dS = SEVERITY[deepVerdict] ?? 0;
-              const gap = dS - qS;
-
-              let banner = null;
-              if (gap >= 2) {
-                banner = { icon: '⚠️', text: 'Scalp-only — have a strict SL', color: 'bg-amber-900/30 border-amber-500/40 text-amber-300' };
-              } else if (qS >= 2 && dS >= 2) {
-                banner = { icon: '🚫', text: 'Avoid — both analyses flag risk', color: 'bg-red-900/30 border-red-500/40 text-red-300' };
-              } else if (gap > 0) {
-                banner = { icon: '↔️', text: 'Minor conflict — reduce size', color: 'bg-slate-700/60 border-slate-600/40 text-slate-300' };
-              }
-              if (!banner) return null;
-              return (
-                <button type="button" onClick={() => setActiveTab('analysis')}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border ${banner.color} hover:opacity-80 transition-opacity text-left`}>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm leading-none">{banner.icon}</span>
-                    <span className="text-[11px] font-semibold">{banner.text}</span>
-                  </div>
-                  <span className="text-[10px] text-blue-400 flex-shrink-0">Why? →</span>
-                </button>
-              );
-            })()}
+            {/* Verdict — regime × scenario alignment */}
+            <ModalVerdictCard
+              regimeData={regimeData}
+              scenarioResult={deepIntelResult?.scenario}
+              symbol={symbol}
+              isLoading={regimeLoading || deepIntelLoading}
+              sector={deepIntelResult?.sector}
+              transactionType={transactionType}
+            />
 
           {/* Buy/Sell Toggle */}
           <div className="flex gap-2">
