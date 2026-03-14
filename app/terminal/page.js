@@ -420,7 +420,17 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockConte
     }
 
     // ── Scenario ready but regime unavailable (non-INSIDE_ZONE needs regime) ─
-    // e.g. OPEN_SPACE on a weekend. Show neutral card — never hide it.
+    // If regime is still fetching (first load), show skeleton — not "No verdict"
+    if (isLoading) return (
+      <div className="rounded-xl border-2 border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.02] px-4 py-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <Loader2 size={14} className="animate-spin text-gray-400" />
+          <span className="text-xs text-gray-400">Analysing setup…</span>
+        </div>
+        <div className="h-3 bg-black/5 dark:bg-white/5 rounded animate-pulse w-3/4" />
+      </div>
+    );
+    // Regime loaded but unavailable (market closed/weekend) — show neutral card
     const regimeMsg = regimeState === 'loading'
       ? 'Market regime loading…'
       : 'Market closed — regime data unavailable outside trading hours';
