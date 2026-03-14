@@ -683,7 +683,7 @@ function ChartPageInner() {
       dragState.dir    = null;
       // Double-tap → reset view
       const now = Date.now();
-      if (now - lastTapTime < 300) resetChartView();
+      if (now - lastTapTime < 400) resetChartView();
       lastTapTime = now;
     };
 
@@ -862,12 +862,12 @@ function ChartPageInner() {
         {/* LightweightCharts mount point */}
         <div ref={containerRef} className="w-full h-full" />
 
-        {/* Reset view button — top-right of chart, always accessible */}
+        {/* Reset view button — bottom-left, above volume bars, clear of price scale */}
         {!loading && candles.length > 0 && (
           <button
             onClick={() => resetViewRef.current?.()}
-            className={`absolute top-2 right-16 sm:right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono ${theme.badgeBg} border ${theme.badgeBorder} ${theme.text2} hover:${theme.text1} opacity-50 hover:opacity-100 active:opacity-100 transition-opacity`}
-            title="Reset view (or double-click/double-tap chart)"
+            className={`absolute bottom-24 left-3 z-10 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono ${theme.badgeBg} border ${theme.badgeBorder} ${theme.text2} opacity-50 hover:opacity-100 active:opacity-100 transition-opacity`}
+            title="Reset view (or double-click / double-tap)"
           >
             <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
               <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
