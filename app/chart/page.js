@@ -248,6 +248,7 @@ function ChartPageInner() {
   const [regimeData, setRegimeData]       = useState(null);
   const [stationData, setStationData]     = useState(null);
   const [hoverOHLC, setHoverOHLC]         = useState(null);
+  const [isMobile, setIsMobile]           = useState(false);
 
   const containerRef     = useRef(null);
   const chartRef         = useRef(null);
@@ -312,6 +313,14 @@ function ChartPageInner() {
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  // Detect mobile/tablet (<640px)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   // Auto-refresh every 60s during market hours
   useEffect(() => {
@@ -560,6 +569,25 @@ function ChartPageInner() {
 
     const dragState = { active: false, startX: 0, startY: 0, lastY: 0, dir: null };
 
+    // Shared price-pan logic used by both mouse and touch handlers
+    const applyPriceShift = deltaY => {
+      const cs = candleSeriesRef.current;
+      if (!cs) return;
+      const refY = el.clientHeight / 2;
+      const p1   = cs.coordinateToPrice(refY);
+      const p2   = cs.coordinateToPrice(refY + deltaY);
+      if (p1 == null || p2 == null) return;
+      priceShiftRef.current += p1 - p2;
+      const shift = priceShiftRef.current;
+      cs.applyOptions({
+        autoscaleInfoProvider: orig => {
+          const r = orig();
+          if (!r) return null;
+          return { priceRange: { minValue: r.priceRange.minValue - shift, maxValue: r.priceRange.maxValue - shift } };
+        },
+      });
+    };
+
     const onMouseDown = e => {
       if (e.button !== 0 || !el.contains(e.target)) return;
       dragState.active = true;
@@ -591,22 +619,7 @@ function ChartPageInner() {
 
       const deltaY = e.clientY - dragState.lastY;
       dragState.lastY = e.clientY;
-      if (deltaY === 0) return;
-
-      const refY = el.clientHeight / 2;
-      const p1   = cs.coordinateToPrice(refY);
-      const p2   = cs.coordinateToPrice(refY + deltaY);
-      if (p1 == null || p2 == null) return;
-
-      priceShiftRef.current += p1 - p2;
-      const shift = priceShiftRef.current;
-      cs.applyOptions({
-        autoscaleInfoProvider: orig => {
-          const r = orig();
-          if (!r) return null;
-          return { priceRange: { minValue: r.priceRange.minValue - shift, maxValue: r.priceRange.maxValue - shift } };
-        },
-      });
+      if (deltaY !== 0) applyPriceShift(deltaY);
     };
 
     const onMouseUp = () => {
@@ -624,10 +637,49 @@ function ChartPageInner() {
       if (candleSeriesRef.current) candleSeriesRef.current.applyOptions({ autoscaleInfoProvider: undefined });
     };
 
+    // ── Touch handlers for vertical pan on mobile/tablet ────────────────────
+    const onTouchStart = e => {
+      const t = e.touches[0];
+      dragState.active = true;
+      dragState.startX = t.clientX;
+      dragState.startY = t.clientY;
+      dragState.lastY  = t.clientY;
+      dragState.dir    = null;
+    };
+
+    const onTouchMove = e => {
+      if (!dragState.active) return;
+      const t  = e.touches[0];
+      const dx = Math.abs(t.clientX - dragState.startX);
+      const dy = Math.abs(t.clientY - dragState.startY);
+      if (!dragState.dir && (dx > 3 || dy > 3)) {
+        dragState.dir = (dy > dx * 1.5) ? 'v' : 'h';
+        if (dragState.dir === 'v') {
+          chartRef.current?.applyOptions({ handleScroll: { pressedMouseMove: false, mouseWheel: true } });
+        }
+      }
+      if (dragState.dir !== 'v') return;
+      e.preventDefault();
+      const deltaY = t.clientY - dragState.lastY;
+      dragState.lastY = t.clientY;
+      if (deltaY !== 0) applyPriceShift(deltaY);
+    };
+
+    const onTouchEnd = () => {
+      if (dragState.active && dragState.dir === 'v') {
+        chartRef.current?.applyOptions({ handleScroll: { pressedMouseMove: true, mouseWheel: true } });
+      }
+      dragState.active = false;
+      dragState.dir    = null;
+    };
+
     el.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup',   onMouseUp);
     el.addEventListener('dblclick',   onDblClick);
+    el.addEventListener('touchstart',  onTouchStart, { passive: true });
+    el.addEventListener('touchmove',   onTouchMove,  { passive: false });
+    el.addEventListener('touchend',    onTouchEnd);
 
     return () => {
       if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
@@ -636,6 +688,9 @@ function ChartPageInner() {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup',   onMouseUp);
       el.removeEventListener('dblclick',   onDblClick);
+      el.removeEventListener('touchstart',  onTouchStart);
+      el.removeEventListener('touchmove',   onTouchMove);
+      el.removeEventListener('touchend',    onTouchEnd);
     };
   }, [candles, dailyCandles, chartInterval, stationData, settings, isDark]);
 
@@ -659,97 +714,102 @@ function ChartPageInner() {
     <div className={`h-screen flex flex-col overflow-hidden ${theme.pageBg} ${theme.text1}`}>
 
       {/* ── Header ───────────────────────────────────────────────────────────── */}
-      <header className={`${theme.headerBg} border-b ${theme.headerBorder} px-4 h-12 flex items-center gap-3 flex-shrink-0`}>
+      <header className={`${theme.headerBg} border-b ${theme.headerBorder} flex-shrink-0`}>
 
-        {/* Back link */}
-        <a
-          href="/terminal"
-          className={`flex items-center gap-1.5 ${theme.text2} ${theme.textHover} transition-colors text-sm mr-1`}
-          title="Back to terminal"
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-            <path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
-          </svg>
-          Terminal
-        </a>
+        {/* Row 1: back · symbol · price · [desktop: intervals + controls] · [mobile: icons] */}
+        <div className="px-3 h-11 flex items-center gap-2">
 
-        <span className={`w-px h-4 ${theme.divider}`} />
+          {/* Back link — icon only on mobile */}
+          <a
+            href="/terminal"
+            className={`flex items-center gap-1.5 ${theme.text2} ${theme.textHover} transition-colors text-sm`}
+            title="Back to terminal"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+            </svg>
+            <span className="hidden sm:inline">Terminal</span>
+          </a>
 
-        {/* Symbol */}
-        <span className={`${theme.text1} font-bold text-sm tracking-wide`}>{symbol}</span>
+          <span className={`w-px h-4 ${theme.divider}`} />
 
-        {/* LTP + change */}
-        {ltp != null && (
-          <>
-            <span className={`font-mono text-sm ${theme.text2}`}>
-              ₹{ltp.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-            </span>
-            {changePct != null && (
-              <span className={`font-mono text-xs font-semibold ${isUp ? 'text-emerald-500' : 'text-red-500'}`}>
-                {isUp ? '▲' : '▼'} {Math.abs(changePct).toFixed(2)}%
+          {/* Symbol */}
+          <span className={`${theme.text1} font-bold text-sm tracking-wide`}>{symbol}</span>
+
+          {/* LTP + change */}
+          {ltp != null && (
+            <>
+              <span className={`font-mono text-sm ${theme.text2}`}>
+                ₹{ltp.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
               </span>
-            )}
-          </>
-        )}
+              {changePct != null && (
+                <span className={`font-mono text-xs font-semibold ${isUp ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {isUp ? '▲' : '▼'} {Math.abs(changePct).toFixed(2)}%
+                </span>
+              )}
+            </>
+          )}
 
-        {/* Spacer */}
-        <div className="flex-1" />
+          <div className="flex-1" />
 
-        {/* Interval buttons */}
-        <div className="flex items-center gap-1">
-          {Object.entries(INTERVAL_LABELS).map(([val, label]) => (
-            <button
-              key={val}
-              onClick={() => setChartInterval(val)}
-              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
-                chartInterval === val
-                  ? 'bg-indigo-600 text-white'
-                  : `${theme.text2} ${theme.textHover} ${theme.btnHover}`
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+          {/* Desktop: interval buttons inline */}
+          <div className="hidden sm:flex items-center gap-1">
+            {Object.entries(INTERVAL_LABELS).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setChartInterval(val)}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+                  chartInterval === val ? 'bg-indigo-600 text-white' : `${theme.text2} ${theme.textHover} ${theme.btnHover}`
+                }`}
+              >{label}</button>
+            ))}
+            <span className={`w-px h-4 ${theme.divider} mx-1.5`} />
+          </div>
 
-          <span className={`w-px h-4 ${theme.divider} mx-1.5`} />
-
-          {/* Light / Dark toggle */}
+          {/* Theme toggle — always visible */}
           <button
             onClick={() => setIsDark(d => !d)}
-            className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${theme.text2} ${theme.textHover} ${theme.btnHover}`}
-            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            className={`flex items-center justify-center w-8 h-8 rounded-md transition-colors ${theme.text2} ${theme.textHover} ${theme.btnHover}`}
+            title={isDark ? 'Light mode' : 'Dark mode'}
           >
             {isDark ? (
-              /* sun */
               <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM8 0a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 0zm0 13a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 13zm8-5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2a.5.5 0 0 1 .5.5zM3 8a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2A.5.5 0 0 1 3 8zm10.657-5.657a.5.5 0 0 1 0 .707l-1.414 1.415a.5.5 0 1 1-.707-.708l1.414-1.414a.5.5 0 0 1 .707 0zm-9.193 9.193a.5.5 0 0 1 0 .707L3.05 13.657a.5.5 0 0 1-.707-.707l1.414-1.414a.5.5 0 0 1 .707 0zm9.193 2.121a.5.5 0 0 1-.707 0l-1.414-1.414a.5.5 0 0 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .707zM4.464 4.465a.5.5 0 0 1-.707 0L2.343 3.05a.5.5 0 1 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .708z"/>
               </svg>
             ) : (
-              /* moon */
               <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M6 .278a.768.768 0 0 1 .08.858 7.208 7.208 0 0 0-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 0 1 .81.316.733.733 0 0 1-.031.893A8.349 8.349 0 0 1 8.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 0 1 6 .278z"/>
               </svg>
             )}
           </button>
 
-          <span className={`w-px h-4 ${theme.divider} mx-0.5`} />
-
-          {/* Settings / Overlays button */}
+          {/* Overlays button — icon+text on desktop, icon-only on mobile */}
           <button
             ref={settingsBtnRef}
             onClick={openSettings}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
-              showSettings
-                ? `${theme.btnActive} ${theme.text1}`
-                : `${theme.text2} ${theme.textHover} ${theme.btnHover}`
+            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+              showSettings ? `${theme.btnActive} ${theme.text1}` : `${theme.text2} ${theme.textHover} ${theme.btnHover}`
             }`}
           >
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/>
               <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.474l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z"/>
             </svg>
-            Overlays
+            <span className="hidden sm:inline">Overlays</span>
           </button>
+        </div>
+
+        {/* Row 2: interval strip — mobile only */}
+        <div className={`sm:hidden flex items-center gap-1 px-3 pb-2`}>
+          {Object.entries(INTERVAL_LABELS).map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => setChartInterval(val)}
+              className={`flex-1 py-1 rounded-md text-xs font-semibold transition-colors ${
+                chartInterval === val ? 'bg-indigo-600 text-white' : `${theme.text2} ${theme.btnHover}`
+              }`}
+            >{label}</button>
+          ))}
         </div>
       </header>
 
@@ -794,33 +854,43 @@ function ChartPageInner() {
           const chgPct = bar ? ((bar.close - bar.open) / bar.open * 100) : null;
           const barUp  = bar ? bar.close >= bar.open : null;
           return (
-            <div className="absolute top-2 left-3 z-10 pointer-events-none select-none">
+            <div className="absolute top-2 left-2 z-10 pointer-events-none select-none">
               <div className={`text-[10px] ${theme.watermark} font-mono`}>
                 {symbol} · {INTERVAL_LABELS[chartInterval]}
               </div>
               {bar && (
-                <div className="flex items-center gap-2 mt-0.5 text-[11px] font-mono">
-                  <span className={theme.text2}>O <span className={theme.text1}>{bar.open.toFixed(2)}</span></span>
-                  <span className={theme.text2}>H <span className="text-emerald-400">{bar.high.toFixed(2)}</span></span>
-                  <span className={theme.text2}>L <span className="text-red-400">{bar.low.toFixed(2)}</span></span>
-                  <span className={theme.text2}>C <span className={barUp ? 'text-emerald-400' : 'text-red-400'}>{bar.close.toFixed(2)}</span></span>
-                  {chgPct != null && (
-                    <span className={barUp ? 'text-emerald-400' : 'text-red-400'}>
-                      {barUp ? '+' : ''}{chgPct.toFixed(2)}%
-                    </span>
-                  )}
-                  {bar.volume != null && (
-                    <span className={theme.text2}>V <span className={theme.text1}>{fmtVol(bar.volume)}</span></span>
-                  )}
-                </div>
+                <>
+                  {/* Desktop: single row */}
+                  <div className="hidden sm:flex items-center gap-2 mt-0.5 text-[11px] font-mono">
+                    <span className={theme.text2}>O <span className={theme.text1}>{bar.open.toFixed(2)}</span></span>
+                    <span className={theme.text2}>H <span className="text-emerald-400">{bar.high.toFixed(2)}</span></span>
+                    <span className={theme.text2}>L <span className="text-red-400">{bar.low.toFixed(2)}</span></span>
+                    <span className={theme.text2}>C <span className={barUp ? 'text-emerald-400' : 'text-red-400'}>{bar.close.toFixed(2)}</span></span>
+                    {chgPct != null && <span className={barUp ? 'text-emerald-400' : 'text-red-400'}>{barUp ? '+' : ''}{chgPct.toFixed(2)}%</span>}
+                    {bar.volume != null && <span className={theme.text2}>V <span className={theme.text1}>{fmtVol(bar.volume)}</span></span>}
+                  </div>
+                  {/* Mobile: two compact rows */}
+                  <div className="sm:hidden mt-0.5 font-mono space-y-0.5">
+                    <div className="flex items-center gap-1.5 text-[12px]">
+                      <span className={barUp ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>{bar.close.toFixed(2)}</span>
+                      {chgPct != null && <span className={`text-[10px] ${barUp ? 'text-emerald-400' : 'text-red-400'}`}>{barUp ? '+' : ''}{chgPct.toFixed(2)}%</span>}
+                    </div>
+                    <div className={`flex items-center gap-1.5 text-[10px] ${theme.text2}`}>
+                      <span>O <span className={theme.text1}>{bar.open.toFixed(1)}</span></span>
+                      <span>H <span className="text-emerald-400">{bar.high.toFixed(1)}</span></span>
+                      <span>L <span className="text-red-400">{bar.low.toFixed(1)}</span></span>
+                      {bar.volume != null && <span>V <span className={theme.text1}>{fmtVol(bar.volume)}</span></span>}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           );
         })()}
 
-        {/* EMA legend — top-center pill */}
+        {/* EMA legend — top-center pill (desktop only) */}
         {anyEma && (
-          <div className={`absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-4 pointer-events-none select-none ${theme.emaPillBg} px-3 py-1 rounded-full border`}>
+          <div className={`hidden sm:flex absolute top-2 left-1/2 -translate-x-1/2 z-10 items-center gap-4 pointer-events-none select-none ${theme.emaPillBg} px-3 py-1 rounded-full border`}>
             {settings.showEma9 && (
               <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: theme.ema9Color }}>
                 <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: theme.ema9Color }} />
@@ -856,7 +926,7 @@ function ChartPageInner() {
 
         {/* VWAP badge — bottom-left */}
         {settings.showVwap && isIntraday && vwap != null && (
-          <div className={`absolute bottom-20 left-3 z-10 flex items-center gap-1.5 ${theme.badgeBg} border ${theme.vwapBorder} rounded-lg px-2.5 py-1 pointer-events-none select-none`}>
+          <div className={`absolute bottom-14 sm:bottom-20 left-3 z-10 flex items-center gap-1.5 ${theme.badgeBg} border ${theme.vwapBorder} rounded-lg px-2.5 py-1 pointer-events-none select-none`}>
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
             <span className="text-[10px] text-amber-500 font-mono font-semibold">VWAP</span>
             <span className={`text-[10px] ${theme.text2} font-mono`}>₹{vwap.toFixed(1)}</span>
@@ -865,7 +935,7 @@ function ChartPageInner() {
 
         {/* Regime badge — bottom-left below VWAP */}
         {regime && (
-          <div className={`absolute bottom-10 left-3 z-10 flex items-center gap-1.5 ${theme.badgeBg} border ${theme.badgeBorder} rounded-lg px-2.5 py-1.5 pointer-events-none select-none`}>
+          <div className={`absolute bottom-6 sm:bottom-10 left-3 z-10 flex items-center gap-1.5 ${theme.badgeBg} border ${theme.badgeBorder} rounded-lg px-2.5 py-1.5 pointer-events-none select-none`}>
             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${regime.dot}`} />
             <span className={`text-xs font-semibold ${theme.text1}`}>{regime.label}</span>
             {regimeData?.confidence && (
@@ -876,7 +946,7 @@ function ChartPageInner() {
 
         {/* Scenario badge — bottom-right */}
         {scenarioResult?.label && scenarioResult.scenario !== 'UNCLEAR' && (
-          <div className={`absolute bottom-10 right-3 z-10 flex items-center gap-1 ${theme.badgeBg} border ${theme.badgeBorder} rounded-lg px-2.5 py-1.5 pointer-events-none select-none`}>
+          <div className={`absolute bottom-6 sm:bottom-10 right-3 z-10 flex items-center gap-1 ${theme.badgeBg} border ${theme.badgeBorder} rounded-lg px-2.5 py-1.5 pointer-events-none select-none`}>
             <span className={`text-xs ${theme.text2}`}>{scenarioResult.label}</span>
             {scenarioResult.confidence && (
               <span className={`text-[10px] font-bold ml-1 ${scenarioConfCls}`}>{scenarioResult.confidence}</span>
@@ -885,44 +955,80 @@ function ChartPageInner() {
         )}
       </div>
 
-      {/* ── Settings dropdown — fixed position, never clipped ─────────────────── */}
-      {showSettings && dropdownPos && (
-        <div
-          ref={dropdownRef}
-          className={`fixed z-[200] ${theme.dropdownBg} border ${theme.dropdownBdr} rounded-xl shadow-2xl p-3`}
-          style={{ top: dropdownPos.top, right: dropdownPos.right, minWidth: 196 }}
-        >
-          <div className={`text-[10px] ${theme.text2} font-semibold uppercase tracking-wider mb-2 px-1`}>
-            Chart Overlays
+      {/* ── Settings panel: bottom sheet on mobile, dropdown on desktop ──────── */}
+      {showSettings && (
+        isMobile ? (
+          /* Mobile: full-width bottom sheet with backdrop */
+          <div className="fixed inset-0 z-[200] flex flex-col justify-end">
+            <div
+              className="absolute inset-0 bg-black/50"
+              onClick={() => setShowSettings(false)}
+            />
+            <div className={`relative ${theme.dropdownBg} border-t ${theme.dropdownBdr} rounded-t-2xl shadow-2xl p-4 pb-8`}>
+              {/* Drag handle */}
+              <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-4" />
+              <div className={`text-[11px] ${theme.text2} font-semibold uppercase tracking-wider mb-3 px-1`}>
+                Chart Overlays
+              </div>
+              <div className="grid grid-cols-2 gap-1">
+                {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly }) => {
+                  const disabled = (intradayOnly && !isIntraday) || (dailyOnly && isIntraday);
+                  const on       = settings[key] && !disabled;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => !disabled && toggle(key)}
+                      disabled={disabled}
+                      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-colors text-left ${
+                        disabled ? 'opacity-25 cursor-not-allowed' : on ? `${theme.btnActive}` : `${theme.btnHover}`
+                      }`}
+                    >
+                      <span className="w-4 h-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: color, opacity: on ? 1 : 0.3 }} />
+                      <span className={`text-sm flex-1 ${on ? theme.text1 : theme.text2}`}>{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-          <div className="space-y-0.5">
-            {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly }) => {
-              const disabled = (intradayOnly && !isIntraday) || (dailyOnly && isIntraday);
-              const on       = settings[key] && !disabled;
-              return (
-                <button
-                  key={key}
-                  onClick={() => !disabled && toggle(key)}
-                  disabled={disabled}
-                  className={`flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg transition-colors text-left ${
-                    disabled ? 'opacity-25 cursor-not-allowed' : `${theme.btnHover}`
-                  }`}
-                >
-                  <span className="flex items-center w-5 flex-shrink-0">
-                    <span
-                      className="w-full h-0.5 rounded-full block transition-opacity"
-                      style={{ backgroundColor: color, opacity: on ? 1 : 0.2 }}
-                    />
-                  </span>
-                  <span className={`text-xs flex-1 ${on ? theme.text1 : theme.text2}`}>{label}</span>
-                  <span className={`text-[10px] font-bold w-5 text-right ${on ? 'text-indigo-500' : theme.text2}`}>
-                    {on ? 'ON' : 'OFF'}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        ) : (
+          /* Desktop: fixed dropdown */
+          dropdownPos && (
+            <div
+              ref={dropdownRef}
+              className={`fixed z-[200] ${theme.dropdownBg} border ${theme.dropdownBdr} rounded-xl shadow-2xl p-3`}
+              style={{ top: dropdownPos.top, right: dropdownPos.right, minWidth: 196 }}
+            >
+              <div className={`text-[10px] ${theme.text2} font-semibold uppercase tracking-wider mb-2 px-1`}>
+                Chart Overlays
+              </div>
+              <div className="space-y-0.5">
+                {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly }) => {
+                  const disabled = (intradayOnly && !isIntraday) || (dailyOnly && isIntraday);
+                  const on       = settings[key] && !disabled;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => !disabled && toggle(key)}
+                      disabled={disabled}
+                      className={`flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg transition-colors text-left ${
+                        disabled ? 'opacity-25 cursor-not-allowed' : `${theme.btnHover}`
+                      }`}
+                    >
+                      <span className="flex items-center w-5 flex-shrink-0">
+                        <span className="w-full h-0.5 rounded-full block" style={{ backgroundColor: color, opacity: on ? 1 : 0.2 }} />
+                      </span>
+                      <span className={`text-xs flex-1 ${on ? theme.text1 : theme.text2}`}>{label}</span>
+                      <span className={`text-[10px] font-bold w-5 text-right ${on ? 'text-indigo-500' : theme.text2}`}>
+                        {on ? 'ON' : 'OFF'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )
+        )
       )}
     </div>
   );
