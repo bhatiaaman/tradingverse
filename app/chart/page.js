@@ -58,6 +58,7 @@ const DEFAULT_SETTINGS = {
 // ── Chart themes ──────────────────────────────────────────────────────────────
 const THEMES = {
   dark: {
+    // canvas colors (hex, passed to LWC)
     bg:           '#0a0e1a',
     text:         '#94a3b8',
     grid:         'rgba(255,255,255,0.03)',
@@ -66,6 +67,13 @@ const THEMES = {
     scaleText:    '#64748b',
     candleUp:     '#00d4aa',
     candleDown:   '#ff4757',
+    srSupport:    '#4ade80',
+    srSupBroken:  '#86efac',
+    srResist:     '#f87171',
+    srResBroken:  '#fca5a5',
+    ema9DColor:   '#e879f9',
+    ema9WColor:   '#fb923c',
+    // tailwind classes (UI chrome)
     pageBg:       'bg-[#0a0e1a]',
     headerBg:     'bg-[#0a0e1a]',
     headerBorder: 'border-white/[0.06]',
@@ -84,14 +92,22 @@ const THEMES = {
     vwapBorder:   'border-amber-500/20',
   },
   light: {
+    // canvas colors (darker for visibility on white)
     bg:           '#f8fafc',
     text:         '#475569',
-    grid:         'rgba(0,0,0,0.04)',
-    crosshair:    'rgba(71,85,105,0.5)',
-    scaleBorder:  'rgba(0,0,0,0.08)',
-    scaleText:    '#94a3b8',
+    grid:         'rgba(0,0,0,0.05)',
+    crosshair:    'rgba(71,85,105,0.6)',
+    scaleBorder:  'rgba(0,0,0,0.1)',
+    scaleText:    '#64748b',
     candleUp:     '#059669',
     candleDown:   '#dc2626',
+    srSupport:    '#15803d',   // green-700 — strong on white
+    srSupBroken:  '#4ade80',   // green-400 — faded broken
+    srResist:     '#b91c1c',   // red-700
+    srResBroken:  '#f87171',   // red-400 — faded broken
+    ema9DColor:   '#9333ea',   // purple-600
+    ema9WColor:   '#ea580c',   // orange-600
+    // tailwind classes
     pageBg:       'bg-slate-100',
     headerBg:     'bg-white',
     headerBorder: 'border-slate-200',
@@ -207,10 +223,12 @@ function ChartPageInner() {
   const [regimeData, setRegimeData]       = useState(null);
   const [stationData, setStationData]     = useState(null);
 
-  const containerRef   = useRef(null);
-  const chartRef       = useRef(null);
-  const settingsBtnRef = useRef(null);
-  const dropdownRef    = useRef(null);
+  const containerRef     = useRef(null);
+  const chartRef         = useRef(null);
+  const candleSeriesRef  = useRef(null);
+  const priceShiftRef    = useRef(0);
+  const settingsBtnRef   = useRef(null);
+  const dropdownRef      = useRef(null);
 
   // ── Fetch all data ──────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -423,11 +441,6 @@ function ChartPageInner() {
           const ltp  = candles[candles.length - 1]?.close || 0;
           const cur  = display[display.length - 1]?.close || ltp;
           const dist = s => Math.abs(s.price - cur);
-
-          // "Broken" flag: zone where price has crossed through — keep original label
-          // but mark as broken (S↓ / R↑) and use thinner dashed line + muted color.
-          // Full flip (S→R) only confirmed after retest + rejection, which we can't
-          // detect here, so we leave the structural label intact.
           const classify = s => {
             const broken = (s.type === 'SUPPORT' && cur < s.price) ||
                            (s.type === 'RESISTANCE' && cur > s.price);
@@ -436,8 +449,8 @@ function ChartPageInner() {
           const classified = stations.map(classify);
           const sup = classified.filter(s => s.type === 'SUPPORT').sort((a, b) => dist(a) - dist(b)).slice(0, 4);
           const res = classified.filter(s => s.type === 'RESISTANCE').sort((a, b) => dist(a) - dist(b)).slice(0, 4);
-          for (const s of sup) candleSeries.createPriceLine({ price: s.price, color: s.broken ? '#86efac' : '#4ade80', lineWidth: s.broken ? 1 : 2, lineStyle: s.broken ? 1 : 3, axisLabelVisible: true, title: s.broken ? `S↓${s.quality >= 7 ? '★' : ''}` : `S${s.quality >= 7 ? '★' : ''}` });
-          for (const r of res) candleSeries.createPriceLine({ price: r.price, color: r.broken ? '#fca5a5' : '#f87171', lineWidth: r.broken ? 1 : 2, lineStyle: r.broken ? 1 : 3, axisLabelVisible: true, title: r.broken ? `R↑${r.quality >= 7 ? '★' : ''}` : `R${r.quality >= 7 ? '★' : ''}` });
+          for (const s of sup) candleSeries.createPriceLine({ price: s.price, color: s.broken ? theme.srSupBroken : theme.srSupport, lineWidth: s.broken ? 1 : 2, lineStyle: s.broken ? 1 : 3, axisLabelVisible: true, title: s.broken ? `S↓${s.quality >= 7 ? '★' : ''}` : `S${s.quality >= 7 ? '★' : ''}` });
+          for (const r of res) candleSeries.createPriceLine({ price: r.price, color: r.broken ? theme.srResBroken : theme.srResist, lineWidth: r.broken ? 1 : 2, lineStyle: r.broken ? 1 : 3, axisLabelVisible: true, title: r.broken ? `R↑${r.quality >= 7 ? '★' : ''}` : `R${r.quality >= 7 ? '★' : ''}` });
         }
       }
 
@@ -447,8 +460,7 @@ function ChartPageInner() {
         if (data.length) chart.addLineSeries({
           color: '#22d3ee', lineWidth: 2,
           priceLineVisible: false, lastValueVisible: true,
-          title: 'EMA9',
-          crosshairMarkerVisible: false,
+          title: 'EMA9', crosshairMarkerVisible: false,
         }).setData(data);
       }
 
@@ -458,8 +470,7 @@ function ChartPageInner() {
         if (data.length) chart.addLineSeries({
           color: '#f97316', lineWidth: 2,
           priceLineVisible: false, lastValueVisible: true,
-          title: 'EMA21',
-          crosshairMarkerVisible: false,
+          title: 'EMA21', crosshairMarkerVisible: false,
         }).setData(data);
       }
 
@@ -469,38 +480,90 @@ function ChartPageInner() {
         if (data.length) chart.addLineSeries({
           color: '#a78bfa', lineWidth: 2,
           priceLineVisible: false, lastValueVisible: true,
-          title: 'EMA50',
-          crosshairMarkerVisible: false,
+          title: 'EMA50', crosshairMarkerVisible: false,
         }).setData(data);
       }
 
       // ── EMA 9 Daily (on intraday charts) ─────────────────────────────────────
-      // Compute EMA9 on daily candles → show last value as horizontal price line
       if (settings.showEma9D && isIntraday && dailyCandles.length >= 9) {
         const ema9D = computeEMA(dailyCandles, 9);
         const val   = ema9D.length ? ema9D[ema9D.length - 1].value : null;
-        if (val) candleSeries.createPriceLine({ price: val, color: '#e879f9', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'D·EMA9' });
+        if (val) candleSeries.createPriceLine({ price: val, color: theme.ema9DColor, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'D·EMA9' });
       }
 
-      // ── EMA 9 Weekly (on daily chart) ─────────────────────────────────────────
-      // Aggregate daily → weekly, compute EMA9, show last value as horizontal line
+      // ── EMA 9 Weekly (on daily chart) ────────────────────────────────────────
       if (settings.showEma9W && !isIntraday && dailyCandles.length >= 9) {
         const weekly = aggregateWeekly(dailyCandles);
         const ema9W  = computeEMA(weekly, 9);
         const val    = ema9W.length ? ema9W[ema9W.length - 1].value : null;
-        if (val) candleSeries.createPriceLine({ price: val, color: '#fb923c', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'W·EMA9' });
+        if (val) candleSeries.createPriceLine({ price: val, color: theme.ema9WColor, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'W·EMA9' });
       }
 
       chart.timeScale().fitContent();
+
+      // Store candle series ref for vertical drag handler
+      candleSeriesRef.current = candleSeries;
     };
 
     loadLWC(buildChart);
 
-    return () => {
-      if (chartRef.current) {
-        chartRef.current.remove();
-        chartRef.current = null;
+    // ── Vertical price-axis drag (right-click + drag, like TradingView) ─────────
+    // Uses autoscaleInfoProvider to offset the auto-computed price range by the
+    // accumulated pixel-to-price delta. Double-click resets to auto-fit.
+    const el = containerRef.current;
+    priceShiftRef.current = 0; // reset on every rebuild
+
+    const dragState = { active: false, lastY: 0 };
+
+    const onMouseDown = e => {
+      if (e.button === 2) {
+        dragState.active = true;
+        dragState.lastY  = e.clientY;
       }
+    };
+    const onMouseMove = e => {
+      if (!dragState.active) return;
+      const cs = candleSeriesRef.current;
+      if (!cs) return;
+      const dy = e.clientY - dragState.lastY;
+      dragState.lastY = e.clientY;
+      if (dy === 0) return;
+      // Convert pixel delta → price delta using series coordinate API
+      const refY    = el.clientHeight / 2;
+      const p1      = cs.coordinateToPrice(refY);
+      const p2      = cs.coordinateToPrice(refY + dy);
+      if (p1 == null || p2 == null) return;
+      priceShiftRef.current += p1 - p2;
+      const shift = priceShiftRef.current;
+      cs.applyOptions({
+        autoscaleInfoProvider: orig => {
+          const r = orig();
+          if (!r) return null;
+          return { priceRange: { minValue: r.priceRange.minValue - shift, maxValue: r.priceRange.maxValue - shift } };
+        },
+      });
+    };
+    const onMouseUp      = () => { dragState.active = false; };
+    const onContextMenu  = e => e.preventDefault();
+    const onDblClick     = () => {
+      priceShiftRef.current = 0;
+      if (candleSeriesRef.current) candleSeriesRef.current.applyOptions({ autoscaleInfoProvider: undefined });
+    };
+
+    el.addEventListener('mousedown',   onMouseDown);
+    window.addEventListener('mousemove',    onMouseMove);
+    window.addEventListener('mouseup',      onMouseUp);
+    el.addEventListener('contextmenu', onContextMenu);
+    el.addEventListener('dblclick',    onDblClick);
+
+    return () => {
+      if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
+      candleSeriesRef.current = null;
+      el.removeEventListener('mousedown',   onMouseDown);
+      window.removeEventListener('mousemove',    onMouseMove);
+      window.removeEventListener('mouseup',      onMouseUp);
+      el.removeEventListener('contextmenu', onContextMenu);
+      el.removeEventListener('dblclick',    onDblClick);
     };
   }, [candles, dailyCandles, chartInterval, stationData, settings, isDark]);
 
@@ -517,7 +580,8 @@ function ChartPageInner() {
   const confColor       = regimeData?.confidence ? (CONF_COLORS[regimeData.confidence] || 'text-slate-400') : 'text-slate-400';
   const scenarioResult  = stationData?.scenario || null;
   const scenarioConfCls = scenarioResult?.confidence ? (CONF_COLORS[scenarioResult.confidence] || 'text-slate-400') : 'text-slate-400';
-  const anyEma          = settings.showEma9 || settings.showEma21 || settings.showEma50;
+  const anyEma = settings.showEma9 || settings.showEma21 || settings.showEma50 ||
+                 (settings.showEma9D && isIntraday) || (settings.showEma9W && !isIntraday);
 
   return (
     <div className={`h-screen flex flex-col overflow-hidden ${theme.pageBg} ${theme.text1}`}>
@@ -679,14 +743,14 @@ function ChartPageInner() {
               </span>
             )}
             {settings.showEma9D && isIntraday && (
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: '#e879f9' }}>
-                <span className="w-5 h-px rounded-full inline-block" style={{ backgroundColor: '#e879f9' }} />
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: theme.ema9DColor }}>
+                <span className="w-5 h-px rounded-full inline-block" style={{ backgroundColor: theme.ema9DColor }} />
                 D·EMA9
               </span>
             )}
             {settings.showEma9W && !isIntraday && (
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: '#fb923c' }}>
-                <span className="w-5 h-px rounded-full inline-block" style={{ backgroundColor: '#fb923c' }} />
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: theme.ema9WColor }}>
+                <span className="w-5 h-px rounded-full inline-block" style={{ backgroundColor: theme.ema9WColor }} />
                 W·EMA9
               </span>
             )}
