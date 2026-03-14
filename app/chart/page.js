@@ -32,13 +32,15 @@ const IST_OFFSET_S = 5.5 * 3600;
 
 // Overlay definitions — order = display order in settings panel
 const OVERLAY_DEFS = [
-  { key: 'showVwap',   label: 'VWAP',      color: '#f59e0b', intradayOnly: true  },
-  { key: 'showOrBand', label: 'OR Band',   color: '#3b82f6', intradayOnly: true  },
-  { key: 'showSR',     label: 'S/R Zones', color: '#94a3b8', intradayOnly: false },
-  { key: 'showEma9',   label: 'EMA 9',     color: '#22d3ee', intradayOnly: false },
-  { key: 'showEma21',  label: 'EMA 21',    color: '#f97316', intradayOnly: false },
-  { key: 'showEma50',  label: 'EMA 50',    color: '#a78bfa', intradayOnly: false },
-  { key: 'showVolume', label: 'Volume',    color: '#475569', intradayOnly: false },
+  { key: 'showVwap',   label: 'VWAP',        color: '#f59e0b', intradayOnly: true,  dailyOnly: false },
+  { key: 'showOrBand', label: 'OR Band',     color: '#3b82f6', intradayOnly: true,  dailyOnly: false },
+  { key: 'showSR',     label: 'S/R Zones',  color: '#94a3b8', intradayOnly: false, dailyOnly: false },
+  { key: 'showEma9',   label: 'EMA 9',       color: '#22d3ee', intradayOnly: false, dailyOnly: false },
+  { key: 'showEma21',  label: 'EMA 21',      color: '#f97316', intradayOnly: false, dailyOnly: false },
+  { key: 'showEma50',  label: 'EMA 50',      color: '#a78bfa', intradayOnly: false, dailyOnly: false },
+  { key: 'showEma9D',  label: 'EMA 9 Daily', color: '#e879f9', intradayOnly: true,  dailyOnly: false },
+  { key: 'showEma9W',  label: 'EMA 9 Weekly',color: '#fb923c', intradayOnly: false, dailyOnly: true  },
+  { key: 'showVolume', label: 'Volume',      color: '#475569', intradayOnly: false, dailyOnly: false },
 ];
 
 const DEFAULT_SETTINGS = {
@@ -48,8 +50,86 @@ const DEFAULT_SETTINGS = {
   showEma9:   true,
   showEma21:  true,
   showEma50:  false,
+  showEma9D:  true,
+  showEma9W:  true,
   showVolume: true,
 };
+
+// ── Chart themes ──────────────────────────────────────────────────────────────
+const THEMES = {
+  dark: {
+    bg:           '#0a0e1a',
+    text:         '#94a3b8',
+    grid:         'rgba(255,255,255,0.03)',
+    crosshair:    'rgba(148,163,184,0.6)',
+    scaleBorder:  'rgba(255,255,255,0.06)',
+    scaleText:    '#64748b',
+    candleUp:     '#00d4aa',
+    candleDown:   '#ff4757',
+    pageBg:       'bg-[#0a0e1a]',
+    headerBg:     'bg-[#0a0e1a]',
+    headerBorder: 'border-white/[0.06]',
+    text1:        'text-white',
+    text2:        'text-slate-400',
+    textHover:    'hover:text-slate-200',
+    divider:      'bg-white/10',
+    btnHover:     'hover:bg-white/[0.06]',
+    btnActive:    'bg-slate-700',
+    badgeBg:      'bg-[#0a0e1a]/90',
+    badgeBorder:  'border-white/10',
+    dropdownBg:   'bg-[#111827]',
+    dropdownBdr:  'border-white/[0.12]',
+    watermark:    'text-slate-600',
+    emaPillBg:    'bg-[#0a0e1a]/70 border-white/[0.06]',
+    vwapBorder:   'border-amber-500/20',
+  },
+  light: {
+    bg:           '#f8fafc',
+    text:         '#475569',
+    grid:         'rgba(0,0,0,0.04)',
+    crosshair:    'rgba(71,85,105,0.5)',
+    scaleBorder:  'rgba(0,0,0,0.08)',
+    scaleText:    '#94a3b8',
+    candleUp:     '#059669',
+    candleDown:   '#dc2626',
+    pageBg:       'bg-slate-100',
+    headerBg:     'bg-white',
+    headerBorder: 'border-slate-200',
+    text1:        'text-slate-900',
+    text2:        'text-slate-500',
+    textHover:    'hover:text-slate-700',
+    divider:      'bg-slate-200',
+    btnHover:     'hover:bg-slate-100',
+    btnActive:    'bg-slate-200',
+    badgeBg:      'bg-white/90',
+    badgeBorder:  'border-slate-200',
+    dropdownBg:   'bg-white',
+    dropdownBdr:  'border-slate-200',
+    watermark:    'text-slate-300',
+    emaPillBg:    'bg-white/80 border-slate-200',
+    vwapBorder:   'border-amber-400/40',
+  },
+};
+
+// ── Weekly aggregation (for EMA 9 Weekly on daily chart) ──────────────────────
+function aggregateWeekly(dailyCandles) {
+  const weeks = {};
+  for (const c of dailyCandles) {
+    const d = new Date(c.time * 1000);
+    const day = d.getUTCDay(); // 0=Sun
+    const daysToMon = day === 0 ? -6 : 1 - day;
+    const monTime = c.time + daysToMon * 86400;
+    if (!weeks[monTime]) {
+      weeks[monTime] = { time: monTime, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume };
+    } else {
+      weeks[monTime].high   = Math.max(weeks[monTime].high, c.high);
+      weeks[monTime].low    = Math.min(weeks[monTime].low,  c.low);
+      weeks[monTime].close  = c.close;
+      weeks[monTime].volume += c.volume;
+    }
+  }
+  return Object.values(weeks).sort((a, b) => a.time - b.time);
+}
 
 // ── Maths ─────────────────────────────────────────────────────────────────────
 function computeVWAP(candles) {
@@ -117,8 +197,10 @@ function ChartPageInner() {
 
   const [chartInterval, setChartInterval] = useState(params.get('interval') || '5minute');
   const [candles, setCandles]             = useState([]);
+  const [dailyCandles, setDailyCandles]   = useState([]);
   const [loading, setLoading]             = useState(true);
   const [vwap, setVwap]                   = useState(null);
+  const [isDark, setIsDark]               = useState(true);
   const [settings, setSettings]           = useState(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings]   = useState(false);
   const [dropdownPos, setDropdownPos]     = useState(null);
@@ -136,13 +218,22 @@ function ChartPageInner() {
     const indexSymbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
     const indexRef = indexSymbols.includes(symbol) ? symbol : 'NIFTY';
 
-    // Phase 1: chart data first — need last close as spotPrice for station detection
+    // Phase 1: chart data + daily candles (for EMA9D/EMA9W overlays)
     let spotPrice = 0;
+    const needDailyFetch = chartInterval !== 'day';
     try {
-      const cd = await fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}`).then(r => r.json());
-      const c = cd.candles || [];
+      const fetches = [
+        fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}`).then(r => r.json()),
+        needDailyFetch
+          ? fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=day`).then(r => r.json())
+          : Promise.resolve(null),
+      ];
+      const [cd, dd] = await Promise.all(fetches);
+      const c = cd?.candles || [];
       setCandles(c);
       spotPrice = c.length ? c[c.length - 1].close : 0;
+      // daily candles: for intraday use fetched daily; for daily chart use same candles
+      setDailyCandles(needDailyFetch ? (dd?.candles || []) : c);
     } catch { /* leave candles empty */ }
 
     // Phase 2: regime + station in parallel, now with correct spotPrice
@@ -216,6 +307,7 @@ function ChartPageInner() {
 
       const LWC        = window.LightweightCharts;
       const isIntraday = chartInterval !== 'day';
+      const theme      = THEMES[isDark ? 'dark' : 'light'];
 
       // 1. Session filter (9:15–15:30 IST) on original UTC timestamps
       // 2. Shift to IST so chart displays correct local time without timezone API
@@ -225,19 +317,19 @@ function ChartPageInner() {
 
       const chart = LWC.createChart(el, {
         layout: {
-          background: { color: '#0a0e1a' },
-          textColor:  '#94a3b8',
+          background: { color: theme.bg },
+          textColor:  theme.text,
           fontSize:   11,
           fontFamily: 'monospace',
         },
         grid: {
-          vertLines: { color: 'rgba(255,255,255,0.03)' },
-          horzLines: { color: 'rgba(255,255,255,0.03)' },
+          vertLines: { color: theme.grid },
+          horzLines: { color: theme.grid },
         },
         crosshair: {
           mode:     0,
-          vertLine: { color: 'rgba(148,163,184,0.6)', width: 1, style: 1, labelVisible: true },
-          horzLine: { color: 'rgba(148,163,184,0.6)', width: 1, style: 1, labelVisible: true },
+          vertLine: { color: theme.crosshair, width: 1, style: 1, labelVisible: true },
+          horzLine: { color: theme.crosshair, width: 1, style: 1, labelVisible: true },
         },
         handleScroll: {
           mouseWheel:      true,
@@ -250,7 +342,7 @@ function ChartPageInner() {
           pinch:      true,
           axisPressedMouseMove: { time: true, price: true },
         },
-        rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)', textColor: '#64748b' },
+        rightPriceScale: { borderColor: theme.scaleBorder, textColor: theme.scaleText },
         timeScale: {
           borderColor:    'rgba(255,255,255,0.06)',
           timeVisible:    true,
@@ -272,12 +364,12 @@ function ChartPageInner() {
 
       // ── Candlestick ──────────────────────────────────────────────────────────
       const candleSeries = chart.addCandlestickSeries({
-        upColor:          '#00d4aa',
-        downColor:        '#ff4757',
-        borderUpColor:    '#00d4aa',
-        borderDownColor:  '#ff4757',
-        wickUpColor:      '#00d4aa',
-        wickDownColor:    '#ff4757',
+        upColor:          theme.candleUp,
+        downColor:        theme.candleDown,
+        borderUpColor:    theme.candleUp,
+        borderDownColor:  theme.candleDown,
+        wickUpColor:      theme.candleUp,
+        wickDownColor:    theme.candleDown,
         priceLineVisible: false,
         lastValueVisible: true,
       });
@@ -382,6 +474,23 @@ function ChartPageInner() {
         }).setData(data);
       }
 
+      // ── EMA 9 Daily (on intraday charts) ─────────────────────────────────────
+      // Compute EMA9 on daily candles → show last value as horizontal price line
+      if (settings.showEma9D && isIntraday && dailyCandles.length >= 9) {
+        const ema9D = computeEMA(dailyCandles, 9);
+        const val   = ema9D.length ? ema9D[ema9D.length - 1].value : null;
+        if (val) candleSeries.createPriceLine({ price: val, color: '#e879f9', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'D·EMA9' });
+      }
+
+      // ── EMA 9 Weekly (on daily chart) ─────────────────────────────────────────
+      // Aggregate daily → weekly, compute EMA9, show last value as horizontal line
+      if (settings.showEma9W && !isIntraday && dailyCandles.length >= 9) {
+        const weekly = aggregateWeekly(dailyCandles);
+        const ema9W  = computeEMA(weekly, 9);
+        const val    = ema9W.length ? ema9W[ema9W.length - 1].value : null;
+        if (val) candleSeries.createPriceLine({ price: val, color: '#fb923c', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'W·EMA9' });
+      }
+
       chart.timeScale().fitContent();
     };
 
@@ -393,11 +502,12 @@ function ChartPageInner() {
         chartRef.current = null;
       }
     };
-  }, [candles, chartInterval, stationData, settings]);
+  }, [candles, dailyCandles, chartInterval, stationData, settings, isDark]);
 
   const toggle = key => setSettings(s => ({ ...s, [key]: !s[key] }));
 
   const isIntraday = chartInterval !== 'day';
+  const theme      = THEMES[isDark ? 'dark' : 'light'];
   const ltp        = candles.length > 0 ? candles[candles.length - 1].close : null;
   const open0      = candles.length > 0 ? candles[0].open : null;
   const changePct  = ltp != null && open0 ? ((ltp - open0) / open0) * 100 : null;
@@ -410,15 +520,15 @@ function ChartPageInner() {
   const anyEma          = settings.showEma9 || settings.showEma21 || settings.showEma50;
 
   return (
-    <div className="h-screen bg-[#0a0e1a] flex flex-col text-white overflow-hidden">
+    <div className={`h-screen flex flex-col overflow-hidden ${theme.pageBg} ${theme.text1}`}>
 
       {/* ── Header ───────────────────────────────────────────────────────────── */}
-      <header className="bg-[#0a0e1a] border-b border-white/[0.06] px-4 h-12 flex items-center gap-3 flex-shrink-0">
+      <header className={`${theme.headerBg} border-b ${theme.headerBorder} px-4 h-12 flex items-center gap-3 flex-shrink-0`}>
 
         {/* Back link */}
         <a
           href="/terminal"
-          className="flex items-center gap-1.5 text-slate-400 hover:text-slate-200 transition-colors text-sm mr-1"
+          className={`flex items-center gap-1.5 ${theme.text2} ${theme.textHover} transition-colors text-sm mr-1`}
           title="Back to terminal"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
@@ -427,19 +537,19 @@ function ChartPageInner() {
           Terminal
         </a>
 
-        <span className="w-px h-4 bg-white/10" />
+        <span className={`w-px h-4 ${theme.divider}`} />
 
         {/* Symbol */}
-        <span className="text-white font-bold text-sm tracking-wide">{symbol}</span>
+        <span className={`${theme.text1} font-bold text-sm tracking-wide`}>{symbol}</span>
 
         {/* LTP + change */}
         {ltp != null && (
           <>
-            <span className="font-mono text-sm text-slate-300">
+            <span className={`font-mono text-sm ${theme.text2}`}>
               ₹{ltp.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </span>
             {changePct != null && (
-              <span className={`font-mono text-xs font-semibold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
+              <span className={`font-mono text-xs font-semibold ${isUp ? 'text-emerald-500' : 'text-red-500'}`}>
                 {isUp ? '▲' : '▼'} {Math.abs(changePct).toFixed(2)}%
               </span>
             )}
@@ -458,14 +568,35 @@ function ChartPageInner() {
               className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
                 chartInterval === val
                   ? 'bg-indigo-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]'
+                  : `${theme.text2} ${theme.textHover} ${theme.btnHover}`
               }`}
             >
               {label}
             </button>
           ))}
 
-          <span className="w-px h-4 bg-white/10 mx-1.5" />
+          <span className={`w-px h-4 ${theme.divider} mx-1.5`} />
+
+          {/* Light / Dark toggle */}
+          <button
+            onClick={() => setIsDark(d => !d)}
+            className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${theme.text2} ${theme.textHover} ${theme.btnHover}`}
+            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? (
+              /* sun */
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM8 0a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 0zm0 13a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 13zm8-5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2a.5.5 0 0 1 .5.5zM3 8a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2A.5.5 0 0 1 3 8zm10.657-5.657a.5.5 0 0 1 0 .707l-1.414 1.415a.5.5 0 1 1-.707-.708l1.414-1.414a.5.5 0 0 1 .707 0zm-9.193 9.193a.5.5 0 0 1 0 .707L3.05 13.657a.5.5 0 0 1-.707-.707l1.414-1.414a.5.5 0 0 1 .707 0zm9.193 2.121a.5.5 0 0 1-.707 0l-1.414-1.414a.5.5 0 0 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .707zM4.464 4.465a.5.5 0 0 1-.707 0L2.343 3.05a.5.5 0 1 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .708z"/>
+              </svg>
+            ) : (
+              /* moon */
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M6 .278a.768.768 0 0 1 .08.858 7.208 7.208 0 0 0-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 0 1 .81.316.733.733 0 0 1-.031.893A8.349 8.349 0 0 1 8.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 0 1 6 .278z"/>
+              </svg>
+            )}
+          </button>
+
+          <span className={`w-px h-4 ${theme.divider} mx-0.5`} />
 
           {/* Settings / Overlays button */}
           <button
@@ -473,11 +604,10 @@ function ChartPageInner() {
             onClick={openSettings}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
               showSettings
-                ? 'bg-slate-700 text-white'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]'
+                ? `${theme.btnActive} ${theme.text1}`
+                : `${theme.text2} ${theme.textHover} ${theme.btnHover}`
             }`}
           >
-            {/* gear icon */}
             <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/>
               <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.474l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z"/>
@@ -492,9 +622,9 @@ function ChartPageInner() {
 
         {/* Loading spinner */}
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center z-10 bg-[#0a0e1a]">
-            <div className="flex items-center gap-2 text-slate-400 text-sm">
-              <span className="w-4 h-4 border-2 border-slate-600 border-t-indigo-500 rounded-full animate-spin" />
+          <div className={`absolute inset-0 flex items-center justify-center z-10 ${theme.pageBg}`}>
+            <div className={`flex items-center gap-2 ${theme.text2} text-sm`}>
+              <span className="w-4 h-4 border-2 border-slate-400 border-t-indigo-500 rounded-full animate-spin" />
               Loading…
             </div>
           </div>
@@ -502,12 +632,12 @@ function ChartPageInner() {
 
         {/* Error state */}
         {!loading && candles.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center z-10 bg-[#0a0e1a]">
-            <div className="flex flex-col items-center gap-4 bg-[#111827] border border-white/[0.08] rounded-2xl px-8 py-6">
+          <div className={`absolute inset-0 flex items-center justify-center z-10 ${theme.pageBg}`}>
+            <div className={`flex flex-col items-center gap-4 ${theme.dropdownBg} border ${theme.dropdownBdr} rounded-2xl px-8 py-6`}>
               <span className="text-2xl">⚠</span>
               <div className="text-center">
-                <p className="text-slate-200 font-semibold text-sm">Could not load chart data</p>
-                <p className="text-slate-500 text-xs mt-1">Symbol: {symbol}</p>
+                <p className={`${theme.text1} font-semibold text-sm`}>Could not load chart data</p>
+                <p className={`${theme.text2} text-xs mt-1`}>Symbol: {symbol}</p>
               </div>
               <button
                 onClick={fetchAll}
@@ -523,13 +653,13 @@ function ChartPageInner() {
         <div ref={containerRef} className="w-full h-full" />
 
         {/* Symbol · interval — top-left watermark */}
-        <div className="absolute top-2 left-3 z-10 text-[10px] text-slate-600 font-mono pointer-events-none select-none">
+        <div className={`absolute top-2 left-3 z-10 text-[10px] ${theme.watermark} font-mono pointer-events-none select-none`}>
           {symbol} · {INTERVAL_LABELS[chartInterval]}
         </div>
 
         {/* EMA legend — top-center pill */}
         {anyEma && (
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-4 pointer-events-none select-none bg-[#0a0e1a]/70 px-3 py-1 rounded-full border border-white/[0.06]">
+          <div className={`absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-4 pointer-events-none select-none ${theme.emaPillBg} px-3 py-1 rounded-full border`}>
             {settings.showEma9 && (
               <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: '#22d3ee' }}>
                 <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: '#22d3ee' }} />
@@ -548,23 +678,35 @@ function ChartPageInner() {
                 EMA 50
               </span>
             )}
+            {settings.showEma9D && isIntraday && (
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: '#e879f9' }}>
+                <span className="w-5 h-px rounded-full inline-block" style={{ backgroundColor: '#e879f9' }} />
+                D·EMA9
+              </span>
+            )}
+            {settings.showEma9W && !isIntraday && (
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: '#fb923c' }}>
+                <span className="w-5 h-px rounded-full inline-block" style={{ backgroundColor: '#fb923c' }} />
+                W·EMA9
+              </span>
+            )}
           </div>
         )}
 
         {/* VWAP badge — bottom-left */}
         {settings.showVwap && isIntraday && vwap != null && (
-          <div className="absolute bottom-20 left-3 z-10 flex items-center gap-1.5 bg-[#0a0e1a]/90 border border-amber-500/20 rounded-lg px-2.5 py-1 pointer-events-none select-none">
+          <div className={`absolute bottom-20 left-3 z-10 flex items-center gap-1.5 ${theme.badgeBg} border ${theme.vwapBorder} rounded-lg px-2.5 py-1 pointer-events-none select-none`}>
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-            <span className="text-[10px] text-amber-400 font-mono font-semibold">VWAP</span>
-            <span className="text-[10px] text-slate-300 font-mono">₹{vwap.toFixed(1)}</span>
+            <span className="text-[10px] text-amber-500 font-mono font-semibold">VWAP</span>
+            <span className={`text-[10px] ${theme.text2} font-mono`}>₹{vwap.toFixed(1)}</span>
           </div>
         )}
 
         {/* Regime badge — bottom-left below VWAP */}
         {regime && (
-          <div className="absolute bottom-10 left-3 z-10 flex items-center gap-1.5 bg-[#0a0e1a]/90 border border-white/10 rounded-lg px-2.5 py-1.5 pointer-events-none select-none">
+          <div className={`absolute bottom-10 left-3 z-10 flex items-center gap-1.5 ${theme.badgeBg} border ${theme.badgeBorder} rounded-lg px-2.5 py-1.5 pointer-events-none select-none`}>
             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${regime.dot}`} />
-            <span className="text-xs font-semibold text-slate-300">{regime.label}</span>
+            <span className={`text-xs font-semibold ${theme.text1}`}>{regime.label}</span>
             {regimeData?.confidence && (
               <span className={`text-[10px] font-bold ${confColor}`}>{regimeData.confidence}</span>
             )}
@@ -573,8 +715,8 @@ function ChartPageInner() {
 
         {/* Scenario badge — bottom-right */}
         {scenarioResult?.label && scenarioResult.scenario !== 'UNCLEAR' && (
-          <div className="absolute bottom-10 right-3 z-10 flex items-center gap-1 bg-[#0a0e1a]/90 border border-white/10 rounded-lg px-2.5 py-1.5 pointer-events-none select-none">
-            <span className="text-xs text-slate-400">{scenarioResult.label}</span>
+          <div className={`absolute bottom-10 right-3 z-10 flex items-center gap-1 ${theme.badgeBg} border ${theme.badgeBorder} rounded-lg px-2.5 py-1.5 pointer-events-none select-none`}>
+            <span className={`text-xs ${theme.text2}`}>{scenarioResult.label}</span>
             {scenarioResult.confidence && (
               <span className={`text-[10px] font-bold ml-1 ${scenarioConfCls}`}>{scenarioResult.confidence}</span>
             )}
@@ -586,15 +728,15 @@ function ChartPageInner() {
       {showSettings && dropdownPos && (
         <div
           ref={dropdownRef}
-          className="fixed z-[200] bg-[#111827] border border-white/[0.12] rounded-xl shadow-2xl p-3"
-          style={{ top: dropdownPos.top, right: dropdownPos.right, minWidth: 188 }}
+          className={`fixed z-[200] ${theme.dropdownBg} border ${theme.dropdownBdr} rounded-xl shadow-2xl p-3`}
+          style={{ top: dropdownPos.top, right: dropdownPos.right, minWidth: 196 }}
         >
-          <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mb-2 px-1">
+          <div className={`text-[10px] ${theme.text2} font-semibold uppercase tracking-wider mb-2 px-1`}>
             Chart Overlays
           </div>
           <div className="space-y-0.5">
-            {OVERLAY_DEFS.map(({ key, label, color, intradayOnly }) => {
-              const disabled = intradayOnly && !isIntraday;
+            {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly }) => {
+              const disabled = (intradayOnly && !isIntraday) || (dailyOnly && isIntraday);
               const on       = settings[key] && !disabled;
               return (
                 <button
@@ -602,7 +744,7 @@ function ChartPageInner() {
                   onClick={() => !disabled && toggle(key)}
                   disabled={disabled}
                   className={`flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg transition-colors text-left ${
-                    disabled ? 'opacity-25 cursor-not-allowed' : 'hover:bg-white/[0.05]'
+                    disabled ? 'opacity-25 cursor-not-allowed' : `${theme.btnHover}`
                   }`}
                 >
                   <span className="flex items-center w-5 flex-shrink-0">
@@ -611,8 +753,8 @@ function ChartPageInner() {
                       style={{ backgroundColor: color, opacity: on ? 1 : 0.2 }}
                     />
                   </span>
-                  <span className={`text-xs flex-1 ${on ? 'text-slate-200' : 'text-slate-500'}`}>{label}</span>
-                  <span className={`text-[10px] font-bold w-5 text-right ${on ? 'text-indigo-400' : 'text-slate-600'}`}>
+                  <span className={`text-xs flex-1 ${on ? theme.text1 : theme.text2}`}>{label}</span>
+                  <span className={`text-[10px] font-bold w-5 text-right ${on ? 'text-indigo-500' : theme.text2}`}>
                     {on ? 'ON' : 'OFF'}
                   </span>
                 </button>
