@@ -255,6 +255,7 @@ function ChartPageInner() {
   const candleSeriesRef  = useRef(null);
   const displayRef       = useRef([]);
   const priceShiftRef    = useRef(0);
+  const resetViewRef     = useRef(null);   // stable fn set inside useEffect
   const settingsBtnRef   = useRef(null);
   const dropdownRef      = useRef(null);
 
@@ -569,6 +570,14 @@ function ChartPageInner() {
 
     const dragState = { active: false, startX: 0, startY: 0, lastY: 0, dir: null };
 
+    // Reset price pan + time zoom — called from double-click, double-tap, and reset button
+    const resetChartView = () => {
+      priceShiftRef.current = 0;
+      if (candleSeriesRef.current) candleSeriesRef.current.applyOptions({ autoscaleInfoProvider: undefined });
+      if (chartRef.current) chartRef.current.timeScale().fitContent();
+    };
+    resetViewRef.current = resetChartView;
+
     // Shared price-pan logic used by both mouse and touch handlers
     const applyPriceShift = deltaY => {
       const cs = candleSeriesRef.current;
@@ -632,13 +641,13 @@ function ChartPageInner() {
       dragState.dir    = null;
     };
 
-    const onDblClick = () => {
-      priceShiftRef.current = 0;
-      if (candleSeriesRef.current) candleSeriesRef.current.applyOptions({ autoscaleInfoProvider: undefined });
-    };
+    const onDblClick = () => resetChartView();
 
     // ── Touch handlers for vertical pan on mobile/tablet ────────────────────
+    let lastTapTime = 0;
+
     const onTouchStart = e => {
+      if (e.touches.length > 1) { dragState.active = false; return; } // let LWC handle pinch
       const t = e.touches[0];
       dragState.active = true;
       dragState.startX = t.clientX;
@@ -648,6 +657,7 @@ function ChartPageInner() {
     };
 
     const onTouchMove = e => {
+      if (e.touches.length > 1) { dragState.active = false; return; } // pinch in progress
       if (!dragState.active) return;
       const t  = e.touches[0];
       const dx = Math.abs(t.clientX - dragState.startX);
@@ -665,12 +675,16 @@ function ChartPageInner() {
       if (deltaY !== 0) applyPriceShift(deltaY);
     };
 
-    const onTouchEnd = () => {
+    const onTouchEnd = e => {
       if (dragState.active && dragState.dir === 'v') {
         chartRef.current?.applyOptions({ handleScroll: { pressedMouseMove: true, mouseWheel: true } });
       }
       dragState.active = false;
       dragState.dir    = null;
+      // Double-tap → reset view
+      const now = Date.now();
+      if (now - lastTapTime < 300) resetChartView();
+      lastTapTime = now;
     };
 
     el.addEventListener('mousedown', onMouseDown);
@@ -847,6 +861,21 @@ function ChartPageInner() {
 
         {/* LightweightCharts mount point */}
         <div ref={containerRef} className="w-full h-full" />
+
+        {/* Reset view button — top-right of chart, always accessible */}
+        {!loading && candles.length > 0 && (
+          <button
+            onClick={() => resetViewRef.current?.()}
+            className={`absolute top-2 right-16 sm:right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono ${theme.badgeBg} border ${theme.badgeBorder} ${theme.text2} hover:${theme.text1} opacity-50 hover:opacity-100 active:opacity-100 transition-opacity`}
+            title="Reset view (or double-click/double-tap chart)"
+          >
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+              <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+              <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+            </svg>
+            Reset
+          </button>
+        )}
 
         {/* Symbol · interval + OHLCV — top-left */}
         {(() => {
