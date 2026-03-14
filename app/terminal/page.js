@@ -1399,6 +1399,12 @@ function PlaceOrderTab({
           <div className="flex items-center gap-1 bg-gray-100 dark:bg-slate-800/50 rounded-lg px-2 py-1.5 border border-gray-200 dark:border-white/10 self-end w-fit ml-auto">
             <BarChart3 size={12} className="text-gray-400 mr-0.5" />
             <button
+              onClick={() => window.open(`/chart?symbol=${encodeURIComponent(symbol)}`, '_blank')}
+              className="text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-200 text-xs font-medium px-1.5 py-0.5 hover:bg-teal-500/20 rounded transition-colors flex items-center gap-0.5"
+              title="Open chart in new tab"
+            ><BarChart3 size={10} className="mr-0.5" />Chart</button>
+            <span className="w-px h-3 bg-gray-300 dark:bg-white/10 mx-0.5" />
+            <button
               onClick={() => window.open(`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(`NSE:${symbol}`)}&interval=15`, '_blank')}
               className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 text-xs font-medium px-1.5 py-0.5 hover:bg-blue-500/20 rounded transition-colors flex items-center gap-0.5"
               title="Equity chart"
@@ -1781,6 +1787,7 @@ function PlaceOrderTab({
           </div>
         </div>
       )}
+
     </div>
   );
 }

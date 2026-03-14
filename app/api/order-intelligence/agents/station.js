@@ -514,5 +514,5 @@ export function runStationAgent(data) {
   const riskScore = triggered.reduce((sum, b) => sum + (b.riskScore ?? 0), 0);
   const verdict   = scoreToVerdict(riskScore);
 
-  return { behaviors: triggered, checks, verdict, riskScore, zoneState, nearestStation: zone };
+  return { behaviors: triggered, checks, verdict, riskScore, zoneState, nearestStation: zone, allStations: stationResult?.allStations ?? [] };
 }
