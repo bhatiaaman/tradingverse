@@ -71,6 +71,9 @@ const THEMES = {
     srSupBroken:  '#86efac',
     srResist:     '#f87171',
     srResBroken:  '#fca5a5',
+    ema9Color:    '#22d3ee',
+    ema21Color:   '#f97316',
+    ema50Color:   '#a78bfa',
     ema9DColor:   '#e879f9',
     ema9WColor:   '#fb923c',
     // tailwind classes (UI chrome)
@@ -105,6 +108,9 @@ const THEMES = {
     srSupBroken:  '#4ade80',   // green-400 — faded broken
     srResist:     '#b91c1c',   // red-700
     srResBroken:  '#f87171',   // red-400 — faded broken
+    ema9Color:    '#0e7490',   // cyan-700 — readable on white
+    ema21Color:   '#c2410c',   // orange-700
+    ema50Color:   '#6d28d9',   // violet-700
     ema9DColor:   '#9333ea',   // purple-600
     ema9WColor:   '#ea580c',   // orange-600
     // tailwind classes
@@ -366,11 +372,16 @@ function ChartPageInner() {
           timeVisible:    true,
           secondsVisible: false,
           tickMarkFormatter: ts => {
-            const d = new Date(ts * 1000);
             if (chartInterval === 'day') {
-              const istD = new Date((ts - IST_OFFSET_S) * 1000);
-              return istD.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' });
+              // Daily candles from Kite: date = "YYYY-MM-DDT00:00:00+0530"
+              // → ts = UTC Unix (e.g. March 13 00:00 IST = March 12 18:30 UTC)
+              // Use Asia/Kolkata timezone directly — no manual offset subtraction
+              return new Date(ts * 1000).toLocaleDateString('en-IN', {
+                day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata',
+              });
             }
+            // Intraday: timestamps are pre-shifted +IST_OFFSET_S, so use UTC methods
+            const d = new Date(ts * 1000);
             const h = String(d.getUTCHours()).padStart(2, '0');
             const m = String(d.getUTCMinutes()).padStart(2, '0');
             return `${h}:${m}`;
@@ -458,7 +469,7 @@ function ChartPageInner() {
       if (settings.showEma9) {
         const data = computeEMA(display, 9);
         if (data.length) chart.addLineSeries({
-          color: '#22d3ee', lineWidth: 2,
+          color: theme.ema9Color, lineWidth: 2,
           priceLineVisible: false, lastValueVisible: true,
           title: 'EMA9', crosshairMarkerVisible: false,
         }).setData(data);
@@ -468,7 +479,7 @@ function ChartPageInner() {
       if (settings.showEma21) {
         const data = computeEMA(display, 21);
         if (data.length) chart.addLineSeries({
-          color: '#f97316', lineWidth: 2,
+          color: theme.ema21Color, lineWidth: 2,
           priceLineVisible: false, lastValueVisible: true,
           title: 'EMA21', crosshairMarkerVisible: false,
         }).setData(data);
@@ -478,7 +489,7 @@ function ChartPageInner() {
       if (settings.showEma50) {
         const data = computeEMA(display, 50);
         if (data.length) chart.addLineSeries({
-          color: '#a78bfa', lineWidth: 2,
+          color: theme.ema50Color, lineWidth: 2,
           priceLineVisible: false, lastValueVisible: true,
           title: 'EMA50', crosshairMarkerVisible: false,
         }).setData(data);
@@ -507,32 +518,56 @@ function ChartPageInner() {
 
     loadLWC(buildChart);
 
-    // ── Vertical price-axis drag (right-click + drag, like TradingView) ─────────
-    // Uses autoscaleInfoProvider to offset the auto-computed price range by the
-    // accumulated pixel-to-price delta. Double-click resets to auto-fit.
+    // ── Vertical price-axis drag (left-click + drag, TradingView style) ─────────
+    // Direction is determined from first movement after mousedown:
+    //   primarily vertical (dy > dx) → pan price axis (suppress LWC horiz scroll)
+    //   primarily horizontal         → let LWC handle time-axis scroll normally
+    // Double-click resets to auto-fit.
     const el = containerRef.current;
     priceShiftRef.current = 0; // reset on every rebuild
 
-    const dragState = { active: false, lastY: 0 };
+    // dragState.dir: null = undecided, 'v' = vertical, 'h' = horizontal
+    const dragState = { active: false, startX: 0, startY: 0, lastY: 0, dir: null };
 
     const onMouseDown = e => {
-      if (e.button === 2) {
-        dragState.active = true;
-        dragState.lastY  = e.clientY;
-      }
+      if (e.button !== 0 || !el.contains(e.target)) return;
+      dragState.active = true;
+      dragState.startX = e.clientX;
+      dragState.startY = e.clientY;
+      dragState.lastY  = e.clientY;
+      dragState.dir    = null;
     };
+
     const onMouseMove = e => {
       if (!dragState.active) return;
       const cs = candleSeriesRef.current;
-      if (!cs) return;
-      const dy = e.clientY - dragState.lastY;
+      const ch = chartRef.current;
+      if (!cs || !ch) return;
+
+      const dx = Math.abs(e.clientX - dragState.startX);
+      const dy = Math.abs(e.clientY - dragState.startY);
+
+      // Determine direction after 4px of movement
+      if (!dragState.dir && (dx > 4 || dy > 4)) {
+        dragState.dir = dy > dx ? 'v' : 'h';
+        if (dragState.dir === 'v') {
+          // Suppress LWC horizontal scroll for this drag
+          ch.applyOptions({ handleScroll: { pressedMouseMove: false, mouseWheel: true } });
+        }
+      }
+
+      if (dragState.dir !== 'v') return;
+
+      const deltaY = e.clientY - dragState.lastY;
       dragState.lastY = e.clientY;
-      if (dy === 0) return;
-      // Convert pixel delta → price delta using series coordinate API
-      const refY    = el.clientHeight / 2;
-      const p1      = cs.coordinateToPrice(refY);
-      const p2      = cs.coordinateToPrice(refY + dy);
+      if (deltaY === 0) return;
+
+      // Convert pixel delta → price delta
+      const refY = el.clientHeight / 2;
+      const p1   = cs.coordinateToPrice(refY);
+      const p2   = cs.coordinateToPrice(refY + deltaY);
       if (p1 == null || p2 == null) return;
+
       priceShiftRef.current += p1 - p2;
       const shift = priceShiftRef.current;
       cs.applyOptions({
@@ -543,27 +578,34 @@ function ChartPageInner() {
         },
       });
     };
-    const onMouseUp      = () => { dragState.active = false; };
-    const onContextMenu  = e => e.preventDefault();
-    const onDblClick     = () => {
+
+    const onMouseUp = () => {
+      if (dragState.active && dragState.dir === 'v') {
+        // Restore LWC horizontal scroll
+        const ch = chartRef.current;
+        if (ch) ch.applyOptions({ handleScroll: { pressedMouseMove: true, mouseWheel: true } });
+      }
+      dragState.active = false;
+      dragState.dir    = null;
+    };
+
+    const onDblClick = () => {
       priceShiftRef.current = 0;
       if (candleSeriesRef.current) candleSeriesRef.current.applyOptions({ autoscaleInfoProvider: undefined });
     };
 
-    el.addEventListener('mousedown',   onMouseDown);
-    window.addEventListener('mousemove',    onMouseMove);
-    window.addEventListener('mouseup',      onMouseUp);
-    el.addEventListener('contextmenu', onContextMenu);
-    el.addEventListener('dblclick',    onDblClick);
+    el.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup',   onMouseUp);
+    el.addEventListener('dblclick',  onDblClick);
 
     return () => {
       if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
       candleSeriesRef.current = null;
-      el.removeEventListener('mousedown',   onMouseDown);
-      window.removeEventListener('mousemove',    onMouseMove);
-      window.removeEventListener('mouseup',      onMouseUp);
-      el.removeEventListener('contextmenu', onContextMenu);
-      el.removeEventListener('dblclick',    onDblClick);
+      el.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup',   onMouseUp);
+      el.removeEventListener('dblclick',  onDblClick);
     };
   }, [candles, dailyCandles, chartInterval, stationData, settings, isDark]);
 
@@ -725,20 +767,20 @@ function ChartPageInner() {
         {anyEma && (
           <div className={`absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-4 pointer-events-none select-none ${theme.emaPillBg} px-3 py-1 rounded-full border`}>
             {settings.showEma9 && (
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: '#22d3ee' }}>
-                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: '#22d3ee' }} />
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: theme.ema9Color }}>
+                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: theme.ema9Color }} />
                 EMA 9
               </span>
             )}
             {settings.showEma21 && (
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: '#f97316' }}>
-                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: '#f97316' }} />
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: theme.ema21Color }}>
+                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: theme.ema21Color }} />
                 EMA 21
               </span>
             )}
             {settings.showEma50 && (
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: '#a78bfa' }}>
-                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: '#a78bfa' }} />
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: theme.ema50Color }}>
+                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: theme.ema50Color }} />
                 EMA 50
               </span>
             )}
