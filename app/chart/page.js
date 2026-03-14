@@ -30,6 +30,8 @@ const CONF_COLORS = { HIGH: 'text-emerald-400', MEDIUM: 'text-amber-400', LOW: '
 // IST offset in seconds (UTC+5:30)
 const IST_OFFSET_S = 5.5 * 3600;
 
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
 // Overlay definitions — order = display order in settings panel
 const OVERLAY_DEFS = [
   { key: 'showVwap',   label: 'VWAP',        color: '#f59e0b', intradayOnly: true,  dailyOnly: false },
@@ -153,6 +155,15 @@ function aggregateWeekly(dailyCandles) {
   return Object.values(weeks).sort((a, b) => a.time - b.time);
 }
 
+// Format volume: 1.23Cr / 45.6L / 123K
+function fmtVol(v) {
+  if (!v) return '—';
+  if (v >= 1e7) return (v / 1e7).toFixed(2) + 'Cr';
+  if (v >= 1e5) return (v / 1e5).toFixed(2) + 'L';
+  if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return String(v);
+}
+
 // ── Maths ─────────────────────────────────────────────────────────────────────
 function computeVWAP(candles) {
   let cumTPV = 0, cumVol = 0;
@@ -188,6 +199,14 @@ function toSessionOnly(candles) {
 // Shift timestamps to IST so LWC displays IST times via UTC methods (avoids locale issues)
 function toISTTimestamps(candles) {
   return candles.map(c => ({ ...c, time: c.time + IST_OFFSET_S }));
+}
+
+// Convert Kite daily Unix timestamp → LWC BusinessDay { year, month, day } in IST
+// Kite: "2026-03-13T00:00:00+0530" → UTC epoch = March 12 18:30 UTC
+// Adding IST_OFFSET_S → March 13 00:00 UTC → getUTCDate/Month/FullYear = correct IST date
+function toBusinessDay(ts) {
+  const d = new Date((ts + IST_OFFSET_S) * 1000);
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
 }
 
 function loadLWC(cb) {
@@ -228,10 +247,12 @@ function ChartPageInner() {
   const [dropdownPos, setDropdownPos]     = useState(null);
   const [regimeData, setRegimeData]       = useState(null);
   const [stationData, setStationData]     = useState(null);
+  const [hoverOHLC, setHoverOHLC]         = useState(null);
 
   const containerRef     = useRef(null);
   const chartRef         = useRef(null);
   const candleSeriesRef  = useRef(null);
+  const displayRef       = useRef([]);
   const priceShiftRef    = useRef(0);
   const settingsBtnRef   = useRef(null);
   const dropdownRef      = useRef(null);
@@ -247,9 +268,9 @@ function ChartPageInner() {
     const needDailyFetch = chartInterval !== 'day';
     try {
       const fetches = [
-        fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}`).then(r => r.json()),
+        fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}&bust=1`).then(r => r.json()),
         needDailyFetch
-          ? fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=day`).then(r => r.json())
+          ? fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=day&bust=1`).then(r => r.json())
           : Promise.resolve(null),
       ];
       const [cd, dd] = await Promise.all(fetches);
@@ -336,8 +357,13 @@ function ChartPageInner() {
       // 1. Session filter (9:15–15:30 IST) on original UTC timestamps
       // 2. Shift to IST so chart displays correct local time without timezone API
       const sessionFiltered = isIntraday ? toSessionOnly(candles) : candles;
-      const display = isIntraday ? toISTTimestamps(sessionFiltered) : candles;
+      // Intraday: shift to IST unix timestamps for correct time display
+      // Daily: convert to BusinessDay objects — removes all timezone ambiguity
+      const display = isIntraday
+        ? toISTTimestamps(sessionFiltered)
+        : candles.map(c => ({ ...c, time: toBusinessDay(c.time) }));
       if (display.length === 0) return;
+      displayRef.current = display;
 
       const chart = LWC.createChart(el, {
         layout: {
@@ -351,9 +377,9 @@ function ChartPageInner() {
           horzLines: { color: theme.grid },
         },
         crosshair: {
-          mode:     0,
-          vertLine: { color: theme.crosshair, width: 1, style: 1, labelVisible: true },
-          horzLine: { color: theme.crosshair, width: 1, style: 1, labelVisible: true },
+          mode:     0,   // Normal — follows mouse exactly, like TradingView
+          vertLine: { color: 'rgba(120,140,160,0.7)', width: 1, style: 1, labelVisible: true },
+          horzLine: { color: 'rgba(120,140,160,0.7)', width: 1, style: 1, labelVisible: true },
         },
         handleScroll: {
           mouseWheel:      true,
@@ -369,19 +395,17 @@ function ChartPageInner() {
         rightPriceScale: { borderColor: theme.scaleBorder, textColor: theme.scaleText },
         timeScale: {
           borderColor:    'rgba(255,255,255,0.06)',
-          timeVisible:    true,
+          timeVisible:    chartInterval !== 'day',
           secondsVisible: false,
-          tickMarkFormatter: ts => {
+          tickMarkFormatter: (time, tickMarkType) => {
             if (chartInterval === 'day') {
-              // Daily candles from Kite: date = "YYYY-MM-DDT00:00:00+0530"
-              // → ts = UTC Unix (e.g. March 13 00:00 IST = March 12 18:30 UTC)
-              // Use Asia/Kolkata timezone directly — no manual offset subtraction
-              return new Date(ts * 1000).toLocaleDateString('en-IN', {
-                day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata',
-              });
+              // time is a BusinessDay object { year, month, day } — no timezone math needed
+              if (tickMarkType === 0) return String(time.year);
+              if (tickMarkType === 1) return MONTHS_SHORT[time.month - 1];
+              return `${String(time.day).padStart(2, '0')} ${MONTHS_SHORT[time.month - 1]}`;
             }
-            // Intraday: timestamps are pre-shifted +IST_OFFSET_S, so use UTC methods
-            const d = new Date(ts * 1000);
+            // Intraday: Unix timestamps pre-shifted +IST_OFFSET_S, read via UTC methods
+            const d = new Date(time * 1000);
             const h = String(d.getUTCHours()).padStart(2, '0');
             const m = String(d.getUTCMinutes()).padStart(2, '0');
             return `${h}:${m}`;
@@ -512,21 +536,28 @@ function ChartPageInner() {
 
       chart.timeScale().fitContent();
 
-      // Store candle series ref for vertical drag handler
+      // ── OHLC on crosshair hover ───────────────────────────────────────────────
+      chart.subscribeCrosshairMove(param => {
+        if (!param || !param.time) { setHoverOHLC(null); return; }
+        const bar = param.seriesData?.get(candleSeries);
+        const vol = param.logical != null ? displayRef.current[param.logical]?.volume : null;
+        if (bar) setHoverOHLC({ open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: vol });
+        else setHoverOHLC(null);
+      });
+
       candleSeriesRef.current = candleSeries;
     };
 
     loadLWC(buildChart);
 
-    // ── Vertical price-axis drag (left-click + drag, TradingView style) ─────────
-    // Direction is determined from first movement after mousedown:
-    //   primarily vertical (dy > dx) → pan price axis (suppress LWC horiz scroll)
-    //   primarily horizontal         → let LWC handle time-axis scroll normally
-    // Double-click resets to auto-fit.
+    // ── Vertical price-pan drag (TradingView style) ──────────────────────────
+    // Left-click drag: horizontal → LWC native scroll; vertical → price pan.
+    // Vertical threshold: dy must be > 1.5× dx to avoid accidental trigger.
+    // Cursor becomes 'ns-resize' during vertical drag for visual feedback.
+    // Double-click → reset price pan to auto-fit.
     const el = containerRef.current;
-    priceShiftRef.current = 0; // reset on every rebuild
+    priceShiftRef.current = 0;
 
-    // dragState.dir: null = undecided, 'v' = vertical, 'h' = horizontal
     const dragState = { active: false, startX: 0, startY: 0, lastY: 0, dir: null };
 
     const onMouseDown = e => {
@@ -547,12 +578,12 @@ function ChartPageInner() {
       const dx = Math.abs(e.clientX - dragState.startX);
       const dy = Math.abs(e.clientY - dragState.startY);
 
-      // Determine direction after 4px of movement
-      if (!dragState.dir && (dx > 4 || dy > 4)) {
-        dragState.dir = dy > dx ? 'v' : 'h';
+      if (!dragState.dir && (dx > 3 || dy > 3)) {
+        // Require vertical to clearly dominate (1.5×) to avoid accidental triggers
+        dragState.dir = (dy > dx * 1.5) ? 'v' : 'h';
         if (dragState.dir === 'v') {
-          // Suppress LWC horizontal scroll for this drag
           ch.applyOptions({ handleScroll: { pressedMouseMove: false, mouseWheel: true } });
+          el.style.cursor = 'ns-resize';
         }
       }
 
@@ -562,7 +593,6 @@ function ChartPageInner() {
       dragState.lastY = e.clientY;
       if (deltaY === 0) return;
 
-      // Convert pixel delta → price delta
       const refY = el.clientHeight / 2;
       const p1   = cs.coordinateToPrice(refY);
       const p2   = cs.coordinateToPrice(refY + deltaY);
@@ -581,9 +611,9 @@ function ChartPageInner() {
 
     const onMouseUp = () => {
       if (dragState.active && dragState.dir === 'v') {
-        // Restore LWC horizontal scroll
         const ch = chartRef.current;
         if (ch) ch.applyOptions({ handleScroll: { pressedMouseMove: true, mouseWheel: true } });
+        el.style.cursor = '';
       }
       dragState.active = false;
       dragState.dir    = null;
@@ -597,7 +627,7 @@ function ChartPageInner() {
     el.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup',   onMouseUp);
-    el.addEventListener('dblclick',  onDblClick);
+    el.addEventListener('dblclick',   onDblClick);
 
     return () => {
       if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
@@ -605,7 +635,7 @@ function ChartPageInner() {
       el.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup',   onMouseUp);
-      el.removeEventListener('dblclick',  onDblClick);
+      el.removeEventListener('dblclick',   onDblClick);
     };
   }, [candles, dailyCandles, chartInterval, stationData, settings, isDark]);
 
@@ -758,10 +788,35 @@ function ChartPageInner() {
         {/* LightweightCharts mount point */}
         <div ref={containerRef} className="w-full h-full" />
 
-        {/* Symbol · interval — top-left watermark */}
-        <div className={`absolute top-2 left-3 z-10 text-[10px] ${theme.watermark} font-mono pointer-events-none select-none`}>
-          {symbol} · {INTERVAL_LABELS[chartInterval]}
-        </div>
+        {/* Symbol · interval + OHLCV — top-left */}
+        {(() => {
+          const bar    = hoverOHLC || (candles.length > 0 ? candles[candles.length - 1] : null);
+          const chgPct = bar ? ((bar.close - bar.open) / bar.open * 100) : null;
+          const barUp  = bar ? bar.close >= bar.open : null;
+          return (
+            <div className="absolute top-2 left-3 z-10 pointer-events-none select-none">
+              <div className={`text-[10px] ${theme.watermark} font-mono`}>
+                {symbol} · {INTERVAL_LABELS[chartInterval]}
+              </div>
+              {bar && (
+                <div className="flex items-center gap-2 mt-0.5 text-[11px] font-mono">
+                  <span className={theme.text2}>O <span className={theme.text1}>{bar.open.toFixed(2)}</span></span>
+                  <span className={theme.text2}>H <span className="text-emerald-400">{bar.high.toFixed(2)}</span></span>
+                  <span className={theme.text2}>L <span className="text-red-400">{bar.low.toFixed(2)}</span></span>
+                  <span className={theme.text2}>C <span className={barUp ? 'text-emerald-400' : 'text-red-400'}>{bar.close.toFixed(2)}</span></span>
+                  {chgPct != null && (
+                    <span className={barUp ? 'text-emerald-400' : 'text-red-400'}>
+                      {barUp ? '+' : ''}{chgPct.toFixed(2)}%
+                    </span>
+                  )}
+                  {bar.volume != null && (
+                    <span className={theme.text2}>V <span className={theme.text1}>{fmtVol(bar.volume)}</span></span>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* EMA legend — top-center pill */}
         {anyEma && (

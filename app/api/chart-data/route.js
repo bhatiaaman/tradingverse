@@ -48,7 +48,7 @@ const CACHE_TTL = {
   '5minute':  60,
   '15minute': 120,
   '60minute': 300,
-  'day':      3600,
+  'day':      300,   // 5 min — daily candles need to update after 3:30 PM close
 };
 
 // ── NSE EQ token map: fetch CSV, parse, cache in Redis for 24h ───────────────
@@ -85,6 +85,8 @@ export async function GET(request) {
   const interval = searchParams.get('interval') || '5minute';
   const days     = parseInt(searchParams.get('days') || '0') || 0;
 
+  const bust     = searchParams.get('bust') === '1';
+
   const validIntervals = ['5minute', '15minute', '60minute', 'day'];
   if (!validIntervals.includes(interval)) {
     return NextResponse.json({ error: `Invalid interval. Use: ${validIntervals.join(', ')}` }, { status: 400 });
@@ -92,8 +94,10 @@ export async function GET(request) {
 
   // ── Cache check ─────────────────────────────────────────────────────────────
   const cacheKey = `${NS}:chart-data:${symbol}:${interval}`;
-  const cached   = await redisGet(cacheKey);
-  if (cached) return NextResponse.json({ ...cached, fromCache: true });
+  if (!bust) {
+    const cached = await redisGet(cacheKey);
+    if (cached) return NextResponse.json({ ...cached, fromCache: true });
+  }
 
   try {
     const dp = await getDataProvider();
