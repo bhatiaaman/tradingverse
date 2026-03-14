@@ -209,17 +209,20 @@ const ALIGN_STATUS = {
 };
 
 function computeRegimeAlignment(regime, scenario, transactionType) {
-  if (!regime || !scenario || scenario === 'UNCLEAR') return null;
+  if (!scenario || scenario === 'UNCLEAR') return null;
 
-  // INSIDE_ZONE — no directional trade regardless of regime
+  // INSIDE_ZONE — regime-independent verdict (no directional trade)
   if (scenario === 'INSIDE_ZONE') {
     if (regime === 'TRAP_DAY') return { status: 'DANGER',  title: 'Trap day inside zone', msg: 'Price stuck in a zone on a trap day — high fakeout risk both ways. Stay flat.' };
     if (regime === 'BREAKOUT_DAY') return { status: 'CAUTION', title: 'Watch for zone break', msg: 'Breakout day active — wait for the zone to break with volume. Do not anticipate.' };
     return { status: 'CAUTION', title: 'Wait — price inside zone', msg: 'No trade until price breaks and holds outside the zone. Premature entry has low edge.' };
   }
 
-  const bullish  = ['MOMENTUM_LONG',  'MEAN_REVERSION_BUY',  'REJECTION_BUY',  'BREAK_RETEST_LONG',  'BREAKOUT_LONG'  ].includes(scenario);
-  const bearish  = ['MOMENTUM_SHORT', 'MEAN_REVERSION_SELL', 'REJECTION_SELL', 'BREAK_RETEST_SHORT', 'BREAKDOWN_SHORT'].includes(scenario);
+  // All remaining scenarios need a valid regime
+  if (!regime) return null;
+
+  const bullish  = ['MOMENTUM_LONG',  'MEAN_REVERSION_BUY',  'REJECTION_BUY',  'BREAK_RETEST_LONG',  'BREAKOUT_LONG',  'OPEN_SPACE_LONG' ].includes(scenario);
+  const bearish  = ['MOMENTUM_SHORT', 'MEAN_REVERSION_SELL', 'REJECTION_SELL', 'BREAK_RETEST_SHORT', 'BREAKDOWN_SHORT', 'OPEN_SPACE_SHORT'].includes(scenario);
   const breakout = ['BREAKOUT_LONG',  'BREAK_RETEST_LONG',   'BREAKDOWN_SHORT','BREAK_RETEST_SHORT'  ].includes(scenario);
   const meanRev  = ['MEAN_REVERSION_BUY', 'MEAN_REVERSION_SELL', 'REJECTION_BUY', 'REJECTION_SELL'  ].includes(scenario);
   const counterTrend  = scenario === 'COUNTER_TREND';
@@ -322,24 +325,18 @@ function getSectorAlign(changePct, isBullish, isBearish) {
 }
 
 function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockContext, transactionType }) {
-  const key      = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
-  const regime   = regimeData?.[key];
-  const scenario = scenarioResult?.scenario;
+  const key       = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
+  const rawRegime = regimeData?.[key];
+  // Valid regime: exists, no error, not INITIALIZING
+  const regime    = rawRegime && !rawRegime.error && rawRegime.regime && rawRegime.regime !== 'INITIALIZING' ? rawRegime : null;
+  // Regime state for display: 'loading' | 'closed' | 'ready'
+  const regimeState = !rawRegime ? 'loading' : (rawRegime.error || rawRegime.regime === 'INITIALIZING') ? 'closed' : 'ready';
+  const scenario  = scenarioResult?.scenario;
+  const hasScenario = scenario && scenario !== 'UNCLEAR' && scenarioResult;
 
-  // Show loading skeleton while agents are running on first load
-  if (isLoading && !scenarioResult) return (
-    <div className="rounded-xl border-2 border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.02] px-4 py-3 space-y-2">
-      <div className="flex items-center gap-2">
-        <Loader2 size={14} className="animate-spin text-gray-400" />
-        <span className="text-xs text-gray-400">Analysing setup…</span>
-      </div>
-      <div className="h-3 bg-black/5 dark:bg-white/5 rounded animate-pulse w-3/4" />
-    </div>
-  );
-
-  // Scenario loaded but regime not yet — show a slim loading/fallback so card doesn't disappear
-  if (!regime || !scenario || scenario === 'UNCLEAR') {
-    if (isLoading) return (
+  // ── Loading: nothing ready yet ────────────────────────────────────────────
+  if (isLoading && !hasScenario) {
+    return (
       <div className="rounded-xl border-2 border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.02] px-4 py-3 space-y-2">
         <div className="flex items-center gap-2">
           <Loader2 size={14} className="animate-spin text-gray-400" />
@@ -348,81 +345,115 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockConte
         <div className="h-3 bg-black/5 dark:bg-white/5 rounded animate-pulse w-3/4" />
       </div>
     );
-    if (scenario && scenario !== 'UNCLEAR' && scenarioResult) {
-      // Agents done but regime unavailable — show scenario-only context
+  }
+
+  // ── Scenario ready: try to compute alignment ──────────────────────────────
+  if (hasScenario) {
+    const alignment = computeRegimeAlignment(regime?.regime ?? null, scenario, transactionType);
+
+    if (alignment) {
+      // ── Full verdict card ─────────────────────────────────────────────────
+      const st        = ALIGN_STATUS[alignment.status];
+      const isBullish = ['MOMENTUM_LONG',  'MEAN_REVERSION_BUY',  'REJECTION_BUY',  'BREAK_RETEST_LONG',  'BREAKOUT_LONG',  'OPEN_SPACE_LONG' ].includes(scenario);
+      const isBearish = ['MOMENTUM_SHORT', 'MEAN_REVERSION_SELL', 'REJECTION_SELL', 'BREAK_RETEST_SHORT', 'BREAKDOWN_SHORT', 'OPEN_SPACE_SHORT'].includes(scenario);
+      const orb         = stockContext?.orb;
+      const sector      = stockContext?.sector;
+      const orbLabel    = getOrbLabel(orb);
+      const orbAlign    = getOrbAlign(orb, isBullish, isBearish);
+      const sectorAlign = getSectorAlign(sector?.changePct, isBullish, isBearish);
+      const hasCfluence = orbLabel || sector;
+
       return (
-        <div className="rounded-xl border-2 border-white/10 bg-white/[0.02] px-4 py-2.5 flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${scenarioResult.color ? `bg-${scenarioResult.color}-500` : 'bg-slate-400'}`} />
-          <span className="text-xs text-slate-300">{scenarioResult.label}</span>
-          <span className={`text-[10px] font-bold tracking-wide ml-1 ${
-            scenarioResult.confidence === 'HIGH' ? 'text-emerald-400' :
-            scenarioResult.confidence === 'MEDIUM' ? 'text-amber-400' : 'text-slate-500'
-          }`}>{scenarioResult.confidence}</span>
+        <div className={`rounded-xl border-2 ${st.border} ${st.bg} overflow-hidden`}>
+          <div className="px-4 py-3 flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-lg leading-none">{st.icon}</span>
+                <span className={`text-base font-black tracking-tight ${st.text}`}>{st.action}</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${st.border} ${st.text}`}>{st.label}</span>
+              </div>
+              <p className={`text-xs font-medium leading-relaxed ${st.text} opacity-80`}>{alignment.msg}</p>
+            </div>
+          </div>
+          <div className={`px-4 py-1.5 border-t ${st.border} flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-500`}>
+            {regime ? (
+              <>
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${REGIME_META[regime.regime]?.dot ?? 'bg-slate-400'}`} />
+                <span>{REGIME_META[regime.regime]?.label ?? regime.regime}</span>
+                <span className="opacity-40">×</span>
+              </>
+            ) : (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-slate-600" />
+                <span className="text-slate-600">Market closed</span>
+                <span className="opacity-40">×</span>
+              </>
+            )}
+            <span>{scenarioResult.label}</span>
+            {scenarioResult.tradeIntent && <span className="ml-auto opacity-70">{scenarioResult.tradeIntent}</span>}
+          </div>
+          {hasCfluence && (
+            <div className={`px-4 py-1.5 border-t ${st.border} flex items-center gap-3 text-[10px] text-slate-500 dark:text-slate-500`}>
+              {orbLabel && orbAlign && (() => {
+                const { icon, cls } = confluenceIcon(orbAlign);
+                return (
+                  <span className="flex items-center gap-1">
+                    <span className={`font-bold ${cls}`}>{icon}</span>
+                    <span>{orbLabel}</span>
+                  </span>
+                );
+              })()}
+              {sector && sectorAlign && (() => {
+                const { icon, cls } = confluenceIcon(sectorAlign);
+                const sign = sector.changePct >= 0 ? '+' : '';
+                return (
+                  <span className="flex items-center gap-1">
+                    <span className={`font-bold ${cls}`}>{icon}</span>
+                    <span>{sector.name} {sign}{sector.changePct}%</span>
+                  </span>
+                );
+              })()}
+            </div>
+          )}
         </div>
       );
     }
-    return null;
+
+    // ── Scenario ready but regime unavailable (non-INSIDE_ZONE needs regime) ─
+    // e.g. OPEN_SPACE on a weekend. Show neutral card — never hide it.
+    const regimeMsg = regimeState === 'loading'
+      ? 'Market regime loading…'
+      : 'Market closed — regime data unavailable outside trading hours';
+    return (
+      <div className="rounded-xl border-2 border-white/10 bg-white/[0.02] overflow-hidden">
+        <div className="px-4 py-3">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-base leading-none text-slate-500">–</span>
+            <span className="text-sm font-black text-slate-400">No verdict</span>
+            <span className="text-[10px] font-semibold text-slate-600 px-2 py-0.5 rounded-full border border-white/10">
+              {regimeState === 'loading' ? 'Loading…' : 'Market closed'}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 leading-relaxed">{regimeMsg}</p>
+        </div>
+        <div className="px-4 py-1.5 border-t border-white/10 flex items-center gap-2 text-[10px] text-slate-600">
+          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-slate-600" />
+          <span>{regimeState === 'loading' ? 'Regime loading' : 'Market closed'}</span>
+          <span className="opacity-40">×</span>
+          <span>{scenarioResult.label}</span>
+        </div>
+      </div>
+    );
   }
 
-  const alignment = computeRegimeAlignment(regime.regime, scenario, transactionType);
-  if (!alignment) return null;
-
-  const st        = ALIGN_STATUS[alignment.status];
-  const isBullish = BULLISH_SCENARIOS.includes(scenario);
-  const isBearish = BEARISH_SCENARIOS.includes(scenario);
-
-  // Confluence signals from stockContext
-  const orb         = stockContext?.orb;
-  const sector      = stockContext?.sector;
-  const orbLabel    = getOrbLabel(orb);
-  const orbAlign    = getOrbAlign(orb, isBullish, isBearish);
-  const sectorAlign = getSectorAlign(sector?.changePct, isBullish, isBearish);
-  const hasCfluence = orbLabel || sector;
-
+  // ── Nothing loaded yet: loading skeleton ─────────────────────────────────
   return (
-    <div className={`rounded-xl border-2 ${st.border} ${st.bg} overflow-hidden`}>
-      <div className="px-4 py-3 flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-lg leading-none">{st.icon}</span>
-            <span className={`text-base font-black tracking-tight ${st.text}`}>{st.action}</span>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${st.border} ${st.text}`}>{st.label}</span>
-          </div>
-          <p className={`text-xs font-medium leading-relaxed ${st.text} opacity-80`}>{alignment.msg}</p>
-        </div>
+    <div className="rounded-xl border-2 border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.02] px-4 py-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Loader2 size={14} className="animate-spin text-gray-400" />
+        <span className="text-xs text-gray-400">Analysing setup…</span>
       </div>
-      <div className={`px-4 py-1.5 border-t ${st.border} flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-500`}>
-        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${REGIME_META[regime.regime]?.dot ?? 'bg-slate-400'}`} />
-        <span>{REGIME_META[regime.regime]?.label ?? regime.regime}</span>
-        <span className="opacity-40">×</span>
-        <span>{scenarioResult?.label}</span>
-        {scenarioResult?.tradeIntent && (
-          <span className="ml-auto opacity-70">{scenarioResult.tradeIntent}</span>
-        )}
-      </div>
-      {hasCfluence && (
-        <div className={`px-4 py-1.5 border-t ${st.border} flex items-center gap-3 text-[10px] text-slate-500 dark:text-slate-500`}>
-          {orbLabel && orbAlign && (() => {
-            const { icon, cls } = confluenceIcon(orbAlign);
-            return (
-              <span className="flex items-center gap-1">
-                <span className={`font-bold ${cls}`}>{icon}</span>
-                <span>{orbLabel}</span>
-              </span>
-            );
-          })()}
-          {sector && sectorAlign && (() => {
-            const { icon, cls } = confluenceIcon(sectorAlign);
-            const sign = sector.changePct >= 0 ? '+' : '';
-            return (
-              <span className="flex items-center gap-1">
-                <span className={`font-bold ${cls}`}>{icon}</span>
-                <span>{sector.name} {sign}{sector.changePct}%</span>
-              </span>
-            );
-          })()}
-        </div>
-      )}
+      <div className="h-3 bg-black/5 dark:bg-white/5 rounded animate-pulse w-3/4" />
     </div>
   );
 }
@@ -1643,7 +1674,7 @@ function PlaceOrderTab({
 
         <div className="space-y-3">
           {/* ── Verdict — full width ── */}
-          {symbol && <VerdictCard regimeData={regimeData} scenarioResult={scenarioResult} symbol={symbol} isLoading={scenarioLoading} stockContext={stockContext} transactionType={transactionType} />}
+          {symbol && <VerdictCard regimeData={regimeData} scenarioResult={scenarioResult} symbol={symbol} isLoading={scenarioLoading || regimeLoading} stockContext={stockContext} transactionType={transactionType} />}
 
           {/* ── 1×2 grid: Scenario + Regime ── */}
           {symbol && (
