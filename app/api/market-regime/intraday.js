@@ -38,7 +38,8 @@ function calcATR(candles) {
   return sum / (candles.length - 1);
 }
 
-export function detectIntradayRegime(candles) {
+// oiData: { pcr, pcrAtOpen, totalCallOI, totalPutOI } — optional, null = unavailable
+export function detectIntradayRegime(candles, oiData = null) {
   if (!candles || candles.length < 3) {
     return {
       regime: 'INITIALIZING', confidence: 'LOW', signals: [],
@@ -46,6 +47,21 @@ export function detectIntradayRegime(candles) {
       volatilityState: 'UNKNOWN', vwapCrosses: 0, sessionProgress: 0,
     };
   }
+
+  // ── OI / PCR signals ────────────────────────────────────────────────────────
+  // PCR = totalPutOI / totalCallOI (ATM ± 5 strikes, near weekly expiry)
+  // < 0.7  → call-heavy → bulls complacent / shorts covering → squeeze conditions
+  // 0.7–1.2 → neutral
+  // > 1.2  → put-heavy → hedging / fear → liquidation conditions
+  // pcrDelta < 0 (PCR falling intraday) = puts being unwound or calls added → bullish shift
+  // pcrDelta > 0 (PCR rising intraday)  = puts being added or calls unwound → bearish shift
+  const pcr      = oiData?.pcr ?? null;
+  const pcrAtOpen = oiData?.pcrAtOpen ?? null;
+  const pcrDelta  = (pcr != null && pcrAtOpen != null) ? pcr - pcrAtOpen : null;
+  const oiSqueeze      = pcr != null && pcr < 0.7;   // low PCR → squeeze conditions
+  const oiLiquidation  = pcr != null && pcr > 1.2;   // high PCR → liquidation conditions
+  const oiFallingSharply = pcrDelta != null && pcrDelta < -0.15; // PCR dropped → short covering
+  const oiRisingSharply  = pcrDelta != null && pcrDelta >  0.15; // PCR rising  → put buying
 
   const n      = candles.length;
   const latest = candles[n - 1];
@@ -120,11 +136,29 @@ export function detectIntradayRegime(candles) {
     regime = 'TRAP_DAY'; confidence = 'HIGH';
     signals.push('Bear trap — breakdown below OR recovered above VWAP');
   } else if (allUp && volExpanding && priceAboveVwap && (orBreakUp || bullStructure)) {
-    regime = 'SHORT_SQUEEZE'; confidence = 'MEDIUM';
+    regime = 'SHORT_SQUEEZE';
+    // OI confirms: low PCR (shorts covering) or PCR falling sharply = strong squeeze signal
+    confidence = (oiSqueeze || oiFallingSharply) ? 'HIGH' : 'MEDIUM';
     signals.push('4 consecutive green candles · volume surge · above VWAP');
+    if (oiSqueeze)       signals.push(`PCR ${pcr} — call-heavy · short covering likely`);
+    if (oiFallingSharply) signals.push(`PCR fell ${pcrDelta?.toFixed(2)} intraday — puts unwinding`);
+  } else if (!allUp && oiSqueeze && oiFallingSharply && priceAboveVwap && volExpanding) {
+    // OI-only squeeze: price moving up + volume + PCR collapsing — even without 4 straight greens
+    regime = 'SHORT_SQUEEZE'; confidence = 'MEDIUM';
+    signals.push(`PCR ${pcr} (low) · fell ${pcrDelta?.toFixed(2)} intraday — short covering underway`);
+    signals.push('Volume expanding · price above VWAP');
   } else if (allDown && volExpanding && !priceAboveVwap && (orBreakDown || bearStructure)) {
-    regime = 'LONG_LIQUIDATION'; confidence = 'MEDIUM';
+    regime = 'LONG_LIQUIDATION';
+    // OI confirms: high PCR (put buyers / hedgers) or PCR rising sharply = confirmed liquidation
+    confidence = (oiLiquidation || oiRisingSharply) ? 'HIGH' : 'MEDIUM';
     signals.push('4 consecutive red candles · volume surge · below VWAP');
+    if (oiLiquidation)    signals.push(`PCR ${pcr} — put-heavy · forced selling likely`);
+    if (oiRisingSharply)  signals.push(`PCR rose ${pcrDelta?.toFixed(2)} intraday — put buying accelerating`);
+  } else if (!allDown && oiLiquidation && oiRisingSharply && !priceAboveVwap && volExpanding) {
+    // OI-only liquidation: price falling + volume + PCR spiking — even without 4 straight reds
+    regime = 'LONG_LIQUIDATION'; confidence = 'MEDIUM';
+    signals.push(`PCR ${pcr} (high) · rose ${pcrDelta?.toFixed(2)} intraday — put buying / longs exiting`);
+    signals.push('Volume expanding · price below VWAP');
   } else if (orBreakUp && bullStructure && priceAboveVwap && volExpanding) {
     regime = 'TREND_DAY_UP'; confidence = 'HIGH';
     signals.push('OR broken up · HH+HL structure · above VWAP · volume confirming');
@@ -172,5 +206,9 @@ export function detectIntradayRegime(candles) {
     vwapCrosses,
     sessionProgress:       Math.round((n / 75) * 100), // 75 candles ≈ full 6.25h session
     regimeShiftProbability,
+    // OI data (null when unavailable / market closed)
+    pcr,
+    pcrAtOpen,
+    pcrDelta,
   };
 }
