@@ -1,6 +1,7 @@
 import Nav from '../components/Nav'
 import Link from 'next/link'
 import MarketPhaseSection from './MarketPhaseSection'
+import SectorBreadthSection from './SectorBreadthSection'
 
 const TOOLS = [
   {
@@ -100,6 +101,11 @@ export default function InvestingPage() {
       {/* Market Phase — swing context for NIFTY / BANKNIFTY */}
       <div className="max-w-5xl mx-auto px-6 pb-4">
         <MarketPhaseSection />
+      </div>
+
+      {/* Sector Breadth */}
+      <div className="max-w-5xl mx-auto px-6 pb-4">
+        <SectorBreadthSection />
       </div>
 
       {/* Tools grid */}
