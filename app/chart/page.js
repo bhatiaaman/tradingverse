@@ -333,12 +333,12 @@ function ChartPageInner() {
     };
   }, []);
 
-  // Refit chart content after orientation change (let browser reflow settle first)
+  // Full reset after orientation change — clears price pan + refits time scale
   useEffect(() => {
     const onOrientationChange = () => {
       setTimeout(() => {
-        chartRef.current?.timeScale().fitContent();
-      }, 300);
+        resetViewRef.current?.();
+      }, 350);
     };
     window.addEventListener('orientationchange', onOrientationChange);
     return () => window.removeEventListener('orientationchange', onOrientationChange);
@@ -688,28 +688,43 @@ function ChartPageInner() {
     const onDblClick = () => resetChartView();
 
     // ── Touch handlers for vertical pan on mobile/tablet ────────────────────
-    let lastTapTime = 0;
+    // Long press (600ms hold without moving) → reset chart view
+    let longPressTimer = null;
+
+    const cancelLongPress = () => {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    };
 
     const onTouchStart = e => {
-      if (e.touches.length > 1) { dragState.active = false; return; } // let LWC handle pinch
+      if (e.touches.length > 1) { dragState.active = false; cancelLongPress(); return; }
       const t = e.touches[0];
       dragState.active = true;
       dragState.startX = t.clientX;
       dragState.startY = t.clientY;
       dragState.lastY  = t.clientY;
       dragState.dir    = null;
+      // Start long-press timer — fires if finger stays still for 600ms
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        dragState.active = false;
+        dragState.dir    = null;
+        resetChartView();
+        if (navigator.vibrate) navigator.vibrate(40); // haptic feedback if available
+      }, 600);
     };
 
     const onTouchMove = e => {
-      if (e.touches.length > 1) { dragState.active = false; return; } // pinch in progress
+      if (e.touches.length > 1) { dragState.active = false; cancelLongPress(); return; }
       if (!dragState.active) return;
       const t  = e.touches[0];
       const dx = Math.abs(t.clientX - dragState.startX);
       const dy = Math.abs(t.clientY - dragState.startY);
+      // Any movement > 6px cancels long press
+      if (dx > 6 || dy > 6) cancelLongPress();
       if (!dragState.dir && (dx > 3 || dy > 3)) {
         dragState.dir = (dy > dx * 1.5) ? 'v' : 'h';
         if (dragState.dir === 'v') {
-          // Disable LWC's own vertical touch drag + mouse drag — we own vertical now
+          // Disable LWC's own vertical touch drag — we own vertical now
           chartRef.current?.applyOptions({
             handleScroll: { mouseWheel: true, pressedMouseMove: false, horzTouchDrag: true, vertTouchDrag: false },
           });
@@ -723,6 +738,7 @@ function ChartPageInner() {
     };
 
     const onTouchEnd = e => {
+      cancelLongPress();
       if (dragState.active && dragState.dir === 'v') {
         // Restore full LWC scroll handling
         chartRef.current?.applyOptions({
@@ -731,10 +747,6 @@ function ChartPageInner() {
       }
       dragState.active = false;
       dragState.dir    = null;
-      // Double-tap → reset view
-      const now = Date.now();
-      if (now - lastTapTime < 400) resetChartView();
-      lastTapTime = now;
     };
 
     el.addEventListener('mousedown', onMouseDown);
@@ -746,6 +758,7 @@ function ChartPageInner() {
     el.addEventListener('touchend',    onTouchEnd);
 
     return () => {
+      cancelLongPress();
       if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
       if (volChartRef.current) { volChartRef.current.remove(); volChartRef.current = null; }
       candleSeriesRef.current = null;
@@ -916,14 +929,14 @@ function ChartPageInner() {
           {/* LightweightCharts mount point */}
           <div ref={containerRef} className="w-full h-full" />
 
-          {/* Reset view button — bottom-left, clear of price scale */}
+          {/* Reset view button — always visible on mobile, faded on desktop */}
           {!loading && candles.length > 0 && (
             <button
               onClick={() => resetViewRef.current?.()}
-              className={`absolute bottom-6 left-3 z-10 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono ${theme.badgeBg} border ${theme.badgeBorder} ${theme.text2} opacity-50 hover:opacity-100 active:opacity-100 transition-opacity`}
-              title="Reset view (or double-click / double-tap)"
+              className={`absolute bottom-6 left-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-mono ${theme.badgeBg} border ${theme.badgeBorder} ${theme.text2} sm:opacity-40 sm:hover:opacity-100 active:opacity-100 transition-opacity`}
+              title="Reset view (or double-click / long-press)"
             >
-              <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
                 <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
                 <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
               </svg>
