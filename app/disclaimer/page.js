@@ -73,10 +73,10 @@ export default function DisclaimerPage() {
 
           <Section title="Trading Terminal & Order Execution">
             <p>
-              TradingVerse provides a trading terminal that connects to your Zerodha Kite account via the official Kite API. tradingverse.in acts as a front-end interface only and does not execute trades on its own infrastructure. All orders are placed through your broker (Zerodha) and are subject to their terms, conditions, and regulations.
+              TradingVerse provides a trading terminal that connects to your broker account via official broker APIs. tradingverse.in acts as a front-end interface only and does not execute trades on its own infrastructure. All orders are routed through and executed by your connected broker, and are subject to that broker's terms, conditions, and regulations.
             </p>
             <p>
-              tradingverse.in is not responsible for order execution failures, API downtime, slippage, or any other issues arising from broker-side systems. You are solely responsible for verifying all orders before and after placement.
+              tradingverse.in is not responsible for order execution failures, API downtime, slippage, rejected orders, or any other issues arising from broker-side systems. You are solely responsible for verifying all orders before and after placement.
             </p>
           </Section>
 
