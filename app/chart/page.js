@@ -249,6 +249,7 @@ function ChartPageInner() {
   const [stationData, setStationData]     = useState(null);
   const [hoverOHLC, setHoverOHLC]         = useState(null);
   const [isMobile, setIsMobile]           = useState(false);
+  const [isLandscape, setIsLandscape]     = useState(false);
 
   const containerRef     = useRef(null);
   const volContainerRef  = useRef(null);
@@ -317,20 +318,27 @@ function ChartPageInner() {
     fetchAll();
   }, [fetchAll]);
 
-  // Detect mobile/tablet (<640px)
+  // Detect mobile/tablet (<640px) + landscape orientation
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 640);
+    const check = () => {
+      setIsMobile(window.innerWidth < 640);
+      setIsLandscape(window.innerWidth > window.innerHeight);
+    };
     check();
     window.addEventListener('resize', check);
-    return () => window.removeEventListener('resize', check);
+    window.addEventListener('orientationchange', check);
+    return () => {
+      window.removeEventListener('resize', check);
+      window.removeEventListener('orientationchange', check);
+    };
   }, []);
 
-  // Fix layout after orientation change — refit content after browser reflow
+  // Refit chart content after orientation change (let browser reflow settle first)
   useEffect(() => {
     const onOrientationChange = () => {
       setTimeout(() => {
         chartRef.current?.timeScale().fitContent();
-      }, 150);
+      }, 300);
     };
     window.addEventListener('orientationchange', onOrientationChange);
     return () => window.removeEventListener('orientationchange', onOrientationChange);
@@ -553,20 +561,24 @@ function ChartPageInner() {
           crosshair:  { mode: 0, vertLine: { color: 'rgba(120,140,160,0.5)', labelVisible: false }, horzLine: { visible: false } },
           handleScroll: false,
           handleScale:  false,
-          rightPriceScale: { textColor: theme.scaleText, borderColor: 'transparent', scaleMargins: { top: 0.05, bottom: 0 } },
+          // Hide price scale so bars use the full width of the pane
+          rightPriceScale: { visible: false },
+          leftPriceScale:  { visible: false },
           timeScale:   { visible: false, borderColor: 'transparent' },
           autoSize:    true,
         });
         const volSeries = volChart.addHistogramSeries({
-          priceFormat:     { type: 'volume' },
+          priceFormat:      { type: 'volume' },
+          priceScaleId:     'vol',
           lastValueVisible: false,
           priceLineVisible: false,
         });
+        volChart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.02, bottom: 0 } });
         volSeries.setData(display.map((c, i) => ({
           time:  c.time,
           value: c.volume,
           color: i === 0 || c.close >= display[i - 1]?.close
-            ? 'rgba(0,212,170,0.55)' : 'rgba(255,71,87,0.55)',
+            ? 'rgba(0,212,170,0.75)' : 'rgba(255,71,87,0.75)',
         })));
         volChart.timeScale().fitContent();
         volChartRef.current = volChart;
@@ -697,7 +709,10 @@ function ChartPageInner() {
       if (!dragState.dir && (dx > 3 || dy > 3)) {
         dragState.dir = (dy > dx * 1.5) ? 'v' : 'h';
         if (dragState.dir === 'v') {
-          chartRef.current?.applyOptions({ handleScroll: { pressedMouseMove: false, mouseWheel: true } });
+          // Disable LWC's own vertical touch drag + mouse drag — we own vertical now
+          chartRef.current?.applyOptions({
+            handleScroll: { mouseWheel: true, pressedMouseMove: false, horzTouchDrag: true, vertTouchDrag: false },
+          });
         }
       }
       if (dragState.dir !== 'v') return;
@@ -709,7 +724,10 @@ function ChartPageInner() {
 
     const onTouchEnd = e => {
       if (dragState.active && dragState.dir === 'v') {
-        chartRef.current?.applyOptions({ handleScroll: { pressedMouseMove: true, mouseWheel: true } });
+        // Restore full LWC scroll handling
+        chartRef.current?.applyOptions({
+          handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+        });
       }
       dragState.active = false;
       dragState.dir    = null;
@@ -1022,7 +1040,7 @@ function ChartPageInner() {
 
         {/* Volume pane — separate LWC instance, hideable */}
         {settings.showVolume && (
-          <div className={`h-16 sm:h-20 flex-shrink-0 relative border-t ${theme.headerBorder}`}>
+          <div className={`flex-shrink-0 relative border-t ${theme.headerBorder} ${isLandscape ? 'h-12' : 'h-24'}`}>
             <div ref={volContainerRef} className="w-full h-full" />
             <div className={`absolute top-1 left-2 text-[9px] font-mono pointer-events-none select-none ${theme.text2}`}>
               VOL
