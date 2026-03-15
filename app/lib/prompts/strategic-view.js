@@ -180,15 +180,15 @@ After building your base view, steelman the strongest opposing argument:
 
 ## OUTPUT FORMAT
 
-Structure your response exactly as:
+Structure your response exactly as these 7 sections. Be analytically dense — use tight prose and concise bullet points. Avoid padding or repetition between sections. Every sentence must add signal.
 
-1. **Executive Summary** (5 bullet points: the key thesis for ${asset})
-2. **The 5 Most Important Forces** shaping ${asset} right now
-3. **Time-Horizon Matrix** (table: rows = 3M / 6M / 1Y / 3Y / 5Y / 10Y, columns = Base / Bull / Bear)
-4. **Top 3 Contrarian Views** worth taking seriously
-5. **Key Signposts Dashboard**: 8–10 indicators to monitor monthly
-6. **Positioning Framework**: How to size and structure exposure across horizons
-7. **Biggest Conviction Call**: One high-conviction, non-consensus view with full reasoning
+1. **Executive Summary** (4–5 bullets: the sharpest thesis statements for ${asset})
+2. **The 5 Most Important Forces** shaping ${asset} right now (2–3 sentences each)
+3. **Time-Horizon Matrix** (compact markdown table: rows = 3M / 6M / 1Y / 3Y / 5Y / 10Y, columns = Base / Bull / Bear — one tight sentence per cell)
+4. **Top 3 Contrarian Views** worth taking seriously (for each: one-line title, 2-sentence argument, one-sentence historical analogy, one-sentence investment implication — keep each view under 6 lines total)
+5. **Key Signposts Dashboard** (markdown table: 8 indicators, columns = Indicator / Current Reading / Bull Signal / Bear Signal / Frequency)
+6. **Positioning Framework** (3–4 bullets per horizon grouping: near / medium / long term)
+7. **Biggest Conviction Call** (2–3 paragraphs: the one non-consensus view with full chain of reasoning)
 
-Be specific with numbers and price ranges. Flag where consensus is high. Note where models historically break down.`
+Use specific numbers and price ranges throughout. Flag where expert consensus is unusually high. Complete all 7 sections without truncation.`
 }

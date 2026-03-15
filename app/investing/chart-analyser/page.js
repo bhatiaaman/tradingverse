@@ -415,7 +415,42 @@ export default function ChartAnalyserPage() {
   const [dragging, setDragging] = useState(false)
   const [saved, setSaved] = useState(false)
   const [savedTick, setSavedTick] = useState(0)
+  const [sampleAnalysis, setSampleAnalysis] = useState(null)
+  const [sampleDate, setSampleDate] = useState(null)
+  const [analysedAt, setAnalysedAt] = useState(null)
+  const [session, setSession] = useState(undefined)  // undefined = loading, null = guest
+  const [sampleSaved, setSampleSaved] = useState(false)
   const fileInputRef = useRef(null)
+
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then(r => r.json())
+      .then(d => setSession(d.user ?? null))
+      .catch(() => setSession(null))
+    fetch('/api/investing/sample?type=chart')
+      .then(r => r.json())
+      .then(d => {
+        if (d.sample) {
+          // Handle both stored shapes: { analysis: {...}, generatedAt } or direct analysis object
+          const a = d.sample?.analysis ?? d.sample
+          const ts = d.sample?.generatedAt ?? null
+          if (a?.verdict) { setSampleAnalysis(a); setSampleDate(ts) }
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  async function setAsSample() {
+    if (!analysis) return
+    await fetch('/api/investing/sample', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'chart', data: { analysis, generatedAt: Date.now() } }),
+    })
+    setSampleAnalysis(analysis)
+    setSampleDate(Date.now())
+    setSampleSaved(true)
+  }
 
   function saveAnalysis() {
     if (!analysis) return
@@ -430,11 +465,12 @@ export default function ChartAnalyserPage() {
       summary: analysis.verdict?.summary,
       analysis,
     }
-    const next = [entry, ...existing].slice(0, MAX_SAVED)
+    // Replace existing entry for same ticker + timeframe (no duplicates)
+    const deduped = existing.filter(x => !(x.ticker === entry.ticker && x.timeframe === entry.timeframe))
+    const next = [entry, ...deduped].slice(0, MAX_SAVED)
     localStorage.setItem(SAVED_KEY, JSON.stringify(next))
     setSaved(true)
     setSavedTick(t => t + 1)
-    setTimeout(() => setSaved(false), 2000)
   }
 
   const processFile = useCallback((file) => {
@@ -506,6 +542,8 @@ export default function ChartAnalyserPage() {
     setError('')
     setAnalysis(null)
     setLimitReached(false)
+    setSaved(false)
+    setSampleSaved(false)
 
     try {
       // Step 1: detect timeframe (fast, cheap — 64 tokens)
@@ -537,11 +575,12 @@ export default function ChartAnalyserPage() {
       })
       const data = await res.json()
       if (!res.ok) {
-        if (data.limitReached) { setLimitReached(true); return }
+        if (data.limitReached || data.loginRequired) { setLimitReached(true); return }
         throw new Error(data.error || 'Analysis failed')
       }
       setLimitReached(false)
       setAnalysis(data.analysis)
+      setAnalysedAt(Date.now())
       posthog.capture('chart_analysed', {
         timeframe: detectedTf,
         ticker: data.analysis?.ticker,
@@ -563,6 +602,10 @@ export default function ChartAnalyserPage() {
     setError('')
     setTimeframe(null)
     setLoadingStep('')
+    setLimitReached(false)
+    setAnalysedAt(null)
+    setSaved(false)
+    setSampleSaved(false)
   }
 
   return (
@@ -589,7 +632,52 @@ export default function ChartAnalyserPage() {
           </p>
         </div>
 
-        {!analysis ? (
+        {/* Sample analysis — shown only to guests and free users */}
+        {sampleAnalysis && !analysis && (session === null || session?.role === 'user') && (
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4 p-4 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-700/40 rounded-2xl">
+              <div className="w-8 h-8 rounded-full bg-violet-600 flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-violet-900 dark:text-violet-200">
+                  Nifty — Real Analysis Data{sampleDate ? ` · ${new Date(sampleDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+                </p>
+                <p className="text-xs text-violet-700 dark:text-violet-400">
+                  {session === null ? 'As it will look · Login to analyse your own charts. Free, 2/day.' : 'As it will look · Upload your own chart below to get this analysis.'}
+                </p>
+              </div>
+              {session === null && (
+                <Link href="/login" className="flex-shrink-0 text-xs font-bold text-white bg-violet-600 hover:bg-violet-500 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
+                  Login free
+                </Link>
+              )}
+            </div>
+            <AnalysisPanel analysis={sampleAnalysis} />
+          </div>
+        )}
+
+        {/* Guest CTA — no upload interface until logged in */}
+        {session === null && !analysis && (
+          <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-8 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-violet-100 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-800/50 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-violet-600 dark:text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+            <p className="text-slate-900 dark:text-white font-bold mb-1">Login to analyse your chart</p>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mb-5">Free account. 2 analyses per day. No credit card needed.</p>
+            <div className="flex items-center justify-center gap-3">
+              <Link href="/login" className="px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-bold rounded-xl transition-colors">Create free account →</Link>
+              <Link href="/login" className="px-5 py-2.5 border border-slate-200 dark:border-white/10 hover:border-violet-400 dark:hover:border-violet-500/40 text-slate-600 dark:text-slate-400 text-sm font-semibold rounded-xl transition-colors">Sign in</Link>
+            </div>
+          </div>
+        )}
+
+        {session !== null && session !== undefined && !analysis ? (
           <div className="space-y-5">
             {/* Upload zone */}
             <div
@@ -700,9 +788,9 @@ export default function ChartAnalyserPage() {
                 </div>
                 <div>
                   <p className="text-white font-bold text-sm mb-1">Daily Limit Reached</p>
-                  <p className="text-amber-400 text-xs font-semibold mb-2">You've used all 3 free chart analyses for today.</p>
-                  <p className="text-slate-500 text-xs mb-4">Upgrade to Pro for unlimited chart analysis. Resets at midnight.</p>
-                  <a href="/pricing" className="inline-block px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-lg transition-colors">View Plans →</a>
+                  <p className="text-amber-400 text-xs font-semibold mb-2">You've used both analyses for today.</p>
+                  <p className="text-slate-400 text-xs mb-4">Upgrade to Pro for unlimited chart analysis. Resets at midnight IST.</p>
+                  <Link href="/pricing" className="inline-block px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-lg transition-colors">View Plans →</Link>
                 </div>
               </div>
             )}
@@ -731,8 +819,20 @@ export default function ChartAnalyserPage() {
 
             <SavedAnalyses refreshTick={savedTick} onLoad={a => { setAnalysis(a); setPreview(null) }} />
           </div>
-        ) : (
+        ) : null}
+
+        {analysis && (
           <div>
+            {/* Analysis timestamp */}
+            {analysedAt && (
+              <div className="flex items-center gap-2 mb-4 text-xs text-slate-500 dark:text-slate-500">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Analysed {new Date(analysedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </div>
+            )}
+
             {/* Chart preview strip */}
             {preview && (
               <div className="mb-6 rounded-2xl overflow-hidden border border-slate-200 dark:border-white/10">
@@ -775,6 +875,21 @@ export default function ChartAnalyserPage() {
                 Analyse another chart →
               </button>
             </div>
+
+            {/* Admin: set this analysis as the public sample */}
+            {session?.role === 'admin' && (
+              <div className="mt-3 flex justify-end">
+                <button
+                  onClick={setAsSample}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                    sampleSaved
+                      ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-700/50 text-emerald-700 dark:text-emerald-400'
+                      : 'border-dashed border-slate-300 dark:border-white/20 text-slate-500 dark:text-slate-500 hover:border-violet-400 dark:hover:border-violet-500/50 hover:text-violet-600 dark:hover:text-violet-400'
+                  }`}>
+                  {sampleSaved ? '✓ Set as public sample' : '⚙ Set as public sample'}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

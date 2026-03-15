@@ -241,6 +241,12 @@ export default function StrategicViewPage() {
   const [savedViews, setSavedViews] = useState([])
   const [showDrawer, setShowDrawer] = useState(false)
   const [saveTick, setSaveTick]   = useState(false)
+  const [sampleNifty, setSampleNifty]     = useState(null)  // { content, generatedAt } or plain string
+  const [sampleGold, setSampleGold]       = useState(null)
+  const [session, setSession]             = useState(undefined)  // undefined = loading
+  const [sampleSaved, setSampleSaved]     = useState(false)
+  const [loginRequired, setLoginRequired] = useState(false)
+  const [limitReached, setLimitReached]   = useState(false)
   // Manual context form
   const [showContext, setShowContext] = useState(false)
   const [userPrice, setUserPrice] = useState('')
@@ -248,7 +254,21 @@ export default function StrategicViewPage() {
   const outputRef = useRef(null)
   const abortRef  = useRef(null)
 
-  useEffect(() => { setSavedViews(loadSaved()) }, [])
+  useEffect(() => {
+    setSavedViews(loadSaved())
+    fetch('/api/auth/me')
+      .then(r => r.json())
+      .then(d => setSession(d.user ?? null))
+      .catch(() => setSession(null))
+    fetch('/api/investing/sample?type=strategic-view&asset=nifty')
+      .then(r => r.json())
+      .then(d => { if (d.sample) setSampleNifty(d.sample) })
+      .catch(() => {})
+    fetch('/api/investing/sample?type=strategic-view&asset=gold')
+      .then(r => r.json())
+      .then(d => { if (d.sample) setSampleGold(d.sample) })
+      .catch(() => {})
+  }, [])
 
   const activeAsset = useMemo(() => {
     if (custom.trim()) return custom.trim()
@@ -258,7 +278,7 @@ export default function StrategicViewPage() {
   const generate = useCallback(async (refresh = false) => {
     const asset = activeAsset
     if (!asset) return
-    setLoading(true); setContent(''); setDone(false); setError(''); setIsCached(false); setGeneratedAt(null)
+    setLoading(true); setContent(''); setDone(false); setError(''); setIsCached(false); setGeneratedAt(null); setLoginRequired(false); setLimitReached(false); setSampleSaved(false); setSaveTick(false)
     setCurrentAsset(asset)
     abortRef.current?.abort()
     abortRef.current = new AbortController()
@@ -272,7 +292,9 @@ export default function StrategicViewPage() {
       })
 
       if (!res.ok) {
+        if (res.status === 401) { setLoginRequired(true); return }
         const err = await res.json().catch(() => ({}))
+        if (err.limitReached) { setLimitReached(true); return }
         throw new Error(err.error || `Error ${res.status}`)
       }
 
@@ -318,6 +340,21 @@ export default function StrategicViewPage() {
     }
   }, [content, loading])
 
+  async function setAsSample() {
+    if (!content || !currentAsset) return
+    // Determine asset key from currentAsset label
+    const assetKey = currentAsset.toLowerCase().includes('gold') ? 'gold' : 'nifty'
+    await fetch('/api/investing/sample', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'strategic-view', asset: assetKey, data: { content, generatedAt: Date.now() } }),
+    })
+    const sampleObj = { content, generatedAt: Date.now() }
+    if (assetKey === 'gold') setSampleGold(sampleObj)
+    else setSampleNifty(sampleObj)
+    setSampleSaved(true)
+  }
+
   function saveView() {
     const views = loadSaved()
     const entry = { id: Date.now().toString(), asset: currentAsset, content, createdAt: new Date().toISOString() }
@@ -325,7 +362,6 @@ export default function StrategicViewPage() {
     saveToDisk(updated)
     setSavedViews(updated)
     setSaveTick(true)
-    setTimeout(() => setSaveTick(false), 2000)
   }
 
   function deleteView(id) {
@@ -380,7 +416,7 @@ export default function StrategicViewPage() {
                 Multi-horizon strategic view synthesising macro, geopolitics, AI disruption, demographics, and energy dynamics across 3M to 10Y horizons.
               </p>
             </div>
-            {savedViews.length > 0 && (
+            {session && savedViews.length > 0 && (
               <button onClick={() => setShowDrawer(true)}
                 className="flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:border-violet-300 dark:hover:border-violet-500/50 transition-all">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -392,60 +428,112 @@ export default function StrategicViewPage() {
           </div>
         </div>
 
-        {/* Asset selector */}
-        <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-6 mb-6">
-          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-4">Select Asset</p>
+        {/* Asset selector — only for Pro/admin users */}
+        {(session?.role === 'admin' || session?.role === 'trader') && (
+          <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-6 mb-6">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-4">Select Asset</p>
 
-          <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 mb-5">
-            {PRESET_ASSETS.map(a => (
-              <button key={a.id}
-                onClick={() => { setSelected(a.id); setCustom('') }}
-                className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border text-xs font-semibold transition-all ${
-                  selected === a.id && !custom
-                    ? 'bg-violet-50 dark:bg-violet-500/15 border-violet-400 dark:border-violet-500/60 text-violet-700 dark:text-violet-300 shadow-sm'
-                    : 'bg-slate-50 dark:bg-white/[0.02] border-slate-200 dark:border-white/8 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-white/20 hover:text-slate-900 dark:hover:text-white'
-                }`}>
-                <span className="text-lg leading-none">{a.icon}</span>
-                <span className="leading-tight text-center">{a.label}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex-1 relative">
-              <input
-                type="text"
-                placeholder="Or type any asset — Gold, EUR/USD, Copper, Sensex, TSMC…"
-                value={custom}
-                onChange={e => { setCustom(e.target.value); if (e.target.value) setSelected('') }}
-                className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 outline-none focus:border-violet-400 dark:focus:border-violet-500/60 transition-colors"
-              />
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 mb-5">
+              {PRESET_ASSETS.map(a => (
+                <button key={a.id}
+                  onClick={() => { setSelected(a.id); setCustom('') }}
+                  className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border text-xs font-semibold transition-all ${
+                    selected === a.id && !custom
+                      ? 'bg-violet-50 dark:bg-violet-500/15 border-violet-400 dark:border-violet-500/60 text-violet-700 dark:text-violet-300 shadow-sm'
+                      : 'bg-slate-50 dark:bg-white/[0.02] border-slate-200 dark:border-white/8 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-white/20 hover:text-slate-900 dark:hover:text-white'
+                  }`}>
+                  <span className="text-lg leading-none">{a.icon}</span>
+                  <span className="leading-tight text-center">{a.label}</span>
+                </button>
+              ))}
             </div>
-            <button
-              onClick={() => generate(false)}
-              disabled={!activeAsset || loading}
-              className="flex-shrink-0 flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl transition-colors">
-              {loading ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Analysing…
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                  </svg>
-                  Generate View
-                </>
-              )}
-            </button>
-          </div>
-        </div>
 
-        {/* Additional context (collapsible) */}
-        <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl mb-6 overflow-hidden">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  placeholder="Or type any asset — Gold, EUR/USD, Copper, Sensex, TSMC…"
+                  value={custom}
+                  onChange={e => { setCustom(e.target.value); if (e.target.value) setSelected('') }}
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 outline-none focus:border-violet-400 dark:focus:border-violet-500/60 transition-colors"
+                />
+              </div>
+              <button
+                onClick={() => generate(false)}
+                disabled={!activeAsset || loading}
+                className="flex-shrink-0 flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl transition-colors">
+                {loading ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Analysing…
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                    Generate View
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Free user asset selector — Nifty + Crude enabled, rest locked */}
+        {session?.role === 'user' && (
+          <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Select Asset</p>
+              <span className="text-[10px] font-bold tracking-widest uppercase text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 px-2 py-0.5 rounded-full">Free — Nifty &amp; Crude only</span>
+            </div>
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 mb-5">
+              {PRESET_ASSETS.map(a => {
+                const FREE_ASSETS = ['nifty50', 'crudeoil']
+                const allowed = FREE_ASSETS.includes(a.id)
+                return (
+                  <button key={a.id}
+                    onClick={() => allowed && (setSelected(a.id), setCustom(''))}
+                    disabled={!allowed}
+                    className={`relative flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border text-xs font-semibold transition-all ${
+                      allowed
+                        ? selected === a.id && !custom
+                          ? 'bg-violet-50 dark:bg-violet-500/15 border-violet-400 dark:border-violet-500/60 text-violet-700 dark:text-violet-300 shadow-sm'
+                          : 'bg-slate-50 dark:bg-white/[0.02] border-slate-200 dark:border-white/8 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-white/20 hover:text-slate-900 dark:hover:text-white'
+                        : 'bg-slate-50 dark:bg-white/[0.015] border-slate-100 dark:border-white/5 text-slate-300 dark:text-slate-600 cursor-not-allowed'
+                    }`}>
+                    <span className={`text-lg leading-none ${!allowed ? 'opacity-30' : ''}`}>{a.icon}</span>
+                    <span className="leading-tight text-center">{a.label}</span>
+                    {!allowed && (
+                      <span className="absolute top-1 right-1 text-[8px] font-bold text-slate-400 dark:text-slate-600">Pro</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => generate(false)}
+                disabled={!selected || loading || !['nifty50', 'crudeoil'].includes(selected)}
+                className="flex-shrink-0 flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl transition-colors">
+                {loading ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Analysing…
+                  </>
+                ) : 'Generate View'}
+              </button>
+              <p className="text-xs text-slate-400 dark:text-slate-600">Upgrade to Pro for all 7 assets + custom symbols</p>
+            </div>
+          </div>
+        )}
+
+        {/* Additional context (collapsible) — Pro only */}
+        {(session?.role === 'admin' || session?.role === 'trader') && <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl mb-6 overflow-hidden">
           <button
             onClick={() => setShowContext(v => !v)}
             className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors group">
@@ -503,13 +591,104 @@ export default function StrategicViewPage() {
               )}
             </div>
           )}
-        </div>
+        </div>}
+
+        {/* Guest CTA */}
+        {session === null && (
+          <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-8 text-center mb-6">
+            <div className="w-12 h-12 rounded-2xl bg-violet-100 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-800/50 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-violet-600 dark:text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+            <p className="text-slate-900 dark:text-white font-bold mb-1">Login to generate strategic views</p>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mb-5">Free account — see Nifty &amp; Gold samples. Pro — generate for any asset.</p>
+            <div className="flex items-center justify-center gap-3">
+              <Link href="/login" className="px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-bold rounded-xl transition-colors">Create free account →</Link>
+              <Link href="/login" className="px-5 py-2.5 border border-slate-200 dark:border-white/10 hover:border-violet-400 dark:hover:border-violet-500/40 text-slate-600 dark:text-slate-400 text-sm font-semibold rounded-xl transition-colors">Sign in</Link>
+            </div>
+          </div>
+        )}
+
+        {/* Free user upgrade CTA */}
+        {session?.role === 'user' && (
+          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-700/30 rounded-2xl p-4 flex items-center gap-4 mb-6">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-amber-900 dark:text-amber-200">Pro — Generate for any asset</p>
+              <p className="text-xs text-amber-700 dark:text-amber-400">Free account shows pre-generated Nifty &amp; Gold samples. Upgrade for S&amp;P 500, Bitcoin, Crude Oil, and custom assets.</p>
+            </div>
+            <Link href="/pricing" className="flex-shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white text-xs font-bold rounded-xl transition-colors whitespace-nowrap">Upgrade →</Link>
+          </div>
+        )}
+
+        {/* Login required */}
+        {loginRequired && (
+          <div className="bg-violet-950/40 border border-violet-500/20 rounded-2xl p-6 flex flex-col items-center text-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-full bg-violet-600 flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-white font-bold text-sm mb-1">Login to Generate</p>
+              <p className="text-slate-400 text-xs mb-4">Create a free account to run strategic views for any asset. No credit card needed.</p>
+              <div className="flex items-center justify-center gap-3">
+                <Link href="/login" className="px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-lg transition-colors">Create free account →</Link>
+                <Link href="/login" className="px-4 py-2 border border-white/10 hover:border-white/20 text-slate-300 text-xs font-semibold rounded-lg transition-colors">Sign in</Link>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Daily limit reached */}
+        {limitReached && (
+          <div className="bg-violet-950/40 border border-violet-500/20 rounded-2xl p-6 flex flex-col items-center text-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-full bg-violet-600 flex items-center justify-center flex-shrink-0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            </div>
+            <div>
+              <p className="text-white font-bold text-sm mb-1">Daily Limit Reached</p>
+              <p className="text-amber-400 text-xs font-semibold mb-2">You've used all 3 strategic views for today.</p>
+              <p className="text-slate-400 text-xs mb-4">Upgrade to Pro for unlimited analysis. Resets at midnight IST.</p>
+              <Link href="/pricing" className="inline-block px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-lg transition-colors">View Plans →</Link>
+            </div>
+          </div>
+        )}
 
         {/* Error */}
         {error && (
           <div className="bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 rounded-2xl p-5 mb-6">
             <p className="text-rose-600 dark:text-rose-400 font-semibold text-sm mb-1">Generation failed</p>
             <p className="text-rose-500 dark:text-rose-500 text-xs">{error}</p>
+          </div>
+        )}
+
+        {/* Sample strategic views — shown to guests and free users */}
+        {(session === null || session?.role === 'user') && !content && !loading && (
+          <div className="space-y-8 mb-8">
+            {[
+              { key: 'nifty', label: 'Nifty 50', raw: sampleNifty },
+              { key: 'gold',  label: 'Gold',     raw: sampleGold  },
+            ].filter(s => s.raw).map(s => {
+              const isObj = s.raw && typeof s.raw === 'object'
+              const mdContent = isObj ? s.raw.content : s.raw
+              const ts = isObj ? s.raw.generatedAt : null
+              return (
+              <div key={s.key}>
+                <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-6 md:p-8">
+                  <div className="flex items-center justify-between gap-4 mb-6 pb-5 border-b border-slate-100 dark:border-white/8">
+                    <div>
+                      <h2 className="text-xl font-black text-slate-900 dark:text-white">
+                        {s.label} — Real Analysis Data{ts ? ` · ${new Date(ts).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+                      </h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">As it will look · Strategic View</p>
+                    </div>
+                  </div>
+                  <Markdown content={mdContent} />
+                </div>
+              </div>
+            )})}
+
           </div>
         )}
 
@@ -554,6 +733,17 @@ export default function StrategicViewPage() {
                     </svg>
                     Regenerate
                   </button>
+                  {session?.role === 'admin' && (
+                    <button
+                      onClick={setAsSample}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                        sampleSaved
+                          ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-700/50 text-emerald-700 dark:text-emerald-400'
+                          : 'border-dashed border-slate-300 dark:border-white/20 text-slate-500 dark:text-slate-500 hover:border-violet-400 dark:hover:border-violet-500/50 hover:text-violet-600 dark:hover:text-violet-400'
+                      }`}>
+                      {sampleSaved ? '✓ Saved as sample' : '⚙ Set as sample'}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -568,8 +758,8 @@ export default function StrategicViewPage() {
           </div>
         )}
 
-        {/* Empty state */}
-        {!content && !loading && !error && (
+        {/* Empty state — only for Pro users who haven't generated yet */}
+        {!content && !loading && !error && (session?.role === 'admin' || session?.role === 'trader') && (
           <div className="text-center py-16 text-slate-400 dark:text-slate-600">
             <div className="w-12 h-12 mx-auto mb-4 rounded-xl bg-slate-100 dark:bg-white/5 flex items-center justify-center">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

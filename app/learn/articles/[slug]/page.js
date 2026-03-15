@@ -217,7 +217,7 @@ export default async function ArticlePage({ params }) {
   if (!article) notFound()
 
   return (
-    <div className="min-h-screen bg-[#060b14] text-white">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#060b14] text-slate-900 dark:text-white">
 
       <Nav />
 
@@ -225,24 +225,24 @@ export default async function ArticlePage({ params }) {
 
         {/* Breadcrumb */}
         <div className="flex items-center gap-3 mb-10">
-          <Link href="/learn" className="text-slate-600 text-sm hover:text-slate-400 transition-colors">Learn</Link>
-          <span className="text-slate-800">/</span>
-          <Link href="/learn" className="text-slate-600 text-sm hover:text-slate-400 transition-colors">Articles</Link>
-          <span className="text-slate-800">/</span>
-          <span className="text-slate-600 text-sm truncate">{article.title}</span>
+          <Link href="/learn" className="text-slate-500 dark:text-slate-600 text-sm hover:text-slate-700 dark:hover:text-slate-400 transition-colors">Learn</Link>
+          <span className="text-slate-400 dark:text-slate-700">/</span>
+          <Link href="/learn" className="text-slate-500 dark:text-slate-600 text-sm hover:text-slate-700 dark:hover:text-slate-400 transition-colors">Articles</Link>
+          <span className="text-slate-400 dark:text-slate-700">/</span>
+          <span className="text-slate-500 dark:text-slate-600 text-sm truncate">{article.title}</span>
         </div>
 
         {/* Header */}
         <header className="mb-14">
           <div className="flex items-center gap-3 mb-5">
             <span className={`text-[10px] font-bold tracking-widest uppercase ${article.tagColor}`}>{article.tag}</span>
-            <span className="text-slate-700 text-xs">·</span>
-            <span className="text-slate-600 text-xs">{article.readTime} read</span>
-            <span className="text-slate-700 text-xs">·</span>
-            <span className="text-slate-600 text-xs">{article.publishDate}</span>
+            <span className="text-slate-400 dark:text-slate-700 text-xs">·</span>
+            <span className="text-slate-500 dark:text-slate-600 text-xs">{article.readTime} read</span>
+            <span className="text-slate-400 dark:text-slate-700 text-xs">·</span>
+            <span className="text-slate-500 dark:text-slate-600 text-xs">{article.publishDate}</span>
           </div>
-          <h1 className="text-4xl md:text-5xl font-black mb-6 leading-tight">{article.title}</h1>
-          <p className="text-slate-300 text-xl leading-9 font-medium">{article.intro}</p>
+          <h1 className="text-4xl md:text-5xl font-black mb-6 leading-tight text-slate-900 dark:text-white">{article.title}</h1>
+          <p className="text-slate-600 dark:text-slate-300 text-xl leading-9 font-medium">{article.intro}</p>
         </header>
 
         {/* Body */}
@@ -250,22 +250,22 @@ export default async function ArticlePage({ params }) {
           {article.body.map((block, i) => {
             if (block.type === 'p') {
               return (
-                <p key={i} className="text-slate-300 text-base leading-8">
+                <p key={i} className="text-slate-700 dark:text-slate-300 text-base leading-8">
                   {block.content}
                 </p>
               )
             }
             if (block.type === 'h2') {
               return (
-                <h2 key={i} className="text-white text-2xl font-bold mt-12 mb-2">
+                <h2 key={i} className="text-slate-900 dark:text-white text-2xl font-bold mt-12 mb-2">
                   {block.content}
                 </h2>
               )
             }
             if (block.type === 'callout') {
               return (
-                <div key={i} className="my-10 p-6 rounded-2xl border border-blue-900/50 bg-blue-950/20">
-                  <p className="text-blue-200 text-base leading-8 font-medium">{block.content}</p>
+                <div key={i} className="my-10 p-6 rounded-2xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/20">
+                  <p className="text-blue-800 dark:text-blue-200 text-base leading-8 font-medium">{block.content}</p>
                 </div>
               )
             }
@@ -274,11 +274,11 @@ export default async function ArticlePage({ params }) {
         </article>
 
         {/* Footer nav */}
-        <div className="flex items-center justify-between mt-20 pt-8 border-t border-white/5">
-          <Link href="/learn" className="text-slate-400 hover:text-white text-sm font-semibold transition-colors">
+        <div className="flex items-center justify-between mt-20 pt-8 border-t border-slate-200 dark:border-white/5">
+          <Link href="/learn" className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm font-semibold transition-colors">
             ← All Articles
           </Link>
-          <Link href="/learn" className="text-blue-400 hover:text-blue-300 text-sm font-semibold transition-colors">
+          <Link href="/learn" className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 text-sm font-semibold transition-colors">
             Browse Books →
           </Link>
         </div>

@@ -229,19 +229,19 @@ export default async function BookPage({ params }) {
   if (!book) notFound()
 
   return (
-    <div className="min-h-screen bg-[#060b14] text-white">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#060b14] text-slate-900 dark:text-white">
 
       <Nav />
 
       {/* Hero */}
-      <div className="border-b border-white/5">
+      <div className="border-b border-slate-200 dark:border-white/5">
         <div className="max-w-4xl mx-auto px-6 py-16">
           <div className="flex items-center gap-3 mb-8">
-            <Link href="/learn" className="text-slate-600 text-sm hover:text-slate-400 transition-colors">Learn</Link>
-            <span className="text-slate-800">/</span>
-            <Link href="/learn" className="text-slate-600 text-sm hover:text-slate-400 transition-colors">Books</Link>
-            <span className="text-slate-800">/</span>
-            <span className="text-slate-500 text-sm">{book.title}</span>
+            <Link href="/learn" className="text-slate-500 dark:text-slate-600 text-sm hover:text-slate-700 dark:hover:text-slate-400 transition-colors">Learn</Link>
+            <span className="text-slate-400 dark:text-slate-700">/</span>
+            <Link href="/learn" className="text-slate-500 dark:text-slate-600 text-sm hover:text-slate-700 dark:hover:text-slate-400 transition-colors">Books</Link>
+            <span className="text-slate-400 dark:text-slate-700">/</span>
+            <span className="text-slate-500 dark:text-slate-500 text-sm">{book.title}</span>
           </div>
 
           <div className="flex items-start gap-8">
@@ -252,11 +252,11 @@ export default async function BookPage({ params }) {
                   {book.category}
                 </span>
                 <span className={`text-xs font-bold ${book.diffColor}`}>{book.difficulty}</span>
-                <span className="text-slate-700 text-xs">{book.pages} pages · {book.readTime} read</span>
+                <span className="text-slate-500 dark:text-slate-700 text-xs">{book.pages} pages · {book.readTime} read</span>
               </div>
               <h1 className="text-4xl md:text-5xl font-black mb-2 leading-tight">{book.title}</h1>
-              <p className="text-slate-400 text-lg mb-5">by {book.author} · {book.year}</p>
-              <p className="text-slate-300 text-lg font-medium leading-relaxed italic border-l-2 border-blue-500/50 pl-4">
+              <p className="text-slate-500 dark:text-slate-400 text-lg mb-5">by {book.author} · {book.year}</p>
+              <p className="text-slate-600 dark:text-slate-300 text-lg font-medium leading-relaxed italic border-l-2 border-blue-500/50 pl-4">
                 {book.tagline}
               </p>
             </div>
@@ -268,22 +268,22 @@ export default async function BookPage({ params }) {
 
         {/* Summary */}
         <section>
-          <p className="text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-6">Overview</p>
-          <div className="prose prose-invert max-w-none">
+          <p className="text-violet-600 dark:text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-6">Overview</p>
+          <div className="max-w-none">
             {book.summary.split('\n\n').map((para, i) => (
-              <p key={i} className="text-slate-300 text-base leading-8 mb-5 last:mb-0">{para}</p>
+              <p key={i} className="text-slate-700 dark:text-slate-300 text-base leading-8 mb-5 last:mb-0">{para}</p>
             ))}
           </div>
         </section>
 
         {/* Key Themes */}
         <section>
-          <p className="text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-6">Key Themes</p>
+          <p className="text-violet-600 dark:text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-6">Key Themes</p>
           <div className="space-y-5">
             {book.keyThemes.map((theme, i) => (
-              <div key={i} className="p-6 rounded-2xl border border-white/8 bg-white/[0.02]">
-                <h3 className="text-white font-bold text-base mb-3">{theme.title}</h3>
-                <p className="text-slate-400 text-sm leading-7">{theme.content}</p>
+              <div key={i} className="p-6 rounded-2xl border border-slate-200 dark:border-white/8 bg-white dark:bg-white/[0.02]">
+                <h3 className="text-slate-900 dark:text-white font-bold text-base mb-3">{theme.title}</h3>
+                <p className="text-slate-600 dark:text-slate-400 text-sm leading-7">{theme.content}</p>
               </div>
             ))}
           </div>
@@ -291,14 +291,14 @@ export default async function BookPage({ params }) {
 
         {/* Core Lessons */}
         <section>
-          <p className="text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-6">What You Will Learn</p>
+          <p className="text-violet-600 dark:text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-6">What You Will Learn</p>
           <div className="space-y-0">
             {book.lessons.map((lesson, i) => (
-              <div key={i} className="flex gap-6 py-7 border-b border-white/5 last:border-0">
-                <span className="text-slate-700 text-xs font-bold font-mono tracking-widest mt-0.5 shrink-0 w-8">{lesson.num}</span>
+              <div key={i} className="flex gap-6 py-7 border-b border-slate-200 dark:border-white/5 last:border-0">
+                <span className="text-slate-400 dark:text-slate-700 text-xs font-bold font-mono tracking-widest mt-0.5 shrink-0 w-8">{lesson.num}</span>
                 <div>
-                  <h3 className="text-white font-bold mb-2">{lesson.title}</h3>
-                  <p className="text-slate-400 text-sm leading-7">{lesson.body}</p>
+                  <h3 className="text-slate-900 dark:text-white font-bold mb-2">{lesson.title}</h3>
+                  <p className="text-slate-600 dark:text-slate-400 text-sm leading-7">{lesson.body}</p>
                 </div>
               </div>
             ))}
@@ -307,12 +307,12 @@ export default async function BookPage({ params }) {
 
         {/* Quotes */}
         <section>
-          <p className="text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-6">Memorable Quotes</p>
+          <p className="text-violet-600 dark:text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-6">Memorable Quotes</p>
           <div className="space-y-5">
             {book.quotes.map((quote, i) => (
-              <blockquote key={i} className="p-6 rounded-2xl border border-white/8 bg-white/[0.02]">
-                <p className="text-white text-base leading-8 font-medium mb-4">"{quote.text}"</p>
-                <p className="text-slate-600 text-xs font-semibold tracking-wide">— {quote.context}</p>
+              <blockquote key={i} className="p-6 rounded-2xl border border-slate-200 dark:border-white/8 bg-white dark:bg-white/[0.02]">
+                <p className="text-slate-900 dark:text-white text-base leading-8 font-medium mb-4">"{quote.text}"</p>
+                <p className="text-slate-500 dark:text-slate-600 text-xs font-semibold tracking-wide">— {quote.context}</p>
               </blockquote>
             ))}
           </div>
@@ -320,26 +320,26 @@ export default async function BookPage({ params }) {
 
         {/* Who Should Read */}
         <section>
-          <p className="text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-6">Who Should Read This</p>
-          <div className="p-6 rounded-2xl border border-white/8 bg-white/[0.02]">
-            <p className="text-slate-300 text-base leading-8">{book.whoShouldRead}</p>
+          <p className="text-violet-600 dark:text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-6">Who Should Read This</p>
+          <div className="p-6 rounded-2xl border border-slate-200 dark:border-white/8 bg-white dark:bg-white/[0.02]">
+            <p className="text-slate-700 dark:text-slate-300 text-base leading-8">{book.whoShouldRead}</p>
           </div>
         </section>
 
         {/* TL;DR */}
         <section>
-          <div className="p-8 rounded-2xl border border-blue-900/50 bg-blue-950/20">
-            <p className="text-blue-400 text-xs font-bold tracking-[0.2em] uppercase mb-4">TL;DR</p>
-            <p className="text-white text-lg font-semibold leading-8">{book.tldr}</p>
+          <div className="p-8 rounded-2xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/20">
+            <p className="text-blue-600 dark:text-blue-400 text-xs font-bold tracking-[0.2em] uppercase mb-4">TL;DR</p>
+            <p className="text-slate-900 dark:text-white text-lg font-semibold leading-8">{book.tldr}</p>
           </div>
         </section>
 
         {/* Back to Learn */}
-        <div className="flex items-center justify-between pt-4 border-t border-white/5">
-          <Link href="/learn" className="text-slate-400 hover:text-white text-sm font-semibold transition-colors">
+        <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-white/5">
+          <Link href="/learn" className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm font-semibold transition-colors">
             ← All Books
           </Link>
-          <Link href="/learn" className="text-blue-400 hover:text-blue-300 text-sm font-semibold transition-colors">
+          <Link href="/learn" className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 text-sm font-semibold transition-colors">
             Browse Articles →
           </Link>
         </div>
