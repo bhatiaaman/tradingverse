@@ -328,7 +328,8 @@ function AnalysisPanel({ analysis }) {
 
       {/* Disclaimer */}
       <p className="text-slate-400 dark:text-slate-700 text-xs text-center leading-5 pt-2">
-        AI analysis for educational purposes only. Not investment advice. Always do your own research.
+        AI analysis for educational purposes only. Not investment advice. Always do your own research.{' '}
+        <Link href="/disclaimer" className="underline underline-offset-2 hover:text-slate-500 dark:hover:text-slate-500 transition-colors">Disclaimer →</Link>
       </p>
     </div>
   )

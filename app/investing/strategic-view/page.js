@@ -773,8 +773,8 @@ export default function StrategicViewPage() {
 
         {/* Disclaimer */}
         <p className="text-center text-xs text-slate-400 dark:text-slate-600 mt-8 leading-5">
-          AI-generated strategic analysis for educational purposes only.<br />
-          Not financial advice. Always do your own research before investing.
+          AI-generated strategic analysis for educational purposes only. Not financial advice.<br />
+          Always do your own research before investing. <Link href="/disclaimer" className="underline underline-offset-2 hover:text-slate-500 dark:hover:text-slate-500 transition-colors">Read full disclaimer →</Link>
         </p>
       </div>
     </div>

@@ -456,8 +456,9 @@ export default function Home() {
               <Link href="/learn"            className="hover:text-slate-700 dark:hover:text-slate-300 transition-colors">Articles</Link>
               <Link href="/learn"            className="hover:text-slate-700 dark:hover:text-slate-300 transition-colors">Books</Link>
               <a    href="mailto:hello@tradingverse.in" className="hover:text-slate-700 dark:hover:text-slate-300 transition-colors">Contact</a>
+              <Link href="/disclaimer"       className="hover:text-slate-700 dark:hover:text-slate-300 transition-colors">Disclaimer</Link>
             </div>
-            <p className="text-slate-400 dark:text-slate-700 text-xs">© 2025 TradingVerse</p>
+            <p className="text-slate-400 dark:text-slate-700 text-xs">© 2026 TradingVerse</p>
           </div>
         </footer>
 
