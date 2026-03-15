@@ -2,13 +2,15 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 import { Redis } from '@upstash/redis'
 import { SYSTEM_PROMPT, TIMEFRAME_DETECT_PROMPT, buildUserPrompt } from '@/app/lib/prompts/chart-analyser'
-import { requireSession, unauthorized } from '@/app/lib/session'
+import { requireSession } from '@/app/lib/session'
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const redis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN })
 const NS = process.env.REDIS_NAMESPACE || 'tradingverse'
-const FREE_DAILY_LIMIT = 3
+
+const GUEST_DAILY_LIMIT = 1   // no login
+const FREE_DAILY_LIMIT  = 5   // free account
 
 async function callClaude({ system, userPrompt, image, mediaType, maxTokens }) {
   const msg = await client.messages.create({
@@ -30,30 +32,54 @@ async function callClaude({ system, userPrompt, image, mediaType, maxTokens }) {
 }
 
 export async function POST(req) {
-  const session = await requireSession()
-  if (!session) return unauthorized()
+  const session = await requireSession()   // null if not logged in — intentional
 
   const rl = await checkLimit(intelligenceLimiter, req)
   if (rl.limited) return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
 
-  // Free users: 3 analyses per day (admin = unlimited)
-  if (session.role !== 'admin') {
-    const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
-    const usageKey = `${NS}:usage:chart-analyser:${session.email}:${today}`
-    const used = await redis.incr(usageKey)
-    if (used === 1) await redis.expire(usageKey, 86400) // expire at end of day
-    if (used > FREE_DAILY_LIMIT) {
-      return NextResponse.json({
-        error: 'Daily limit reached',
-        limitReached: true,
-        used: FREE_DAILY_LIMIT,
-        limit: FREE_DAILY_LIMIT,
-      }, { status: 429 })
+  // Parse body early so we can skip limit check for detectOnly (timeframe detection is
+  // a cheap pre-flight call, not a full analysis — shouldn't count against quota)
+  let body
+  try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid request' }, { status: 400 }) }
+  const { image, mediaType = 'image/jpeg', timeframe, detectOnly = false } = body
+
+  if (!detectOnly) {
+    // IST date for consistent daily reset at midnight IST regardless of server timezone
+    const istDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10)
+
+    if (!session) {
+      // Guest (no login): 1 analysis/day per IP
+      const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+      const key = `${NS}:usage:chart-analyser:ip:${ip}:${istDate}`
+      const used = await redis.incr(key)
+      if (used === 1) await redis.expire(key, 86400)
+      if (used > GUEST_DAILY_LIMIT) {
+        return NextResponse.json({
+          error: 'You\'ve used your free analysis for today.',
+          limitReached: true,
+          used: GUEST_DAILY_LIMIT,
+          limit: GUEST_DAILY_LIMIT,
+          guestLimit: true,  // frontend uses this to show "sign up for 5/day" CTA
+        }, { status: 429 })
+      }
+    } else if (session.role !== 'admin' && session.role !== 'trader') {
+      // Free account: 5 analyses/day
+      const key = `${NS}:usage:chart-analyser:${session.email}:${istDate}`
+      const used = await redis.incr(key)
+      if (used === 1) await redis.expire(key, 86400)
+      if (used > FREE_DAILY_LIMIT) {
+        return NextResponse.json({
+          error: 'You\'ve used all 5 analyses for today.',
+          limitReached: true,
+          used: FREE_DAILY_LIMIT,
+          limit: FREE_DAILY_LIMIT,
+        }, { status: 429 })
+      }
     }
+    // admin / trader: unlimited — no counter
   }
 
   try {
-    const { image, mediaType = 'image/jpeg', timeframe, detectOnly = false } = await req.json()
 
     if (!image) return NextResponse.json({ error: 'No image provided' }, { status: 400 })
 
