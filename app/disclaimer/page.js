@@ -58,13 +58,16 @@ export default function DisclaimerPage() {
 
           <Section title="AI Tools Disclaimer">
             <p>
-              TradingVerse uses AI-powered tools including Chart Analyser, Connect the Dots (Strategic View), Market Commentary, Scenario Synthesis, and Behavioural Agents. These tools are for informational and educational purposes only and must not be considered as investment advice.
+              TradingVerse uses AI-powered features including Chart Analyser (AI vision analysis of uploaded charts) and Connect the Dots — Strategic View (AI-generated macro analysis). These are for informational and educational purposes only and must not be considered as investment advice.
             </p>
             <p>
               AI-generated analysis is based on pattern recognition, publicly available data, and probabilistic modelling. It may not be accurate, complete, or up-to-date. Market conditions change rapidly and AI models have knowledge cutoffs that may not reflect the latest developments.
             </p>
             <p>
-              You should not rely solely on AI-generated analysis to make investment decisions. tradingverse.in is not responsible for any losses or damages arising from the use of its AI tools. All investment decisions should be made with the help of a qualified and registered financial advisor.
+              Other features on TradingVerse — including Market Commentary, Scenario Synthesis, Order Intelligence, and Behavioural Agents — are algorithmic and rule-based tools, not AI. They process live market data through deterministic logic to surface information. They carry the same limitation: they are informational only and not financial advice.
+            </p>
+            <p>
+              You should not rely solely on any tool or analysis on this platform to make investment decisions. tradingverse.in is not responsible for any losses or damages arising from the use of its tools. All investment decisions should be made with the help of a qualified and registered financial advisor.
             </p>
           </Section>
 
