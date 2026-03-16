@@ -7,7 +7,7 @@
  * Main entry point
  * @param {Object} data
  * @param {Object} data.price      - { current, dayHigh, dayLow, change5min }
- * @param {Object} data.indicators - { rsi, rsiHistory: number[] }
+ * @param {Object} data.indicators - { rsi, rsiHistory: number[], macdData: { histogram, prevHistogram, lastCross } }
  * @param {Object} data.volume     - { current, avg, lastCandle: {open, close} }
  * @param {Object} data.oi         - { callOIChange5min, putOIChange5min, pcr }
  * @param {Object} data.levels     - { support: {level, oiChange, strength}, resistance: {level, oiChange, strength} }
@@ -17,17 +17,23 @@
 export function detectReversalZone(data) {
   const signals = [];
 
-  const rangeSignal  = checkPriceExtremes(data);
-  const rsiSignal    = checkRSIReversal(data);
-  const volSignal    = checkVolumeReversal(data);
-  const oiSignal     = checkOIDivergence(data);
-  const levelSignal  = checkKeyLevelTest(data);
+  const rangeSignal    = checkPriceExtremes(data);
+  const rsiSignal      = checkRSIReversal(data);
+  const volSignal      = checkVolumeReversal(data);
+  const oiSignal       = checkOIDivergence(data);
+  const levelSignal    = checkKeyLevelTest(data);
+  const candleSignal   = checkCandlePattern(data);
+  const rsiVelSignal   = checkRSIVelocity(data);
+  const macdSignal     = checkMACDCross(data);
 
-  if (rangeSignal)  signals.push(rangeSignal);
-  if (rsiSignal)    signals.push(rsiSignal);
-  if (volSignal)    signals.push(volSignal);
-  if (oiSignal)     signals.push(oiSignal);
-  if (levelSignal)  signals.push(levelSignal);
+  if (rangeSignal)    signals.push(rangeSignal);
+  if (rsiSignal)      signals.push(rsiSignal);
+  if (volSignal)      signals.push(volSignal);
+  if (oiSignal)       signals.push(oiSignal);
+  if (levelSignal)    signals.push(levelSignal);
+  if (candleSignal)   signals.push(candleSignal);
+  if (rsiVelSignal)   signals.push(rsiVelSignal);
+  if (macdSignal)     signals.push(macdSignal);
 
   return synthesizeSignals(signals, data);
 }
@@ -274,6 +280,186 @@ function checkKeyLevelTest(data) {
         watch: 'Strong resistance - rejection likely',
       };
     }
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Signal 6: Candlestick reversal patterns (pin bar, hammer, engulfing)
+// ─────────────────────────────────────────────────────────────────────
+function checkCandlePattern(data) {
+  const { lastCandle, prevCandle } = data.volume || {};
+  if (!lastCandle) return null;
+
+  const { open, high, low, close } = lastCandle;
+  const range      = high - low;
+  if (range <= 0) return null;
+
+  const body       = Math.abs(close - open);
+  const upperWick  = high - Math.max(open, close);
+  const lowerWick  = Math.min(open, close) - low;
+  const midpoint   = (high + low) / 2;
+
+  // ── Hammer / Pin bar (bullish reversal from lows) ──
+  // Long lower wick (≥ 2× body), small upper wick, close above midpoint
+  if (
+    body > 0 &&
+    lowerWick >= body * 2 &&
+    lowerWick >= range * 0.5 &&
+    close > midpoint
+  ) {
+    return {
+      type:      'HAMMER',
+      direction: 'BULLISH',
+      strength:  lowerWick >= body * 3 ? 'STRONG' : 'MODERATE',
+      message:   `Hammer / pin bar at ${low.toFixed(0)} — strong rejection of lows`,
+      watch:     'Buyers stepped in aggressively. Watch next candle for confirmation.',
+    };
+  }
+
+  // ── Shooting Star (bearish reversal from highs) ──
+  // Long upper wick (≥ 2× body), small lower wick, close below midpoint
+  if (
+    body > 0 &&
+    upperWick >= body * 2 &&
+    upperWick >= range * 0.5 &&
+    close < midpoint
+  ) {
+    return {
+      type:      'SHOOTING_STAR',
+      direction: 'BEARISH',
+      strength:  upperWick >= body * 3 ? 'STRONG' : 'MODERATE',
+      message:   `Shooting star at ${high.toFixed(0)} — rejection of highs`,
+      watch:     'Sellers took control at highs. Watch for follow-through selling.',
+    };
+  }
+
+  // ── Engulfing patterns (need prev candle) ──
+  if (!prevCandle) return null;
+
+  const prevBody = Math.abs(prevCandle.close - prevCandle.open);
+
+  // Bullish engulfing: prev = bearish candle, current = bullish candle that fully covers prev body
+  if (
+    prevCandle.close < prevCandle.open &&  // prev was bearish
+    close > open &&                         // current is bullish
+    body > prevBody * 1.1 &&               // current body > prev body (with buffer)
+    open <= prevCandle.close &&            // opened at or below prev close
+    close >= prevCandle.open              // closed at or above prev open
+  ) {
+    return {
+      type:      'BULLISH_ENGULFING',
+      direction: 'BULLISH',
+      strength:  body >= prevBody * 1.5 ? 'STRONG' : 'MODERATE',
+      message:   `Bullish engulfing candle at ${close.toFixed(0)} — absorbs prior selling`,
+      watch:     'Strong reversal signal. Watch for volume confirmation.',
+    };
+  }
+
+  // Bearish engulfing: prev = bullish candle, current = bearish candle that fully covers prev body
+  if (
+    prevCandle.close > prevCandle.open &&  // prev was bullish
+    close < open &&                         // current is bearish
+    body > prevBody * 1.1 &&
+    open >= prevCandle.close &&
+    close <= prevCandle.open
+  ) {
+    return {
+      type:      'BEARISH_ENGULFING',
+      direction: 'BEARISH',
+      strength:  body >= prevBody * 1.5 ? 'STRONG' : 'MODERATE',
+      message:   `Bearish engulfing candle at ${close.toFixed(0)} — absorbs prior buying`,
+      watch:     'Strong reversal signal. Watch for follow-through selling.',
+    };
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Signal 7: RSI velocity (rapid RSI change mid-session)
+// ─────────────────────────────────────────────────────────────────────
+function checkRSIVelocity(data) {
+  const { rsi, rsiHistory } = data.indicators || {};
+  if (rsi == null || !Array.isArray(rsiHistory) || rsiHistory.length < 3) return null;
+
+  // Compare current RSI vs 3 periods ago (not just oversold/overbought turning)
+  const prev = rsiHistory[rsiHistory.length - 3];
+  if (prev == null) return null;
+  const delta = rsi - prev;
+
+  if (delta >= 8 && rsi > 40) {
+    return {
+      type:      'RSI_VELOCITY_UP',
+      direction: 'BULLISH',
+      strength:  delta >= 12 ? 'STRONG' : 'MODERATE',
+      message:   `RSI surged +${delta.toFixed(1)} pts in 3 candles — rapid momentum shift`,
+      watch:     'Sharp RSI upturn signals reversal attempt. Confirm with price close above prior high.',
+    };
+  }
+
+  if (delta <= -8 && rsi < 60) {
+    return {
+      type:      'RSI_VELOCITY_DOWN',
+      direction: 'BEARISH',
+      strength:  delta <= -12 ? 'STRONG' : 'MODERATE',
+      message:   `RSI dropped ${delta.toFixed(1)} pts in 3 candles — momentum collapsing`,
+      watch:     'Sharp RSI fall signals reversal attempt. Confirm with price close below prior low.',
+    };
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Signal 8: MACD histogram cross / pending cross
+// ─────────────────────────────────────────────────────────────────────
+function checkMACDCross(data) {
+  const macdData = data.indicators?.macdData;
+  if (!macdData?.lastCross) return null;
+
+  const { lastCross, histogram, prevHistogram } = macdData;
+  const expanding = Math.abs(histogram) > Math.abs(prevHistogram ?? 0);
+
+  if (lastCross === 'BULLISH') {
+    return {
+      type:      'MACD_BULLISH_CROSS',
+      direction: 'BULLISH',
+      strength:  expanding ? 'STRONG' : 'MODERATE',
+      message:   'MACD crossed above signal line — bullish momentum confirmed',
+      watch:     'Watch for price follow-through above nearest resistance.',
+    };
+  }
+
+  if (lastCross === 'BEARISH') {
+    return {
+      type:      'MACD_BEARISH_CROSS',
+      direction: 'BEARISH',
+      strength:  expanding ? 'STRONG' : 'MODERATE',
+      message:   'MACD crossed below signal line — bearish momentum confirmed',
+      watch:     'Watch for price follow-through below nearest support.',
+    };
+  }
+
+  if (lastCross === 'BULLISH_PENDING') {
+    return {
+      type:      'MACD_BULLISH_PENDING',
+      direction: 'BULLISH',
+      strength:  'MODERATE',
+      message:   'MACD histogram shrinking from below — bullish cross forming',
+      watch:     'Momentum shifting. Watch for MACD line to cross above signal.',
+    };
+  }
+
+  if (lastCross === 'BEARISH_PENDING') {
+    return {
+      type:      'MACD_BEARISH_PENDING',
+      direction: 'BEARISH',
+      strength:  'MODERATE',
+      message:   'MACD histogram weakening from above — bearish cross forming',
+      watch:     'Momentum fading. Watch for MACD line to cross below signal.',
+    };
   }
 
   return null;

@@ -66,6 +66,21 @@ export function playReversalBuilding() {
 }
 
 /**
+ * Intraday sentiment crossed the 50 neutral line — gentle two-tone
+ * UP: ascending (crossing into bullish territory)
+ * DOWN: descending (crossing into bearish territory)
+ */
+export function playSentiment50Cross(direction) {
+  if (direction === 'UP') {
+    playTone({ freq: 500, duration: 0.16, gain: 0.12, type: 'sine' })
+    playTone({ freq: 700, duration: 0.16, gain: 0.12, type: 'sine', delay: 0.14 })
+  } else {
+    playTone({ freq: 500, duration: 0.16, gain: 0.12, type: 'sine' })
+    playTone({ freq: 340, duration: 0.20, gain: 0.12, type: 'sine', delay: 0.14 })
+  }
+}
+
+/**
  * Order executed (COMPLETE) — loud, distinct three-tone confirmation
  * High gain so it cuts through even with speakers at medium volume
  */

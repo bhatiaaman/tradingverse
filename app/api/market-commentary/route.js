@@ -117,6 +117,43 @@ function calcVWAP(candles) {
   return cumVol > 0 ? cumTP / cumVol : null;
 }
 
+function calcMACD(closes) {
+  if (!closes || closes.length < 35) return null;
+  const k12 = 2 / 13, k26 = 2 / 27, k9 = 2 / 10;
+
+  let ema12 = closes.slice(0, 12).reduce((s, c) => s + c, 0) / 12;
+  let ema26 = closes.slice(0, 26).reduce((s, c) => s + c, 0) / 26;
+
+  const macdLine = [];
+  for (let i = 12; i < closes.length; i++) {
+    ema12 = closes[i] * k12 + ema12 * (1 - k12);
+    if (i >= 25) {
+      ema26 = closes[i] * k26 + ema26 * (1 - k26);
+      macdLine.push(ema12 - ema26);
+    }
+  }
+
+  if (macdLine.length < 9) return null;
+
+  let signalEMA = macdLine.slice(0, 9).reduce((s, c) => s + c, 0) / 9;
+  let prevHistogram = macdLine[8] - signalEMA;
+  let histogram = prevHistogram;
+
+  for (let i = 9; i < macdLine.length; i++) {
+    signalEMA = macdLine[i] * k9 + signalEMA * (1 - k9);
+    prevHistogram = histogram;
+    histogram = macdLine[i] - signalEMA;
+  }
+
+  let lastCross = null;
+  if (prevHistogram < 0 && histogram >= 0)      lastCross = 'BULLISH';
+  else if (prevHistogram >= 0 && histogram < 0)  lastCross = 'BEARISH';
+  else if (histogram > 0 && prevHistogram > 0 && histogram < prevHistogram * 0.3) lastCross = 'BEARISH_PENDING';
+  else if (histogram < 0 && prevHistogram < 0 && histogram > prevHistogram * 0.3) lastCross = 'BULLISH_PENDING';
+
+  return { histogram, prevHistogram, lastCross };
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Kite 5-minute intraday candles (today only)
 // ─────────────────────────────────────────────────────────────────────
@@ -195,12 +232,14 @@ async function fetchIntradayCandles(dp) {
     return {
       rsi:           calcRSI(closes),
       rsiHistory:    calcRSIHistory(closes, 14, 5),
+      macdData:      calcMACD(closes),
       vwap:          calcVWAP(todayCandles),
       ema21:         calcEMA(closes, 21),
       volumeAvg:     volAvg,
       volumeCurrent: volCurrent,
       volumeSpike,
       lastCandle,
+      prevCandle:    prev5candle,
       change5min,
       trendDirection,
       orHigh:      orCandle?.high || null,
@@ -572,11 +611,12 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
   // ── Reversal Zone Detection ──
   const reversalData = {
     price:      { current: spot, dayHigh: niftyHigh, dayLow: niftyLow, change5min },
-    indicators: { rsi, rsiHistory },
+    indicators: { rsi, rsiHistory, macdData: intraday?.macdData || null },
     volume:     {
       current:    intraday?.volumeCurrent || 0,
       avg:        intraday?.volumeAvg     || 0,
       lastCandle: intraday?.lastCandle    || null,
+      prevCandle: intraday?.prevCandle    || null,
       spike:      intraday?.volumeSpike   || false,
     },
     oi: {

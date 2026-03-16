@@ -447,7 +447,12 @@ export async function GET(request) {
     const pcrValue     = includePCR ? parseFloat(includePCR) : null;
 
     const NS = process.env.REDIS_NAMESPACE || 'prod';
-    const cacheKey = `${NS}:sentiment:market`;
+    const cacheKey   = `${NS}:sentiment:market`;
+    const historyKey = `${NS}:sentiment:intraday-history`;
+
+    // Always read current intraday history (live list, always fresh)
+    const rawHistory = await redis.lrange(historyKey, 0, -1).catch(() => []);
+    const intradayHistory = rawHistory.map(r => (typeof r === 'string' ? JSON.parse(r) : r));
 
     // Serve cache unless explicitly force-refreshed
     const cached = await redis.get(cacheKey).catch(() => null);
@@ -475,9 +480,9 @@ export async function GET(request) {
           stockSentiment = await fetchMultiSymbolSentiment(tvSymbols);
           await redis.set(stockKey, stockSentiment, { ex: 300 }).catch(() => {});
         }
-        return NextResponse.json({ ...cached, stocks: stockSentiment, cached: true });
+        return NextResponse.json({ ...cached, intradayHistory, stocks: stockSentiment, cached: true });
       }
-      return NextResponse.json({ ...cached, cached: true });
+      return NextResponse.json({ ...cached, intradayHistory, cached: true });
     }
 
     // Fetch all in parallel
@@ -517,6 +522,14 @@ export async function GET(request) {
       telegram: { available: false },
     };
 
+    // Append intraday score to history during market hours (keep last 10)
+    if (isMarketHours() && intradayBias.score != null) {
+      const entry = JSON.stringify({ score: intradayBias.score, t: new Date().toISOString() });
+      await redis.rpush(historyKey, entry).catch(() => {});
+      await redis.ltrim(historyKey, -10, -1).catch(() => {});
+      intradayHistory.push({ score: intradayBias.score, t: new Date().toISOString() });
+    }
+
     const cacheTTL = isMarketHours() ? 300 : 1800;
     await redis.set(cacheKey, result, { ex: cacheTTL }).catch(() => {});
 
@@ -528,7 +541,8 @@ export async function GET(request) {
       result.stocks = stockSentiment;
     }
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, intradayHistory });
+
   } catch (error) {
     console.error('Sentiment API error:', error);
     return NextResponse.json({ error: 'Failed to fetch sentiment data', details: error.message }, { status: 500 });

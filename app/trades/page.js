@@ -5,7 +5,7 @@
   import { RefreshCw, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
   import Nav from '../components/Nav';
   import { usePageVisibility } from '@/app/hooks/usePageVisibility';
-  import { playBullishFlip, playBearishFlip, playReversalAlert, playWarningPing, playReversalBuilding } from '../lib/sounds';
+  import { playBullishFlip, playBearishFlip, playReversalAlert, playWarningPing, playReversalBuilding, playSentiment50Cross } from '../lib/sounds';
 
   // ── Check if nifty price is near a key H/L level (within 0.3%) ────────────
 function getNiftyLevelAlerts(indices) {
@@ -140,6 +140,7 @@ function getNiftyLevelAlerts(indices) {
     }, [optionUnderlying]);
     const [sentimentData, setSentimentData] = useState(null);
     const [sentimentLoading, setSentimentLoading] = useState(true);
+    const prevSentimentHistoryRef = useRef([]);
     const [kiteAuth, setKiteAuth] = useState({ isLoggedIn: false, checking: true });
     const [userRole, setUserRole] = useState(null);
     const isMarketHours = () => {
@@ -372,6 +373,32 @@ function getNiftyLevelAlerts(indices) {
           const response = await fetch(url);
           const data = await response.json();
           setSentimentData(data);
+
+          // Sound alert when intraday sentiment crosses 50 for the first time in last 5 candles
+          const history = data.intradayHistory || [];
+          const prev = prevSentimentHistoryRef.current;
+          if (history.length >= 2 && prev.length > 0) {
+            const last5 = history.slice(-5);
+            const newest = last5[last5.length - 1]?.score;
+            const prior  = last5[last5.length - 2]?.score;
+            if (newest != null && prior != null) {
+              const crossedUp   = prior < 50 && newest >= 50;
+              const crossedDown = prior >= 50 && newest < 50;
+              if (crossedUp || crossedDown) {
+                // Ensure no prior crossing in the same direction within the last 5 candles
+                let alreadyCrossed = false;
+                for (let i = 0; i < last5.length - 2; i++) {
+                  const a = last5[i]?.score, b = last5[i + 1]?.score;
+                  if (a == null || b == null) continue;
+                  if (crossedUp   && a < 50 && b >= 50) { alreadyCrossed = true; break; }
+                  if (crossedDown && a >= 50 && b < 50) { alreadyCrossed = true; break; }
+                }
+                if (!alreadyCrossed) playSentiment50Cross(crossedUp ? 'UP' : 'DOWN');
+              }
+            }
+          }
+          prevSentimentHistoryRef.current = history;
+
         } catch (error) {
           console.error('Error fetching sentiment:', error);
         } finally {
@@ -379,7 +406,7 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       fetchSentiment();
-      const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchSentiment(); }, 15 * 60 * 1000);
+      const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchSentiment(); }, 5 * 60 * 1000);
       return () => clearInterval(interval);
     }, [optionChainData?.pcr]);
 
@@ -1114,6 +1141,61 @@ function getNiftyLevelAlerts(indices) {
                         {sentimentData.overall?.mood?.replace(/_/g, ' ') || 'Loading...'}
                       </div>
                     </div>
+
+                    {/* Intraday sentiment sparkline — last 10 periods, centered at 50 */}
+                    {sentimentData.timeframes?.intraday?.score != null && (() => {
+                      const score = sentimentData.timeframes.intraday.score;
+                      const color = score >= 60 ? '#34d399' : score <= 40 ? '#f87171' : '#fbbf24';
+                      const history = sentimentData.intradayHistory || [];
+                      // Build points: use history if available, else single current value
+                      const pts = history.length >= 2
+                        ? history.slice(-10)
+                        : [{ score: 50 }, { score }];
+
+                      const W = 200, H = 44, pad = 6;
+                      const iW = W - pad * 2, iH = H - pad * 2;
+                      const toY = (s) => pad + iH * (1 - Math.max(0, Math.min(100, s)) / 100);
+                      const centerY = toY(50);
+
+                      const coords = pts.map((p, i) => ({
+                        x: pad + (pts.length === 1 ? iW / 2 : (i / (pts.length - 1)) * iW),
+                        y: toY(p.score),
+                      }));
+
+                      const linePath = coords.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+                      const areaPath = `${linePath} L${coords[coords.length-1].x.toFixed(1)},${H} L${coords[0].x.toFixed(1)},${H} Z`;
+                      const last = coords[coords.length - 1];
+
+                      return (
+                        <div className="pb-2 border-b border-blue-800/40">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[9px] text-slate-500 uppercase tracking-wider">Intraday Trend</span>
+                            <span className="text-[9px] font-mono" style={{ color }}>{score}</span>
+                          </div>
+                          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: '40px', display: 'block' }}>
+                            <defs>
+                              <linearGradient id="sGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+                                <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+                              </linearGradient>
+                            </defs>
+                            {/* Center line at 50 */}
+                            <line x1={pad} y1={centerY} x2={W - pad - 14} y2={centerY} stroke="#64748b" strokeWidth="0.8" strokeDasharray="3 3" />
+                            <text x={W - pad - 12} y={centerY + 2.5} fill="#94a3b8" fontSize="7" textAnchor="start">50</text>
+                            {/* Area fill */}
+                            <path d={areaPath} fill="url(#sGrad)" />
+                            {/* Line */}
+                            <path d={linePath} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+                            {/* Latest dot */}
+                            <circle cx={last.x} cy={last.y} r="2.5" fill={color} />
+                          </svg>
+                          <div className="flex justify-between mt-0.5">
+                            <span className="text-[8px] text-slate-600">{pts.length > 1 ? `${pts.length} periods` : 'Current'}</span>
+                            <span className="text-[8px] text-slate-600">{score >= 60 ? 'Bullish' : score <= 40 ? 'Bearish' : 'Neutral'}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Daily vs Intraday Timeframes */}
                     {sentimentData.timeframes && (
