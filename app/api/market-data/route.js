@@ -412,7 +412,7 @@ export async function GET() {
       bankNifty = kiteIndices.bankNifty;
       sensex    = kiteIndices.sensex;
       vix       = kiteIndices.vix;
-      
+
       // ═══════════════════════════════════════════════════════════════════════
       // CRITICAL FIX: Override stale prevClose with correct historical data
       // ═══════════════════════════════════════════════════════════════════════
@@ -420,6 +420,30 @@ export async function GET() {
         niftyData.prevClose = correctPreviousClose;
         niftyData.change = niftyData.price - correctPreviousClose;
         niftyData.changePercent = ((niftyData.price - correctPreviousClose) / correctPreviousClose) * 100;
+      }
+
+      // Bank Nifty Yahoo fallback — Kite sometimes returns null for NIFTY BANK on weekends
+      if (!bankNifty) {
+        try {
+          const bnRes = await fetch(
+            'https://query1.finance.yahoo.com/v8/finance/chart/%5EBANKNIFTY?interval=1d&range=5d',
+            { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(6000) }
+          );
+          if (bnRes.ok) {
+            const bnJson = await bnRes.json();
+            const bnMeta = bnJson.chart?.result?.[0]?.meta;
+            if (bnMeta?.regularMarketPrice) {
+              const bnPrice = bnMeta.regularMarketPrice;
+              const bnPrev  = bnMeta.chartPreviousClose || bnMeta.previousClose || null;
+              bankNifty = {
+                price:         bnPrice,
+                prevClose:     bnPrev,
+                change:        bnPrev ? bnPrice - bnPrev : null,
+                changePercent: bnPrev ? ((bnPrice - bnPrev) / bnPrev) * 100 : null,
+              };
+            }
+          }
+        } catch { /* leave bankNifty null */ }
       }
     } else {
       // Yahoo fallback (only when Kite unavailable) — cached 5 min to avoid repeated 8s fetches
@@ -466,7 +490,7 @@ export async function GET() {
     // Priority for prev close: Yahoo's own daily prev close (GIFT's own session)
     //   → Kite OHLC close → omit (don't use NSE prev close as it gives wrong sign)
     let giftNiftyPrice   = kiteIndices?.giftNifty?.price ?? giftNifty?.price ?? null;
-    if (!giftNiftyPrice && niftyData) giftNiftyPrice = niftyData.price + 15;
+    // Do NOT fall back to Nifty+15 — fake GIFT price poisons the gap calculation downstream.
 
     // GIFT's own previous session close from Yahoo 5d daily history — most reliable source.
     const giftPrevClose  = giftNifty?.prevClose ?? kiteIndices?.giftNifty?.prevClose ?? null;

@@ -931,6 +931,11 @@ export async function GET(request) {
 
     let commentary;
 
+    // Weekend check — markets are closed Sat/Sun; don't show a pre-market gap analysis
+    const istNow  = getISTTime();
+    const istDay  = istNow.getUTCDay(); // 0 = Sun, 6 = Sat
+    const isWeekend = istDay === 0 || istDay === 6;
+
     if (marketIsOpen) {
       // Fetch Kite intraday candles for RSI / VWAP / EMA21 / volume
       let intradayData = null;
@@ -957,6 +962,21 @@ export async function GET(request) {
       }
 
       commentary = generateLiveCommentary(marketData, optionChainData, intradayData);
+    } else if (isWeekend) {
+      // Show last session summary — GIFT Nifty isn't trading, gap calc is meaningless
+      const lastClose = marketData.indices?.nifty;
+      const lastPct   = marketData.indices?.niftyChangePercent;
+      const dow       = istDay === 0 ? 'Sunday' : 'Saturday';
+      commentary = {
+        state:      'MARKETS CLOSED',
+        stateEmoji: '🔒',
+        bias:       'Neutral',
+        biasEmoji:  '🟡',
+        keyLevel:   lastClose || '---',
+        headline:   `${dow} — Markets closed. Nifty last at ${lastClose ?? '---'}${lastPct != null ? ` (${parseFloat(lastPct) >= 0 ? '+' : ''}${parseFloat(lastPct).toFixed(2)}%)` : ''}.`,
+        action:     'Review your watchlist, plan trades for Monday. GIFT Nifty resumes Sunday evening.',
+        warnings:   [],
+      };
     } else {
       commentary = generatePreMarketCommentary(marketData, optionChainData);
     }
