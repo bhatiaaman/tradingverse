@@ -378,7 +378,15 @@ export async function GET() {
 
     if (cached?.updatedAt) {
       const age = Date.now() - new Date(cached.updatedAt).getTime();
-      const maxAge = isMarketHours() ? FRESH_TTL : 30 * 60 * 1000; // 1 min live, 30 min off-hours
+      // Pre-market (8–9 AM weekdays): 3 min — GIFT Nifty moves; stale data gives wrong gap
+      // Market hours: 1 min — live data, refresh fast
+      // After close / weekends: 15 min — indices don't move
+      const istNow2 = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+      const istHour = istNow2.getUTCHours();
+      const istDay2 = istNow2.getUTCDay();
+      const isWeekday = istDay2 >= 1 && istDay2 <= 5;
+      const isPreMarketWindow = isWeekday && istHour >= 7 && istHour < 9;
+      const maxAge = isMarketHours() ? FRESH_TTL : isPreMarketWindow ? 3 * 60 * 1000 : 15 * 60 * 1000;
       if (age < maxAge) {
         return Response.json({ ...cached, fromCache: true, offMarketHours: !isMarketHours(), cacheAge: age });
       }
