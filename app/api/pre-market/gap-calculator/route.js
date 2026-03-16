@@ -29,7 +29,8 @@ export async function GET(request) {
     let previousClose, currentPrice, giftNiftyPrice, niftyData;
     
     if (symbol === 'NIFTY') {
-      previousClose = parseFloat(marketData.indices.niftyPrevClose);
+      // Use last session close (Friday) not niftyPrevClose (Thursday outside market hours)
+      previousClose = parseFloat(marketData.indices.niftyLastSessionClose || marketData.indices.niftyPrevClose);
       currentPrice = parseFloat(marketData.indices.nifty);
       giftNiftyPrice = parseFloat(marketData.indices.giftNifty);
 
@@ -46,8 +47,8 @@ export async function GET(request) {
         || (!isNaN(bnPrice) && !isNaN(bnChange) ? bnPrice - bnChange : NaN);
       currentPrice = bnPrice;
 
-      // Bank Nifty: estimate based on Nifty's gap
-      const niftyPrevClose = parseFloat(marketData.indices.niftyPrevClose);
+      // Bank Nifty: estimate based on Nifty's gap (use lastSessionClose for correct gap ref)
+      const niftyPrevClose = parseFloat(marketData.indices.niftyLastSessionClose || marketData.indices.niftyPrevClose);
       const niftyGift = parseFloat(marketData.indices.giftNifty);
       const niftyGapPercent = ((niftyGift - niftyPrevClose) / niftyPrevClose) * 100;
       

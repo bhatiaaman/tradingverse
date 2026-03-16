@@ -129,8 +129,9 @@ async function fetchNiftyHistoricalFromKite(dp) {
       const weeklyLow  = Math.min(...last5.map(c => c.low));
 
       return {
-        prices:        closePrices,    // For EMA9 (today's price appended later)
-        previousClose: yesterdayClose, // Correct previous close
+        prices:           closePrices,                          // For EMA9 (today's price appended later)
+        previousClose:    yesterdayClose,                       // For Nifty change % display
+        lastSessionClose: closePrices[closePrices.length - 1],  // Always last trading day's close — for gap calc
         weeklyHigh,
         weeklyLow,
       };
@@ -390,8 +391,9 @@ export async function GET() {
     // ═══════════════════════════════════════════════════════════════════════
     // CRITICAL: Fetch historical data FIRST to get correct previous close
     // ═══════════════════════════════════════════════════════════════════════
-    const historicalResult = hasKite ? await fetchNiftyHistoricalFromKite(dp) : null;
+    const historicalResult    = hasKite ? await fetchNiftyHistoricalFromKite(dp) : null;
     const correctPreviousClose = historicalResult?.previousClose;
+    const niftyLastSessionClose = historicalResult?.lastSessionClose ?? null; // Last trading day close (for gap calc)
     const historicalPrices     = historicalResult?.prices;
     const niftyWeeklyHigh      = historicalResult?.weeklyHigh ?? null;
     const niftyWeeklyLow       = historicalResult?.weeklyLow  ?? null;
@@ -515,6 +517,7 @@ export async function GET() {
         giftNifty:           giftNiftyPrice             ? (typeof giftNiftyPrice === 'number' ? giftNiftyPrice.toFixed(2) : giftNiftyPrice) : null,
         giftNiftyChange:     (giftNiftyChange !== undefined && giftNiftyChange !== null) ? giftNiftyChange.toFixed(2) : null,
         giftNiftyChangePercent: (giftNiftyChangePercent !== undefined && giftNiftyChangePercent !== null) ? giftNiftyChangePercent.toFixed(2) : null,
+        niftyLastSessionClose: niftyLastSessionClose      ? niftyLastSessionClose.toFixed(2)     : null,
         niftyWeeklyHigh:     niftyWeeklyHigh            ? niftyWeeklyHigh.toFixed(2)           : null,
         niftyWeeklyLow:      niftyWeeklyLow             ? niftyWeeklyLow.toFixed(2)            : null,
         vix:                 vix?.price                 ? vix.price.toFixed(2)                 : (typeof vix === 'number' ? vix.toFixed(2) : null),

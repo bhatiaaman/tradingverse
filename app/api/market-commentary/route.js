@@ -831,10 +831,14 @@ function generatePreMarketCommentary(marketData, optionChain) {
   const giftNifty  = parseFloat(marketData.indices?.giftNifty      || 0);
   const vix        = parseFloat(marketData.indices?.vix            || 0);
 
-  // Gap = (GIFT Nifty price − Nifty previous close) / Nifty previous close.
-  // giftNiftyChangePercent is GIFT's own session change and must NOT be used here.
-  const gapPercent = (prevClose > 0 && giftNifty > 0) ? (giftNifty - prevClose) / prevClose * 100 : 0;
-  const expectedOpen = prevClose * (1 + gapPercent / 100);
+  // Gap = (GIFT Nifty − last session close) / last session close.
+  // niftyLastSessionClose = always last trading day's close (Friday at 8 AM Monday).
+  // niftyPrevClose outside market hours = day-before-last (Thursday) — used for the
+  // Nifty ticker's change%, NOT for gap reference. Using it here showed Monday
+  // pre-market gap vs Thursday instead of vs Friday.
+  const gapRef = parseFloat(marketData.indices?.niftyLastSessionClose || 0) || prevClose;
+  const gapPercent = (gapRef > 0 && giftNifty > 0) ? (giftNifty - gapRef) / gapRef * 100 : 0;
+  const expectedOpen = gapRef * (1 + gapPercent / 100);
 
   const pcr         = optionChain?.pcr        || null;
   const support     = optionChain?.support    || null;
