@@ -32,3 +32,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+#md files
+PROMOTIONS.MD
+FREE-TIER-SPEC.md
