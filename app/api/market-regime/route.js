@@ -202,7 +202,11 @@ export async function POST(request) {
         timeline,
         timestamp: new Date().toISOString(),
       };
-      await redisSet(cacheKey, response, 300); // 5-min cache
+      // 90s during market hours (regime can change rapidly at OR breaks), 5 min off-hours
+      const ist = new Date(Date.now() + 330 * 60 * 1000);
+      const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+      const cacheTTL = (mins >= 555 && mins <= 930) ? 90 : 300;
+      await redisSet(cacheKey, response, cacheTTL);
       return NextResponse.json(response);
     }
 
