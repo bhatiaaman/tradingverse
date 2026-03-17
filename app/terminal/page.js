@@ -324,7 +324,7 @@ function getSectorAlign(changePct, isBullish, isBearish) {
   return 'neutral';
 }
 
-function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockContext, transactionType }) {
+function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockContext, transactionType, agentRisk }) {
   const key       = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
   const rawRegime = regimeData?.[key];
   // Valid regime: exists, no error, not INITIALIZING
@@ -349,7 +349,23 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockConte
 
   // ── Scenario ready: try to compute alignment ──────────────────────────────
   if (hasScenario) {
-    const alignment = computeRegimeAlignment(regime?.regime ?? null, scenario, transactionType);
+    let alignment = computeRegimeAlignment(regime?.regime ?? null, scenario, transactionType);
+
+    // ── Agent risk override: downgrade verdict when agents collectively signal danger ──
+    if (alignment && agentRisk) {
+      const DOWNGRADE = { ALIGNED: 'CAUTION', CAUTION: 'CONFLICT', CONFLICT: 'DANGER', DANGER: 'DANGER', NEUTRAL: 'NEUTRAL' };
+      if (agentRisk.maxRisk >= 50) {
+        // A DANGER-level agent (e.g. Structure 51) — drop two levels from ALIGNED
+        if (alignment.status === 'ALIGNED') alignment = { ...alignment, status: 'CONFLICT' };
+        else alignment = { ...alignment, status: DOWNGRADE[alignment.status] };
+      } else if (agentRisk.hasDanger) {
+        // Any agent at danger — drop one level
+        alignment = { ...alignment, status: DOWNGRADE[alignment.status] };
+      } else if (agentRisk.hasWarning && alignment.status === 'ALIGNED') {
+        // Warning-level agent pulling back a clean "Go ahead"
+        alignment = { ...alignment, status: 'CAUTION' };
+      }
+    }
 
     if (alignment) {
       // ── Full verdict card ─────────────────────────────────────────────────
@@ -1692,7 +1708,30 @@ function PlaceOrderTab({
 
         <div className="space-y-3">
           {/* ── Verdict — full width ── */}
-          {symbol && <VerdictCard regimeData={regimeData} scenarioResult={scenarioResult} symbol={symbol} isLoading={scenarioLoading || regimeLoading} stockContext={stockContext} transactionType={transactionType} />}
+          {symbol && <VerdictCard
+            regimeData={regimeData} scenarioResult={scenarioResult} symbol={symbol}
+            isLoading={scenarioLoading || regimeLoading} stockContext={stockContext}
+            transactionType={transactionType}
+            agentRisk={(() => {
+              const verdicts = [
+                intel.result?.behavioral?.verdict,
+                stationIntel.result?.station?.verdict,
+                structureIntel.result?.structure?.verdict,
+                patternIntel.result?.pattern?.verdict,
+              ].filter(Boolean);
+              const scores = [
+                intel.result?.behavioral?.riskScore ?? 0,
+                stationIntel.result?.station?.riskScore ?? 0,
+                structureIntel.result?.structure?.riskScore ?? 0,
+                patternIntel.result?.pattern?.riskScore ?? 0,
+              ];
+              return {
+                maxRisk:    Math.max(...scores),
+                hasDanger:  verdicts.some(v => v === 'danger'),
+                hasWarning: verdicts.some(v => v === 'warning' || v === 'danger'),
+              };
+            })()}
+          />}
 
           {/* ── 1×2 grid: Scenario + Regime ── */}
           {symbol && (
@@ -1976,7 +2015,7 @@ export default function TerminalPage() {
   const fetchWatchQuotes = useCallback(async (symbols) => {
     if (!symbols?.length) return;
     try {
-      const r = await fetch(`/api/quotes?symbols=${symbols.join(',')}`);
+      const r = await fetch(`/api/quotes?symbols=${symbols.map(encodeURIComponent).join(',')}`);
       const d = await r.json();
       if (d.quotes) {
         const map = {};
@@ -2160,7 +2199,7 @@ export default function TerminalPage() {
     // Option instruments from search have optionType (CE/PE); indices default to CE; stocks to EQ
     setInstrumentType(inst?.optionType || (INDEX_SYMBOLS.includes(sym) ? 'CE' : 'EQ'));
     try {
-      const r = await fetch(`/api/ltp?symbol=${sym}`);
+      const r = await fetch(`/api/ltp?symbol=${encodeURIComponent(sym)}`);
       const d = await r.json();
       if (d.success && d.ltp) {
         setSpotPrice(d.ltp);
@@ -2246,7 +2285,7 @@ export default function TerminalPage() {
   const fetchOptionDetails = useCallback(async () => {
     if (!symbol || !spotPrice) return;
     try {
-      const r = await fetch(`/api/option-details?symbol=${symbol}&spotPrice=${spotPrice}&instrumentType=${instrumentType}&expiryType=${expiryType}`);
+      const r = await fetch(`/api/option-details?${new URLSearchParams({ symbol, spotPrice, instrumentType, expiryType })}`);
       const d = await r.json();
       if (d.optionSymbol) {
         setOptionSymbol(d.optionSymbol);

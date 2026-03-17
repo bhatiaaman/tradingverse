@@ -101,7 +101,7 @@ const SCENARIO_META = {
   MOMENTUM_LONG:        { label: 'Open Space — Long',      color: 'green',  summary: 'No zone within 2% — price in open space, bias determines direction' },
   MOMENTUM_SHORT:       { label: 'Open Space — Short',     color: 'red',    summary: 'No zone within 2% — price in open space, bias determines direction' },
   INSIDE_ZONE:          { label: 'Inside Zone',            color: 'yellow', summary: 'Price inside consolidation — wait for confirmed break' },
-  COUNTER_TREND:        { label: 'Counter-Trend',          color: 'yellow', summary: 'Trade direction conflicts with zone and/or market context' },
+  COUNTER_TREND:        { label: 'Zone Conflict',           color: 'yellow', summary: 'Trade direction conflicts with zone and/or market context' },
   UNCLEAR:              { label: 'Run Station Analysis',   color: 'slate',  summary: 'Station analysis needed to identify zones and classify setup' },
 };
 
@@ -255,20 +255,31 @@ export function runScenarioAgent({ order, sentiment, stationOutput, oiData, stru
   // Downgrade color when confidence is low — don't show misleading green/red
   const color = confidence === 'LOW' ? 'slate' : meta.color;
 
-  // For COUNTER_TREND: build a specific summary so it's clear what's conflicting
+  // For COUNTER_TREND: build a specific summary naming the zone and conflict
   let summary = meta.summary;
   if (scenario === 'COUNTER_TREND') {
-    const mktBias = sentiment?.intradayBias ?? 'NEUTRAL';
+    const mktBias    = sentiment?.intradayBias ?? 'NEUTRAL';
     const mktAligned = mktBias !== 'NEUTRAL' && mktBias === tradeBias;
-    const zoneConflicts = !!zone;
-    if (mktAligned && zoneConflicts) {
+    const mktOpp     = mktBias !== 'NEUTRAL' && mktBias !== tradeBias;
+
+    // Name the specific conflict (resistance vs support)
+    const isBuyingAtResistance = tradeBias === 'BULLISH' && zoneType === 'RESISTANCE';
+    const isSellingAtSupport   = tradeBias === 'BEARISH' && zoneType === 'SUPPORT';
+
+    if (isBuyingAtResistance) {
+      if (mktOpp)     summary = `Buying into resistance — both zone and market trend oppose this trade`;
+      else if (mktAligned) summary = `Buying into resistance — zone says sell; market trend partially supports the move`;
+      else            summary = `Buying into resistance — zone favours sellers; wait for a confirmed break above`;
+    } else if (isSellingAtSupport) {
+      if (mktOpp)     summary = `Selling into support — both zone and market trend oppose this trade`;
+      else if (mktAligned) summary = `Selling into support — zone says buy; market trend partially supports the move`;
+      else            summary = `Selling into support — zone favours buyers; wait for a confirmed break below`;
+    } else if (mktAligned) {
       summary = `Zone signal conflicts with your trade — market trend aligns`;
-    } else if (!mktAligned && mktBias !== 'NEUTRAL' && zoneConflicts) {
+    } else if (mktOpp) {
       summary = `Both zone and market trend conflict with your trade`;
-    } else if (!mktAligned && mktBias !== 'NEUTRAL') {
-      summary = `Market trend conflicts with your trade direction`;
     } else {
-      summary = `Zone signal conflicts with your trade direction`;
+      summary = `Trade direction conflicts with zone signal`;
     }
   }
 

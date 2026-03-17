@@ -76,9 +76,10 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
   const ceWall = strikeData.reduce((b, s) => s.ceOI > b.ceOI ? s : b, strikeData[0]);
   const peWall = strikeData.reduce((b, s) => s.peOI > b.peOI ? s : b, strikeData[0]);
 
+  const sameWall   = ceWall.strike === peWall.strike;
   const distCeWall = ceWall.strike - spotPrice;
   const distPeWall = spotPrice - peWall.strike;
-  const trapped    = spotPrice >= peWall.strike && spotPrice <= ceWall.strike;
+  const trapped    = !sameWall && spotPrice >= peWall.strike && spotPrice <= ceWall.strike;
 
   const totalCE = strikeData.reduce((a, s) => a + s.ceOI, 0);
   const totalPE = strikeData.reduce((a, s) => a + s.peOI, 0);
@@ -101,14 +102,30 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
   const oiRatio = wallOI > 0 ? myOI / wallOI : 0;
   const myVol   = type === 'CE' ? sel.ceVol : sel.peVol;
 
-  signals.push({
-    tag: 'Resistance', icon: '🚧', type: 'bearish',
-    text: `CE wall at ${ceWall.strike} (${fmt(ceWall.ceOI)} OI) · ${distCeWall > 0 ? Math.round(distCeWall) + ' pts above spot' : 'already breached'}`,
-  });
-  signals.push({
-    tag: 'Support', icon: '🛡️', type: 'bullish',
-    text: `PE wall at ${peWall.strike} (${fmt(peWall.peOI)} OI) · ${distPeWall > 0 ? Math.round(distPeWall) + ' pts below spot' : 'already broken'}`,
-  });
+  // When CE wall and PE wall are at the same strike, emit a single "Pinned strike" signal
+  // to avoid contradictory Resistance + Support labels at the same level.
+  if (sameWall) {
+    const ceDominates = ceWall.ceOI >= peWall.peOI;
+    const domPct      = Math.round((ceDominates ? ceWall.ceOI : peWall.peOI) / (ceWall.ceOI + peWall.peOI) * 100);
+    const posText     = ceWall.strike > spotPrice
+      ? `${Math.round(ceWall.strike - spotPrice)} pts above spot`
+      : ceWall.strike < spotPrice
+        ? `${Math.round(spotPrice - ceWall.strike)} pts below spot`
+        : 'at spot';
+    signals.push({
+      tag: 'Pinned strike', icon: '📍', type: ceDominates ? 'bearish' : 'bullish',
+      text: `CE & PE walls both at ${ceWall.strike} — ${ceDominates ? 'CE-dominated' : 'PE-dominated'} (${domPct}% of OI) · acts as ${ceDominates ? 'resistance' : 'support'} · ${posText}`,
+    });
+  } else {
+    signals.push({
+      tag: 'Resistance', icon: '🚧', type: 'bearish',
+      text: `CE wall at ${ceWall.strike} (${fmt(ceWall.ceOI)} OI) · ${distCeWall > 0 ? Math.round(distCeWall) + ' pts above spot' : 'already breached'}`,
+    });
+    signals.push({
+      tag: 'Support', icon: '🛡️', type: 'bullish',
+      text: `PE wall at ${peWall.strike} (${fmt(peWall.peOI)} OI) · ${distPeWall > 0 ? Math.round(distPeWall) + ' pts below spot' : 'already broken'}`,
+    });
+  }
 
   if (trapped) {
     signals.push({
@@ -120,10 +137,11 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
       tag: 'Breakout', icon: '🚀', type: 'bullish',
       text: `Spot above CE wall ${ceWall.strike} — bullish breakout zone; CE writers may cover`,
     });
-  } else {
+  } else if (spotPrice < peWall.strike || (sameWall && spotPrice < ceWall.strike)) {
+    const wallLabel = sameWall ? `dominant wall ${ceWall.strike}` : `PE wall ${peWall.strike}`;
     signals.push({
       tag: 'Breakdown', icon: '📉', type: 'bearish',
-      text: `Spot below PE wall ${peWall.strike} — bearish breakdown zone; PE writers may cover`,
+      text: `Spot below ${wallLabel} — bearish pressure; sellers in control`,
     });
   }
 
@@ -170,8 +188,12 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
 
   let verdict, verdictReason;
   if (type === 'CE') {
-    if (oiRatio > 0.7 && strike >= maxPain) {
-      verdict = 'sell'; verdictReason = 'Dominant resistance near max pain — ideal CE selling spot';
+    if (oiRatio > 0.7 && spotPrice < strike) {
+      // Dominant CE wall above spot — clear resistance; selling favored
+      verdict = 'sell';
+      verdictReason = strike >= maxPain
+        ? 'Dominant resistance at/above max pain — ideal CE selling spot'
+        : 'Dominant CE wall above spot — strong resistance; CE premium likely to erode';
     } else if (!trapped && spotPrice > ceWall.strike) {
       verdict = 'buy'; verdictReason = 'Breakout above CE wall — CE buying with strong momentum';
     } else if (trapped && distCeWall < strikeGap * 2) {
@@ -180,8 +202,12 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
       verdict = 'neutral'; verdictReason = 'No strong edge; confirm trend before entry';
     }
   } else {
-    if (oiRatio > 0.7 && strike <= maxPain) {
-      verdict = 'sell'; verdictReason = 'Dominant support near max pain — ideal PE selling spot';
+    if (oiRatio > 0.7 && spotPrice > strike) {
+      // Dominant PE wall below spot — clear support; selling favored
+      verdict = 'sell';
+      verdictReason = strike <= maxPain
+        ? 'Dominant support at/below max pain — ideal PE selling spot'
+        : 'Dominant PE wall below spot — strong support; PE premium likely to erode';
     } else if (!trapped && spotPrice < peWall.strike) {
       verdict = 'buy'; verdictReason = 'Breakdown below PE wall — PE buying with strong momentum';
     } else if (trapped && distPeWall < strikeGap * 2) {
@@ -207,7 +233,7 @@ export async function GET(request) {
     return NextResponse.json({ error: 'symbol, strike and type required' }, { status: 400 });
   }
 
-  const cacheKey = `${NS}:strike-analysis-v3:${symbol}:${strike}:${type}:${expiryType}:${strikeGap}`;
+  const cacheKey = `${NS}:strike-analysis-v4:${symbol}:${strike}:${type}:${expiryType}:${strikeGap}`;
   const cached   = await redisGet(cacheKey);
   if (cached) return NextResponse.json({ ...cached, fromCache: true });
 
