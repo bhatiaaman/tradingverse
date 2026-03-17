@@ -698,65 +698,38 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
     warnings.unshift(`📈 Regime: Short Squeeze — shorts covering, momentum accelerating. Trail stops, don't fade.`);
   }
 
-  // ── Priority 1: High-confidence reversal zone ──
-  if (reversalResult.reversalZone && reversalResult.confidence === 'HIGH') {
-    const rc = reversalResult.commentary;
-    return {
-      state:           rc.state,
-      stateEmoji:      rc.stateEmoji || '🔄',
-      bias:            reversalResult.direction === 'BULLISH' ? 'BULLISH' : reversalResult.direction === 'BEARISH' ? 'BEARISH' : 'NEUTRAL',
-      biasEmoji:       reversalResult.direction === 'BULLISH' ? '🟢' : reversalResult.direction === 'BEARISH' ? '🔴' : '🟡',
-      keyLevel:        levelAnalysis.primaryLevel?.toFixed(0) || prevClose.toFixed(0),
-      headline:        rc.headline,
-      action:          rc.action,
-      timeNotes:       timeContext.tradingNotes,
-      warnings,
-      reversal:        reversalResult,
-      structure:       priceStructure.structure,
-      positionInRange: priceStructure.positionInRange?.toFixed(0),
-    };
+  // ── Synthesize narrative — one coherent story from all signals ──
+  const narrativeCtx = {
+    regimeType, regimeConf, regimeSignals: regime?.signals || [],
+    reversalResult, oiActivity, marketActivity,
+    spot, vwap, rsi, change5min,
+    trendDirection: intraday?.trendDirection || 'NEUTRAL',
+    support, resistance, maxPain, pcr,
+    priceStructure, levelAnalysis, hasConflicts,
+    niftyHigh, niftyLow, bankRelStrength, ema9,
+  };
+  const narr = synthesizeNarrative(narrativeCtx);
+
+  // Use narrative bias if stronger than what keyword matching found
+  let finalBias = bias, finalBiasEmoji = biasEmoji;
+  if (narr.bias && narr.bias !== 'NEUTRAL') {
+    finalBias = narr.bias;
+    finalBiasEmoji = narr.bias === 'BULLISH' ? '🟢' : '🔴';
   }
 
-  // ── Priority 2: OI-activity based (High/Moderate conviction) ──
-  let state, stateEmoji, headline, action, keyLevel;
-  let oiBias = null;
-
-  if (oiActivity.conviction !== 'Low' && marketActivity?.activity && marketActivity.activity !== 'Consolidation') {
-    const activity = marketActivity.activity;
-    const built = buildOIStateCommentary(activity, oiActivity, levelAnalysis, support, resistance);
-    ({ state, stateEmoji, headline, action, keyLevel } = built);
-    oiBias = built.oiBias;
-  } else {
-    // ── Priority 3: Price structure based ──
-    ({ state, stateEmoji, headline, action, keyLevel } = buildPriceStateCommentary(
-      ema9, vwap, priceStructure, levelAnalysis, support, resistance
-    ));
-  }
-
-  // If keyword matching left bias at NEUTRAL but OI activity has a clear direction, use it
-  if (oiBias && bias === 'NEUTRAL' && !hasConflicts) {
-    if (oiBias === 'Bullish')  { bias = 'BULLISH'; biasEmoji = '🟢'; }
-    else if (oiBias === 'Bearish') { bias = 'BEARISH'; biasEmoji = '🔴'; }
-  }
-
-  // Append conflict implication to action if present
-  if (hasConflicts && conflicts[0].implication) {
-    action = `⚠️ ${conflicts[0].implication}. ${action}`;
-  }
-
-  // Medium-confidence reversal: add to warnings only — never mix into action text
+  // Medium-confidence reversal: add to warnings
   if (reversalResult.reversalZone && reversalResult.confidence === 'MEDIUM') {
-    warnings.push(`🔄 ${reversalResult.commentary.state}: ${reversalResult.commentary.headline}. ${reversalResult.commentary.action}`);
+    warnings.push(`🔄 ${reversalResult.commentary.state}: ${reversalResult.commentary.headline}`);
   }
 
   return {
-    state,
-    stateEmoji,
-    bias,
-    biasEmoji,
-    keyLevel:        keyLevel || prevClose.toFixed(0),
-    headline,
-    action,
+    state:           narr.state,
+    stateEmoji:      narr.stateEmoji,
+    bias:            finalBias,
+    biasEmoji:       finalBiasEmoji,
+    keyLevel:        narr.keyLevel || prevClose.toFixed(0),
+    headline:        narr.headline,
+    action:          narr.action,
     timeNotes:       timeContext.tradingNotes,
     warnings,
     reversal:        reversalResult.reversalZone ? reversalResult : null,
@@ -767,6 +740,142 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
     orLow:      orLow  ? parseFloat(orLow.toFixed(0))  : null,
     srLevels,
     regime:     regimeType ? { type: regimeType, confidence: regimeConf, signals: regime?.signals || [] } : null,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Narrative synthesis — all signals → one coherent trader observation
+// Reads like: "What I see + what it means + what to watch"
+// ─────────────────────────────────────────────────────────────────────
+function synthesizeNarrative({
+  regimeType, regimeConf, regimeSignals,
+  reversalResult, oiActivity, marketActivity,
+  spot, vwap, rsi, change5min, trendDirection,
+  support, resistance, pcr,
+  priceStructure, levelAnalysis, hasConflicts,
+  niftyHigh, bankRelStrength, ema9,
+}) {
+  const oiAct    = marketActivity?.activity || null;
+  const aboveVwap = vwap && spot > vwap;
+  const atRes    = resistance && Math.abs(spot - resistance) / resistance < 0.004;
+  const atSup    = support    && Math.abs(spot - support)    / support    < 0.004;
+  const rsiOB    = rsi && rsi > 65;
+  const rsiOS    = rsi && rsi < 35;
+  const R        = v => v ? parseFloat(v).toFixed(0) : '—';
+
+  // ── Regime-led narratives (regime overrides OI when directional) ──
+  if (regimeType === 'TRAP_DAY' && regimeConf !== 'LOW') {
+    const bullTrap = regimeSignals.some(s => /bull/i.test(s));
+    const oiConflict = bullTrap
+      ? (oiAct === 'Long Buildup' ? `OI still shows Long Buildup (put writing) — ` : '')
+      : (oiAct === 'Short Buildup' ? `OI shows Short Buildup — ` : '');
+    const headline = bullTrap
+      ? `${oiConflict}breakout above ${R(resistance)} failed — bull trap`
+      : `${oiConflict}breakdown below ${R(support)} reversed — bear trap, shorts squeezed`;
+    const watchKey = bullTrap ? support : resistance;
+    const action = bullTrap
+      ? `Longs who chased the breakout are now underwater. ${atRes ? `Rejection at ${R(resistance)} holding. ` : ''}Trap confirmed on close below VWAP ${R(vwap)}. Stay flat or short with SL above ${R(niftyHigh)}.`
+      : `Bears caught offside as price recovered${aboveVwap ? ' above VWAP' : ''}. Shorts covering. Watch ${R(resistance)} — reclaim it and the squeeze deepens.`;
+    return { state: 'TRAP DAY', stateEmoji: '⚠️', bias: bullTrap ? 'BEARISH' : 'NEUTRAL', headline, action, keyLevel: R(watchKey) };
+  }
+
+  if (regimeType === 'SHORT_SQUEEZE' && regimeConf !== 'LOW') {
+    const oiConf = oiAct === 'Short Covering' ? ' OI confirms: call shorts unwinding.' : oiAct === 'Long Buildup' ? ' Put writing adding floor below.' : '';
+    const headline = `Short squeeze — consecutive green candles, volume expanding${aboveVwap ? ', above VWAP' : ''}`;
+    const action = `Shorts covering${change5min && change5min > 0.3 ? `, last candle +${change5min.toFixed(1)}%` : ''}.${oiConf} Don't fade momentum. Next resistance ${R(resistance)} — break with volume = acceleration. Trail stops on longs.`;
+    return { state: 'SHORT SQUEEZE', stateEmoji: '🚀', bias: 'BULLISH', headline, action, keyLevel: R(resistance) };
+  }
+
+  if (regimeType === 'LONG_LIQUIDATION') {
+    const oiConf = pcr && pcr > 1.2 ? ` PCR ${pcr.toFixed(2)} — put buying accelerating, institutional hedging.` : '';
+    const headline = `Long liquidation — forced selling${!aboveVwap ? ', below VWAP' : ''}${change5min && change5min < -0.3 ? `, last candle ${change5min.toFixed(1)}%` : ''}`;
+    const action = `Longs being flushed.${oiConf} Catch-the-knife risk is high. Wait for volume to dry up at ${R(support)} before any long attempt.`;
+    return { state: 'LONG LIQUIDATION', stateEmoji: '📉', bias: 'BEARISH', headline, action, keyLevel: R(support) };
+  }
+
+  if (regimeType === 'TREND_DAY_UP' && regimeConf !== 'LOW') {
+    const pullback = !aboveVwap ? ` — testing VWAP ${R(vwap)}, watch for hold` : '';
+    const oiNote = oiAct === 'Long Buildup' ? ' Put writing supporting the floor.' : oiAct === 'Short Covering' ? ' Short covering adding fuel.' : '';
+    const headline = `Trend day up — OR broken, HH+HL structure${aboveVwap ? ', above VWAP' : pullback}`;
+    const action = `Structure intact.${oiNote}${rsiOB ? ` RSI at ${R(rsi)} — extended, expect shallow pullback not reversal.` : ''} Dips toward ${R(support)} are buyable. Next target ${R(resistance)}.`;
+    return { state: 'TREND UP', stateEmoji: '📈', bias: 'BULLISH', headline, action, keyLevel: R(support) };
+  }
+
+  if (regimeType === 'TREND_DAY_DOWN' && regimeConf !== 'LOW') {
+    const oiNote = oiAct === 'Short Buildup' ? ' Call writing adding ceiling.' : oiAct === 'Long Unwinding' ? ' Longs exiting adds to supply.' : '';
+    const headline = `Trend day down — OR broken, LL+LH structure${!aboveVwap ? ', below VWAP' : ''}`;
+    const action = `Bears in control.${oiNote}${rsiOS ? ` RSI ${R(rsi)} — oversold, possible bounce to ${R(resistance)} but trend still down.` : ''} Bounces are shorting opportunities. Next support ${R(support)}.`;
+    return { state: 'TREND DOWN', stateEmoji: '📉', bias: 'BEARISH', headline, action, keyLevel: R(resistance) };
+  }
+
+  // ── Reversal-led narrative ──
+  if (reversalResult?.reversalZone && reversalResult.confidence === 'HIGH') {
+    const rc   = reversalResult.commentary;
+    const rev  = reversalResult;
+    const top2 = (rev.signals || []).slice(0, 2).map(s => s.message).join(' + ');
+    const oiConflict = (rev.direction === 'BULLISH' && oiAct === 'Short Buildup') ? `Despite ${oiAct}, ` :
+                       (rev.direction === 'BEARISH' && oiAct === 'Long Buildup')  ? `Despite ${oiAct}, ` : '';
+    const headline = top2 || rc.headline;
+    const action   = `${oiConflict}${rc.action}`;
+    return {
+      state: rc.state, stateEmoji: '🔄',
+      bias: rev.direction === 'BULLISH' ? 'BULLISH' : rev.direction === 'BEARISH' ? 'BEARISH' : 'NEUTRAL',
+      headline, action, keyLevel: R(levelAnalysis?.primaryLevel),
+    };
+  }
+
+  // ── Level test narrative (price at key level, no strong regime) ──
+  if (atRes) {
+    const oiNote = oiAct === 'Short Buildup' ? 'Fresh call writing confirms supply here. '
+                 : oiAct === 'Long Buildup'  ? 'Put writing below provides support, but resistance holding. '
+                 : '';
+    const rsiNote = rsiOB ? `RSI at ${R(rsi)} — overbought. ` : '';
+    const bias = (rsiOB || oiAct === 'Short Buildup') ? 'NEUTRAL' : aboveVwap ? 'BULLISH' : 'NEUTRAL';
+    const headline = `Testing resistance ${R(resistance)}${aboveVwap ? ', above VWAP' : ''}${rsiOB ? `, RSI extended` : ''}`;
+    const action = `${oiNote}${rsiNote}${change5min > 0 ? 'Approaching with momentum — watch for volume to hold or fade.' : 'Stalling at this level.'} Clean break above = ${R(parseFloat(resistance) + 50)} next. Rejection here = pull back to VWAP ${R(vwap)}.`;
+    return { state: 'AT RESISTANCE', stateEmoji: '⚡', bias, headline, action, keyLevel: R(resistance) };
+  }
+
+  if (atSup) {
+    const oiNote = oiAct === 'Long Buildup'  ? 'Put writing building a floor here. '
+                 : oiAct === 'Short Buildup' ? 'Call writers pressing — bears active at this support. '
+                 : '';
+    const rsiNote = rsiOS ? `RSI ${R(rsi)} — oversold, covering risk. ` : '';
+    const bias = rsiOS ? 'NEUTRAL' : !aboveVwap ? 'BEARISH' : 'NEUTRAL';
+    const headline = `Testing support ${R(support)}${!aboveVwap ? ', below VWAP' : ''}${rsiOS ? ', RSI oversold' : ''}`;
+    const action = `${oiNote}${rsiNote}${change5min < 0 ? 'Still under pressure. ' : 'Holding so far. '}Hold here = bounce toward ${R(parseFloat(support) + 60)}. Break below = ${R(parseFloat(support) - 80)} next.`;
+    return { state: 'AT SUPPORT', stateEmoji: '🛡️', bias, headline, action, keyLevel: R(support) };
+  }
+
+  // ── OI-led narrative ──
+  if (oiActivity?.conviction !== 'Low' && oiAct && oiAct !== 'Consolidation') {
+    const oiMap = {
+      'Long Buildup':   { state: 'LONG BUILDUP',   stateEmoji: '🚀', bias: 'BULLISH' },
+      'Short Buildup':  { state: 'SHORT BUILDUP',  stateEmoji: '📉', bias: 'BEARISH' },
+      'Long Unwinding': { state: 'LONG UNWINDING', stateEmoji: '😰', bias: 'BEARISH' },
+      'Short Covering': { state: 'SHORT COVERING', stateEmoji: '🎯', bias: 'BULLISH' },
+    };
+    const entry = oiMap[oiAct] || { state: oiAct.toUpperCase(), stateEmoji: '📊', bias: 'NEUTRAL' };
+    const { narrative, tradingImplication } = oiActivity;
+    const vwapNote = aboveVwap ? `price above VWAP ${R(vwap)}` : `price below VWAP ${R(vwap)}`;
+    const rsiNote  = rsiOB ? `, RSI ${R(rsi)} overbought` : rsiOS ? `, RSI ${R(rsi)} oversold` : '';
+    const conflictNote = (entry.bias === 'BULLISH' && !aboveVwap) ? ' — but price below VWAP is a concern.' :
+                         (entry.bias === 'BEARISH' &&  aboveVwap) ? ' — but price above VWAP suggests bulls haven\'t given up.' : '.';
+    const headline = `${narrative || oiAct} — ${vwapNote}${rsiNote}`;
+    const action   = `${tradingImplication}${conflictNote} Watch ${entry.bias === 'BULLISH' ? R(resistance) : R(support)} for next directional move.`;
+    return { ...entry, headline, action, keyLevel: entry.bias === 'BULLISH' ? R(support) : R(resistance) };
+  }
+
+  // ── Fallback: VWAP + RSI structure ──
+  const structBias = aboveVwap ? 'BULLISH' : 'BEARISH';
+  const rsiCtx = rsiOB ? `RSI ${R(rsi)} overbought — potential fade` : rsiOS ? `RSI ${R(rsi)} oversold — covering risk` : `RSI ${R(rsi)} neutral`;
+  const headline = `${aboveVwap ? 'Above' : 'Below'} VWAP ${R(vwap)} — ${trendDirection === 'UP' ? 'higher highs forming' : trendDirection === 'DOWN' ? 'lower lows forming' : 'directionless'}. ${rsiCtx}.`;
+  const action   = aboveVwap
+    ? `Bulls in control intraday. ${R(support)} is the key level — hold there = bias remains up. Watch ${R(resistance)} for breakout.`
+    : `Bears in control intraday. ${R(resistance)} is the ceiling — rejection there = bias remains down. Watch ${R(support)} for stabilization.`;
+  return {
+    state: aboveVwap ? 'ABOVE VWAP' : 'BELOW VWAP', stateEmoji: aboveVwap ? '📈' : '📉',
+    bias: structBias, headline, action, keyLevel: aboveVwap ? R(support) : R(resistance),
   };
 }
 
