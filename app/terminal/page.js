@@ -2402,18 +2402,35 @@ export default function TerminalPage() {
     const tier1 = [];
     const tier2 = [];
 
-    // 1. Trend conflict — EMA9 vs order direction
+    // 1. Trend conflict — intraday regime (primary) + daily EMA9 (secondary)
+    const orderBullish =
+      (transactionType === 'BUY'  && (instrumentType === 'CE' || instrumentType === 'EQ' || instrumentType === 'FUT')) ||
+      (transactionType === 'SELL' && instrumentType === 'PE');
+
+    // 1a. Intraday regime check (tier 1) — VWAP position is the intraday trend proxy.
+    // Only flag when intraday is clearly directional (TREND_DAY_UP/DOWN or LONG_LIQUIDATION).
+    // RANGE_DAY, BREAKOUT_DAY, TRAP_DAY are ambiguous — no warning.
+    const intradayRegime = regimeData?.NIFTY;
+    if (intradayRegime?.regime && intradayRegime.regime !== 'INITIALIZING') {
+      const clearlyBullishIntraday = ['TREND_DAY_UP', 'SHORT_SQUEEZE'].includes(intradayRegime.regime);
+      const clearlyBearishIntraday = ['TREND_DAY_DOWN', 'LONG_LIQUIDATION'].includes(intradayRegime.regime);
+      if (clearlyBearishIntraday && orderBullish) {
+        tier1.push({ msg: `Intraday trend is BEARISH (${intradayRegime.regime.replace(/_/g, ' ')}) — you're placing a bullish trade` });
+      } else if (clearlyBullishIntraday && !orderBullish) {
+        tier1.push({ msg: `Intraday trend is BULLISH (${intradayRegime.regime.replace(/_/g, ' ')}) — you're placing a bearish trade` });
+      }
+    }
+
+    // 1b. Daily EMA9 conflict (tier 2 — softer, context only).
+    // Daily bias is a swing reference, not an intraday blocker.
     const niftyPrice = parseFloat(indices?.nifty);
     const ema9       = parseFloat(indices?.niftyEMA9);
     if (niftyPrice && ema9 && !isNaN(niftyPrice) && !isNaN(ema9)) {
-      const marketBias  = niftyPrice > ema9 ? 'BULLISH' : 'BEARISH';
-      const orderBullish =
-        (transactionType === 'BUY'  && (instrumentType === 'CE' || instrumentType === 'EQ' || instrumentType === 'FUT')) ||
-        (transactionType === 'SELL' && instrumentType === 'PE');
-      if (marketBias === 'BULLISH' && !orderBullish) {
-        tier1.push({ msg: `Market BULLISH (Nifty above EMA9 ${ema9.toFixed(0)}) — you're placing a bearish trade` });
-      } else if (marketBias === 'BEARISH' && orderBullish) {
-        tier1.push({ msg: `Market BEARISH (Nifty below EMA9 ${ema9.toFixed(0)}) — you're placing a bullish trade` });
+      const dailyBias = niftyPrice > ema9 ? 'BULLISH' : 'BEARISH';
+      if (dailyBias === 'BULLISH' && !orderBullish) {
+        tier2.push({ msg: `Daily trend BULLISH (Nifty above daily EMA9 ${ema9.toFixed(0)}) — shorting against swing trend` });
+      } else if (dailyBias === 'BEARISH' && orderBullish) {
+        tier2.push({ msg: `Daily trend BEARISH (Nifty below daily EMA9 ${ema9.toFixed(0)}) — buying against swing trend` });
       }
     }
 
