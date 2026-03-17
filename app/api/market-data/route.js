@@ -190,11 +190,13 @@ async function fetchGIFTNifty() {
       if (response.ok) {
         const data = await response.json();
         const result    = data.chart.result?.[0];
-        const price     = result?.meta?.regularMarketPrice;
-        const closes    = result?.indicators?.quote?.[0]?.close?.filter(p => p !== null);
-        // closes[] contains complete trading-day closes (most recent last).
-        // During market hours today's candle is incomplete so last complete close = yesterday.
-        const prevClose = closes?.length >= 1 ? closes[closes.length - 1] : null;
+        const meta      = result?.meta;
+        const price     = meta?.regularMarketPrice;
+        // Use chartPreviousClose — Yahoo's "last completed session close" for this ticker.
+        // The closes[] array approach breaks pre-market: GIFT Nifty trades from 6 AM IST,
+        // so by 7–9 AM Yahoo already includes an incomplete Monday candle in closes[],
+        // making closes[-1] the partial today value instead of Friday's close.
+        const prevClose = meta?.chartPreviousClose ?? meta?.previousClose ?? null;
         if (price) return { price, prevClose };
       }
     } catch { continue; }
