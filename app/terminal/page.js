@@ -796,7 +796,7 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
     : {};
 
   return (
-    <div className="w-screen md:w-[240px] flex-shrink-0 flex flex-col bg-gray-50 dark:bg-slate-900/60 border-r border-gray-200 dark:border-white/10 overflow-hidden">
+    <div className="w-screen md:w-[240px] flex-shrink-0 flex flex-col h-full bg-gray-50 dark:bg-slate-900/60 border-r border-gray-200 dark:border-white/10 overflow-hidden">
 
       {/* Tab header */}
       <div className="flex border-b border-gray-200 dark:border-white/10 flex-shrink-0">
