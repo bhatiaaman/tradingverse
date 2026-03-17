@@ -1298,14 +1298,16 @@ function PlaceOrderTab({
   const isOICapable = OI_SYMBOLS.includes(symbol);
   const isFnO   = isIndex || lotSize > 1; // non-FnO EQ stocks return lotSize=1 from NFO API
 
-  // Pick the richest scenario result across all loaded agents (station > oi > structure > behavioral)
-  const scenarioResult =
-    stationIntel.result?.scenario ||
-    oiIntel.result?.scenario ||
-    structureIntel.result?.scenario ||
-    intel.result?.scenario ||
-    null;
-  const scenarioLoading = !scenarioResult && (intel.loading || structureIntel.loading || stationIntel.loading || oiIntel.loading);
+  // Wait for station agent before showing scenario — it has highest priority and overrides behavioral.
+  // Without this, behavioral (fastest) shows first then flickers to station's different result.
+  const scenarioResult = stationIntel.loading
+    ? null
+    : stationIntel.result?.scenario ||
+      oiIntel.result?.scenario      ||
+      structureIntel.result?.scenario ||
+      intel.result?.scenario         ||
+      null;
+  const scenarioLoading = stationIntel.loading || (!scenarioResult && (intel.loading || structureIntel.loading || oiIntel.loading));
 
   const getEstimatedValue = () => {
     const p  = (instrumentType === 'EQ' || instrumentType === 'FUT') ? spotPrice : optionLtp;
@@ -1867,6 +1869,7 @@ export default function TerminalPage() {
   const [formSearching, setFormSearching]   = useState(false);
   const [showFormDropdown, setShowFormDropdown] = useState(false);
   const formSearchTimer                     = useRef(null);
+  const lastIntelRunKey                     = useRef(null); // prevents re-run on price poll ticks
 
   // Order placement
   const [orderPlacing, setOrderPlacing]     = useState(false);
@@ -2338,21 +2341,26 @@ export default function TerminalPage() {
     } catch { setOIIntel({ loading: false, result: null }); }
   }, [symbol, buildIntelBody]);
 
-  // Auto-run all agents when symbol/type changes
+  // Auto-run all agents when symbol/type changes — but only once spotPrice is loaded.
+  // Without the spotPrice guard, agents fire immediately on symbol change with spotPrice=null
+  // (LTP fetch is async), returning a generic fallback. All symbols look identical on first load.
+  // The ref prevents re-running on every price poll tick once agents have run for this combo.
   useEffect(() => {
-    if (!symbol) return;
+    if (!symbol || !spotPrice) return; // wait for LTP to load before running agents
+    const key = `${symbol}|${transactionType}|${instrumentType}`;
+    if (lastIntelRunKey.current === key) return; // already ran for this exact combo
+    lastIntelRunKey.current = key;
     setAcknowledged(false);
     setStructureIntel({ loading: false, result: null });
     setPatternIntel({ loading: false, result: null });
     setStationIntel({ loading: false, result: null });
     setOIIntel({ loading: false, result: null });
-    // Fire all agents in parallel; OI only for index symbols
     runIntelligence();
     runStationAnalysis();
     runStructureAnalysis();
     runPatternAnalysis();
     if (OI_SYMBOLS.includes(symbol)) runOIAnalysis();
-  }, [symbol, transactionType, instrumentType]);
+  }, [symbol, transactionType, instrumentType, spotPrice]);
 
   // ── Watchlist handlers
   const addToWatchlist = (sym) => {
