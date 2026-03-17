@@ -8,6 +8,7 @@
 import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/app/lib/providers';
 import { detectReversalZone } from './lib/reversal-detector.js';
+import { detectIntradayRegime } from '@/app/api/market-regime/intraday.js';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -229,6 +230,9 @@ async function fetchIntradayCandles(dp) {
       if (isSwingLow)  swingLows.push(parseFloat(c.low.toFixed(2)));
     }
 
+    // Run intraday regime on same candles — used to qualify commentary state
+    const intradayRegime = detectIntradayRegime(todayCandles);
+
     return {
       rsi:           calcRSI(closes),
       rsiHistory:    calcRSIHistory(closes, 14, 5),
@@ -242,6 +246,7 @@ async function fetchIntradayCandles(dp) {
       prevCandle:    prev5candle,
       change5min,
       trendDirection,
+      intradayRegime,
       orHigh:      orCandle?.high || null,
       orLow:       orCandle?.low  || null,
       swingHighs:  swingHighs.slice(-5),   // most recent 5
@@ -667,6 +672,32 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
     warnings.push(`BankNifty leading Nifty by ${bankRelStrength.diff.toFixed(1)}% — financial sector driving momentum`);
   }
 
+  // ── Regime qualification — incorporate intraday regime into commentary ──
+  // OI signals can be misleading when regime is adversarial (TRAP_DAY, TREND_DAY_DOWN).
+  const regime = intraday?.intradayRegime;
+  const regimeType = regime?.regime;
+  const regimeConf = regime?.confidence;
+
+  if (regimeType === 'TRAP_DAY' && regimeConf !== 'LOW') {
+    // Trap day: OI signals are unreliable — longs are being set up for a squeeze in the wrong direction.
+    // Prepend to warnings regardless of what OI says.
+    const trapDir = regime.signals?.[0]?.includes('Bull') ? 'bear' : 'bull';
+    warnings.unshift(`⚠️ Trap Day detected — ${trapDir} trap in play. Breakout signals unreliable. Wait for clear direction.`);
+    // Force bias to NEUTRAL on a high-confidence trap — OI direction is actively misleading
+    if (regimeConf === 'HIGH') {
+      bias = 'NEUTRAL'; biasEmoji = '🟡';
+    }
+  } else if (regimeType === 'TREND_DAY_DOWN' && regimeConf !== 'LOW') {
+    warnings.unshift(`⚠️ Regime: Trend Day Down — OR broken, below VWAP. Counter-trend longs high risk.`);
+    if (bias === 'BULLISH') { bias = 'NEUTRAL'; biasEmoji = '🟡'; }
+  } else if (regimeType === 'LONG_LIQUIDATION') {
+    warnings.unshift(`⚠️ Regime: Long Liquidation — forced selling detected. Avoid catching falling knife.`);
+    if (bias === 'BULLISH') { bias = 'NEUTRAL'; biasEmoji = '🟡'; }
+  } else if (regimeType === 'SHORT_SQUEEZE' && regimeConf !== 'LOW') {
+    // Short squeeze: reinforce bullish signals, add to warnings as context
+    warnings.unshift(`📈 Regime: Short Squeeze — shorts covering, momentum accelerating. Trail stops, don't fade.`);
+  }
+
   // ── Priority 1: High-confidence reversal zone ──
   if (reversalResult.reversalZone && reversalResult.confidence === 'HIGH') {
     const rc = reversalResult.commentary;
@@ -734,7 +765,8 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
     bankRelStrength,
     orHigh:     orHigh ? parseFloat(orHigh.toFixed(0)) : null,
     orLow:      orLow  ? parseFloat(orLow.toFixed(0))  : null,
-    srLevels,   // { support: { price, label, strong }, resistance: { price, label, strong } }
+    srLevels,
+    regime:     regimeType ? { type: regimeType, confidence: regimeConf, signals: regime?.signals || [] } : null,
   };
 }
 
