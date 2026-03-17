@@ -2477,7 +2477,7 @@ export default function TerminalPage() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Watchlist: always visible on md+, mobile-controlled */}
-        <div className={`${mobileTab !== 'watchlist' ? 'hidden md:block' : 'block'} flex-shrink-0`}>
+        <div className={`${mobileTab !== 'watchlist' ? 'hidden md:block' : 'block'} flex-shrink-0 h-full`}>
           <WatchlistPanel
             watchTab={watchTab} setWatchTab={setWatchTab}
             watchlist={activeWatchlist}
