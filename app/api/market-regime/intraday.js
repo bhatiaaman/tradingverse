@@ -112,18 +112,23 @@ export function detectIntradayRegime(candles, oiData = null) {
   const orBreakUp    = currentPrice > orHigh;
   const orBreakDown  = currentPrice < orLow;
 
-  // ── Trap: breakout then reversal back inside OR ────────────────────────────
-  const lookback    = candles.slice(-8);
-  const hadHighBreak = lookback.some(c => c.high > orHigh);
-  const hadLowBreak  = lookback.some(c => c.low  < orLow);
+  // ── Full-session OR break history (don't limit to last N candles)
+  // Trap detection must look at the whole session: a selloff that started
+  // in candle 2 won't appear in a slice(-8) taken at candle 14.
+  const sessionHadHighBreak = candles.slice(3).some(c => c.high > orHigh);
+  const sessionHadLowBreak  = candles.slice(3).some(c => c.low  < orLow);
   const backInside   = currentPrice > orLow && currentPrice < orHigh;
-  const trapUp       = hadHighBreak && backInside && !priceAboveVwap;
-  const trapDown     = hadLowBreak  && backInside &&  priceAboveVwap;
+  const trapUp       = sessionHadHighBreak && backInside && !priceAboveVwap;
+  const trapDown     = sessionHadLowBreak  && backInside &&  priceAboveVwap;
 
   // ── Rapid squeeze / liquidation ────────────────────────────────────────────
+  // Use last 3 candles (not 4) — 4-consecutive is too strict, misses partial squeezes
+  const last3    = n >= 3 ? candles.slice(-3) : [];
   const last4    = n >= 4 ? candles.slice(-4) : [];
-  const allUp    = last4.length === 4 && last4.every(c => c.close > c.open);
-  const allDown  = last4.length === 4 && last4.every(c => c.close < c.open);
+  const allUp    = last3.length === 3 && last3.every(c => c.close > c.open);
+  const allDown  = last3.length === 3 && last3.every(c => c.close < c.open);
+  const allUp4   = last4.length === 4 && last4.every(c => c.close > c.open);
+  const allDown4 = last4.length === 4 && last4.every(c => c.close < c.open);
 
   // ── Classify ───────────────────────────────────────────────────────────────
   let regime, confidence;
@@ -135,23 +140,27 @@ export function detectIntradayRegime(candles, oiData = null) {
   } else if (trapDown) {
     regime = 'TRAP_DAY'; confidence = 'HIGH';
     signals.push('Bear trap — breakdown below OR recovered above VWAP');
-  } else if (allUp && volExpanding && priceAboveVwap && (orBreakUp || bullStructure)) {
+  } else if ((allUp || allUp4) && volExpanding && priceAboveVwap && (orBreakUp || bullStructure || sessionHadLowBreak)) {
     regime = 'SHORT_SQUEEZE';
     // OI confirms: low PCR (shorts covering) or PCR falling sharply = strong squeeze signal
+    // sessionHadLowBreak: recovery from below-OR selloff — classic short squeeze setup
     confidence = (oiSqueeze || oiFallingSharply) ? 'HIGH' : 'MEDIUM';
-    signals.push('4 consecutive green candles · volume surge · above VWAP');
-    if (oiSqueeze)       signals.push(`PCR ${pcr} — call-heavy · short covering likely`);
+    const candles34 = allUp4 ? '4' : '3';
+    signals.push(`${candles34} consecutive green candles · volume surge · above VWAP`);
+    if (sessionHadLowBreak && !orBreakUp) signals.push('Recovering from below-OR selloff — shorts covering');
+    if (oiSqueeze)        signals.push(`PCR ${pcr} — call-heavy · short covering likely`);
     if (oiFallingSharply) signals.push(`PCR fell ${pcrDelta?.toFixed(2)} intraday — puts unwinding`);
   } else if (!allUp && oiSqueeze && oiFallingSharply && priceAboveVwap && volExpanding) {
     // OI-only squeeze: price moving up + volume + PCR collapsing — even without 4 straight greens
     regime = 'SHORT_SQUEEZE'; confidence = 'MEDIUM';
     signals.push(`PCR ${pcr} (low) · fell ${pcrDelta?.toFixed(2)} intraday — short covering underway`);
     signals.push('Volume expanding · price above VWAP');
-  } else if (allDown && volExpanding && !priceAboveVwap && (orBreakDown || bearStructure)) {
+  } else if ((allDown || allDown4) && volExpanding && !priceAboveVwap && (orBreakDown || bearStructure)) {
     regime = 'LONG_LIQUIDATION';
     // OI confirms: high PCR (put buyers / hedgers) or PCR rising sharply = confirmed liquidation
     confidence = (oiLiquidation || oiRisingSharply) ? 'HIGH' : 'MEDIUM';
-    signals.push('4 consecutive red candles · volume surge · below VWAP');
+    const candles34d = allDown4 ? '4' : '3';
+    signals.push(`${candles34d} consecutive red candles · volume surge · below VWAP`);
     if (oiLiquidation)    signals.push(`PCR ${pcr} — put-heavy · forced selling likely`);
     if (oiRisingSharply)  signals.push(`PCR rose ${pcrDelta?.toFixed(2)} intraday — put buying accelerating`);
   } else if (!allDown && oiLiquidation && oiRisingSharply && !priceAboveVwap && volExpanding) {
@@ -176,6 +185,19 @@ export function detectIntradayRegime(candles, oiData = null) {
   } else if ((orBreakUp || orBreakDown) && volExpanding) {
     regime = 'BREAKOUT_DAY'; confidence = 'MEDIUM';
     signals.push(`OR broken ${orBreakUp ? 'up' : 'down'} with volume — direction not yet confirmed`);
+  } else if (bullStructure && priceAboveVwap && volExpanding && sessionHadLowBreak) {
+    // Recovery from below-OR session low: price broke down earlier but has since recovered
+    // with bull structure (HH+HL) and volume above VWAP — this is a squeeze/recovery day
+    regime = 'SHORT_SQUEEZE'; confidence = 'MEDIUM';
+    signals.push('Recovered from session low · bull structure building · above VWAP');
+    if (oiSqueeze || oiFallingSharply) {
+      confidence = 'HIGH';
+      if (oiFallingSharply) signals.push(`PCR fell ${pcrDelta?.toFixed(2)} — short covering confirmed`);
+    }
+  } else if (bearStructure && !priceAboveVwap && volExpanding && sessionHadHighBreak) {
+    // Distribution after early high: broke up then came back down with bear structure
+    regime = 'LONG_LIQUIDATION'; confidence = 'MEDIUM';
+    signals.push('Retreated from session high · bear structure · below VWAP');
   } else if (vwapCrosses >= 3) {
     regime = 'RANGE_DAY'; confidence = vwapCrosses >= 5 ? 'HIGH' : 'MEDIUM';
     signals.push(`${vwapCrosses} VWAP crosses — price oscillating around VWAP`);
