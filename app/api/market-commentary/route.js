@@ -702,11 +702,11 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
   const narrativeCtx = {
     regimeType, regimeConf, regimeSignals: regime?.signals || [],
     reversalResult, oiActivity, marketActivity,
-    spot, vwap, rsi, change5min,
+    spot, vwap, ema9, ema21, rsi, change5min, volumeRatio,
     trendDirection: intraday?.trendDirection || 'NEUTRAL',
     support, resistance, maxPain, pcr,
     priceStructure, levelAnalysis, hasConflicts,
-    niftyHigh, niftyLow, bankRelStrength, ema9,
+    niftyHigh, bankRelStrength,
   };
   const narr = synthesizeNarrative(narrativeCtx);
 
@@ -744,110 +744,192 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Narrative synthesis — all signals → one coherent trader observation
-// Reads like: "What I see + what it means + what to watch"
+// CEREBRUM — synthesizes all market signals into one coherent narrative
+// Observes → interprets → names the setup → states the trade
+// Priority: Regime > Reversal > Setup detection > OI > Structure
 // ─────────────────────────────────────────────────────────────────────
 function synthesizeNarrative({
   regimeType, regimeConf, regimeSignals,
   reversalResult, oiActivity, marketActivity,
-  spot, vwap, rsi, change5min, trendDirection,
+  spot, vwap, ema9, ema21, rsi, change5min, volumeRatio, trendDirection,
   support, resistance, pcr,
-  priceStructure, levelAnalysis, hasConflicts,
-  niftyHigh, bankRelStrength, ema9,
+  priceStructure, levelAnalysis,
+  niftyHigh, bankRelStrength,
 }) {
-  const oiAct    = marketActivity?.activity || null;
-  const aboveVwap = vwap && spot > vwap;
-  const atRes    = resistance && Math.abs(spot - resistance) / resistance < 0.004;
-  const atSup    = support    && Math.abs(spot - support)    / support    < 0.004;
-  const rsiOB    = rsi && rsi > 65;
-  const rsiOS    = rsi && rsi < 35;
-  const R        = v => v ? parseFloat(v).toFixed(0) : '—';
+  const oiAct     = marketActivity?.activity || null;
+  const aboveVwap = vwap  && spot > vwap;
+  const aboveEMA9 = ema9  && spot > ema9;
+  const aboveEMA21= ema21 && spot > ema21;
+  const atRes     = resistance && Math.abs(spot - resistance) / resistance < 0.004;
+  const atSup     = support    && Math.abs(spot - support)    / support    < 0.004;
+  const nearEMA9  = ema9  && Math.abs(spot - ema9)  / ema9  < 0.003;
+  const nearEMA21 = ema21 && Math.abs(spot - ema21) / ema21 < 0.004;
+  const nearVwap  = vwap  && Math.abs(spot - vwap)  / vwap  < 0.003;
+  const rsiOB     = rsi && rsi > 65;
+  const rsiOS     = rsi && rsi < 35;
+  const volHigh   = volumeRatio && volumeRatio > 1.5;
+  const volLow    = volumeRatio && volumeRatio < 0.6;
+  const R         = v => v ? parseFloat(v).toFixed(0) : '—';
+  const pct       = v => v != null ? `${v > 0 ? '+' : ''}${parseFloat(v).toFixed(1)}%` : '';
 
-  // ── Regime-led narratives (regime overrides OI when directional) ──
+  // ── helpers ──
+  const oiSupports  = (direction) => {
+    if (direction === 'BULLISH') return oiAct === 'Long Buildup' ? ' Put writing confirms floor below.' : oiAct === 'Short Covering' ? ' Shorts covering adds fuel.' : '';
+    if (direction === 'BEARISH') return oiAct === 'Short Buildup' ? ' Call writing confirms ceiling above.' : oiAct === 'Long Unwinding' ? ' Longs exiting adds supply.' : '';
+    return '';
+  };
+  const oiConflicts = (direction) => {
+    if (direction === 'BULLISH' && (oiAct === 'Short Buildup' || oiAct === 'Long Unwinding')) return ` Note: OI shows ${oiAct} — watch for divergence.`;
+    if (direction === 'BEARISH' && (oiAct === 'Long Buildup'  || oiAct === 'Short Covering')) return ` Note: OI shows ${oiAct} — conflicting signal.`;
+    return '';
+  };
+  const volNote = volHigh ? ` Volume ${volumeRatio.toFixed(1)}x — conviction.` : volLow ? ` Volume thin — move may not hold.` : '';
+  const rsiNote = (dir) => rsiOB && dir === 'BULLISH' ? ` RSI ${R(rsi)} extended — momentum strong but watch for fade.`
+                         : rsiOS && dir === 'BEARISH' ? ` RSI ${R(rsi)} oversold — don't chase shorts.`
+                         : rsiOB && dir === 'BEARISH' ? ` RSI ${R(rsi)} overbought — confirms exhaustion.`
+                         : rsiOS && dir === 'BULLISH' ? ` RSI ${R(rsi)} oversold — bounce has fuel.` : '';
+
+  // ════════════════════════════════════════════════════════════════
+  // LAYER 1: REGIME — highest context, overrides OI when directional
+  // ════════════════════════════════════════════════════════════════
+
   if (regimeType === 'TRAP_DAY' && regimeConf !== 'LOW') {
     const bullTrap = regimeSignals.some(s => /bull/i.test(s));
-    const oiConflict = bullTrap
-      ? (oiAct === 'Long Buildup' ? `OI still shows Long Buildup (put writing) — ` : '')
-      : (oiAct === 'Short Buildup' ? `OI shows Short Buildup — ` : '');
+    const oiConflict = bullTrap && oiAct === 'Long Buildup' ? `OI shows Long Buildup (put writing) — but ` : '';
     const headline = bullTrap
-      ? `${oiConflict}breakout above ${R(resistance)} failed — bull trap`
-      : `${oiConflict}breakdown below ${R(support)} reversed — bear trap, shorts squeezed`;
+      ? `${oiConflict}breakout above ${R(resistance)} failed — bull trap in play`
+      : `Breakdown below ${R(support)} reversed — bear trap, shorts getting squeezed`;
     const watchKey = bullTrap ? support : resistance;
     const action = bullTrap
-      ? `Longs who chased the breakout are now underwater. ${atRes ? `Rejection at ${R(resistance)} holding. ` : ''}Trap confirmed on close below VWAP ${R(vwap)}. Stay flat or short with SL above ${R(niftyHigh)}.`
-      : `Bears caught offside as price recovered${aboveVwap ? ' above VWAP' : ''}. Shorts covering. Watch ${R(resistance)} — reclaim it and the squeeze deepens.`;
+      ? `Bulls who chased the break are now underwater.${rsiNote('BEARISH')} Close below VWAP ${R(vwap)} = trap deepening. Stay flat or short with SL above ${R(niftyHigh)}.`
+      : `Bears caught offside${aboveVwap ? ', price back above VWAP' : ''}. Shorts covering.${oiSupports('BULLISH')} Watch ${R(resistance)} — hold above = squeeze builds.`;
     return { state: 'TRAP DAY', stateEmoji: '⚠️', bias: bullTrap ? 'BEARISH' : 'NEUTRAL', headline, action, keyLevel: R(watchKey) };
   }
 
   if (regimeType === 'SHORT_SQUEEZE' && regimeConf !== 'LOW') {
-    const oiConf = oiAct === 'Short Covering' ? ' OI confirms: call shorts unwinding.' : oiAct === 'Long Buildup' ? ' Put writing adding floor below.' : '';
-    const headline = `Short squeeze — consecutive green candles, volume expanding${aboveVwap ? ', above VWAP' : ''}`;
-    const action = `Shorts covering${change5min && change5min > 0.3 ? `, last candle +${change5min.toFixed(1)}%` : ''}.${oiConf} Don't fade momentum. Next resistance ${R(resistance)} — break with volume = acceleration. Trail stops on longs.`;
+    const lastCandleNote = change5min && change5min > 0.3 ? `, last candle ${pct(change5min)}` : '';
+    const headline = `Short squeeze — consecutive green candles${lastCandleNote}, volume expanding${aboveVwap ? ', above VWAP' : ''}`;
+    const action = `Shorts covering${volNote}${oiSupports('BULLISH')} Don't fade momentum.${rsiNote('BULLISH')} Next resistance ${R(resistance)} — break = acceleration. Trail stops.`;
     return { state: 'SHORT SQUEEZE', stateEmoji: '🚀', bias: 'BULLISH', headline, action, keyLevel: R(resistance) };
   }
 
   if (regimeType === 'LONG_LIQUIDATION') {
-    const oiConf = pcr && pcr > 1.2 ? ` PCR ${pcr.toFixed(2)} — put buying accelerating, institutional hedging.` : '';
-    const headline = `Long liquidation — forced selling${!aboveVwap ? ', below VWAP' : ''}${change5min && change5min < -0.3 ? `, last candle ${change5min.toFixed(1)}%` : ''}`;
-    const action = `Longs being flushed.${oiConf} Catch-the-knife risk is high. Wait for volume to dry up at ${R(support)} before any long attempt.`;
+    const lastCandleNote = change5min && change5min < -0.3 ? `, last candle ${pct(change5min)}` : '';
+    const headline = `Long liquidation — forced selling${lastCandleNote}${!aboveVwap ? ', below VWAP' : ''}${volHigh ? `, ${volumeRatio.toFixed(1)}x volume` : ''}`;
+    const pcrNote = pcr && pcr > 1.2 ? ` PCR ${pcr.toFixed(2)} — institutional put buying confirms hedging.` : '';
+    const action = `Longs being flushed.${pcrNote}${rsiNote('BEARISH')} Knife-catch risk high — wait for volume to dry up near ${R(support)} before considering longs.`;
     return { state: 'LONG LIQUIDATION', stateEmoji: '📉', bias: 'BEARISH', headline, action, keyLevel: R(support) };
   }
 
   if (regimeType === 'TREND_DAY_UP' && regimeConf !== 'LOW') {
-    const pullback = !aboveVwap ? ` — testing VWAP ${R(vwap)}, watch for hold` : '';
-    const oiNote = oiAct === 'Long Buildup' ? ' Put writing supporting the floor.' : oiAct === 'Short Covering' ? ' Short covering adding fuel.' : '';
-    const headline = `Trend day up — OR broken, HH+HL structure${aboveVwap ? ', above VWAP' : pullback}`;
-    const action = `Structure intact.${oiNote}${rsiOB ? ` RSI at ${R(rsi)} — extended, expect shallow pullback not reversal.` : ''} Dips toward ${R(support)} are buyable. Next target ${R(resistance)}.`;
+    const vwapTest = !aboveVwap ? ` — currently testing VWAP ${R(vwap)}, watch for hold` : '';
+    const headline = `Trend day up — OR broken, HH+HL structure${aboveVwap ? ', holding above VWAP' : vwapTest}`;
+    const action = `Structure intact.${oiSupports('BULLISH')}${rsiNote('BULLISH')}${volNote} Dips toward ${R(support)} are continuation buys. Target ${R(resistance)}. Invalidated by close below VWAP.`;
     return { state: 'TREND UP', stateEmoji: '📈', bias: 'BULLISH', headline, action, keyLevel: R(support) };
   }
 
   if (regimeType === 'TREND_DAY_DOWN' && regimeConf !== 'LOW') {
-    const oiNote = oiAct === 'Short Buildup' ? ' Call writing adding ceiling.' : oiAct === 'Long Unwinding' ? ' Longs exiting adds to supply.' : '';
-    const headline = `Trend day down — OR broken, LL+LH structure${!aboveVwap ? ', below VWAP' : ''}`;
-    const action = `Bears in control.${oiNote}${rsiOS ? ` RSI ${R(rsi)} — oversold, possible bounce to ${R(resistance)} but trend still down.` : ''} Bounces are shorting opportunities. Next support ${R(support)}.`;
+    const vwapTest = aboveVwap ? ` — testing VWAP ${R(vwap)} from below, watch for rejection` : '';
+    const headline = `Trend day down — OR broken, LL+LH structure${!aboveVwap ? ', below VWAP' : vwapTest}`;
+    const action = `Bears in control.${oiSupports('BEARISH')}${rsiNote('BEARISH')}${volNote} Bounces toward ${R(resistance)} are shorting setups. Next support ${R(support)}. Invalidated by reclaim above VWAP.`;
     return { state: 'TREND DOWN', stateEmoji: '📉', bias: 'BEARISH', headline, action, keyLevel: R(resistance) };
   }
 
-  // ── Reversal-led narrative ──
+  // ════════════════════════════════════════════════════════════════
+  // LAYER 2: REVERSAL ZONE — candlestick/OI/RSI confluence
+  // ════════════════════════════════════════════════════════════════
+
   if (reversalResult?.reversalZone && reversalResult.confidence === 'HIGH') {
-    const rc   = reversalResult.commentary;
     const rev  = reversalResult;
     const top2 = (rev.signals || []).slice(0, 2).map(s => s.message).join(' + ');
-    const oiConflict = (rev.direction === 'BULLISH' && oiAct === 'Short Buildup') ? `Despite ${oiAct}, ` :
-                       (rev.direction === 'BEARISH' && oiAct === 'Long Buildup')  ? `Despite ${oiAct}, ` : '';
-    const headline = top2 || rc.headline;
-    const action   = `${oiConflict}${rc.action}`;
+    const dir  = rev.direction;
+    const action = `${oiConflicts(dir)}${rev.commentary.action}${volNote}`;
     return {
-      state: rc.state, stateEmoji: '🔄',
-      bias: rev.direction === 'BULLISH' ? 'BULLISH' : rev.direction === 'BEARISH' ? 'BEARISH' : 'NEUTRAL',
-      headline, action, keyLevel: R(levelAnalysis?.primaryLevel),
+      state: rev.commentary.state, stateEmoji: '🔄',
+      bias: dir === 'BULLISH' ? 'BULLISH' : dir === 'BEARISH' ? 'BEARISH' : 'NEUTRAL',
+      headline: top2 || rev.commentary.headline, action,
+      keyLevel: R(levelAnalysis?.primaryLevel),
     };
   }
 
-  // ── Level test narrative (price at key level, no strong regime) ──
+  // ════════════════════════════════════════════════════════════════
+  // LAYER 3: SETUP DETECTION — specific intraday patterns
+  // ════════════════════════════════════════════════════════════════
+
+  // ── EMA Bounce (trend continuation pullback) ──
+  // Price pulled back to EMA9 or EMA21 in an uptrend, now bouncing
+  if ((nearEMA9 || nearEMA21) && aboveVwap && change5min > 0.15 && trendDirection !== 'DOWN') {
+    const emaLabel = nearEMA9 ? `EMA9 ${R(ema9)}` : `EMA21 ${R(ema21)}`;
+    const emaLevel = nearEMA9 ? ema9 : ema21;
+    const headline = `Bouncing off ${emaLabel} — trend continuation pullback setup`;
+    const action = `Textbook pullback-to-EMA in an uptrend.${oiSupports('BULLISH')}${volNote}${rsiNote('BULLISH')} ${emaLabel} is the SL level — hold above = bias intact, long bias. Target ${R(resistance)}.`;
+    return { state: 'EMA BOUNCE', stateEmoji: '↗️', bias: 'BULLISH', headline, action, keyLevel: R(emaLabel) };
+  }
+
+  // ── EMA Rejection (trend continuation fade) ──
+  // Price rallied to EMA in a downtrend, now failing
+  if ((nearEMA9 || nearEMA21) && !aboveVwap && change5min < -0.15 && trendDirection !== 'UP') {
+    const emaLabel = nearEMA9 ? `EMA9 ${R(ema9)}` : `EMA21 ${R(ema21)}`;
+    const headline = `Rejected at ${emaLabel} — EMA acting as resistance in downtrend`;
+    const action = `Classic bear continuation — rally to EMA faded.${oiSupports('BEARISH')}${rsiNote('BEARISH')}${volNote} Stay below ${emaLabel} = bearish. Target ${R(support)}.`;
+    return { state: 'EMA REJECTION', stateEmoji: '↘️', bias: 'BEARISH', headline, action, keyLevel: R(nearEMA9 ? ema9 : ema21) };
+  }
+
+  // ── VWAP Reclaim (bullish) ──
+  // Price dipped below VWAP, reclaimed it with green candle
+  if (nearVwap && aboveVwap && change5min > 0.15 && trendDirection === 'UP') {
+    const headline = `VWAP ${R(vwap)} reclaimed — bulls took back institutional benchmark`;
+    const action = `Reclaiming VWAP is a significant intraday reversal signal.${oiSupports('BULLISH')}${volNote} Hold above VWAP = bullish continuation. Slip back below = false reclaim, exit. Target ${R(resistance)}.`;
+    return { state: 'VWAP RECLAIM', stateEmoji: '↗️', bias: 'BULLISH', headline, action, keyLevel: R(vwap) };
+  }
+
+  // ── VWAP Rejection (bearish) ──
+  // Price rallied to VWAP from below, rejected
+  if (nearVwap && !aboveVwap && change5min < -0.15 && trendDirection === 'DOWN') {
+    const headline = `Rejected at VWAP ${R(vwap)} — bears defending the institutional level`;
+    const action = `VWAP rejection is a high-probability short setup.${oiSupports('BEARISH')}${rsiNote('BEARISH')}${volNote} Hold below VWAP = bearish. Target ${R(support)}.`;
+    return { state: 'VWAP REJECTION', stateEmoji: '↘️', bias: 'BEARISH', headline, action, keyLevel: R(vwap) };
+  }
+
+  // ── OR Breakout (price cleared opening range) ──
+  // Handled by TREND_DAY regime; here for BREAKOUT_DAY / ambiguous
+  if (regimeType === 'BREAKOUT_DAY') {
+    const dir  = aboveVwap ? 'BULLISH' : 'BEARISH';
+    const headline = `OR broken ${aboveVwap ? 'up' : 'down'}${volHigh ? ` with ${volumeRatio.toFixed(1)}x volume` : ', volume not yet confirming'}`;
+    const action = `Breakout in progress — direction${aboveVwap ? '' : ' not yet'} confirmed.${oiSupports(dir)}${volLow ? ' Thin volume is a concern — wait for retest.' : ''} Hold ${aboveVwap ? 'above' : 'below'} OR ${aboveVwap ? R(resistance) : R(support)} = bias intact.`;
+    return { state: 'OR BREAKOUT', stateEmoji: aboveVwap ? '⬆️' : '⬇️', bias: dir, headline, action, keyLevel: aboveVwap ? R(resistance) : R(support) };
+  }
+
+  // ── Breakout Retest ──
+  // Price previously broke above resistance, pulled back to test it as support
+  const prevResNowSup = resistance && support && Math.abs(support - resistance) / resistance < 0.008;
+  if (prevResNowSup && aboveVwap && change5min > 0 && oiAct !== 'Short Buildup') {
+    const headline = `Testing prior resistance ${R(resistance)} as support — breakout retest setup`;
+    const action = `Classic breakout-retest.${oiSupports('BULLISH')}${volNote} Hold here = high-probability long entry. SL below ${R(support)}. Target: prior high + extension.`;
+    return { state: 'RETEST', stateEmoji: '🎯', bias: 'BULLISH', headline, action, keyLevel: R(resistance) };
+  }
+
+  // ── Level tests with full context ──
   if (atRes) {
-    const oiNote = oiAct === 'Short Buildup' ? 'Fresh call writing confirms supply here. '
-                 : oiAct === 'Long Buildup'  ? 'Put writing below provides support, but resistance holding. '
-                 : '';
-    const rsiNote = rsiOB ? `RSI at ${R(rsi)} — overbought. ` : '';
-    const bias = (rsiOB || oiAct === 'Short Buildup') ? 'NEUTRAL' : aboveVwap ? 'BULLISH' : 'NEUTRAL';
-    const headline = `Testing resistance ${R(resistance)}${aboveVwap ? ', above VWAP' : ''}${rsiOB ? `, RSI extended` : ''}`;
-    const action = `${oiNote}${rsiNote}${change5min > 0 ? 'Approaching with momentum — watch for volume to hold or fade.' : 'Stalling at this level.'} Clean break above = ${R(parseFloat(resistance) + 50)} next. Rejection here = pull back to VWAP ${R(vwap)}.`;
-    return { state: 'AT RESISTANCE', stateEmoji: '⚡', bias, headline, action, keyLevel: R(resistance) };
+    const dir  = (rsiOB || oiAct === 'Short Buildup') ? 'BEARISH' : aboveVwap ? 'NEUTRAL' : 'NEUTRAL';
+    const momentum = change5min > 0.2 ? 'approaching with momentum' : change5min < -0.1 ? 'already stalling / fading' : 'reaching the level';
+    const headline = `${momentum === 'already stalling / fading' ? 'Stalling at' : 'Testing'} resistance ${R(resistance)}${aboveVwap ? ', above VWAP' : ''}${rsiOB ? ', RSI extended' : ''}`;
+    const action = `${oiAct === 'Short Buildup' ? 'Fresh call writing confirms supply. ' : oiAct === 'Long Buildup' ? 'Put writing below provides a floor, but resistance holding for now. ' : ''}${rsiNote('BEARISH')}${volNote} ${momentum === 'approaching with momentum' ? 'Needs volume to push through.' : 'Distribution possible.'} Break above = ${R(parseFloat(resistance) + 50)}. Rejection = VWAP ${R(vwap)} next.`;
+    return { state: 'AT RESISTANCE', stateEmoji: '⚡', bias: dir, headline, action, keyLevel: R(resistance) };
   }
 
   if (atSup) {
-    const oiNote = oiAct === 'Long Buildup'  ? 'Put writing building a floor here. '
-                 : oiAct === 'Short Buildup' ? 'Call writers pressing — bears active at this support. '
-                 : '';
-    const rsiNote = rsiOS ? `RSI ${R(rsi)} — oversold, covering risk. ` : '';
-    const bias = rsiOS ? 'NEUTRAL' : !aboveVwap ? 'BEARISH' : 'NEUTRAL';
+    const dir  = (rsiOS || oiAct === 'Long Buildup') ? 'NEUTRAL' : !aboveVwap ? 'BEARISH' : 'NEUTRAL';
+    const holding = change5min >= 0;
     const headline = `Testing support ${R(support)}${!aboveVwap ? ', below VWAP' : ''}${rsiOS ? ', RSI oversold' : ''}`;
-    const action = `${oiNote}${rsiNote}${change5min < 0 ? 'Still under pressure. ' : 'Holding so far. '}Hold here = bounce toward ${R(parseFloat(support) + 60)}. Break below = ${R(parseFloat(support) - 80)} next.`;
-    return { state: 'AT SUPPORT', stateEmoji: '🛡️', bias, headline, action, keyLevel: R(support) };
+    const action = `${oiAct === 'Long Buildup' ? 'Put writing building a floor here. ' : oiAct === 'Short Buildup' ? 'Call writers active — bears not giving up at this level. ' : ''}${rsiNote('BULLISH')}${volNote} ${holding ? 'Holding so far.' : 'Still under pressure.'} Hold = bounce to ${R(parseFloat(support) + 60)}. Break = ${R(parseFloat(support) - 80)}.`;
+    return { state: 'AT SUPPORT', stateEmoji: '🛡️', bias: dir, headline, action, keyLevel: R(support) };
   }
 
-  // ── OI-led narrative ──
+  // ════════════════════════════════════════════════════════════════
+  // LAYER 4: OI ACTIVITY — with VWAP/RSI/volume context
+  // ════════════════════════════════════════════════════════════════
+
   if (oiActivity?.conviction !== 'Low' && oiAct && oiAct !== 'Consolidation') {
     const oiMap = {
       'Long Buildup':   { state: 'LONG BUILDUP',   stateEmoji: '🚀', bias: 'BULLISH' },
@@ -857,25 +939,33 @@ function synthesizeNarrative({
     };
     const entry = oiMap[oiAct] || { state: oiAct.toUpperCase(), stateEmoji: '📊', bias: 'NEUTRAL' };
     const { narrative, tradingImplication } = oiActivity;
-    const vwapNote = aboveVwap ? `price above VWAP ${R(vwap)}` : `price below VWAP ${R(vwap)}`;
-    const rsiNote  = rsiOB ? `, RSI ${R(rsi)} overbought` : rsiOS ? `, RSI ${R(rsi)} oversold` : '';
-    const conflictNote = (entry.bias === 'BULLISH' && !aboveVwap) ? ' — but price below VWAP is a concern.' :
-                         (entry.bias === 'BEARISH' &&  aboveVwap) ? ' — but price above VWAP suggests bulls haven\'t given up.' : '.';
-    const headline = `${narrative || oiAct} — ${vwapNote}${rsiNote}`;
-    const action   = `${tradingImplication}${conflictNote} Watch ${entry.bias === 'BULLISH' ? R(resistance) : R(support)} for next directional move.`;
+    const vwapCtx  = aboveVwap ? `price above VWAP ${R(vwap)}` : `price below VWAP ${R(vwap)}`;
+    const pcrCtx   = pcr ? ` PCR ${pcr.toFixed(2)}.` : '';
+    const conflict = (entry.bias === 'BULLISH' && !aboveVwap) ? ' — caution: price below VWAP, OI may be stale.' :
+                     (entry.bias === 'BEARISH' &&  aboveVwap) ? ' — note: price above VWAP, bulls not fully surrendered.' : '';
+    const headline = `${narrative || oiAct} — ${vwapCtx}${rsiOB ? `, RSI ${R(rsi)} overbought` : rsiOS ? `, RSI ${R(rsi)} oversold` : ''}${pcrCtx} (OI ~3–5 min lag)`;
+    const action   = `${tradingImplication}${conflict}${volNote}${rsiNote(entry.bias)} Watch ${entry.bias === 'BULLISH' ? R(resistance) : R(support)} for next directional move.`;
     return { ...entry, headline, action, keyLevel: entry.bias === 'BULLISH' ? R(support) : R(resistance) };
   }
 
-  // ── Fallback: VWAP + RSI structure ──
-  const structBias = aboveVwap ? 'BULLISH' : 'BEARISH';
-  const rsiCtx = rsiOB ? `RSI ${R(rsi)} overbought — potential fade` : rsiOS ? `RSI ${R(rsi)} oversold — covering risk` : `RSI ${R(rsi)} neutral`;
-  const headline = `${aboveVwap ? 'Above' : 'Below'} VWAP ${R(vwap)} — ${trendDirection === 'UP' ? 'higher highs forming' : trendDirection === 'DOWN' ? 'lower lows forming' : 'directionless'}. ${rsiCtx}.`;
-  const action   = aboveVwap
-    ? `Bulls in control intraday. ${R(support)} is the key level — hold there = bias remains up. Watch ${R(resistance)} for breakout.`
-    : `Bears in control intraday. ${R(resistance)} is the ceiling — rejection there = bias remains down. Watch ${R(support)} for stabilization.`;
+  // ════════════════════════════════════════════════════════════════
+  // LAYER 5: STRUCTURE FALLBACK — VWAP + EMA + RSI
+  // ════════════════════════════════════════════════════════════════
+
+  const emaCtx = aboveEMA9 && aboveEMA21 ? 'above EMA9 + EMA21' : !aboveEMA9 && !aboveEMA21 ? 'below EMA9 + EMA21' : aboveEMA9 ? 'above EMA9, below EMA21' : 'below EMA9, above EMA21';
+  const momentumCtx = trendDirection === 'UP' ? 'higher highs forming' : trendDirection === 'DOWN' ? 'lower lows forming' : 'no clear momentum';
+  const rsiCtx = rsiOB ? `RSI ${R(rsi)} overbought` : rsiOS ? `RSI ${R(rsi)} oversold — watch for squeeze` : `RSI ${R(rsi)}`;
+  const structBias = (aboveVwap && aboveEMA9) ? 'BULLISH' : (!aboveVwap && !aboveEMA9) ? 'BEARISH' : 'NEUTRAL';
+  const headline = `${aboveVwap ? 'Above' : 'Below'} VWAP ${R(vwap)}, ${emaCtx} — ${momentumCtx}. ${rsiCtx}.`;
+  const action = structBias === 'BULLISH'
+    ? `Structure bullish — all MAs aligned.${volNote} ${R(support)} (EMA9/VWAP zone) is the key support. Hold there = bias intact. Watch ${R(resistance)} for breakout.`
+    : structBias === 'BEARISH'
+    ? `Structure bearish — price below all MAs.${volNote} ${R(resistance)} is the ceiling. Watch ${R(support)} for next support test.`
+    : `Mixed signals — price between key levels.${volNote} Wait for clear directional break above ${R(resistance)} or below ${R(support)}.`;
   return {
-    state: aboveVwap ? 'ABOVE VWAP' : 'BELOW VWAP', stateEmoji: aboveVwap ? '📈' : '📉',
-    bias: structBias, headline, action, keyLevel: aboveVwap ? R(support) : R(resistance),
+    state: structBias === 'BULLISH' ? 'ABOVE VWAP' : structBias === 'BEARISH' ? 'BELOW VWAP' : 'CONSOLIDATING',
+    stateEmoji: structBias === 'BULLISH' ? '📈' : structBias === 'BEARISH' ? '📉' : '😴',
+    bias: structBias, headline, action, keyLevel: structBias === 'BULLISH' ? R(support) : R(resistance),
   };
 }
 
