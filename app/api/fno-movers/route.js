@@ -77,8 +77,8 @@ export async function GET() {
     }
 
     movers.sort((a, b) => b.changePct - a.changePct);
-    const gainers = movers.slice(0, 5);
-    const losers  = movers.slice(-5).reverse();
+    const gainers = movers.slice(0, 7);
+    const losers  = movers.slice(-7).reverse();
 
     const response = { gainers, losers, timestamp: new Date().toISOString() };
     await redisSet(CACHE_KEY, response, CACHE_TTL);

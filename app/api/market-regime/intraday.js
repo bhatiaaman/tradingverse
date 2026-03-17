@@ -39,7 +39,8 @@ function calcATR(candles) {
 }
 
 // oiData: { pcr, pcrAtOpen, totalCallOI, totalPutOI } — optional, null = unavailable
-export function detectIntradayRegime(candles, oiData = null) {
+// options: { prevClose } — yesterday's closing price, used for gap detection
+export function detectIntradayRegime(candles, oiData = null, options = {}) {
   if (!candles || candles.length < 3) {
     return {
       regime: 'INITIALIZING', confidence: 'LOW', signals: [],
@@ -55,6 +56,15 @@ export function detectIntradayRegime(candles, oiData = null) {
   // > 1.2  → put-heavy → hedging / fear → liquidation conditions
   // pcrDelta < 0 (PCR falling intraday) = puts being unwound or calls added → bullish shift
   // pcrDelta > 0 (PCR rising intraday)  = puts being added or calls unwound → bearish shift
+  // ── Gap detection ────────────────────────────────────────────────────────────
+  // On gap-up days: OR high is elevated from open → price consolidating below OR high
+  // is NOT a range day — it's trend continuation. Same logic applies inversely for gaps down.
+  const prevClose     = options?.prevClose ?? null;
+  const firstOpen     = candles[0].open;
+  const gapPct        = prevClose ? ((firstOpen - prevClose) / prevClose) * 100 : 0;
+  const isGapUp       = gapPct >  0.5;  // gapped up > 0.5%
+  const isGapDown     = gapPct < -0.5;  // gapped down > 0.5%
+
   const pcr      = oiData?.pcr ?? null;
   const pcrAtOpen = oiData?.pcrAtOpen ?? null;
   const pcrDelta  = (pcr != null && pcrAtOpen != null) ? pcr - pcrAtOpen : null;
@@ -109,8 +119,13 @@ export function detectIntradayRegime(candles, oiData = null) {
 
   // ── Opening range break ───────────────────────────────────────────────────
   const currentPrice = latest.close;
-  const orBreakUp    = currentPrice > orHigh;
-  const orBreakDown  = currentPrice < orLow;
+  // On gap-up days: OR high is already elevated from the open. If price holds above
+  // yesterday's close + gap and is above VWAP, count it as an effective OR break up
+  // even if it consolidates slightly below the intraday OR high.
+  const orBreakUp   = currentPrice > orHigh ||
+                      (isGapUp   && priceAboveVwap && prevClose && currentPrice > prevClose * 1.004);
+  const orBreakDown = currentPrice < orLow  ||
+                      (isGapDown && !priceAboveVwap && prevClose && currentPrice < prevClose * 0.996);
 
   // ── Full-session OR break history (don't limit to last N candles)
   // Trap detection must look at the whole session: a selloff that started
@@ -170,17 +185,21 @@ export function detectIntradayRegime(candles, oiData = null) {
     signals.push('Volume expanding · price below VWAP');
   } else if (orBreakUp && bullStructure && priceAboveVwap && volExpanding) {
     regime = 'TREND_DAY_UP'; confidence = 'HIGH';
-    signals.push('OR broken up · HH+HL structure · above VWAP · volume confirming');
+    if (isGapUp) signals.push(`Gap up ${gapPct.toFixed(1)}% · holding above VWAP · HH+HL structure`);
+    else signals.push('OR broken up · HH+HL structure · above VWAP · volume confirming');
   } else if (orBreakDown && bearStructure && !priceAboveVwap && volExpanding) {
     regime = 'TREND_DAY_DOWN'; confidence = 'HIGH';
-    signals.push('OR broken down · LL+LH structure · below VWAP · volume confirming');
+    if (isGapDown) signals.push(`Gap down ${Math.abs(gapPct).toFixed(1)}% · holding below VWAP · LL+LH structure`);
+    else signals.push('OR broken down · LL+LH structure · below VWAP · volume confirming');
   } else if (orBreakUp && priceAboveVwap) {
     regime = 'TREND_DAY_UP'; confidence = 'MEDIUM';
-    signals.push('OR broken up · holding above VWAP');
+    if (isGapUp) signals.push(`Gap up ${gapPct.toFixed(1)}% · holding above VWAP`);
+    else signals.push('OR broken up · holding above VWAP');
     if (bullStructure) signals.push('HH+HL structure building');
   } else if (orBreakDown && !priceAboveVwap) {
     regime = 'TREND_DAY_DOWN'; confidence = 'MEDIUM';
-    signals.push('OR broken down · holding below VWAP');
+    if (isGapDown) signals.push(`Gap down ${Math.abs(gapPct).toFixed(1)}% · holding below VWAP`);
+    else signals.push('OR broken down · holding below VWAP');
     if (bearStructure) signals.push('LL+LH structure building');
   } else if ((orBreakUp || orBreakDown) && volExpanding) {
     regime = 'BREAKOUT_DAY'; confidence = 'MEDIUM';

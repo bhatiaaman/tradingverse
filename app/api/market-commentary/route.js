@@ -190,6 +190,8 @@ async function fetchIntradayCandles(dp) {
     const todayStart = todayIST.getTime() / 1000;
 
     const todayCandles = allCandles.filter(c => c.time >= todayStart);
+    const prevCandles  = allCandles.filter(c => c.time < todayStart);
+    const prevClose    = prevCandles.length > 0 ? prevCandles[prevCandles.length - 1].close : null;
     const closes       = todayCandles.map(c => c.close);
     const lastCandle   = todayCandles[todayCandles.length - 1] || null;
 
@@ -231,7 +233,7 @@ async function fetchIntradayCandles(dp) {
     }
 
     // Run intraday regime on same candles — used to qualify commentary state
-    const intradayRegime = detectIntradayRegime(todayCandles);
+    const intradayRegime = detectIntradayRegime(todayCandles, null, { prevClose });
 
     return {
       rsi:           calcRSI(closes),
@@ -246,6 +248,7 @@ async function fetchIntradayCandles(dp) {
       prevCandle:    prev5candle,
       change5min,
       trendDirection,
+      prevClose,
       intradayRegime,
       orHigh:      orCandle?.high || null,
       orLow:       orCandle?.low  || null,

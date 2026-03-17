@@ -180,6 +180,15 @@ export async function POST(request) {
         })
         .map(c => ({ time: c.date, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume }));
 
+      // Extract yesterday's close for gap detection (last candle before today's session)
+      const prevClose = (() => {
+        const prev = raw.filter(c => {
+          const ist     = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
+          return ist.toISOString().slice(0, 10) !== todayStr;
+        });
+        return prev.length > 0 ? prev[prev.length - 1].close : null;
+      })();
+
       // Session-open PCR snapshot for delta tracking (store on first call of the day)
       let pcrAtOpen = null;
       if (pcrData?.pcr != null) {
@@ -192,7 +201,7 @@ export async function POST(request) {
       }
 
       const oiData = pcrData ? { ...pcrData, pcrAtOpen } : null;
-      const result   = detectIntradayRegime(candles, oiData);
+      const result   = detectIntradayRegime(candles, oiData, { prevClose });
       const timeline = await updateTimeline(symbol, result.regime, result.confidence);
 
       const response = {

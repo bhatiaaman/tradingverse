@@ -787,8 +787,9 @@ function TopBar({ indices, kiteConnected, user, setUser, regimeData }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // WatchlistPanel — with 2 tabs
 // ─────────────────────────────────────────────────────────────────────────────
-function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSearch, setWatchSearch, watchSearchResults, watchSearching, onSymbolClick, onAddSymbol, onRemoveSymbol, activeSymbol, scannerStocks, scannerLastScan }) {
+function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSearch, setWatchSearch, watchSearchResults, watchSearching, onSymbolClick, onAddSymbol, onRemoveSymbol, activeSymbol, scannerStocks, scannerLastScan, movers }) {
   const isScanner = watchTab === 'S';
+  const isMovers  = watchTab === 'M';
   // Build scanName lookup for scanner tab
   const scannerMeta = isScanner
     ? Object.fromEntries(scannerStocks.map(s => [s.symbol, s]))
@@ -799,7 +800,7 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
 
       {/* Tab header */}
       <div className="flex border-b border-gray-200 dark:border-white/10 flex-shrink-0">
-        {[1, 2, 'S'].map(t => (
+        {[1, 2, 'S', 'M'].map(t => (
           <button
             key={t}
             onClick={() => setWatchTab(t)}
@@ -809,10 +810,61 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
                 : 'border-transparent text-gray-400 dark:text-white/30 hover:text-gray-600 dark:hover:text-white/60'
             }`}
           >
-            {t === 'S' ? 'Scanner' : `List ${t}`}
+            {t === 'S' ? 'Scanner' : t === 'M' ? 'Movers' : `List ${t}`}
           </button>
         ))}
       </div>
+
+      {/* Movers & Shakers tab */}
+      {isMovers && (
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+          {movers?.loading ? (
+            <div className="p-2 space-y-1">
+              {[1,2,3,4,5,6,7].map(i => <div key={i} className="h-7 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}
+            </div>
+          ) : (movers?.gainers?.length === 0 && movers?.losers?.length === 0) ? (
+            <div className="flex items-center justify-center h-20 text-gray-400 dark:text-white/20 text-xs px-3 text-center">
+              {movers?.weekend ? 'Market closed' : 'Connect Kite to see movers'}
+            </div>
+          ) : (
+            <div className="py-1">
+              {movers?.gainers?.length > 0 && (
+                <>
+                  <div className="px-3 py-1.5 flex items-center justify-between">
+                    <span className="text-[10px] font-semibold text-green-600 dark:text-green-400 uppercase tracking-wider">Movers</span>
+                    {movers.weekend && <span className="text-[9px] text-amber-400">Fri close</span>}
+                  </div>
+                  {movers.gainers.slice(0, 7).map(s => (
+                    <div key={`g-${s.symbol}`} className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-white/5 cursor-pointer hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors" onClick={() => onSymbolClick?.(s.symbol)}>
+                      <span className="text-xs font-semibold text-gray-900 dark:text-white truncate">{s.symbol}</span>
+                      <div className="text-right flex-shrink-0 ml-1">
+                        <div className="text-xs font-mono font-semibold text-green-600 dark:text-green-400">+{s.changePct?.toFixed(2)}%</div>
+                        <div className="text-[10px] font-mono text-gray-400 dark:text-white/30">{s.ltp?.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</div>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+              {movers?.losers?.length > 0 && (
+                <>
+                  <div className="px-3 py-1.5 border-t border-gray-200 dark:border-white/10">
+                    <span className="text-[10px] font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider">Shakers</span>
+                  </div>
+                  {movers.losers.slice(0, 7).map(s => (
+                    <div key={`l-${s.symbol}`} className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-white/5 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" onClick={() => onSymbolClick?.(s.symbol)}>
+                      <span className="text-xs font-semibold text-gray-900 dark:text-white truncate">{s.symbol}</span>
+                      <div className="text-right flex-shrink-0 ml-1">
+                        <div className="text-xs font-mono font-semibold text-red-600 dark:text-red-400">{s.changePct?.toFixed(2)}%</div>
+                        <div className="text-[10px] font-mono text-gray-400 dark:text-white/30">{s.ltp?.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</div>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Scanner header info */}
       {isScanner && (
@@ -828,8 +880,8 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
         </div>
       )}
 
-      {/* Add symbol search — hidden for scanner tab */}
-      {!isScanner && (
+      {/* Add symbol search — hidden for scanner + movers tabs */}
+      {!isScanner && !isMovers && (
         <div className="px-3 py-2 border-b border-gray-100 dark:border-white/5 flex-shrink-0 relative">
           <div className="flex items-center gap-2 bg-gray-200 dark:bg-slate-800 rounded-lg px-2.5 py-1.5">
             <Search size={12} className="text-gray-400 dark:text-white/30 flex-shrink-0" />
@@ -858,8 +910,8 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
         </div>
       )}
 
-      {/* Symbol list */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
+      {/* Symbol list — hidden on movers tab */}
+      {!isMovers && <div className="flex-1 overflow-y-auto scrollbar-thin">
         {watchlist.length === 0 ? (
           <p className="text-xs text-gray-400 dark:text-white/30 text-center p-4">
             {isScanner ? 'No Chartink alerts received yet.' : 'Search above to add symbols.'}
@@ -913,7 +965,7 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
             );
           })
         )}
-      </div>
+      </div>}
 
     </div>
   );
@@ -1029,7 +1081,7 @@ function OrdersTab({ orders, loading, onRefresh }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // OrdersRightPanel — collapsible right sidebar for today's orders + FnO movers
 // ─────────────────────────────────────────────────────────────────────────────
-function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, open, setOpen, movers, onSelectSymbol }) {
+function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, open, setOpen }) {
   return (
     <div className={`flex-shrink-0 border-l border-gray-200 dark:border-white/10 flex flex-col bg-gray-50 dark:bg-slate-900/40 transition-all duration-200 ${open ? 'w-screen md:w-[260px]' : 'w-screen md:w-9'}`}>
       {/* Toggle + header */}
@@ -1091,58 +1143,6 @@ function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, open, set
             </div>
           )}
 
-          {/* FnO Movers — always shown */}
-          <div className="border-t border-gray-200 dark:border-white/10 mt-1">
-            <div className="px-3 py-1.5 flex items-center justify-between">
-              <span className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">FnO Movers</span>
-              {movers.weekend && (
-                <span className="text-[9px] text-amber-500 dark:text-amber-400 font-semibold">Fri close</span>
-              )}
-            </div>
-
-            {movers.loading ? (
-              <div className="px-2 pb-2 space-y-1">
-                {[1,2,3,4,5].map(i => <div key={i} className="h-7 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}
-              </div>
-            ) : movers.gainers.length === 0 && movers.losers.length === 0 ? (
-              <div className="flex items-center justify-center h-12 text-gray-400 dark:text-white/20 text-xs px-3 text-center">
-                {movers.weekend ? 'Market closed' : 'Connect Kite to see movers'}
-              </div>
-            ) : (
-              <div className="px-2 pb-2 space-y-2">
-                {movers.gainers.length > 0 && (
-                  <div>
-                    <div className="px-2 pb-1">
-                      <span className="text-[10px] font-semibold text-green-600 dark:text-green-400 uppercase tracking-wider">Top Gainers</span>
-                    </div>
-                    <div className="space-y-0.5">
-                      {movers.gainers.slice(0, 5).map(s => (
-                        <div key={`g-${s.symbol}`} onClick={() => onSelectSymbol?.(s.symbol)} className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800/60 border border-gray-100 dark:border-white/5 cursor-pointer hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors">
-                          <span className="text-xs font-medium text-gray-900 dark:text-white truncate">{s.symbol}</span>
-                          <span className="text-xs font-mono text-green-600 dark:text-green-400 flex-shrink-0 ml-1">+{s.changePct?.toFixed(2)}%</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {movers.losers.length > 0 && (
-                  <div>
-                    <div className="px-2 pb-1">
-                      <span className="text-[10px] font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider">Top Losers</span>
-                    </div>
-                    <div className="space-y-0.5">
-                      {movers.losers.slice(0, 5).map(s => (
-                        <div key={`l-${s.symbol}`} onClick={() => onSelectSymbol?.(s.symbol)} className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800/60 border border-gray-100 dark:border-white/5 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                          <span className="text-xs font-medium text-gray-900 dark:text-white truncate">{s.symbol}</span>
-                          <span className="text-xs font-mono text-red-600 dark:text-red-400 flex-shrink-0 ml-1">{s.changePct?.toFixed(2)}%</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
         </div>
       )}
     </div>
@@ -1886,7 +1886,7 @@ export default function TerminalPage() {
   // Derived — memoized so useEffect deps get stable references
   const scannerSymbols      = useMemo(() => scannerStocks.map(s => s.symbol), [scannerStocks]);
   const activeWatchlist     = useMemo(
-    () => watchTab === 'S' ? scannerSymbols : (watchTab === 1 ? watchlist1 : watchlist2),
+    () => watchTab === 'S' ? scannerSymbols : watchTab === 'M' ? [] : (watchTab === 1 ? watchlist1 : watchlist2),
     [watchTab, scannerSymbols, watchlist1, watchlist2]
   );
   const setActiveWatchlist  = watchTab === 1 ? setWatchlist1 : setWatchlist2;
@@ -2482,6 +2482,7 @@ export default function TerminalPage() {
             activeSymbol={symbol}
             scannerStocks={scannerStocks}
             scannerLastScan={scannerLastScan}
+            movers={movers}
           />
         </div>
 
@@ -2544,8 +2545,6 @@ export default function TerminalPage() {
             onCancelOrder={handleCancelPanelOrder}
             open={ordersOpen}
             setOpen={setOrdersOpen}
-            movers={movers}
-            onSelectSymbol={selectSymbol}
           />
         </div>
       </div>
