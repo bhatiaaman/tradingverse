@@ -1190,7 +1190,7 @@ function getNiftyLevelAlerts(indices) {
                         ? history.slice(-10)
                         : [{ score: 50 }, { score }];
 
-                      const W = 200, H = 44, pad = 6;
+                      const W = 200, H = 56, pad = 6;
                       const iW = W - pad * 2, iH = H - pad * 2;
                       const toY = (s) => pad + iH * (1 - Math.max(0, Math.min(100, s)) / 100);
                       const centerY = toY(50);
@@ -1200,7 +1200,17 @@ function getNiftyLevelAlerts(indices) {
                         y: toY(p.score),
                       }));
 
-                      const linePath = coords.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+                      // Smooth cubic bezier through all points (monotone-style tension 0.4)
+                      const smoothPath = (pts) => {
+                        if (pts.length < 2) return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+                        let d = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+                        for (let i = 1; i < pts.length; i++) {
+                          const cp = (pts[i].x - pts[i - 1].x) * 0.4;
+                          d += ` C${(pts[i-1].x + cp).toFixed(1)},${pts[i-1].y.toFixed(1)} ${(pts[i].x - cp).toFixed(1)},${pts[i].y.toFixed(1)} ${pts[i].x.toFixed(1)},${pts[i].y.toFixed(1)}`;
+                        }
+                        return d;
+                      };
+                      const linePath = smoothPath(coords);
                       const areaPath = `${linePath} L${coords[coords.length-1].x.toFixed(1)},${H} L${coords[0].x.toFixed(1)},${H} Z`;
                       const last = coords[coords.length - 1];
 
@@ -1210,7 +1220,7 @@ function getNiftyLevelAlerts(indices) {
                             <span className="text-[9px] text-slate-500 uppercase tracking-wider">Intraday Trend</span>
                             <span className="text-[9px] font-mono" style={{ color }}>{score}</span>
                           </div>
-                          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: '40px', display: 'block' }}>
+                          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: '52px', display: 'block' }}>
                             <defs>
                               <linearGradient id="sGrad" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="0%" stopColor={color} stopOpacity="0.25" />
