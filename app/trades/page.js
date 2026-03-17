@@ -34,20 +34,48 @@ function getNiftyLevelAlerts(indices) {
     let reversalSuffix = '';
     if (reversal?.reversalZone) {
       const signalLabels = {
-        rsi_reversal:   'RSI',
-        volume_reversal:'volume spike',
-        price_extreme:  'at extremes',
-        oi_divergence:  'OI divergence',
-        key_level_test: 'key level',
+        NEAR_HIGH:                  'at day high',
+        NEAR_LOW:                   'at day low',
+        RSI_OVERSOLD_TURNING:       'RSI oversold turning',
+        RSI_OVERBOUGHT_TURNING:     'RSI overbought turning',
+        BEARISH_DIVERGENCE:         'RSI divergence',
+        BULLISH_DIVERGENCE:         'RSI divergence',
+        VOLUME_REVERSAL:            'volume spike',
+        CLIMAX_VOLUME:              'climax volume',
+        PUT_BUILDUP_AT_HIGH:        'put buildup',
+        CALL_BUILDUP_AT_LOW:        'call buildup',
+        SHORT_COVERING_RALLY:       'short covering',
+        LONG_UNWINDING_AT_HIGH:     'long unwinding',
+        SHORT_COVERING_AT_LOW:      'shorts covering',
+        FRESH_PUT_WRITING_ON_DECLINE: 'fresh shorts',
+        SUPPORT_TEST:               'at support',
+        WEAK_RESISTANCE:            'weak resistance',
+        STRONG_RESISTANCE:          'strong resistance',
+        HAMMER:                     'hammer candle',
+        SHOOTING_STAR:              'shooting star',
+        BULLISH_ENGULFING:          'bullish engulfing',
+        BEARISH_ENGULFING:          'bearish engulfing',
+        RSI_VELOCITY_UP:            'RSI surging',
+        RSI_VELOCITY_DOWN:          'RSI collapsing',
+        MACD_BULLISH_CROSS:         'MACD bullish cross',
+        MACD_BEARISH_CROSS:         'MACD bearish cross',
+        MACD_BULLISH_PENDING:       'MACD turning up',
+        MACD_BEARISH_PENDING:       'MACD turning down',
+        PRICE_ACCELERATION_UP:      'price accelerating up',
+        PRICE_ACCELERATION_DOWN:    'price accelerating down',
       };
-      const signals = (reversal.signals || [])
+      const topSignals = (reversal.signals || [])
+        .sort((a, b) => (b.strength === 'STRONG' ? 1 : 0) - (a.strength === 'STRONG' ? 1 : 0))
+        .slice(0, 2)
         .map(s => signalLabels[s.type] || s.type)
         .filter(Boolean)
-        .join(', ');
+        .join(' + ');
       const dir  = biasLabel(reversal.direction);
       const conf = reversal.confidence;
       if (conf === 'HIGH') {
-        reversalSuffix = ` | ⚡ ${dir} reversal zone${signals ? ` — ${signals}` : ''}`;
+        reversalSuffix = ` | ⚡ ${dir} reversal zone${topSignals ? ` — ${topSignals}` : ''}`;
+      } else if (conf === 'MEDIUM') {
+        reversalSuffix = ` | ⚠️ possible ${dir.toLowerCase()} turn${topSignals ? ` — ${topSignals}` : ''}`;
       }
     }
 
@@ -355,12 +383,22 @@ function getNiftyLevelAlerts(indices) {
       fetchCommentary();
       fetchRegime();
 
-      // Refresh both every 5 minutes
-      const interval = setInterval(() => {
-        if (isMarketHours() && isVisible) { fetchCommentary(); fetchRegime(); }
-      }, 5 * 60 * 1000);
+      // Refresh every 3 min during 1:30–3:30 PM IST (high short-covering activity window), 5 min otherwise
+      const getCommentaryInterval = () => {
+        const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+        const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+        return (mins >= 810 && mins <= 930) ? 3 * 60 * 1000 : 5 * 60 * 1000;
+      };
+      let commentaryTimer;
+      const scheduleCommentary = () => {
+        commentaryTimer = setTimeout(() => {
+          if (isMarketHours() && isVisible) { fetchCommentary(); fetchRegime(); }
+          scheduleCommentary();
+        }, getCommentaryInterval());
+      };
+      scheduleCommentary();
 
-      return () => clearInterval(interval);
+      return () => clearTimeout(commentaryTimer);
     }, []);
 
     // Fetch sentiment data
@@ -1752,6 +1790,9 @@ function getNiftyLevelAlerts(indices) {
                     <span className="text-slate-500">
                       Last updated: {optionChainData?.timestamp ? new Date(optionChainData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}
                     </span>
+                  </div>
+                  <div className="text-[9px] text-slate-600 pt-1">
+                    OI data reflects NSE end-of-day positions — intraday OI changes may lag by 5–15 min
                   </div>
                 </div>
               )}

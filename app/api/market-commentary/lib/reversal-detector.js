@@ -25,6 +25,7 @@ export function detectReversalZone(data) {
   const candleSignal   = checkCandlePattern(data);
   const rsiVelSignal   = checkRSIVelocity(data);
   const macdSignal     = checkMACDCross(data);
+  const accelSignal    = checkPriceAcceleration(data);
 
   if (rangeSignal)    signals.push(rangeSignal);
   if (rsiSignal)      signals.push(rsiSignal);
@@ -34,6 +35,7 @@ export function detectReversalZone(data) {
   if (candleSignal)   signals.push(candleSignal);
   if (rsiVelSignal)   signals.push(rsiVelSignal);
   if (macdSignal)     signals.push(macdSignal);
+  if (accelSignal)    signals.push(accelSignal);
 
   return synthesizeSignals(signals, data);
 }
@@ -212,25 +214,49 @@ function checkOIDivergence(data) {
 
   if (priceChange5 == null) return null;
 
-  // Price up but calls reducing (long unwinding at high)
+  // Price up + call OI falling — two possible meanings depending on context:
+  // (a) Near day high: longs unwinding (bearish — weak rally)
+  // (b) Mid-range or after a down move: call SHORTS covering = short squeeze (bullish continuation)
   if (priceChange5 > 0.3 && callOIChange5min != null && callOIChange5min < -1.5) {
-    return {
-      type: 'LONG_UNWINDING_AT_HIGH',
-      direction: 'BEARISH',
-      strength: 'MODERATE',
-      message: 'Price rising but longs exiting (Call OI -)',
-      watch: 'Weak rally - reversal possible',
-    };
+    const nearHigh = dayHigh ? ((dayHigh - current) / dayHigh) * 100 < 0.3 : false;
+    if (nearHigh) {
+      return {
+        type: 'LONG_UNWINDING_AT_HIGH',
+        direction: 'BEARISH',
+        strength: 'MODERATE',
+        message: 'Price rising but longs exiting (Call OI -)',
+        watch: 'Weak rally near highs - reversal possible',
+      };
+    } else {
+      return {
+        type: 'SHORT_COVERING_RALLY',
+        direction: 'BULLISH',
+        strength: Math.abs(callOIChange5min) > 3.0 ? 'STRONG' : 'MODERATE',
+        message: `Short covering rally — call shorts exiting (Call OI ${callOIChange5min.toFixed(1)}%)`,
+        watch: 'Shorts being squeezed — momentum may accelerate',
+      };
+    }
   }
 
-  // Price down but puts reducing (short covering at low)
+  // Price down but puts reducing — put shorts covering into weakness (bullish)
   if (priceChange5 < -0.3 && putOIChange5min != null && putOIChange5min < -1.5) {
     return {
       type: 'SHORT_COVERING_AT_LOW',
       direction: 'BULLISH',
       strength: 'MODERATE',
       message: 'Price falling but shorts covering (Put OI -)',
-      watch: 'Weak decline - reversal possible',
+      watch: 'Weak decline — reversal possible',
+    };
+  }
+
+  // Price down + put OI rising sharply = fresh put writing = bearish conviction
+  if (priceChange5 < -0.3 && putOIChange5min != null && putOIChange5min > 2.0) {
+    return {
+      type: 'FRESH_PUT_WRITING_ON_DECLINE',
+      direction: 'BEARISH',
+      strength: putOIChange5min > 3.5 ? 'STRONG' : 'MODERATE',
+      message: `Fresh put writing on decline (Put OI +${putOIChange5min.toFixed(1)}%)`,
+      watch: 'Smart money adding shorts — decline may continue',
     };
   }
 
@@ -463,6 +489,60 @@ function checkMACDCross(data) {
   }
 
   return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Signal 9: Price acceleration — sharp 5-min candle body, OI-independent
+// Fires when a single candle shows a strong directional move (> 0.6%)
+// regardless of OI data availability. Catches short squeezes and
+// panic selling that OI snapshots miss due to NSE reporting lag.
+// ─────────────────────────────────────────────────────────────────────
+function checkPriceAcceleration(data) {
+  const { lastCandle } = data.volume || {};
+  const { current, dayHigh, dayLow } = data.price || {};
+  if (!lastCandle || !current) return null;
+
+  const { open, high, low, close } = lastCandle;
+  const range = high - low;
+  if (range <= 0 || !open || !close) return null;
+
+  // Candle body as % of price
+  const body = Math.abs(close - open);
+  const bodyPct = (body / open) * 100;
+
+  // Only fire on strong directional candles (body > 0.6%, body > 60% of range)
+  if (bodyPct < 0.6 || body < range * 0.6) return null;
+
+  const bullish = close > open;
+
+  // Strength tiers
+  let strength = 'MODERATE';
+  if (bodyPct >= 1.0) strength = 'STRONG';
+
+  // Additional context: is this move toward or away from day extreme?
+  const distFromHigh = dayHigh ? ((dayHigh - current) / dayHigh) * 100 : null;
+  const distFromLow  = dayLow  ? ((current - dayLow) / current) * 100  : null;
+
+  if (bullish) {
+    // Bullish acceleration away from day low = likely short squeeze / reversal
+    const fromLow = distFromLow != null && distFromLow < 1.0;
+    return {
+      type:      'PRICE_ACCELERATION_UP',
+      direction: 'BULLISH',
+      strength,
+      message:   `Sharp ${bodyPct.toFixed(1)}% bullish candle${fromLow ? ' off day low' : ''} — price accelerating up`,
+      watch:     'Strong momentum candle. Watch for follow-through above ' + close.toFixed(0) + '.',
+    };
+  } else {
+    const fromHigh = distFromHigh != null && distFromHigh < 1.0;
+    return {
+      type:      'PRICE_ACCELERATION_DOWN',
+      direction: 'BEARISH',
+      strength,
+      message:   `Sharp ${bodyPct.toFixed(1)}% bearish candle${fromHigh ? ' off day high' : ''} — price accelerating down`,
+      watch:     'Strong momentum candle. Watch for follow-through below ' + close.toFixed(0) + '.',
+    };
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
