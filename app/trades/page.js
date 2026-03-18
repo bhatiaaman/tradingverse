@@ -779,182 +779,122 @@ function getNiftyLevelAlerts(indices) {
                     </div>
                   )}
 
-                  <div className="flex items-start gap-2 bg-cyan-900/20 border border-cyan-700/30 rounded-lg p-3">
-                    <AlertCircle className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
-                    <span className="text-cyan-300 text-sm font-medium">
-                      {commentary.action}
-                    </span>
-                  </div>
+                  {/* Two-column layout: left = commentary feed, right = signal panel */}
+                  <div className="mt-2 flex gap-4">
 
-                  {/* Breadth + Bias trail row */}
-                  <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
-                    {/* Advance / Decline */}
-                    {commentary.advances !== undefined && (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-400">Breadth:</span>
-                        <span className="font-mono font-semibold text-green-400">{commentary.advances}↑</span>
-                        <span className="font-mono font-semibold text-red-400">{commentary.declines}↓</span>
-                        {commentary.declines > 0 && (
-                          <span className="text-slate-500">({(commentary.advances / commentary.declines).toFixed(1)}:1)</span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* BankNifty relative strength vs Nifty */}
-                    {commentary.bankRelStrength && commentary.bankRelStrength.status !== 'inline' && (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-400 flex-shrink-0">BankNifty:</span>
-                        <span className={`font-semibold text-xs ${
-                          commentary.bankRelStrength.status === 'lagging' ? 'text-orange-400' : 'text-emerald-400'
-                        }`}>
-                          {commentary.bankRelStrength.status === 'lagging' ? '▼' : '▲'} {commentary.bankRelStrength.label}
-                          <span className="font-mono ml-1 opacity-70">({commentary.bankRelStrength.diff > 0 ? '+' : ''}{commentary.bankRelStrength.diff}%)</span>
-                        </span>
-                      </div>
-                    )}
-
-                    {/* OR levels */}
-                    {(commentary.orHigh || commentary.orLow) && (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-400 flex-shrink-0">OR:</span>
-                        {commentary.orHigh && <span className="font-mono text-xs text-green-400">{commentary.orHigh}H</span>}
-                        {commentary.orLow  && <span className="font-mono text-xs text-red-400">{commentary.orLow}L</span>}
-                      </div>
-                    )}
-
-                    {/* NIFTY intraday regime */}
-                    {niftyRegime && (() => {
-                      const REGIME_STYLE = {
-                        TREND_DAY_UP:     { dot: 'bg-green-400',   text: 'text-green-300',   label: 'Trend Up'      },
-                        TREND_DAY_DOWN:   { dot: 'bg-red-400',     text: 'text-red-300',     label: 'Trend Down'    },
-                        RANGE_DAY:        { dot: 'bg-yellow-400',  text: 'text-yellow-300',  label: 'Range Day'     },
-                        BREAKOUT_DAY:     { dot: 'bg-blue-400',    text: 'text-blue-300',    label: 'Breakout'      },
-                        SHORT_SQUEEZE:    { dot: 'bg-emerald-400', text: 'text-emerald-300', label: 'Short Squeeze' },
-                        LONG_LIQUIDATION: { dot: 'bg-orange-400',  text: 'text-orange-300',  label: 'Long Liq.'     },
-                        TRAP_DAY:         { dot: 'bg-amber-400',   text: 'text-amber-300',   label: 'Trap Day'      },
-                        LOW_VOL_DRIFT:    { dot: 'bg-slate-400',   text: 'text-slate-300',   label: 'Low Vol Drift' },
-                      };
-                      const CONF_COLOR = { HIGH: 'text-emerald-400', MEDIUM: 'text-amber-400', LOW: 'text-slate-500' };
-                      const style = REGIME_STYLE[niftyRegime.regime] ?? { dot: 'bg-slate-400', text: 'text-slate-300', label: niftyRegime.regime };
-                      return (
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-slate-400 flex-shrink-0">Regime:</span>
-                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${style.dot}`} />
-                          <span className={`font-semibold ${style.text}`}>{style.label}</span>
-                          <span className={`text-[10px] font-bold ${CONF_COLOR[niftyRegime.confidence]}`}>{niftyRegime.confidence}</span>
-                          {niftyRegime.vwapPosition && niftyRegime.vwapPosition !== 'UNKNOWN' && (
-                            <span className={`text-[10px] px-1 py-0.5 rounded ${niftyRegime.vwapPosition === 'ABOVE' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'}`}>
-                              {niftyRegime.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP
-                            </span>
-                          )}
+                    {/* LEFT: text commentary feed */}
+                    <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+                      {/* Current action — top line, prominent */}
+                      <p className="text-cyan-300 text-sm font-medium leading-snug">
+                        {commentary.action}
+                      </p>
+                      {/* Last 2 biasHistory entries — session trail */}
+                      {commentary.biasHistory?.length > 0 && (
+                        <div className="flex flex-col gap-0.5">
+                          {commentary.biasHistory.slice(0, 2).map((h, i) => {
+                            const label = h.state || h.bias || '';
+                            return (
+                              <span key={i} className="text-[11px] text-slate-500 leading-snug truncate">
+                                {h.time && <span className="text-slate-600 mr-1">{h.time}</span>}{label}
+                              </span>
+                            );
+                          })}
                         </div>
-                      );
-                    })()}
+                      )}
+                      {commentaryRefreshedAt && (
+                        <span className="text-[10px] text-slate-600">
+                          updated {commentaryRefreshedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                        </span>
+                      )}
+                    </div>
 
-                    {/* Daily + 15m Bias — dual-timeframe view */}
-                    {(dailyBias || fifteenMinBias) && (() => {
-                      const bColor = b => b === 'BULLISH' ? 'text-green-400' : b === 'BEARISH' ? 'text-red-400' : 'text-yellow-400';
-                      const bDot   = b => b === 'BULLISH' ? 'bg-green-400'  : b === 'BEARISH' ? 'bg-red-400'   : 'bg-yellow-400';
-                      const bLabel = b => b === 'BULLISH' ? 'Bullish' : b === 'BEARISH' ? 'Bearish' : 'Neutral';
-
-                      // Synthesis: what this means for the trade
-                      let synthesis = null;
-                      if (dailyBias && fifteenMinBias) {
-                        const db = dailyBias.bias, fb = fifteenMinBias.bias;
-                        const ema = dailyBias.ema21 ? ` near EMA21 (${dailyBias.ema21})` : '';
-                        if (db === 'BULLISH' && fb === 'BULLISH')
-                          synthesis = 'Trends aligned — ride momentum, trail stops';
-                        else if (db === 'BULLISH' && fb === 'BEARISH')
-                          synthesis = `Daily bullish, 15m pulling back — wait for base${ema} before going long`;
-                        else if (db === 'BULLISH' && fb === 'NEUTRAL')
-                          synthesis = `Daily bullish, 15m consolidating — watch for 15m breakout to add longs`;
-                        else if (db === 'BEARISH' && fb === 'BEARISH')
-                          synthesis = 'Trends aligned — sell bounces, trail stops';
-                        else if (db === 'BEARISH' && fb === 'BULLISH')
-                          synthesis = 'Daily bearish, 15m bouncing — sell into strength, not chasing';
-                        else if (db === 'BEARISH' && fb === 'NEUTRAL')
-                          synthesis = 'Daily bearish, 15m ranging — wait for 15m breakdown to short';
-                        else
-                          synthesis = 'Mixed timeframes — wait for alignment before trading';
-                      }
-
-                      return (
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-4 flex-wrap">
-                            {dailyBias && (
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-slate-400 text-[11px]">Daily:</span>
-                                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${bDot(dailyBias.bias)}`} />
-                                <span className={`text-[11px] font-semibold ${bColor(dailyBias.bias)}`}>{bLabel(dailyBias.bias)}</span>
-                                <span className="text-slate-500 text-[10px]">{dailyBias.reason}</span>
-                              </div>
-                            )}
-                            {fifteenMinBias && (
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-slate-400 text-[11px]">15m:</span>
-                                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${bDot(fifteenMinBias.bias)}`} />
-                                <span className={`text-[11px] font-semibold ${bColor(fifteenMinBias.bias)}`}>{fifteenMinBias.label}</span>
-                                {fifteenMinBias.vwapPosition && fifteenMinBias.vwapPosition !== 'UNKNOWN' && (
-                                  <span className={`text-[10px] px-1 rounded ${fifteenMinBias.vwapPosition === 'ABOVE' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'}`}>
-                                    {fifteenMinBias.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP
-                                  </span>
-                                )}
-                                <span className={`text-[10px] ${fifteenMinBias.confidence === 'HIGH' ? 'text-emerald-400' : fifteenMinBias.confidence === 'MEDIUM' ? 'text-amber-400' : 'text-slate-500'}`}>
-                                  {fifteenMinBias.confidence}
-                                </span>
-                              </div>
+                    {/* RIGHT: signal panel */}
+                    <div className="border-l border-blue-800/40 pl-4 flex flex-col gap-1.5 min-w-[220px]">
+                      {/* 5m Regime */}
+                      {niftyRegime && (() => {
+                        const REGIME_STYLE = {
+                          TREND_DAY_UP:     { dot: 'bg-green-400',   text: 'text-green-300',   label: 'Trend Up'      },
+                          TREND_DAY_DOWN:   { dot: 'bg-red-400',     text: 'text-red-300',     label: 'Trend Down'    },
+                          RANGE_DAY:        { dot: 'bg-yellow-400',  text: 'text-yellow-300',  label: 'Range Day'     },
+                          BREAKOUT_DAY:     { dot: 'bg-blue-400',    text: 'text-blue-300',    label: 'Breakout'      },
+                          SHORT_SQUEEZE:    { dot: 'bg-emerald-400', text: 'text-emerald-300', label: 'Short Squeeze' },
+                          LONG_LIQUIDATION: { dot: 'bg-orange-400',  text: 'text-orange-300',  label: 'Long Liq.'     },
+                          TRAP_DAY:         { dot: 'bg-amber-400',   text: 'text-amber-300',   label: 'Trap Day'      },
+                          LOW_VOL_DRIFT:    { dot: 'bg-slate-400',   text: 'text-slate-300',   label: 'Low Vol Drift' },
+                        };
+                        const CONF_COLOR = { HIGH: 'text-emerald-400', MEDIUM: 'text-amber-400', LOW: 'text-slate-500' };
+                        const style = REGIME_STYLE[niftyRegime.regime] ?? { dot: 'bg-slate-400', text: 'text-slate-300', label: niftyRegime.regime };
+                        return (
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span className="text-slate-500 w-8 flex-shrink-0">5m</span>
+                            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${style.dot}`} />
+                            <span className={`font-semibold ${style.text}`}>{style.label}</span>
+                            <span className={`text-[10px] font-bold ${CONF_COLOR[niftyRegime.confidence]}`}>{niftyRegime.confidence}</span>
+                            {niftyRegime.vwapPosition && niftyRegime.vwapPosition !== 'UNKNOWN' && (
+                              <span className={`text-[10px] px-1 py-0.5 rounded ${niftyRegime.vwapPosition === 'ABOVE' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'}`}>
+                                {niftyRegime.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP
+                              </span>
                             )}
                           </div>
-                          {synthesis && (
-                            <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                              <span className="text-amber-400 flex-shrink-0">→</span>
-                              <span>{synthesis}</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
+                        );
+                      })()}
 
-                    {/* Intraday bias narrative */}
-                    {commentary.biasHistory?.length > 0 && (() => {
-                      const narrative = getBiasNarrative(commentary.biasHistory, commentary.reversal);
-                      const current = commentary.biasHistory[0];
-                      // If in a high-confidence reversal zone, tint toward the reversal direction
-                      const revDir = commentary.reversal?.reversalZone && commentary.reversal?.confidence === 'HIGH'
-                        ? commentary.reversal.direction : null;
-                      const effectiveBias = revDir || current?.bias;
-                      const color = effectiveBias === 'BULLISH' ? 'text-green-300'
-                                  : effectiveBias === 'BEARISH' ? 'text-red-300'
-                                  : 'text-yellow-300';
-                      return narrative ? (
-                        <div className="flex items-baseline gap-1.5 flex-wrap">
-                          <span className="text-slate-400 flex-shrink-0">Intraday bias:</span>
-                          <span className={`font-medium ${color}`}>{narrative}</span>
-                        </div>
-                      ) : null;
-                    })()}
+                      {/* 15m Regime */}
+                      {fifteenMinBias && (() => {
+                        const bDot  = b => b === 'BULLISH' ? 'bg-green-400' : b === 'BEARISH' ? 'bg-red-400' : 'bg-yellow-400';
+                        const bText = b => b === 'BULLISH' ? 'text-green-300' : b === 'BEARISH' ? 'text-red-300' : 'text-yellow-300';
+                        const CONF_COLOR = { HIGH: 'text-emerald-400', MEDIUM: 'text-amber-400', LOW: 'text-slate-500' };
+                        return (
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span className="text-slate-500 w-8 flex-shrink-0">15m</span>
+                            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${bDot(fifteenMinBias.bias)}`} />
+                            <span className={`font-semibold ${bText(fifteenMinBias.bias)}`}>{fifteenMinBias.label}</span>
+                            <span className={`text-[10px] font-bold ${CONF_COLOR[fifteenMinBias.confidence]}`}>{fifteenMinBias.confidence}</span>
+                            {fifteenMinBias.vwapPosition && fifteenMinBias.vwapPosition !== 'UNKNOWN' && (
+                              <span className={`text-[10px] px-1 py-0.5 rounded ${fifteenMinBias.vwapPosition === 'ABOVE' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'}`}>
+                                {fifteenMinBias.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
 
-                    {/* H/L proximity alert */}
-                    {marketData?.indices && (() => {
-                      const alerts = getNiftyLevelAlerts(marketData.indices);
-                      if (!alerts.length) return null;
-                      return (
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {alerts.map((a, i) => (
-                            <span key={i} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${a.type === 'resistance' ? 'bg-amber-900/40 text-amber-300' : 'bg-sky-900/40 text-sky-300'}`}>
-                              ⚡ Near {a.label} ({parseFloat(a.val).toFixed(0)})
-                            </span>
-                          ))}
-                        </div>
-                      );
-                    })()}
+                      {/* Synthesis */}
+                      {fifteenMinBias && niftyRegime && (() => {
+                        const fb = fifteenMinBias.bias;
+                        const r  = niftyRegime.regime;
+                        const isBullishDay = r === 'TREND_DAY_UP' || r === 'SHORT_SQUEEZE';
+                        const isBearishDay = r === 'TREND_DAY_DOWN' || r === 'LONG_LIQUIDATION';
+                        let msg = null;
+                        if (isBullishDay && fb === 'BULLISH')   msg = 'Aligned — ride momentum, trail stops';
+                        else if (isBullishDay && fb === 'BEARISH') msg = '5m bullish, 15m pullback — wait for dip entry';
+                        else if (isBullishDay && fb === 'NEUTRAL') msg = '5m bullish, 15m consolidating — look for 15m break';
+                        else if (isBearishDay && fb === 'BEARISH') msg = 'Aligned — sell bounces, trail stops';
+                        else if (isBearishDay && fb === 'BULLISH') msg = '5m bearish, 15m bouncing — sell into strength';
+                        if (!msg) return null;
+                        return (
+                          <div className="flex items-start gap-1 text-[10px] text-slate-400 pt-0.5 border-t border-blue-800/30">
+                            <span className="text-amber-400 flex-shrink-0 mt-px">→</span>
+                            <span>{msg}</span>
+                          </div>
+                        );
+                      })()}
 
-                    {/* Refresh timestamp — makes clear data is live even when bias hasn't changed */}
-                    {commentaryRefreshedAt && (
-                      <span className="ml-auto text-[10px] text-slate-600 flex-shrink-0">
-                        refreshed {commentaryRefreshedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                      </span>
-                    )}
+                      {/* H/L alert chips */}
+                      {marketData?.indices && (() => {
+                        const alerts = getNiftyLevelAlerts(marketData.indices);
+                        if (!alerts.length) return null;
+                        return (
+                          <div className="flex flex-wrap gap-1">
+                            {alerts.map((a, i) => (
+                              <span key={i} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${a.type === 'resistance' ? 'bg-amber-900/40 text-amber-300' : 'bg-sky-900/40 text-sky-300'}`}>
+                                ⚡ Near {a.label} ({parseFloat(a.val).toFixed(0)})
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1121,7 +1061,7 @@ function getNiftyLevelAlerts(indices) {
               <h4 className="text-blue-300 text-[10px] font-semibold mb-1 lg:mb-1.5 text-center">Market Sentiment</h4>
               <div className="space-y-0.5 lg:space-y-1">
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-400 text-[9px]">Nifty Bias</span>
+                  <span className="text-slate-400 text-[9px]">Daily Trend</span>
                   <span className={`text-[9px] lg:text-xs font-mono font-medium ${marketData?.sentiment?.bias === 'Bullish' ? 'text-emerald-400' : marketData?.sentiment?.bias === 'Bearish' ? 'text-red-400' : 'text-slate-300'}`}>
                     {marketData?.sentiment?.bias || 'Neutral'}
                   </span>

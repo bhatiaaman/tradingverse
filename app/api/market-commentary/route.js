@@ -1327,6 +1327,7 @@ export async function GET(request) {
     ]);
 
     let commentary;
+    let dailyBias = null, fifteenMinBias = null;
 
     // Weekend check — markets are closed Sat/Sun; don't show a pre-market gap analysis
     const istNow  = getISTTime();
@@ -1335,15 +1336,18 @@ export async function GET(request) {
 
     if (marketIsOpen) {
       // Fetch Kite intraday candles + daily bias + 15m bias in parallel
-      let intradayData = null, dailyBias = null, fifteenMinBias = null;
+      let intradayData = null;
       try {
         const dp = await getDataProvider();
         if (dp.isConnected()) {
-          [intradayData, dailyBias, fifteenMinBias] = await Promise.all([
+          const [id, db, fb] = await Promise.all([
             fetchIntradayCandles(dp),
             fetchDailyBias(dp).catch(() => null),
             fetchFifteenMinBias(dp).catch(() => null),
           ]);
+          intradayData    = id;
+          dailyBias       = db;
+          fifteenMinBias  = fb;
         }
       } catch {}
 
