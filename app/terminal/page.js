@@ -1430,7 +1430,7 @@ function StrikeAnalysisPanel({ analysis, loading, onRefresh, type }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function PlaceOrderTab({
   symbol, formSearch, setFormSearch, formSearchResults, formSearching,
-  showFormDropdown, setShowFormDropdown, spotPrice, lotSize,
+  showFormDropdown, setShowFormDropdown, spotPrice, lotSize, onRefreshPrice,
   instrumentType, setInstrumentType, transactionType, setTransactionType,
   productType, setProductType, orderType, setOrderType,
   quantity, setQuantity, price, setPrice, triggerPrice, setTriggerPrice,
@@ -1581,9 +1581,14 @@ function PlaceOrderTab({
         {symbol && spotPrice && (
           <div className="flex items-center justify-between bg-gray-50 dark:bg-slate-800/40 rounded-xl px-3 py-2 border border-gray-200 dark:border-white/10">
             <span className="text-xs text-gray-400">Spot LTP</span>
-            <span className="text-sm font-mono font-semibold text-gray-900 dark:text-white">
-              ₹{parseFloat(spotPrice).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-mono font-semibold text-gray-900 dark:text-white">
+                ₹{parseFloat(spotPrice).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+              </span>
+              <button onClick={onRefreshPrice} title="Refresh price" className="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-white/70 transition-colors">
+                <RefreshCw size={11} />
+              </button>
+            </div>
           </div>
         )}
 
@@ -2346,6 +2351,16 @@ export default function TerminalPage() {
     } catch {}
   }, []);
 
+  // ── Refresh spot price for current symbol (used by the refresh button next to Spot LTP)
+  const refreshSpotPrice = useCallback(async () => {
+    if (!symbol) return;
+    try {
+      const r = await fetch(`/api/ltp?symbol=${encodeURIComponent(symbol)}`);
+      const d = await r.json();
+      if (d.success && d.ltp) setSpotPrice(d.ltp);
+    } catch {}
+  }, [symbol]);
+
   // ── Auto-correct EQ for index symbols (EQ is not a valid type for indices)
   useEffect(() => {
     if (INDEX_SYMBOLS.includes(symbol) && instrumentType === 'EQ') setInstrumentType('CE');
@@ -2691,7 +2706,7 @@ export default function TerminalPage() {
                 symbol={symbol} formSearch={formSearch} setFormSearch={setFormSearch}
                 formSearchResults={formSearchResults} formSearching={formSearching}
                 showFormDropdown={showFormDropdown} setShowFormDropdown={setShowFormDropdown}
-                spotPrice={spotPrice} lotSize={lotSize}
+                spotPrice={spotPrice} lotSize={lotSize} onRefreshPrice={refreshSpotPrice}
                 instrumentType={instrumentType} setInstrumentType={setInstrumentType}
                 transactionType={transactionType} setTransactionType={setTransactionType}
                 productType={productType} setProductType={setProductType}
