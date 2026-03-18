@@ -28,9 +28,7 @@ export async function GET(request) {
     const fromStr = fromDate.toISOString().split('T')[0];
     const toStr = toDate.toISOString().split('T')[0];
 
-    const response = await dp.getHistoricalRaw(instrumentToken, 'day', fromStr, toStr);
-
-    const data = await response.json();
+    const data = await dp.getHistoricalRaw(instrumentToken, 'day', fromStr, toStr);
 
     if (!data.data?.candles || data.data.candles.length === 0) {
       return NextResponse.json({ error: 'No historical data available' }, { status: 404 });

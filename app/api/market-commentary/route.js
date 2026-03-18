@@ -172,10 +172,7 @@ async function fetchIntradayCandles(dp) {
     const fromStr = encodeURIComponent(fmt(fromDate));
     const toStr = encodeURIComponent(fmt(toDate));
 
-    const res = await dp.getHistoricalRaw(NIFTY_TOKEN, '5minute', fromStr, toStr);
-    if (!res.ok) return null;
-
-    const data = await res.json();
+    const data = await dp.getHistoricalRaw(NIFTY_TOKEN, '5minute', fromStr, toStr);
     if (!data?.data?.candles?.length) return null;
 
     const allCandles = data.data.candles.map(([time, open, high, low, close, volume]) => ({
