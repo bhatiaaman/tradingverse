@@ -552,6 +552,21 @@ function ChartPageInner() {
 
       chart.timeScale().fitContent();
 
+      // ── Enforce minimum visible bars so early-session candles aren't giant ───
+      // fitContent() with only 3-10 candles stretches them across the full width.
+      // Set a floor: always show at least MIN_BARS worth of space.
+      {
+        const MIN_BARS = chartInterval === '5minute'  ? 75   // full 6.25h session
+                       : chartInterval === '15minute' ? 30
+                       : chartInterval === '60minute' ? 20
+                       : 60; // day
+        const ts    = chart.timeScale();
+        const range = ts.getVisibleLogicalRange();
+        if (range && (range.to - range.from) < MIN_BARS) {
+          ts.setVisibleLogicalRange({ from: range.to - MIN_BARS, to: range.to });
+        }
+      }
+
       // ── Separate volume pane ─────────────────────────────────────────────────
       if (settings.showVolume && volContainerRef.current) {
         volContainerRef.current.innerHTML = '';
@@ -618,7 +633,18 @@ function ChartPageInner() {
     const resetChartView = () => {
       priceShiftRef.current = 0;
       if (candleSeriesRef.current) candleSeriesRef.current.applyOptions({ autoscaleInfoProvider: undefined });
-      if (chartRef.current) chartRef.current.timeScale().fitContent();
+      const ch = chartRef.current;
+      if (!ch) return;
+      ch.timeScale().fitContent();
+      // Apply same minimum-bar floor as initial render
+      const MIN_BARS = chartInterval === '5minute'  ? 75
+                     : chartInterval === '15minute' ? 30
+                     : chartInterval === '60minute' ? 20
+                     : 60;
+      const range = ch.timeScale().getVisibleLogicalRange();
+      if (range && (range.to - range.from) < MIN_BARS) {
+        ch.timeScale().setVisibleLogicalRange({ from: range.to - MIN_BARS, to: range.to });
+      }
     };
     resetViewRef.current = resetChartView;
 
