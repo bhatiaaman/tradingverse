@@ -329,8 +329,11 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockConte
   const rawRegime = regimeData?.[key];
   // Valid regime: exists, no error, not INITIALIZING
   const regime    = rawRegime && !rawRegime.error && rawRegime.regime && rawRegime.regime !== 'INITIALIZING' ? rawRegime : null;
-  // Regime state for display: 'loading' | 'closed' | 'ready'
-  const regimeState = !rawRegime ? 'loading' : (rawRegime.error || rawRegime.regime === 'INITIALIZING') ? 'closed' : 'ready';
+  // Regime state: 'loading' | 'initializing' | 'closed' | 'ready'
+  const regimeState = !rawRegime ? 'loading'
+    : rawRegime.regime === 'INITIALIZING' ? 'initializing'
+    : rawRegime.error ? 'closed'
+    : 'ready';
   const scenario  = scenarioResult?.scenario;
   const hasScenario = scenario && scenario !== 'UNCLEAR' && scenarioResult;
 
@@ -401,7 +404,7 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockConte
             ) : (
               <>
                 <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-slate-600" />
-                <span className="text-slate-600">Market closed</span>
+                <span className="text-slate-600">{regimeState === 'initializing' ? 'Building open range…' : 'Market closed'}</span>
                 <span className="opacity-40">×</span>
               </>
             )}
@@ -446,9 +449,12 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockConte
         <div className="h-3 bg-black/5 dark:bg-white/5 rounded animate-pulse w-3/4" />
       </div>
     );
-    // Regime loaded but unavailable (market closed/weekend) — show neutral card
-    const regimeMsg = regimeState === 'loading'
-      ? 'Market regime loading…'
+    // Regime loaded but unavailable — show neutral card with context-aware message
+    const regimeLabel = regimeState === 'loading' ? 'Loading…'
+      : regimeState === 'initializing'             ? 'Awaiting range'
+      : 'Market closed';
+    const regimeMsg = regimeState === 'loading'        ? 'Market regime loading…'
+      : regimeState === 'initializing'                 ? 'Opening range building (9:15–9:30) — verdict available shortly'
       : 'Market closed — regime data unavailable outside trading hours';
     return (
       <div className="rounded-xl border-2 border-white/10 bg-white/[0.02] overflow-hidden">
@@ -457,14 +463,14 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockConte
             <span className="text-base leading-none text-slate-500">–</span>
             <span className="text-sm font-black text-slate-400">No verdict</span>
             <span className="text-[10px] font-semibold text-slate-600 px-2 py-0.5 rounded-full border border-white/10">
-              {regimeState === 'loading' ? 'Loading…' : 'Market closed'}
+              {regimeLabel}
             </span>
           </div>
           <p className="text-xs text-slate-500 leading-relaxed">{regimeMsg}</p>
         </div>
         <div className="px-4 py-1.5 border-t border-white/10 flex items-center gap-2 text-[10px] text-slate-600">
           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-slate-600" />
-          <span>{regimeState === 'loading' ? 'Regime loading' : 'Market closed'}</span>
+          <span>{regimeLabel}</span>
           <span className="opacity-40">×</span>
           <span>{scenarioResult.label}</span>
         </div>
