@@ -550,21 +550,20 @@ function ChartPageInner() {
         if (val) candleSeries.createPriceLine({ price: val, color: theme.ema9WColor, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'W·EMA9' });
       }
 
-      chart.timeScale().fitContent();
-
-      // ── Enforce minimum visible bars so early-session candles aren't giant ───
-      // fitContent() with only 3-10 candles stretches them across the full width.
-      // Set a floor: always show at least MIN_BARS worth of space.
+      // ── Cap bar width so early-session candles don't look giant ─────────────
+      // fitContent() would stretch 5 candles across the full chart width.
+      // Instead: enforce a maximum bar spacing (pixels per bar). This keeps
+      // candle width consistent regardless of how many bars are loaded.
       {
-        const MIN_BARS = chartInterval === '5minute'  ? 75   // full 6.25h session
-                       : chartInterval === '15minute' ? 30
-                       : chartInterval === '60minute' ? 20
-                       : 60; // day
-        const ts    = chart.timeScale();
-        const range = ts.getVisibleLogicalRange();
-        if (range && (range.to - range.from) < MIN_BARS) {
-          ts.setVisibleLogicalRange({ from: range.to - MIN_BARS, to: range.to });
-        }
+        const MAX_BAR_SPACING = chartInterval === '5minute'  ? 12
+                              : chartInterval === '15minute' ? 14
+                              : chartInterval === '60minute' ? 16
+                              : 10; // day
+        const ts = chart.timeScale();
+        // applyOptions barSpacing caps the candle width
+        ts.applyOptions({ barSpacing: MAX_BAR_SPACING });
+        // Then scroll to show the latest bar on the right
+        ts.scrollToRealTime();
       }
 
       // ── Separate volume pane ─────────────────────────────────────────────────
@@ -635,16 +634,12 @@ function ChartPageInner() {
       if (candleSeriesRef.current) candleSeriesRef.current.applyOptions({ autoscaleInfoProvider: undefined });
       const ch = chartRef.current;
       if (!ch) return;
-      ch.timeScale().fitContent();
-      // Apply same minimum-bar floor as initial render
-      const MIN_BARS = chartInterval === '5minute'  ? 75
-                     : chartInterval === '15minute' ? 30
-                     : chartInterval === '60minute' ? 20
-                     : 60;
-      const range = ch.timeScale().getVisibleLogicalRange();
-      if (range && (range.to - range.from) < MIN_BARS) {
-        ch.timeScale().setVisibleLogicalRange({ from: range.to - MIN_BARS, to: range.to });
-      }
+      const MAX_BAR_SPACING = chartInterval === '5minute'  ? 12
+                            : chartInterval === '15minute' ? 14
+                            : chartInterval === '60minute' ? 16
+                            : 10;
+      ch.timeScale().applyOptions({ barSpacing: MAX_BAR_SPACING });
+      ch.timeScale().scrollToRealTime();
     };
     resetViewRef.current = resetChartView;
 
