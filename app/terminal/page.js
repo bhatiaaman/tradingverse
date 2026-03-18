@@ -990,11 +990,119 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
 // ─────────────────────────────────────────────────────────────────────────────
 // PositionsTab
 // ─────────────────────────────────────────────────────────────────────────────
-function PositionsTab({ positions, loading, onRefresh }) {
+// Returns true if there's an open SL/SL-M order covering the given position
+function hasSL(position, openOrders) {
+  const sym       = position.tradingsymbol;
+  const isLong    = (position.quantity || 0) > 0;
+  const neededSide = isLong ? 'SELL' : 'BUY';
+  return openOrders.some(o =>
+    o.tradingsymbol === sym &&
+    o.transaction_type?.toUpperCase() === neededSide &&
+    ['SL', 'SL-M'].includes(o.order_type?.toUpperCase())
+  );
+}
+
+function AddSLModal({ position, onClose, onPlaced }) {
+  const isLong = (position.quantity || 0) > 0;
+  const side   = isLong ? 'SELL' : 'BUY';
+  const ltp    = position.last_price || 0;
+  // Default trigger: 1% below avg (long) or above (short)
+  const defaultTrigger = isLong
+    ? (position.average_price * 0.99).toFixed(2)
+    : (position.average_price * 1.01).toFixed(2);
+  const defaultPrice = isLong
+    ? (position.average_price * 0.989).toFixed(2)
+    : (position.average_price * 1.011).toFixed(2);
+
+  const [trigger, setTrigger] = useState(defaultTrigger);
+  const [price,   setPrice]   = useState(defaultPrice);
+  const [placing, setPlacing] = useState(false);
+  const [error,   setError]   = useState('');
+
+  async function place() {
+    setPlacing(true);
+    setError('');
+    try {
+      const r = await fetch('/api/place-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tradingsymbol:    position.tradingsymbol,
+          exchange:         position.exchange || 'NSE',
+          transaction_type: side,
+          quantity:         Math.abs(position.quantity),
+          order_type:       'SL',
+          product:          position.product,
+          trigger_price:    Number(trigger),
+          price:            Number(price),
+          variety:          'regular',
+        }),
+      });
+      const d = await r.json();
+      if (!d.success) throw new Error(d.error || 'Order failed');
+      onPlaced();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPlacing(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl p-5 w-80 border border-gray-200 dark:border-white/10" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">Add Stop Loss</p>
+            <p className="text-xs text-gray-400">{position.tradingsymbol} · {side} · {Math.abs(position.quantity)} qty</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-lg leading-none">×</button>
+        </div>
+        <div className="space-y-3 mb-4">
+          <div>
+            <label className="text-xs text-gray-500 dark:text-white/50 block mb-1">Trigger Price</label>
+            <input
+              type="number" step="0.05" value={trigger} onChange={e => setTrigger(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 dark:text-white/50 block mb-1">Limit Price</label>
+            <input
+              type="number" step="0.05" value={price} onChange={e => setPrice(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <p className="text-xs text-gray-400">LTP: ₹{ltp.toFixed(2)} · Avg: ₹{position.average_price?.toFixed(2)}</p>
+        </div>
+        {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+        <button
+          onClick={place} disabled={placing}
+          className="w-full py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 transition-colors"
+        >
+          {placing ? 'Placing…' : `Place SL ${side}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PositionsTab({ positions, openOrders, loading, onRefresh }) {
+  const [slModal, setSlModal] = useState(null); // position object or null
+
+  const unprotected = positions.filter(p => p.quantity !== 0 && !hasSL(p, openOrders));
+
   return (
     <div className="h-full overflow-y-auto scrollbar-thin p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-gray-600 dark:text-white/70">Open Positions</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-gray-600 dark:text-white/70">Open Positions</span>
+          {unprotected.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-medium">
+              {unprotected.length} unprotected
+            </span>
+          )}
+        </div>
         <button onClick={onRefresh} className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
           <RefreshCw size={13} className="text-gray-400" />
         </button>
@@ -1013,12 +1121,14 @@ function PositionsTab({ positions, loading, onRefresh }) {
                 <th className="text-right pb-2 font-medium">Avg</th>
                 <th className="text-right pb-2 font-medium">LTP</th>
                 <th className="text-right pb-2 font-medium">P&amp;L</th>
-                <th className="text-right pb-2 font-medium">Type</th>
+                <th className="text-right pb-2 font-medium">SL</th>
               </tr>
             </thead>
             <tbody>
               {positions.map(p => {
-                const pnl = p.pnl || 0;
+                const pnl      = p.pnl || 0;
+                const hasStop  = p.quantity !== 0 && hasSL(p, openOrders);
+                const noStop   = p.quantity !== 0 && !hasStop;
                 return (
                   <tr key={p.tradingsymbol} className="border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                     <td className="py-2.5 font-medium text-gray-900 dark:text-white">{p.tradingsymbol}</td>
@@ -1029,7 +1139,18 @@ function PositionsTab({ positions, loading, onRefresh }) {
                       {pnl >= 0 ? '+' : ''}₹{pnl.toFixed(2)}
                     </td>
                     <td className="py-2.5 text-right">
-                      <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-white/50">{p.product}</span>
+                      {p.quantity === 0 ? (
+                        <span className="text-gray-300 dark:text-white/20">—</span>
+                      ) : hasStop ? (
+                        <span className="text-green-600 dark:text-green-400 text-xs">✓</span>
+                      ) : (
+                        <button
+                          onClick={() => setSlModal(p)}
+                          className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/30 transition-colors text-xs font-medium"
+                        >
+                          + SL
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -1037,6 +1158,14 @@ function PositionsTab({ positions, loading, onRefresh }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {slModal && (
+        <AddSLModal
+          position={slModal}
+          onClose={() => setSlModal(null)}
+          onPlaced={() => { setSlModal(null); onRefresh(); }}
+        />
       )}
     </div>
   );
@@ -2550,7 +2679,7 @@ export default function TerminalPage() {
 
           {/* Tab content */}
           <div className="flex-1 overflow-hidden">
-            {activeTab === 'positions' && <PositionsTab positions={positions} loading={positionsLoading} onRefresh={fetchPositions} />}
+            {activeTab === 'positions' && <PositionsTab positions={positions} openOrders={panelOrders} loading={positionsLoading} onRefresh={fetchPositions} />}
             {activeTab === 'placeOrder' && (
               <PlaceOrderTab
                 symbol={symbol} formSearch={formSearch} setFormSearch={setFormSearch}
