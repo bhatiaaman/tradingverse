@@ -168,10 +168,11 @@ function fmtVol(v) {
 function computeVWAP(candles) {
   let cumTPV = 0, cumVol = 0;
   return candles.map(c => {
-    const tp = (c.high + c.low + c.close) / 3;
-    cumTPV += tp * c.volume;
-    cumVol += c.volume;
-    return { time: c.time, value: cumVol > 0 ? cumTPV / cumVol : c.close };
+    const tp  = (c.high + c.low + c.close) / 3;
+    const vol = c.volume > 0 ? c.volume : 1; // indices (NIFTY) may have 0 volume — use equal weighting
+    cumTPV += tp * vol;
+    cumVol += vol;
+    return { time: c.time, value: parseFloat((cumTPV / cumVol).toFixed(2)) };
   });
 }
 
@@ -437,6 +438,8 @@ function ChartPageInner() {
             }
             // Intraday: Unix timestamps pre-shifted +IST_OFFSET_S, read via UTC methods
             const d = new Date(time * 1000);
+            // Day-boundary tick (DayOfMonth=2, Month=1, Year=0) — show "18 Mar" style
+            if (tickMarkType <= 2) return `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS_SHORT[d.getUTCMonth()]}`;
             const h = String(d.getUTCHours()).padStart(2, '0');
             const m = String(d.getUTCMinutes()).padStart(2, '0');
             return `${h}:${m}`;
@@ -461,11 +464,15 @@ function ChartPageInner() {
 
       // ── VWAP (intraday only) ─────────────────────────────────────────────────
       if (settings.showVwap && isIntraday) {
-        const vwapData = computeVWAP(display);
+        // VWAP resets each session — compute only on today's candles
+        // After toISTTimestamps the timestamps are pre-shifted so UTC date = IST date
+        const todayIST = new Date(Date.now() + IST_OFFSET_S * 1000).toISOString().slice(0, 10);
+        const todayOnly = display.filter(c => new Date(c.time * 1000).toISOString().slice(0, 10) === todayIST);
+        const vwapData = computeVWAP(todayOnly.length ? todayOnly : display);
         chart.addLineSeries({
           color:            '#f59e0b',
-          lineWidth:        1,
-          lineStyle:        2,
+          lineWidth:        2,
+          lineStyle:        0,
           priceLineVisible: false,
           lastValueVisible: false,
           crosshairMarkerVisible: false,

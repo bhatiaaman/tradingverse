@@ -32,6 +32,9 @@ function getNiftyLevelAlerts(indices) {
 
     // ── Build reversal signal suffix from candlestick/RSI/OI/volume signals ──
     let reversalSuffix = '';
+    let reversalTopSignals = '';
+    let reversalDir = '';
+    let reversalConf = '';
     if (reversal?.reversalZone) {
       const signalLabels = {
         NEAR_HIGH:                  'at day high',
@@ -64,18 +67,18 @@ function getNiftyLevelAlerts(indices) {
         PRICE_ACCELERATION_UP:      'price accelerating up',
         PRICE_ACCELERATION_DOWN:    'price accelerating down',
       };
-      const topSignals = (reversal.signals || [])
+      reversalTopSignals = (reversal.signals || [])
         .sort((a, b) => (b.strength === 'STRONG' ? 1 : 0) - (a.strength === 'STRONG' ? 1 : 0))
         .slice(0, 2)
         .map(s => signalLabels[s.type] || s.type)
         .filter(Boolean)
         .join(' + ');
-      const dir  = biasLabel(reversal.direction);
-      const conf = reversal.confidence;
-      if (conf === 'HIGH') {
-        reversalSuffix = ` | ⚡ ${dir} reversal zone${topSignals ? ` — ${topSignals}` : ''}`;
-      } else if (conf === 'MEDIUM') {
-        reversalSuffix = ` | ⚠️ possible ${dir.toLowerCase()} turn${topSignals ? ` — ${topSignals}` : ''}`;
+      reversalDir  = biasLabel(reversal.direction);
+      reversalConf = reversal.confidence;
+      if (reversalConf === 'HIGH') {
+        reversalSuffix = ` | ⚡ ${reversalDir} reversal zone${reversalTopSignals ? ` — ${reversalTopSignals}` : ''}`;
+      } else if (reversalConf === 'MEDIUM') {
+        reversalSuffix = ` | ⚠️ possible ${reversalDir.toLowerCase()} turn${reversalTopSignals ? ` — ${reversalTopSignals}` : ''}`;
       }
     }
 
@@ -102,11 +105,24 @@ function getNiftyLevelAlerts(indices) {
       }
       const from = prev.bias;
       const to   = c.bias;
+
+      // ── Reconcile conflicting fragments: "X weakening | possible X turn" ──
+      // When bias transitions TO Neutral AND the reversal detector fires in the
+      // SAME direction as the prior bias, the naive output is contradictory:
+      //   "bearish signal weakening | possible bearish turn"
+      // These are actually one coherent story: prior trend stalled at a key level
+      // and may reassert. Combine into a single clear sentence.
+      if (to === 'NEUTRAL' && from !== 'NEUTRAL' && reversal?.reversalZone && reversal.direction === from) {
+        const icon = reversalConf === 'HIGH' ? '⚡' : '⚠️';
+        const sigs = reversalTopSignals ? ` (${reversalTopSignals})` : '';
+        return `${prev.time} ${biasLabel(from)} → ${c.time} Neutral — momentum stalling${sigs}. ${icon} ${biasLabel(from).toLowerCase()} trend may reassert`;
+      }
+
       const notes = {
         'BEARISH→BULLISH': 'reversal — bears capitulating',
         'BULLISH→BEARISH': 'reversal — bulls fading',
-        'BEARISH→NEUTRAL': 'bearish signal weakening',
-        'BULLISH→NEUTRAL': 'bullish signal weakening',
+        'BEARISH→NEUTRAL': 'bearish momentum fading',
+        'BULLISH→NEUTRAL': 'bullish momentum fading',
         'NEUTRAL→BEARISH': 'bias turning bearish',
         'NEUTRAL→BULLISH': 'bias turning bullish',
       };
@@ -188,9 +204,11 @@ function getNiftyLevelAlerts(indices) {
     const [chartSymbol, setChartSymbol] = useState('NIFTY');
     const [chartInterval, setChartInterval] = useState('15minute');
     const [emaPeriods, setEmaPeriods] = useState([9,21]);
+    const [showVwap, setShowVwap] = useState(true);
     const chartRef = useRef(null);
     const chartInstanceRef = useRef(null);
     const candleSeriesRef = useRef(null);
+    const vwapSeriesRef = useRef(null);
 
     // Check Kite auth status
     useEffect(() => {
@@ -448,6 +466,18 @@ function getNiftyLevelAlerts(indices) {
       return () => clearInterval(interval);
     }, [optionChainData?.pcr]);
 
+    // Compute VWAP for a set of candles (use vol=1 for indices that return 0 volume)
+    const computeVWAP = (candles) => {
+      let cumTPV = 0, cumVol = 0;
+      return candles.map(c => {
+        const tp  = (c.high + c.low + c.close) / 3;
+        const vol = c.volume > 0 ? c.volume : 1;
+        cumTPV += tp * vol;
+        cumVol += vol;
+        return { time: c.time, value: parseFloat((cumTPV / cumVol).toFixed(2)) };
+      });
+    };
+
     // Calculate EMA from candle data
     const calculateEMA = (candles, period) => {
       if (!candles || candles.length < period) return [];
@@ -521,6 +551,19 @@ function getNiftyLevelAlerts(indices) {
             priceLineVisible: false,
           });
         });
+        // Add VWAP line series (only visible for intraday intervals)
+        const isIntraday = chartInterval === '5minute' || chartInterval === '15minute';
+        const vwapSeries = chart.addLineSeries({
+          color: '#a78bfa',
+          lineWidth: 2,
+          lineStyle: 0,
+          title: 'VWAP',
+          crosshairMarkerVisible: false,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          visible: isIntraday,
+        });
+        vwapSeriesRef.current = vwapSeries;
         chartInstanceRef.current = chart;
         candleSeriesRef.current = candleSeries;
 
@@ -535,6 +578,16 @@ function getNiftyLevelAlerts(indices) {
                 const emaData = calculateEMA(data.candles, period);
                 if (emaData.length > 0) emaSeriesArr[idx].setData(emaData);
               });
+              // VWAP: compute on today's candles only (per-session reset)
+              if (vwapSeriesRef.current) {
+                const IST_OFFSET_S = 5.5 * 3600;
+                const todayIST = new Date(Date.now() + IST_OFFSET_S * 1000).toISOString().slice(0, 10);
+                const todayCandles = (chartInterval === '5minute' || chartInterval === '15minute')
+                  ? data.candles.filter(c => new Date(c.time * 1000 + IST_OFFSET_S * 1000).toISOString().slice(0, 10) === todayIST)
+                  : data.candles;
+                const vwapData = computeVWAP(todayCandles.length ? todayCandles : data.candles);
+                vwapSeriesRef.current.setData(vwapData);
+              }
               chart.timeScale().fitContent();
             }
           } catch (error) {
@@ -1446,6 +1499,18 @@ function getNiftyLevelAlerts(indices) {
                       ))}
                       <span className="px-1.5 py-1 text-[10px] text-amber-400 font-medium">EMA</span>
                     </div>
+                    {(chartInterval === '5minute' || chartInterval === '15minute') && (
+                      <button
+                        onClick={() => {
+                          const next = !showVwap;
+                          setShowVwap(next);
+                          if (vwapSeriesRef.current) vwapSeriesRef.current.applyOptions({ visible: next });
+                        }}
+                        className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${showVwap ? 'bg-violet-600 text-white' : 'bg-[#0a1628] text-slate-400 hover:text-slate-200'}`}
+                      >
+                        VWAP
+                      </button>
+                    )}
                     <a
                       href={`https://www.tradingview.com/chart/?symbol=NSE:${chartSymbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY'}&interval=${chartInterval === 'day' ? 'D' : chartInterval === 'week' ? 'W' : chartInterval.replace('minute', '')}`}
                       target="_blank"
@@ -1703,54 +1768,128 @@ function getNiftyLevelAlerts(indices) {
                       </div>
                     </div>
                     <div className="bg-[#0a1628] rounded-lg p-3">
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Expiry</div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Expiry / DTE</div>
                       <div className="text-lg font-mono text-slate-200 mt-1">
                         {optionChainData?.expiry ? new Date(optionChainData.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}
                       </div>
-                      <div className="text-xs text-slate-400 capitalize">{optionChainData?.expiryType || '—'}</div>
+                      <div className="text-xs text-slate-400">
+                        {optionChainData?.expiry
+                          ? (() => { const d = Math.ceil((new Date(optionChainData.expiry) - new Date()) / 86400000); return `${d}d left · ${optionChainData?.expiryType || ''}`; })()
+                          : '—'}
+                      </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-[#0a1628] rounded-lg p-3">
-                      <div className="text-[10px] text-red-400 uppercase tracking-wider mb-2">Resistance (Call OI)</div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-red-400 font-medium">R1</span>
-                          <span className="font-mono text-slate-200">
-                            {optionChainData?.resistance?.toLocaleString() || '—'}
-                            <span className="text-slate-500 text-xs ml-2">({(optionChainData?.resistanceOI / 100000).toFixed(1)}L)</span>
-                          </span>
+                  {/* ATM Premiums + Straddle */}
+                  {optionChainData?.atmStrike && optionChainData?.optionChain?.length > 0 && (() => {
+                    const atm = optionChainData.atmStrike;
+                    const atmCE = optionChainData.optionChain.find(o => o.strike === atm && o.type === 'CE');
+                    const atmPE = optionChainData.optionChain.find(o => o.strike === atm && o.type === 'PE');
+                    if (!atmCE && !atmPE) return null;
+                    const straddle = (atmCE?.ltp || 0) + (atmPE?.ltp || 0);
+                    return (
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-[#0a1628] rounded-lg p-3 border-l-2 border-red-500/40">
+                          <div className="text-[10px] text-slate-500 uppercase tracking-wider">{atm} CE (ATM Call)</div>
+                          <div className="text-lg font-mono text-red-400 mt-1">₹{atmCE?.ltp?.toFixed(2) || '—'}</div>
+                          <div className="text-xs text-slate-500">Premium</div>
                         </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-red-300">R2</span>
-                          <span className="font-mono text-slate-300">
-                            {optionChainData?.resistance2?.toLocaleString() || '—'}
-                            <span className="text-slate-500 text-xs ml-2">({(optionChainData?.resistance2OI / 100000).toFixed(1)}L)</span>
-                          </span>
+                        <div className="bg-[#0a1628] rounded-lg p-3 border-l-2 border-green-500/40">
+                          <div className="text-[10px] text-slate-500 uppercase tracking-wider">{atm} PE (ATM Put)</div>
+                          <div className="text-lg font-mono text-green-400 mt-1">₹{atmPE?.ltp?.toFixed(2) || '—'}</div>
+                          <div className="text-xs text-slate-500">Premium</div>
                         </div>
-                      </div>
-                    </div>
-                    <div className="bg-[#0a1628] rounded-lg p-3">
-                      <div className="text-[10px] text-green-400 uppercase tracking-wider mb-2">Support (Put OI)</div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-green-400 font-medium">S1</span>
-                          <span className="font-mono text-slate-200">
-                            {optionChainData?.support?.toLocaleString() || '—'}
-                            <span className="text-slate-500 text-xs ml-2">({(optionChainData?.supportOI / 100000).toFixed(1)}L)</span>
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-green-300">S2</span>
-                          <span className="font-mono text-slate-300">
-                            {optionChainData?.support2?.toLocaleString() || '—'}
-                            <span className="text-slate-500 text-xs ml-2">({(optionChainData?.support2OI / 100000).toFixed(1)}L)</span>
-                          </span>
+                        <div className="bg-[#0a1628] rounded-lg p-3">
+                          <div className="text-[10px] text-slate-500 uppercase tracking-wider">Straddle Value</div>
+                          <div className="text-lg font-mono text-amber-400 mt-1">₹{straddle.toFixed(2)}</div>
+                          <div className="text-xs text-slate-500">Expected move ±</div>
                         </div>
                       </div>
-                    </div>
-                  </div>
+                    );
+                  })()}
+
+                  {/* OI Distribution — mini bar chart per strike */}
+                  {(() => {
+                    const chain = optionChainData?.optionChain;
+                    if (!chain?.length) return null;
+                    const atm = optionChainData.atmStrike;
+                    const gap = optionUnderlying === 'BANKNIFTY' ? 100 : 50;
+                    // Build rows for ATM ± 4 strikes, sorted high → low
+                    const rows = [];
+                    for (let i = 4; i >= -4; i--) {
+                      const strike = atm + i * gap;
+                      const ce = chain.find(o => o.strike === strike && o.type === 'CE');
+                      const pe = chain.find(o => o.strike === strike && o.type === 'PE');
+                      rows.push({ strike, cOI: ce?.oi || 0, pOI: pe?.oi || 0, isATM: i === 0 });
+                    }
+                    // Scale to 90th-percentile OI so one huge wall doesn't squash the rest
+                    const allOIs = rows.flatMap(r => [r.cOI, r.pOI]).filter(v => v > 0).sort((a, b) => a - b);
+                    const p90 = allOIs[Math.floor(allOIs.length * 0.9)] || 1;
+                    const pct = v => Math.min(100, Math.round((v / p90) * 100));
+                    return (
+                      <div className="bg-[#0a1628] rounded-lg p-3">
+                        <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 flex justify-between">
+                          <span className="text-green-400">← Put OI</span>
+                          <span>Strike</span>
+                          <span className="text-red-400">Call OI →</span>
+                        </div>
+                        <div className="space-y-px">
+                          {rows.map(({ strike, cOI, pOI, isATM }) => {
+                            const putPct = pct(pOI);
+                            const callPct = pct(cOI);
+                            const isS1 = strike === optionChainData?.support;
+                            const isR1 = strike === optionChainData?.resistance;
+                            return (
+                              <div key={strike} className={`flex items-center gap-1 h-6 px-1 rounded ${isATM ? 'bg-blue-500/10 ring-1 ring-blue-500/20' : ''}`}>
+                                {/* Put OI bar — grows left from center */}
+                                <div className="flex-1 flex justify-end items-center gap-1.5">
+                                  <span className="text-[9px] text-slate-600 font-mono w-8 text-right tabular-nums">{pOI > 0 ? (pOI/100000).toFixed(1)+'L' : ''}</span>
+                                  <div className="w-20 h-3 flex justify-end rounded-sm overflow-hidden">
+                                    <div className={`h-full rounded-l ${isS1 ? 'bg-green-400/70' : 'bg-green-500/35'}`} style={{ width: `${putPct}%` }} />
+                                  </div>
+                                </div>
+                                {/* Strike label */}
+                                <div className="w-16 flex-shrink-0 text-center">
+                                  <span className={`text-xs font-mono ${isATM ? 'text-blue-300 font-bold' : isS1 ? 'text-green-400' : isR1 ? 'text-red-400' : 'text-slate-400'}`}>
+                                    {strike.toLocaleString()}
+                                  </span>
+                                  {isATM && <span className="text-[8px] text-blue-500 ml-0.5">ATM</span>}
+                                  {isS1 && !isATM && <span className="text-[8px] text-green-500 ml-0.5">S1</span>}
+                                  {isR1 && !isATM && <span className="text-[8px] text-red-500 ml-0.5">R1</span>}
+                                </div>
+                                {/* Call OI bar — grows right from center */}
+                                <div className="flex-1 flex items-center gap-1.5">
+                                  <div className="w-20 h-3 rounded-sm overflow-hidden">
+                                    <div className={`h-full rounded-r ${isR1 ? 'bg-red-400/70' : 'bg-red-500/35'}`} style={{ width: `${callPct}%` }} />
+                                  </div>
+                                  <span className="text-[9px] text-slate-600 font-mono w-8 tabular-nums">{cOI > 0 ? (cOI/100000).toFixed(1)+'L' : ''}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {/* S/R summary */}
+                        <div className="mt-2 pt-2 border-t border-slate-800/40 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-red-400 font-medium">R1 {optionChainData?.resistance?.toLocaleString()}</span>
+                            <span className="text-slate-500">{(optionChainData?.resistanceOI/100000).toFixed(1)}L</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-green-400 font-medium">S1 {optionChainData?.support?.toLocaleString()}</span>
+                            <span className="text-slate-500">{(optionChainData?.supportOI/100000).toFixed(1)}L</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-red-300">R2 {optionChainData?.resistance2?.toLocaleString()}</span>
+                            <span className="text-slate-500">{(optionChainData?.resistance2OI/100000).toFixed(1)}L</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-green-300">S2 {optionChainData?.support2?.toLocaleString()}</span>
+                            <span className="text-slate-500">{(optionChainData?.support2OI/100000).toFixed(1)}L</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div className="bg-[#0a1628] rounded-lg p-3 space-y-2.5">
                     {/* Activity + description narrative */}
@@ -1780,14 +1919,13 @@ function getNiftyLevelAlerts(indices) {
                       <p className="text-sm text-slate-500">Analyzing market activity...</p>
                     )}
 
-                    {/* Insights as flowing lines */}
+                    {/* Synthesized insights */}
                     {optionChainData?.actionableInsights?.length > 0 && (
-                      <div className="space-y-1.5 pt-2 border-t border-blue-800/20">
+                      <div className="space-y-2 pt-2 border-t border-blue-800/20">
                         {optionChainData.actionableInsights.slice(0, 3).map((insight, idx) => (
-                          <p key={idx} className="text-xs leading-relaxed text-slate-300">
+                          <p key={idx} className={`text-xs leading-relaxed ${insight.type === 'setup' ? 'text-amber-300 font-medium' : 'text-slate-300'}`}>
                             <span className="mr-1">{insight.emoji}</span>
-                            <span className="text-slate-200 font-medium">{insight.message}</span>
-                            <span className="text-slate-400"> — {insight.action}</span>
+                            {insight.message}
                           </p>
                         ))}
                       </div>

@@ -18,9 +18,10 @@
 function calcVWAP(candles) {
   let cumTPV = 0, cumVol = 0;
   for (const c of candles) {
-    const tp = (c.high + c.low + c.close) / 3;
-    cumTPV += tp * c.volume;
-    cumVol += c.volume;
+    const tp  = (c.high + c.low + c.close) / 3;
+    const vol = c.volume > 0 ? c.volume : 1; // NIFTY index has 0 volume — use equal weighting
+    cumTPV += tp * vol;
+    cumVol += vol;
   }
   return cumVol > 0 ? cumTPV / cumVol : null;
 }
@@ -98,8 +99,9 @@ export function detectIntradayRegime(candles, oiData = null, options = {}) {
   // ── Volume ────────────────────────────────────────────────────────────────
   const avgVol       = candles.reduce((s, c) => s + c.volume, 0) / n;
   const recentVol    = candles.slice(-6).reduce((s, c) => s + c.volume, 0) / 6;
-  const volExpanding = recentVol > avgVol * 1.5;
-  const volLow       = recentVol < avgVol * 0.7;
+  const hasVolume    = avgVol > 0; // NIFTY index returns 0 volume — skip volume checks
+  const volExpanding = hasVolume ? recentVol > avgVol * 1.5 : false;
+  const volLow       = hasVolume ? recentVol < avgVol * 0.7 : false;
 
   // ── ATR + volatility state ─────────────────────────────────────────────────
   const atr     = calcATR(candles);
@@ -155,7 +157,7 @@ export function detectIntradayRegime(candles, oiData = null, options = {}) {
   } else if (trapDown) {
     regime = 'TRAP_DAY'; confidence = 'HIGH';
     signals.push('Bear trap — breakdown below OR recovered above VWAP');
-  } else if ((allUp || allUp4) && volExpanding && priceAboveVwap && (orBreakUp || bullStructure || sessionHadLowBreak)) {
+  } else if ((allUp || allUp4) && (volExpanding || !hasVolume) && priceAboveVwap && (orBreakUp || bullStructure || sessionHadLowBreak)) {
     regime = 'SHORT_SQUEEZE';
     // OI confirms: low PCR (shorts covering) or PCR falling sharply = strong squeeze signal
     // sessionHadLowBreak: recovery from below-OR selloff — classic short squeeze setup
@@ -170,7 +172,7 @@ export function detectIntradayRegime(candles, oiData = null, options = {}) {
     regime = 'SHORT_SQUEEZE'; confidence = 'MEDIUM';
     signals.push(`PCR ${pcr} (low) · fell ${pcrDelta?.toFixed(2)} intraday — short covering underway`);
     signals.push('Volume expanding · price above VWAP');
-  } else if ((allDown || allDown4) && volExpanding && !priceAboveVwap && (orBreakDown || bearStructure)) {
+  } else if ((allDown || allDown4) && (volExpanding || !hasVolume) && !priceAboveVwap && (orBreakDown || bearStructure)) {
     regime = 'LONG_LIQUIDATION';
     // OI confirms: high PCR (put buyers / hedgers) or PCR rising sharply = confirmed liquidation
     confidence = (oiLiquidation || oiRisingSharply) ? 'HIGH' : 'MEDIUM';
@@ -183,11 +185,11 @@ export function detectIntradayRegime(candles, oiData = null, options = {}) {
     regime = 'LONG_LIQUIDATION'; confidence = 'MEDIUM';
     signals.push(`PCR ${pcr} (high) · rose ${pcrDelta?.toFixed(2)} intraday — put buying / longs exiting`);
     signals.push('Volume expanding · price below VWAP');
-  } else if (orBreakUp && bullStructure && priceAboveVwap && volExpanding) {
+  } else if (orBreakUp && bullStructure && priceAboveVwap && (volExpanding || !hasVolume)) {
     regime = 'TREND_DAY_UP'; confidence = 'HIGH';
     if (isGapUp) signals.push(`Gap up ${gapPct.toFixed(1)}% · holding above VWAP · HH+HL structure`);
     else signals.push('OR broken up · HH+HL structure · above VWAP · volume confirming');
-  } else if (orBreakDown && bearStructure && !priceAboveVwap && volExpanding) {
+  } else if (orBreakDown && bearStructure && !priceAboveVwap && (volExpanding || !hasVolume)) {
     regime = 'TREND_DAY_DOWN'; confidence = 'HIGH';
     if (isGapDown) signals.push(`Gap down ${Math.abs(gapPct).toFixed(1)}% · holding below VWAP · LL+LH structure`);
     else signals.push('OR broken down · LL+LH structure · below VWAP · volume confirming');
@@ -201,10 +203,10 @@ export function detectIntradayRegime(candles, oiData = null, options = {}) {
     if (isGapDown) signals.push(`Gap down ${Math.abs(gapPct).toFixed(1)}% · holding below VWAP`);
     else signals.push('OR broken down · holding below VWAP');
     if (bearStructure) signals.push('LL+LH structure building');
-  } else if ((orBreakUp || orBreakDown) && volExpanding) {
+  } else if ((orBreakUp || orBreakDown) && (volExpanding || !hasVolume)) {
     regime = 'BREAKOUT_DAY'; confidence = 'MEDIUM';
     signals.push(`OR broken ${orBreakUp ? 'up' : 'down'} with volume — direction not yet confirmed`);
-  } else if (bullStructure && priceAboveVwap && volExpanding && sessionHadLowBreak) {
+  } else if (bullStructure && priceAboveVwap && (volExpanding || !hasVolume) && sessionHadLowBreak) {
     // Recovery from below-OR session low: price broke down earlier but has since recovered
     // with bull structure (HH+HL) and volume above VWAP — this is a squeeze/recovery day
     regime = 'SHORT_SQUEEZE'; confidence = 'MEDIUM';
@@ -213,7 +215,7 @@ export function detectIntradayRegime(candles, oiData = null, options = {}) {
       confidence = 'HIGH';
       if (oiFallingSharply) signals.push(`PCR fell ${pcrDelta?.toFixed(2)} — short covering confirmed`);
     }
-  } else if (bearStructure && !priceAboveVwap && volExpanding && sessionHadHighBreak) {
+  } else if (bearStructure && !priceAboveVwap && (volExpanding || !hasVolume) && sessionHadHighBreak) {
     // Distribution after early high: broke up then came back down with bear structure
     regime = 'LONG_LIQUIDATION'; confidence = 'MEDIUM';
     signals.push('Retreated from session high · bear structure · below VWAP');

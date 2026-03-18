@@ -42,10 +42,12 @@ function determineZoneState(zone, candles15m, spotPrice) {
   const atZone  = Math.abs(spotPrice - zone.price) <= band;
   const recent  = candles15m.slice(-15);
 
-  // ── Inside zone: ≥3 of last 5 candles straddle zone price ─────────────────
-  const last5       = candles15m.slice(-5);
+  // ── Inside zone: ≥3 of last 5 candles straddle zone price AND spot is still near the zone
+  // Without the proximity check, old straddle candles trigger INSIDE_ZONE even after price
+  // has cleanly moved away (e.g. spot 30 pts above a 3186 support → falsely flagged as inside).
+  const last5         = candles15m.slice(-5);
   const straddleCount = last5.filter(c => c.high > zone.price && c.low < zone.price).length;
-  if (straddleCount >= 3) return 'INSIDE_ZONE';
+  if (straddleCount >= 3 && atZone) return 'INSIDE_ZONE';
 
   // ── BOS detection ──────────────────────────────────────────────────────────
   // BOS is valid only if at least 3 candles followed it (pullback had time to form)

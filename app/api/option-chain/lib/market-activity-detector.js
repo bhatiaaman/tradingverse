@@ -128,145 +128,120 @@ export function detectMarketActivity(current, previous, sinceOpen = false) {
 }
 
 /**
- * Generate REAL actionable insights based on ACTUAL market data
- * @param {Object} optionChain - { support, resistance, maxPain, pcr }
- * @param {Number} spot - Current spot price
- * @returns {Array} - Array of actionable insights
+ * Synthesized actionable insights — reconciles OI activity, PCR, Max Pain, and S/R
+ * instead of firing independent signals that can contradict each other.
+ *
+ * @param {Object} optionChain - { support, resistance, maxPain, pcr, strikeGap }
+ * @param {Number} spot
+ * @param {Object} marketActivity - output of detectMarketActivity()
+ * @returns {Array} max 3 insights, each { type, emoji, message }
  */
-export function generateActionableInsights(optionChain, spot) {
+export function generateActionableInsights(optionChain, spot, marketActivity = null) {
   const insights = [];
+  if (!optionChain || !spot) return insights;
 
-  if (!optionChain || !spot) {
-    return insights;
-  }
+  const { support, resistance, maxPain, pcr, strikeGap = 50 } = optionChain;
+  const activity    = marketActivity?.activity || '';
+  const actStrength = marketActivity?.strength || 0;
+  const isBullish   = ['Long Buildup', 'Short Covering'].includes(activity);
+  const isBearish   = ['Short Buildup', 'Long Unwinding'].includes(activity);
+  const isActive    = isBullish || isBearish;
+  const pcrBullish  = pcr > 1.2;
+  const pcrBearish  = pcr !== null && pcr < 0.8;
 
-  const { support, resistance, maxPain, pcr } = optionChain;
+  const supportDist = support   ? Math.abs(((spot - support)   / spot) * 100) : null;
+  const resistDist  = resistance ? Math.abs(((resistance - spot) / spot) * 100) : null;
+  const maxPainDiff = maxPain   ? (spot - maxPain) / maxPain * 100 : null;
+  const range       = (support && resistance) ? resistance - support : null;
+  const rangePos    = range ? ((spot - support) / range) * 100 : 50;
+  const mpNearSup   = maxPain && support   && Math.abs(maxPain - support)   <= strikeGap;
+  const mpNearRes   = maxPain && resistance && Math.abs(maxPain - resistance) <= strikeGap;
 
-  // CRITICAL: Calculate ACTUAL distances using REAL spot price
-  const supportDist = support ? ((spot - support) / spot) * 100 : null;
-  const resistanceDist = resistance ? ((resistance - spot) / spot) * 100 : null;
-  const maxPainDist = maxPain ? ((spot - maxPain) / maxPain) * 100 : null;
-
-  // ──────────────────────────────────────────────────────────────────
-  // 1. PCR ANALYSIS (Priority - affects overall bias)
-  // ──────────────────────────────────────────────────────────────────
-  if (pcr) {
-    if (pcr > 1.3) {
-      insights.push({
-        type: 'pcr',
-        level: 'high',
-        message: `Bullish PCR: ${pcr.toFixed(2)}`,
-        action: `Heavy put writing at ${support}. Traders defending support - dips are buying opportunities.`,
-        emoji: '🐂',
-      });
-    } else if (pcr < 0.8) {
-      insights.push({
-        type: 'pcr',
-        level: 'low',
-        message: `Bearish PCR: ${pcr.toFixed(2)}`,
-        action: `Excessive call buying shows greed. Market vulnerable to pullback - book profits on rallies.`,
-        emoji: '🐻',
-      });
+  // ── Insight 1: Market Posture — reconcile OI activity + PCR ────────────────
+  if (isActive) {
+    let msg = '';
+    if (isBullish && pcrBearish) {
+      // Bullish OI activity but PCR shows call-heavy positioning — warn but don't negate
+      const frothy = pcr < 0.7 ? 'PCR very call-heavy — keep stops tight' : `PCR ${pcr.toFixed(2)} slightly call-heavy — trail stops`;
+      msg = `${activity} in progress (${marketActivity?.description?.split('—')[1]?.trim() || ''}). ${frothy}. Longs valid but don't chase extended moves.`;
+    } else if (isBearish && pcrBullish) {
+      msg = `${activity} but PCR ${pcr.toFixed(2)} shows put writers defending. Bearish momentum exists — shorts on bounces, not into put walls.`;
+    } else if (isBullish) {
+      const conf = actStrength >= 7 ? 'Strong' : 'Moderate';
+      const pcrNote = pcrBullish ? `PCR ${pcr.toFixed(2)} confirms` : `PCR ${pcr.toFixed(2)} neutral`;
+      msg = `${conf} ${activity}. ${pcrNote}. ${actStrength >= 7 ? 'Ride with trailing SL.' : `Watch for hold above ${support} for continuation.`}`;
     } else {
-      insights.push({
-        type: 'pcr',
-        level: 'neutral',
-        message: `Neutral PCR: ${pcr.toFixed(2)}`,
-        action: 'Balanced positioning. No clear directional bias from options traders.',
-        emoji: '⚖️',
-      });
+      const conf = actStrength >= 7 ? 'Strong' : 'Moderate';
+      const pcrNote = pcrBearish ? `PCR ${pcr.toFixed(2)} confirms` : `PCR ${pcr.toFixed(2)} neutral`;
+      msg = `${conf} ${activity}. ${pcrNote}. ${actStrength >= 7 ? 'Shorts with trailing SL.' : `Watch for break below ${support}.`}`;
     }
+    if (msg) insights.push({ type: 'posture', emoji: isBullish ? '🚀' : '📉', message: msg });
+  } else if (pcr !== null) {
+    // No strong OI signal — lead with PCR
+    const msg = pcrBullish
+      ? `PCR ${pcr.toFixed(2)} — Put writers active, bullish tilt. Dips near ${support} are buying opportunities.`
+      : pcrBearish
+      ? `PCR ${pcr.toFixed(2)} — Call writers dominant. Book partial profits on rallies toward ${resistance}.`
+      : `PCR ${pcr.toFixed(2)} — Balanced positioning. Trade the range ${support}–${resistance}, no directional edge.`;
+    insights.push({ type: 'posture', emoji: pcrBullish ? '🐂' : pcrBearish ? '🐻' : '⚖️', message: msg });
   }
 
-  // ──────────────────────────────────────────────────────────────────
-  // 2. MAX PAIN ANALYSIS
-  // ──────────────────────────────────────────────────────────────────
-  if (maxPain && maxPainDist !== null) {
-    const absMaxPainDist = Math.abs(maxPainDist);
-    
-    if (absMaxPainDist < 0.5) {
-      insights.push({
-        type: 'maxpain',
-        level: 'at',
-        message: `At Max Pain ${maxPain}`,
-        action: `Spot ${spot.toFixed(0)} very close to Max Pain. Expect rangebound, choppy moves till expiry.`,
-        emoji: '🧲',
-      });
-    } else if (maxPainDist > 0) {
-      insights.push({
-        type: 'maxpain',
-        level: 'above',
-        message: `${absMaxPainDist.toFixed(1)}% above Max Pain`,
-        action: `Spot ${spot.toFixed(0)} vs Max Pain ${maxPain}. Gravitational pull down likely - call writers will defend.`,
-        emoji: '⬇️',
-      });
+  // ── Insight 2: Key level in play — consolidate Max Pain + S/R ──────────────
+  const nearSup = supportDist !== null && supportDist < 0.5;
+  const nearRes = resistDist  !== null && resistDist  < 0.5;
+
+  if (nearSup) {
+    if (mpNearSup) {
+      insights.push({ type: 'level', emoji: '🧲',
+        message: `${support} is both peak Put OI wall (S1) and Max Pain pin — strong floor but expect chop here, not a clean V-bounce. ${isBullish ? `Longs above ${support}, SL below ${support - strikeGap}.` : 'Wait for confirmed hold before entering.'}` });
     } else {
-      insights.push({
-        type: 'maxpain',
-        level: 'below',
-        message: `${absMaxPainDist.toFixed(1)}% below Max Pain`,
-        action: `Spot ${spot.toFixed(0)} vs Max Pain ${maxPain}. Upward pull likely - put writers will defend.`,
-        emoji: '⬆️',
-      });
+      insights.push({ type: 'level', emoji: '🛡️',
+        message: `Spot at S1 ${support} Put OI wall. ${isBullish ? `Aligned with ${activity} — good risk/reward for longs, SL below ${support - strikeGap}.` : `Watch for hold vs break. Close below ${support - strikeGap} turns structure bearish.`}` });
+    }
+  } else if (nearRes) {
+    if (mpNearRes) {
+      insights.push({ type: 'level', emoji: '🚧',
+        message: `${resistance} is R1 Call OI wall and Max Pain — double ceiling. ${isBullish ? `Breakout above ${resistance} needs volume; reject here → pullback to ${support}.` : `Bears in control at this zone — resistance holding.`}` });
+    } else {
+      const breakoutTarget = resistance + strikeGap * 2;
+      insights.push({ type: 'level', emoji: '🚧',
+        message: `Spot at R1 ${resistance} Call OI wall. ${isBullish ? `Breakout → target ${breakoutTarget}. Rejection → pullback to ${support}.` : `Tough ceiling — shorts below ${resistance}, SL above ${resistance + strikeGap}.`}` });
+    }
+  } else if (maxPainDiff !== null) {
+    const absDiff = Math.abs(maxPainDiff);
+    if (absDiff < 0.5) {
+      insights.push({ type: 'level', emoji: '🧲',
+        message: `Spot pinned near Max Pain ${maxPain} — range-bound action between ${support}–${resistance} expected. Avoid chasing breakouts without volume.` });
+    } else if (maxPainDiff > 0.5) {
+      insights.push({ type: 'level', emoji: '⬇️',
+        message: `Spot ${absDiff.toFixed(1)}% above Max Pain ${maxPain}. Gravity pull toward ${maxPain}–${support} likely as expiry nears. Call writers will cap rallies.` });
+    } else {
+      insights.push({ type: 'level', emoji: '⬆️',
+        message: `Spot ${absDiff.toFixed(1)}% below Max Pain ${maxPain}. Put writers have incentive to defend ${support}. Upward drift toward ${maxPain} likely.` });
     }
   }
 
-  // ──────────────────────────────────────────────────────────────────
-  // 3. SUPPORT/RESISTANCE ANALYSIS (Based on ACTUAL position)
-  // ──────────────────────────────────────────────────────────────────
-  if (support && resistance && supportDist !== null && resistanceDist !== null) {
-    
-    // Near Support
-    if (Math.abs(supportDist) < 0.5) {
-      insights.push({
-        type: 'support',
-        level: 'testing',
-        message: `Testing Support ${support}`,
-        action: `Strong Put OI wall. High probability bounce - risk-reward favors longs with SL below ${(support - 20).toFixed(0)}.`,
-        emoji: '🛡️',
-      });
-    }
-    // Near Resistance
-    else if (Math.abs(resistanceDist) < 0.5) {
-      insights.push({
-        type: 'resistance',
-        level: 'testing',
-        message: `Testing Resistance ${resistance}`,
-        action: `Strong Call OI wall. Tough to break - consider profit booking or shorts with SL above ${(resistance + 20).toFixed(0)}.`,
-        emoji: '🚧',
-      });
-    }
-    // In Range
-    else {
-      const rangePosition = ((spot - support) / (resistance - support)) * 100;
-      
-      if (rangePosition > 70) {
-        insights.push({
-          type: 'range',
-          level: 'upper',
-          message: `Upper Range: ${support}-${resistance}`,
-          action: `Near ${resistance} resistance. Risk-reward poor for longs - wait for pullback to ${support}.`,
-          emoji: '📍',
-        });
-      } else if (rangePosition < 30) {
-        insights.push({
-          type: 'range',
-          level: 'lower',
-          message: `Lower Range: ${support}-${resistance}`,
-          action: `Near ${support} support. Risk-reward favors longs. Resistance at ${resistance}.`,
-          emoji: '📍',
-        });
-      } else {
-        insights.push({
-          type: 'range',
-          level: 'middle',
-          message: `Mid-Range: ${support}-${resistance}`,
-          action: 'No edge. Wait for move toward support/resistance for better risk-reward.',
-          emoji: '↔️',
-        });
-      }
+  // ── Insight 3: Trade setup — only when near an actionable extreme ───────────
+  if (range && range > 0) {
+    if (rangePos < 30 && isBullish) {
+      const sl = support - strikeGap;
+      const reward = resistance - spot;
+      const risk   = spot - sl;
+      const rr     = risk > 0 ? (reward / risk).toFixed(1) : '—';
+      insights.push({ type: 'setup', emoji: '🎯',
+        message: `Setup: Long above ${spot.toFixed(0)} → target ${resistance} (+${reward.toFixed(0)} pts). SL below ${sl}. R:R ≈ 1:${rr}.` });
+    } else if (rangePos > 70 && isBearish) {
+      const sl = resistance + strikeGap;
+      const reward = spot - support;
+      const risk   = sl - spot;
+      const rr     = risk > 0 ? (reward / risk).toFixed(1) : '—';
+      insights.push({ type: 'setup', emoji: '🎯',
+        message: `Setup: Short below ${spot.toFixed(0)} → target ${support} (−${reward.toFixed(0)} pts). SL above ${sl}. R:R ≈ 1:${rr}.` });
+    } else if (rangePos >= 30 && rangePos <= 70 && !nearSup && !nearRes) {
+      insights.push({ type: 'setup', emoji: '↔️',
+        message: `Spot mid-range (${support}–${resistance}, ${range} pts). No edge here — wait for a move toward ${support} to go long or ${resistance} to go short.` });
     }
   }
 
-  return insights;
+  return insights.slice(0, 3);
 }

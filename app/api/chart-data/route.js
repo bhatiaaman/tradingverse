@@ -137,21 +137,38 @@ export async function GET(request) {
 
     // ── Intraday session filter (5min / 15min) ───────────────────────────────
     let candles;
-    if (interval === '5minute' || interval === '15minute') {
+    if (interval === '5minute') {
+      // Filter to session hours (9:15–15:30 IST) across all fetched days
+      const sessionCandles = raw.filter(c => {
+        const ist  = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
+        const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+        return mins >= 555 && mins <= 930;
+      });
+
+      if (sessionCandles.length >= 5) {
+        // Keep last 2 trading sessions (yesterday + today) for context
+        const dates = [...new Set(sessionCandles.map(c => {
+          const ist = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
+          return ist.toISOString().slice(0, 10);
+        }))].sort();
+        const keepDates = new Set(dates.slice(-2));
+        candles = sessionCandles.filter(c => {
+          const ist = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
+          return keepDates.has(ist.toISOString().slice(0, 10));
+        });
+      } else {
+        // Weekend / holiday — return last 78 candles
+        candles = raw.slice(-78);
+      }
+    } else if (interval === '15minute') {
       const todayStr = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
       const todayCandles = raw.filter(c => {
         const ist     = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
         const dateStr = ist.toISOString().slice(0, 10);
         const mins    = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-        return dateStr === todayStr && mins >= 555 && mins <= 930; // 9:15–15:30
+        return dateStr === todayStr && mins >= 555 && mins <= 930;
       });
-
-      if (todayCandles.length >= 5) {
-        candles = todayCandles;
-      } else {
-        // Weekend / holiday — return last 78 candles
-        candles = raw.slice(-78);
-      }
+      candles = todayCandles.length >= 5 ? todayCandles : raw.slice(-26);
     } else {
       candles = raw;
     }

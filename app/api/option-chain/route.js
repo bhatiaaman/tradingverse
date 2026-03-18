@@ -358,10 +358,11 @@ export async function GET(request) {
       }
     }
 
-    // ── Actionable Insights ──
+    // ── Actionable Insights — pass marketActivity so signals can be synthesized ──
     const actionableInsights = generateActionableInsights(
-      { support: support.level, resistance: resistance.level, maxPain, pcr }, 
-      spot
+      { support: support.level, resistance: resistance.level, maxPain, pcr, strikeGap: config.strikeGap },
+      spot,
+      marketActivity
     );
 
     const response = {
