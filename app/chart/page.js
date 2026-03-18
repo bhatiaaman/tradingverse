@@ -861,6 +861,19 @@ function ChartPageInner() {
             )}
           </button>
 
+          {/* Reset view button — in toolbar */}
+          <button
+            onClick={() => resetViewRef.current?.()}
+            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold transition-colors ${theme.text2} ${theme.textHover} ${theme.btnHover}`}
+            title="Reset view (or double-click chart)"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+              <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+            </svg>
+            <span className="hidden sm:inline">Reset</span>
+          </button>
+
           {/* Overlays button — icon+text on desktop, icon-only on mobile */}
           <button
             ref={settingsBtnRef}
@@ -929,20 +942,6 @@ function ChartPageInner() {
           {/* LightweightCharts mount point */}
           <div ref={containerRef} className="w-full h-full" />
 
-          {/* Reset view button — always visible on mobile, faded on desktop */}
-          {!loading && candles.length > 0 && (
-            <button
-              onClick={() => resetViewRef.current?.()}
-              className={`absolute bottom-6 left-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-mono ${theme.badgeBg} border ${theme.badgeBorder} ${theme.text2} sm:opacity-40 sm:hover:opacity-100 active:opacity-100 transition-opacity`}
-              title="Reset view (or double-click / long-press)"
-            >
-              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-                <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-                <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
-              </svg>
-              Reset
-            </button>
-          )}
 
         {/* Symbol · interval + OHLCV — top-left */}
         {(() => {
