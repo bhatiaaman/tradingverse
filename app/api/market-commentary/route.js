@@ -259,6 +259,128 @@ async function fetchIntradayCandles(dp) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Daily bias — EMA21/50 position + swing structure
+// ─────────────────────────────────────────────────────────────────────
+function calcEMAValue(closes, period) {
+  if (closes.length < period) return null;
+  const k = 2 / (period + 1);
+  let ema = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < closes.length; i++) ema = closes[i] * k + ema * (1 - k);
+  return ema;
+}
+
+async function fetchDailyBias(dp) {
+  try {
+    const toDate   = new Date();
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - 120); // 120 days for EMA50 warmup
+
+    const fmt = (d) => {
+      const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+      return ist.toISOString().slice(0, 19).replace('T', ' ');
+    };
+    const data = await dp.getHistoricalRaw(NIFTY_TOKEN, 'day',
+      encodeURIComponent(fmt(fromDate)), encodeURIComponent(fmt(toDate)));
+    if (!data?.data?.candles?.length) return null;
+
+    const candles = data.data.candles.map(([time, open, high, low, close]) => ({ high, low, close }));
+    const closes  = candles.map(c => c.close);
+    const last    = closes[closes.length - 1];
+
+    const ema21 = calcEMAValue(closes, 21);
+    const ema50 = calcEMAValue(closes, 50);
+    const aboveEma21 = ema21 ? last > ema21 : null;
+    const aboveEma50 = ema50 ? last > ema50 : null;
+
+    // Swing structure: last 15 daily candles
+    const recent = candles.slice(-15);
+    const h0 = recent[0].high, hn = recent[recent.length - 1].high;
+    const l0 = recent[0].low,  ln = recent[recent.length - 1].low;
+    const hhhl = hn > h0 && ln > l0; // higher highs + higher lows
+    const lllh = hn < h0 && ln < l0; // lower lows + lower highs
+
+    let bias = 'NEUTRAL', reason = '';
+    if (aboveEma21 && hhhl)       { bias = 'BULLISH'; reason = 'Above EMA21 · HH+HL daily trend'; }
+    else if (aboveEma21 && aboveEma50) { bias = 'BULLISH'; reason = 'Above EMA21 & EMA50'; }
+    else if (aboveEma21)          { bias = 'BULLISH'; reason = 'Above EMA21'; }
+    else if (!aboveEma21 && lllh) { bias = 'BEARISH'; reason = 'Below EMA21 · LL+LH daily trend'; }
+    else if (!aboveEma21 && !aboveEma50) { bias = 'BEARISH'; reason = 'Below EMA21 & EMA50'; }
+    else                          { bias = 'BEARISH'; reason = 'Below EMA21'; }
+
+    return {
+      bias,
+      reason,
+      ema21: ema21 ? Math.round(ema21) : null,
+      ema50: ema50 ? Math.round(ema50) : null,
+    };
+  } catch (err) {
+    console.error('[commentary] Daily bias error:', err.message);
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 15m bias — regime detection on today's 15-min candles
+// ─────────────────────────────────────────────────────────────────────
+async function fetchFifteenMinBias(dp) {
+  try {
+    const toDate   = new Date();
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - 1);
+
+    const fmt = (d) => {
+      const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+      return ist.toISOString().slice(0, 19).replace('T', ' ');
+    };
+    const data = await dp.getHistoricalRaw(NIFTY_TOKEN, '15minute',
+      encodeURIComponent(fmt(fromDate)), encodeURIComponent(fmt(toDate)));
+    if (!data?.data?.candles?.length) return null;
+
+    const allCandles = data.data.candles.map(([time, open, high, low, close, volume]) => ({
+      time: new Date(time).getTime() / 1000,
+      open, high, low, close, volume: volume || 0,
+    }));
+
+    const ist = getISTTime();
+    const todayIST = new Date(ist);
+    todayIST.setUTCHours(3, 45, 0, 0); // 9:15 AM IST
+    const todayStart = todayIST.getTime() / 1000;
+
+    const todayCandles = allCandles.filter(c => c.time >= todayStart);
+    const prevCandles  = allCandles.filter(c => c.time < todayStart);
+    const prevClose    = prevCandles.length ? prevCandles[prevCandles.length - 1].close : null;
+
+    if (todayCandles.length < 3) return null;
+
+    const regime = detectIntradayRegime(todayCandles, null, { prevClose });
+
+    // Map regime → simple bias + label
+    const REGIME_MAP = {
+      TREND_DAY_UP:    { bias: 'BULLISH', label: 'Trending Up'      },
+      SHORT_SQUEEZE:   { bias: 'BULLISH', label: 'Short Squeeze'     },
+      TREND_DAY_DOWN:  { bias: 'BEARISH', label: 'Trending Down'     },
+      LONG_LIQUIDATION:{ bias: 'BEARISH', label: 'Selling Pressure'  },
+      BREAKOUT_DAY:    { bias: 'NEUTRAL', label: 'Breakout Attempt'  },
+      TRAP_DAY:        { bias: 'NEUTRAL', label: 'Trap'              },
+      RANGE_DAY:       { bias: 'NEUTRAL', label: 'Ranging'           },
+      LOW_VOL_DRIFT:   { bias: 'NEUTRAL', label: 'Low Activity'      },
+    };
+    const mapped = REGIME_MAP[regime.regime] ?? { bias: 'NEUTRAL', label: regime.regime };
+
+    return {
+      bias:         mapped.bias,
+      label:        mapped.label,
+      regime:       regime.regime,
+      confidence:   regime.confidence,
+      vwapPosition: regime.vwapPosition,
+    };
+  } catch (err) {
+    console.error('[commentary] 15m bias error:', err.message);
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // 5-min OI snapshot for detecting short-term OI changes
 // ─────────────────────────────────────────────────────────────────────
 async function getOIChange5Min(currentCallOI, currentPutOI) {
@@ -1212,12 +1334,16 @@ export async function GET(request) {
     const isWeekend = istDay === 0 || istDay === 6;
 
     if (marketIsOpen) {
-      // Fetch Kite intraday candles for RSI / VWAP / EMA21 / volume
-      let intradayData = null;
+      // Fetch Kite intraday candles + daily bias + 15m bias in parallel
+      let intradayData = null, dailyBias = null, fifteenMinBias = null;
       try {
         const dp = await getDataProvider();
         if (dp.isConnected()) {
-          intradayData = await fetchIntradayCandles(dp);
+          [intradayData, dailyBias, fifteenMinBias] = await Promise.all([
+            fetchIntradayCandles(dp),
+            fetchDailyBias(dp).catch(() => null),
+            fetchFifteenMinBias(dp).catch(() => null),
+          ]);
         }
       } catch {}
 
@@ -1285,6 +1411,8 @@ export async function GET(request) {
     const result = {
       success:      true,
       commentary,
+      dailyBias,
+      fifteenMinBias,
       method:       'rule-based',
       marketStatus: marketIsOpen ? 'OPEN' : 'PRE_MARKET',
       timestamp:    new Date().toISOString(),

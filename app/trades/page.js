@@ -197,6 +197,8 @@ function getNiftyLevelAlerts(indices) {
     const [commentaryLoading, setCommentaryLoading] = useState(true);
     const [commentaryRefreshedAt, setCommentaryRefreshedAt] = useState(null);
     const [niftyRegime, setNiftyRegime] = useState(null);
+    const [dailyBias, setDailyBias] = useState(null);
+    const [fifteenMinBias, setFifteenMinBias] = useState(null);
     const [commentaryCollapsed, setCommentaryCollapsed] = useState(false);
     const prevCommentaryRef = useRef(null);
     const soundEnabledRef   = useRef(false); // only alert after first load
@@ -298,6 +300,8 @@ function getNiftyLevelAlerts(indices) {
         soundEnabledRef.current   = true;
         setCommentary(next);
         setCommentaryRefreshedAt(new Date());
+        if (data.dailyBias)      setDailyBias(data.dailyBias);
+        if (data.fifteenMinBias) setFifteenMinBias(data.fifteenMinBias);
       } catch (error) {
         console.error('Failed to fetch commentary:', error);
       } finally {
@@ -381,6 +385,8 @@ function getNiftyLevelAlerts(indices) {
           soundEnabledRef.current   = true
           setCommentary(next);
           setCommentaryRefreshedAt(new Date());
+          if (data.dailyBias)       setDailyBias(data.dailyBias);
+          if (data.fifteenMinBias)  setFifteenMinBias(data.fifteenMinBias);
         } catch (error) {
           console.error('Failed to fetch commentary:', error);
         } finally {
@@ -840,6 +846,70 @@ function getNiftyLevelAlerts(indices) {
                             <span className={`text-[10px] px-1 py-0.5 rounded ${niftyRegime.vwapPosition === 'ABOVE' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'}`}>
                               {niftyRegime.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP
                             </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Daily + 15m Bias — dual-timeframe view */}
+                    {(dailyBias || fifteenMinBias) && (() => {
+                      const bColor = b => b === 'BULLISH' ? 'text-green-400' : b === 'BEARISH' ? 'text-red-400' : 'text-yellow-400';
+                      const bDot   = b => b === 'BULLISH' ? 'bg-green-400'  : b === 'BEARISH' ? 'bg-red-400'   : 'bg-yellow-400';
+                      const bLabel = b => b === 'BULLISH' ? 'Bullish' : b === 'BEARISH' ? 'Bearish' : 'Neutral';
+
+                      // Synthesis: what this means for the trade
+                      let synthesis = null;
+                      if (dailyBias && fifteenMinBias) {
+                        const db = dailyBias.bias, fb = fifteenMinBias.bias;
+                        const ema = dailyBias.ema21 ? ` near EMA21 (${dailyBias.ema21})` : '';
+                        if (db === 'BULLISH' && fb === 'BULLISH')
+                          synthesis = 'Trends aligned — ride momentum, trail stops';
+                        else if (db === 'BULLISH' && fb === 'BEARISH')
+                          synthesis = `Daily bullish, 15m pulling back — wait for base${ema} before going long`;
+                        else if (db === 'BULLISH' && fb === 'NEUTRAL')
+                          synthesis = `Daily bullish, 15m consolidating — watch for 15m breakout to add longs`;
+                        else if (db === 'BEARISH' && fb === 'BEARISH')
+                          synthesis = 'Trends aligned — sell bounces, trail stops';
+                        else if (db === 'BEARISH' && fb === 'BULLISH')
+                          synthesis = 'Daily bearish, 15m bouncing — sell into strength, not chasing';
+                        else if (db === 'BEARISH' && fb === 'NEUTRAL')
+                          synthesis = 'Daily bearish, 15m ranging — wait for 15m breakdown to short';
+                        else
+                          synthesis = 'Mixed timeframes — wait for alignment before trading';
+                      }
+
+                      return (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-4 flex-wrap">
+                            {dailyBias && (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-slate-400 text-[11px]">Daily:</span>
+                                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${bDot(dailyBias.bias)}`} />
+                                <span className={`text-[11px] font-semibold ${bColor(dailyBias.bias)}`}>{bLabel(dailyBias.bias)}</span>
+                                <span className="text-slate-500 text-[10px]">{dailyBias.reason}</span>
+                              </div>
+                            )}
+                            {fifteenMinBias && (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-slate-400 text-[11px]">15m:</span>
+                                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${bDot(fifteenMinBias.bias)}`} />
+                                <span className={`text-[11px] font-semibold ${bColor(fifteenMinBias.bias)}`}>{fifteenMinBias.label}</span>
+                                {fifteenMinBias.vwapPosition && fifteenMinBias.vwapPosition !== 'UNKNOWN' && (
+                                  <span className={`text-[10px] px-1 rounded ${fifteenMinBias.vwapPosition === 'ABOVE' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'}`}>
+                                    {fifteenMinBias.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP
+                                  </span>
+                                )}
+                                <span className={`text-[10px] ${fifteenMinBias.confidence === 'HIGH' ? 'text-emerald-400' : fifteenMinBias.confidence === 'MEDIUM' ? 'text-amber-400' : 'text-slate-500'}`}>
+                                  {fifteenMinBias.confidence}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          {synthesis && (
+                            <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                              <span className="text-amber-400 flex-shrink-0">→</span>
+                              <span>{synthesis}</span>
+                            </div>
                           )}
                         </div>
                       );
