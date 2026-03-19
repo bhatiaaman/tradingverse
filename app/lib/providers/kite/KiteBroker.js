@@ -27,6 +27,10 @@ export class KiteBroker {
     return this._kite.cancelOrder(variety, orderId);
   }
 
+  async modifyOrder(variety, orderId, params) {
+    return this._kite.modifyOrder(variety, orderId, params);
+  }
+
   async getOrders() {
     return this._kite.getOrders();
   }

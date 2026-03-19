@@ -9,6 +9,7 @@ import {
   CheckCircle, XCircle, Clock, AlertTriangle, ShieldCheck,
   ShieldAlert, ShieldX, AlertCircle, ExternalLink,
   Sun, Moon, Activity, ScanSearch, Target, BarChart3,
+  Pencil, Check,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1232,9 +1233,21 @@ function OrdersTab({ orders, loading, onRefresh }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // OrdersRightPanel — collapsible right sidebar for today's orders + FnO movers
 // ─────────────────────────────────────────────────────────────────────────────
-function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, open, setOpen }) {
+function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, onModifyOrder, open, setOpen }) {
+  const [modifyForm,    setModifyForm]    = useState(null);
+  const [modifying,     setModifying]     = useState(null);
+  const [confirmCancel, setConfirmCancel] = useState(null); // order_id pending confirm
+
+  const submitModify = async () => {
+    if (!modifyForm) return;
+    setModifying(modifyForm.order_id);
+    const d = await onModifyOrder(modifyForm);
+    setModifying(null);
+    if (d?.success) setModifyForm(null);
+  };
+
   return (
-    <div className={`flex-shrink-0 border-l border-gray-200 dark:border-white/10 flex flex-col bg-gray-50 dark:bg-slate-900/40 transition-all duration-200 ${open ? 'w-screen md:w-[260px]' : 'w-screen md:w-9'}`}>
+    <div className={`flex-shrink-0 border-l border-gray-200 dark:border-white/10 flex flex-col bg-gray-50 dark:bg-slate-900/40 transition-all duration-200 ${open ? 'w-screen md:w-[300px]' : 'w-screen md:w-9'}`}>
       {/* Toggle + header */}
       <div className={`flex items-center flex-shrink-0 border-b border-gray-200 dark:border-white/10 ${open ? 'px-3 py-2 justify-between' : 'justify-center py-2'}`}>
         {open && <span className="text-[10px] font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">Open Orders</span>}
@@ -1254,7 +1267,6 @@ function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, open, set
 
       {open && (
         <div className="flex-1 overflow-y-auto scrollbar-thin">
-          {/* Open orders */}
           {loading ? (
             <div className="p-3 space-y-2">{[1,2,3,4].map(i => <div key={i} className="h-10 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}</div>
           ) : orders.length === 0 ? (
@@ -1262,23 +1274,40 @@ function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, open, set
           ) : (
             <div className="p-2 space-y-1.5">
               {orders.map(o => {
-                const isBuy = o.transaction_type === 'BUY';
+                const isBuy        = o.transaction_type === 'BUY';
                 const isCancelable = !['COMPLETE', 'CANCELLED', 'REJECTED', 'CANCEL PENDING'].includes(o.status?.toUpperCase());
+                const isEditing    = modifyForm?.order_id === o.order_id;
                 return (
                   <div key={o.order_id} className="p-2 rounded-lg bg-white dark:bg-slate-800/60 border border-gray-100 dark:border-white/5">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-semibold text-gray-900 dark:text-white truncate mr-2 max-w-[120px]">{o.tradingsymbol}</span>
+                      <span className="text-xs font-semibold text-gray-900 dark:text-white truncate mr-2 max-w-[150px]">{o.tradingsymbol}</span>
                       <div className="flex items-center gap-1">
                         <span className={`text-[10px] font-bold ${isBuy ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{o.transaction_type}</span>
-                        {isCancelable && (
+                        {isCancelable && (<>
                           <button
-                            onClick={() => onCancelOrder(o.order_id, o.variety || 'regular')}
-                            className="ml-1 p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
+                            onClick={() => setModifyForm(f =>
+                              f?.order_id === o.order_id ? null : {
+                                order_id:      o.order_id,
+                                variety:       o.variety || 'regular',
+                                order_type:    o.order_type,
+                                quantity:      String(o.quantity),
+                                price:         String(o.price || ''),
+                                trigger_price: String(o.trigger_price || ''),
+                              }
+                            )}
+                            className="ml-1 p-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors"
+                            title="Modify order"
+                          >
+                            <Pencil size={10} className="text-blue-400" />
+                          </button>
+                          <button
+                            onClick={() => setConfirmCancel(o.order_id)}
+                            className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
                             title="Cancel order"
                           >
                             <X size={10} className="text-red-400 hover:text-red-600 dark:hover:text-red-300" />
                           </button>
-                        )}
+                        </>)}
                       </div>
                     </div>
                     <div className="flex items-center justify-between">
@@ -1288,12 +1317,67 @@ function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, open, set
                       </div>
                       <OrderStatusBadge status={o.status} />
                     </div>
+
+                    {confirmCancel === o.order_id && (
+                      <div className="mt-2 pt-2 border-t border-red-200 dark:border-red-500/30 flex flex-col gap-1.5">
+                        <p className="text-[11px] text-red-500 dark:text-red-400 font-medium">Cancel {o.tradingsymbol}?</p>
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={() => { onCancelOrder(o.order_id, o.variety || 'regular'); setConfirmCancel(null); }}
+                            className="flex-1 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors"
+                          >Yes, cancel</button>
+                          <button
+                            onClick={() => setConfirmCancel(null)}
+                            className="px-3 py-1 bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-600 dark:text-gray-400 text-xs rounded transition-colors"
+                          >No</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {isEditing && (
+                      <div className="mt-2 pt-2 border-t border-gray-100 dark:border-white/10 flex flex-col gap-1.5">
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <div>
+                            <label className="text-[10px] text-gray-400 mb-0.5 block">Qty</label>
+                            <input type="number" value={modifyForm.quantity}
+                              onChange={e => setModifyForm(f => ({ ...f, quantity: e.target.value }))}
+                              className="w-full bg-gray-100 dark:bg-slate-700 border border-gray-200 dark:border-white/10 rounded px-2 py-1 text-xs text-gray-900 dark:text-white focus:border-blue-500 focus:outline-none" />
+                          </div>
+                          {['LIMIT', 'SL'].includes(modifyForm.order_type) && (
+                            <div>
+                              <label className="text-[10px] text-gray-400 mb-0.5 block">Price</label>
+                              <input type="number" step="0.05" value={modifyForm.price}
+                                onChange={e => setModifyForm(f => ({ ...f, price: e.target.value }))}
+                                className="w-full bg-gray-100 dark:bg-slate-700 border border-gray-200 dark:border-white/10 rounded px-2 py-1 text-xs text-gray-900 dark:text-white focus:border-blue-500 focus:outline-none" />
+                            </div>
+                          )}
+                          {['SL', 'SL-M'].includes(modifyForm.order_type) && (
+                            <div>
+                              <label className="text-[10px] text-gray-400 mb-0.5 block">Trigger</label>
+                              <input type="number" step="0.05" value={modifyForm.trigger_price}
+                                onChange={e => setModifyForm(f => ({ ...f, trigger_price: e.target.value }))}
+                                className="w-full bg-gray-100 dark:bg-slate-700 border border-gray-200 dark:border-white/10 rounded px-2 py-1 text-xs text-gray-900 dark:text-white focus:border-blue-500 focus:outline-none" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-1.5">
+                          <button onClick={submitModify} disabled={modifying === o.order_id}
+                            className="flex-1 flex items-center justify-center gap-1 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors disabled:opacity-50">
+                            {modifying === o.order_id ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                            Save
+                          </button>
+                          <button onClick={() => setModifyForm(null)}
+                            className="px-3 py-1 bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-600 dark:text-gray-400 text-xs rounded transition-colors">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
           )}
-
         </div>
       )}
     </div>
@@ -2206,7 +2290,7 @@ export default function TerminalPage() {
     // Only show skeleton on the very first load (when list is empty)
     if (showLoading) setPanelOrdersLoading(true);
     try {
-      const r = await fetch('/api/kite-orders?limit=50');
+      const r = await fetch('/api/kite-orders?limit=200');
       const d = await r.json();
       const allOrders = d.success ? (d.orders || []) : [];
 
@@ -2244,11 +2328,24 @@ export default function TerminalPage() {
       });
       const d = await r.json();
       if (d.success) {
-        // Optimistically remove from panel, then refresh
         setPanelOrders(prev => prev.filter(o => o.order_id !== orderId));
         setTimeout(() => fetchPanelOrders(), 1500);
       }
     } catch { /* silent */ }
+  }, [fetchPanelOrders]);
+
+  // ── Modify order from right panel
+  const handleModifyPanelOrder = useCallback(async (form) => {
+    try {
+      const r = await fetch('/api/modify-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const d = await r.json();
+      if (d.success) setTimeout(() => fetchPanelOrders(), 1000);
+      return d;
+    } catch { return { success: false }; }
   }, [fetchPanelOrders]);
 
   // ── FnO movers
@@ -2740,6 +2837,7 @@ export default function TerminalPage() {
             loading={panelOrdersLoading}
             onRefresh={fetchPanelOrders}
             onCancelOrder={handleCancelPanelOrder}
+            onModifyOrder={handleModifyPanelOrder}
             open={ordersOpen}
             setOpen={setOrdersOpen}
           />

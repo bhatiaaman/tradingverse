@@ -7,7 +7,7 @@ import {
   ArrowLeft, Search, TrendingUp, TrendingDown, RefreshCw,
   CheckCircle, XCircle, Clock, AlertCircle, LogIn, Loader2,
   ShoppingCart, History, Brain, AlertTriangle, ShieldCheck,
-  ShieldAlert, ShieldX, X, ExternalLink, Target, ChevronDown,
+  ShieldAlert, ShieldX, X, ExternalLink, Target, ChevronDown, Pencil, Check,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -256,6 +256,8 @@ export default function OrdersPage() {
   // Orders
   const [orders, setOrders]   = useState({ loading: false, list: [] });
   const [cancelling, setCancelling] = useState(null);
+  const [modifying, setModifying]   = useState(null);   // order_id being saved
+  const [modifyForm, setModifyForm] = useState(null);   // { order_id, variety, price, trigger_price, quantity, order_type }
 
   // Placement
   const [placing, setPlacing] = useState(false);
@@ -397,6 +399,29 @@ export default function OrdersPage() {
       setMessage({ type: 'error', text: e.message });
     } finally {
       setCancelling(null);
+    }
+  };
+
+  const submitModifyOrder = async () => {
+    if (!modifyForm) return;
+    setModifying(modifyForm.order_id);
+    try {
+      const r = await fetch('/api/modify-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(modifyForm),
+      });
+      const d = await r.json();
+      if (d.success) {
+        setModifyForm(null);
+        fetchOrders();
+      } else {
+        setMessage({ type: 'error', text: d.error || 'Modify failed' });
+      }
+    } catch (e) {
+      setMessage({ type: 'error', text: e.message });
+    } finally {
+      setModifying(null);
     }
   };
 
@@ -775,7 +800,22 @@ export default function OrdersPage() {
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                           <OrderStatusBadge status={order.status} />
-                          {isOpen && (
+                          {isOpen && (<>
+                            <button
+                              onClick={() => setModifyForm(f =>
+                                f?.order_id === order.order_id ? null : {
+                                  order_id:      order.order_id,
+                                  variety:       order.variety || 'regular',
+                                  order_type:    order.order_type,
+                                  quantity:      String(order.quantity),
+                                  price:         String(order.price || ''),
+                                  trigger_price: String(order.trigger_price || ''),
+                                }
+                              )}
+                              className="w-5 h-5 flex items-center justify-center bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded text-blue-400 transition-colors"
+                              title="Modify order">
+                              <Pencil size={10} />
+                            </button>
                             <button onClick={() => cancelOrder(order.order_id)}
                               disabled={cancelling === order.order_id}
                               className="w-5 h-5 flex items-center justify-center bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded text-red-400 transition-colors disabled:opacity-50"
@@ -784,7 +824,7 @@ export default function OrdersPage() {
                                 ? <Loader2 size={10} className="animate-spin" />
                                 : <X size={10} />}
                             </button>
-                          )}
+                          </>)}
                         </div>
                       </div>
                       <div className="flex items-center justify-between text-xs text-slate-500">
@@ -803,6 +843,47 @@ export default function OrdersPage() {
                       {order.status_message && order.status?.toUpperCase() === 'REJECTED' && (
                         <div className="mt-1.5 text-xs text-red-400 bg-red-500/10 rounded px-2 py-1 leading-relaxed">
                           {order.status_message}
+                        </div>
+                      )}
+                      {modifyForm?.order_id === order.order_id && (
+                        <div className="mt-2 pt-2 border-t border-slate-700/50 flex flex-col gap-1.5">
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div>
+                              <label className="text-[10px] text-slate-500 mb-0.5 block">Qty</label>
+                              <input type="number" value={modifyForm.quantity}
+                                onChange={e => setModifyForm(f => ({ ...f, quantity: e.target.value }))}
+                                className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none" />
+                            </div>
+                            {['LIMIT', 'SL'].includes(modifyForm.order_type) && (
+                              <div>
+                                <label className="text-[10px] text-slate-500 mb-0.5 block">Price</label>
+                                <input type="number" step="0.05" value={modifyForm.price}
+                                  onChange={e => setModifyForm(f => ({ ...f, price: e.target.value }))}
+                                  className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none" />
+                              </div>
+                            )}
+                            {['SL', 'SL-M'].includes(modifyForm.order_type) && (
+                              <div>
+                                <label className="text-[10px] text-slate-500 mb-0.5 block">Trigger</label>
+                                <input type="number" step="0.05" value={modifyForm.trigger_price}
+                                  onChange={e => setModifyForm(f => ({ ...f, trigger_price: e.target.value }))}
+                                  className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button onClick={submitModifyOrder} disabled={modifying === order.order_id}
+                              className="flex-1 flex items-center justify-center gap-1 py-1 bg-blue-600/80 hover:bg-blue-600 text-white text-xs rounded transition-colors disabled:opacity-50">
+                              {modifying === order.order_id
+                                ? <Loader2 size={10} className="animate-spin" />
+                                : <Check size={10} />}
+                              Save
+                            </button>
+                            <button onClick={() => setModifyForm(null)}
+                              className="px-3 py-1 bg-slate-700/50 hover:bg-slate-700 text-slate-400 text-xs rounded transition-colors">
+                              Cancel
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
