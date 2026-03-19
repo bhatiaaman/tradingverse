@@ -794,8 +794,8 @@ function getNiftyLevelAlerts(indices) {
                           {commentary.biasHistory.slice(0, 2).map((h, i) => {
                             const label = h.state || h.bias || '';
                             return (
-                              <span key={i} className="text-[11px] text-slate-500 leading-snug truncate">
-                                {h.time && <span className="text-slate-600 mr-1">{h.time}</span>}{label}
+                              <span key={i} className="text-sm font-medium text-cyan-300 leading-snug truncate">
+                                {h.time && <span className="mr-1">{h.time}</span>}{label}
                               </span>
                             );
                           })}

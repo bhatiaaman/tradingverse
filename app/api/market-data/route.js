@@ -498,14 +498,14 @@ export async function GET() {
     }
 
     // GIFT Nifty handling
-    // Priority for price: Kite (live) → Yahoo result → fallback estimate
-    // Priority for prev close: Yahoo's own daily prev close (GIFT's own session)
-    //   → Kite OHLC close → omit (don't use NSE prev close as it gives wrong sign)
-    let giftNiftyPrice   = kiteIndices?.giftNifty?.price ?? giftNifty?.price ?? null;
-    // Do NOT fall back to Nifty+15 — fake GIFT price poisons the gap calculation downstream.
+    // Price: Kite live → Yahoo fallback
+    let giftNiftyPrice = kiteIndices?.giftNifty?.price ?? giftNifty?.price ?? null;
 
-    // GIFT's own previous session close from Yahoo 5d daily history — most reliable source.
-    const giftPrevClose  = giftNifty?.prevClose ?? kiteIndices?.giftNifty?.prevClose ?? null;
+    // Prev close for change%: use NSE Nifty's last session close — this is what SGX/NSE IFSC
+    // uses and what traders care about (implied gap on open). GIFT's own session close
+    // (e.g. yesterday evening NSEIX close ~23,208) gives a misleading +0.4% when the real
+    // gap vs NSE is -2%.
+    const giftPrevClose = niftyLastSessionClose ?? giftNifty?.prevClose ?? kiteIndices?.giftNifty?.prevClose ?? null;
     let giftNiftyChange        = (giftNiftyPrice && giftPrevClose) ? giftNiftyPrice - giftPrevClose : null;
     let giftNiftyChangePercent = (giftNiftyChange !== null && giftPrevClose) ? (giftNiftyChange / giftPrevClose) * 100 : null;
 
