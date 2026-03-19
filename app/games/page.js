@@ -5,6 +5,28 @@ import Nav from '../components/Nav'
 
 const GAMES = [
   {
+    emoji: '🎲',
+    title: 'The Edge Simulator',
+    desc: 'Set your win rate and R:R, then execute 50 trades one by one. Watch probability play out in real time — including the losing streaks you\'ll need to survive without breaking your rules.',
+    tag: 'Probabilistic Thinking',
+    tagColor: 'text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900/50',
+    difficulty: 'Beginner',
+    available: true,
+    href: '/games/edge-simulator',
+    badge: 'Trading in the Zone',
+  },
+  {
+    emoji: '🧘',
+    title: 'The Discipline Test',
+    desc: '10 real trading situations. Stop losses, revenge trades, chasing entries, cutting winners early. One emotional choice, one disciplined one. Your score reveals your exact psychological weak points.',
+    tag: 'Trading Psychology',
+    tagColor: 'text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-950/40 border-purple-200 dark:border-purple-900/50',
+    difficulty: 'Intermediate',
+    available: true,
+    href: '/games/discipline-test',
+    badge: 'Trading in the Zone',
+  },
+  {
     emoji: '🧠',
     title: 'Scenario Challenge',
     desc: 'Read the market context — global cues, VIX, key levels — and make the right trading decision. Tests judgment, not just pattern recognition.',
@@ -128,6 +150,11 @@ export default function GamesPage() {
                 {!g.available && (
                   <span className="absolute top-5 right-5 text-[9px] font-bold tracking-widest uppercase text-slate-400 dark:text-slate-600 border border-slate-300 dark:border-slate-800 px-2 py-0.5 rounded-full">
                     Soon
+                  </span>
+                )}
+                {g.badge && (
+                  <span className="absolute top-5 right-5 text-[9px] font-bold tracking-widest uppercase text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full">
+                    {g.badge}
                   </span>
                 )}
                 <div className="text-4xl mb-5">{g.emoji}</div>

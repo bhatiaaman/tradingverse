@@ -1884,12 +1884,19 @@ function PlaceOrderTab({
           (scenarioResult.scenario === 'MOMENTUM_LONG' || scenarioResult.scenario === 'MOMENTUM_SHORT') &&
           scenarioResult.confidence === 'LOW' && scenarioResult.forSignals?.length === 0
         ) && (() => {
-          const palette = SCENARIO_COLORS[scenarioResult.color] ?? SCENARIO_COLORS.slate;
+          const palette   = SCENARIO_COLORS[scenarioResult.color] ?? SCENARIO_COLORS.slate;
+          const zoneSignal = scenarioResult.againstSignals?.find(s => s.label.includes('₹'));
+          const zoneDetail = zoneSignal?.label.split(' — ')[0]; // e.g. "Break+Retest at Support ₹456"
           return (
-            <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${palette.badge}`}>
-              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${palette.dot}`} />
-              <span className="text-xs font-medium flex-1 truncate">{scenarioResult.label}</span>
-              <span className={`text-[10px] font-bold tracking-wide ${CONFIDENCE_STYLE[scenarioResult.confidence]}`}>{scenarioResult.confidence}</span>
+            <div className={`rounded-lg border px-2.5 py-1.5 ${palette.badge}`}>
+              <div className="flex items-center gap-2">
+                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${palette.dot}`} />
+                <span className="text-xs font-medium flex-1 truncate">{scenarioResult.label}</span>
+                <span className={`text-[10px] font-bold tracking-wide ${CONFIDENCE_STYLE[scenarioResult.confidence]}`}>{scenarioResult.confidence}</span>
+              </div>
+              {zoneDetail && (
+                <div className="text-[10px] text-current opacity-60 mt-0.5 pl-3.5 truncate">{zoneDetail}</div>
+              )}
             </div>
           );
         })()}
