@@ -296,10 +296,15 @@ function getNiftyLevelAlerts(indices) {
     const [chartInterval, setChartInterval] = useState('15minute');
     const [emaPeriods, setEmaPeriods] = useState([9,21]);
     const [showVwap, setShowVwap] = useState(true);
+    const [showZoneLines, setShowZoneLines] = useState(true);
     const chartRef = useRef(null);
     const chartInstanceRef = useRef(null);
     const candleSeriesRef = useRef(null);
     const vwapSeriesRef = useRef(null);
+    const zoneLineRefs = useRef({ ceiling: null, floor: null });
+    const keyLevelsForZoneRef = useRef(null);
+    const showZoneLinesRef = useRef(true);
+    const drawZoneLinesRef = useRef(null);
 
     // Check Kite auth status
     useEffect(() => {
@@ -376,6 +381,28 @@ function getNiftyLevelAlerts(indices) {
       const interval = setInterval(fetchNiftyLevels, 300000);
       return () => clearInterval(interval);
     }, []);
+
+    // Zone lines on chart — drawn imperatively on candleSeries
+    const drawZoneLines = useCallback((kl, show) => {
+      const cs = candleSeriesRef.current;
+      const refs = zoneLineRefs.current;
+      if (refs.ceiling) { try { cs?.removePriceLine(refs.ceiling); } catch {} refs.ceiling = null; }
+      if (refs.floor)   { try { cs?.removePriceLine(refs.floor);   } catch {} refs.floor   = null; }
+      if (!show || !cs || !kl?.levels?.length) return;
+      const ceiling = kl.levels.find(l => l.dist > 0.5);
+      const floor   = kl.levels.find(l => l.dist < -0.5);
+      const fullName = LEVEL_FULL_NAME;
+      if (ceiling) refs.ceiling = cs.createPriceLine({ price: ceiling.price, color: 'rgba(251,113,133,0.85)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `▲ ${fullName[ceiling.label] || ceiling.label}` });
+      if (floor)   refs.floor   = cs.createPriceLine({ price: floor.price,   color: 'rgba(125,211,252,0.85)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `▼ ${fullName[floor.label]   || floor.label}` });
+    }, []);
+
+    useEffect(() => { drawZoneLinesRef.current = drawZoneLines; }, [drawZoneLines]);
+
+    useEffect(() => {
+      keyLevelsForZoneRef.current = keyLevels;
+      showZoneLinesRef.current = showZoneLines;
+      drawZoneLines(keyLevels, showZoneLines);
+    }, [keyLevels, showZoneLines, drawZoneLines]);
 
     // Fetch sector performance data
     useEffect(() => {
@@ -719,6 +746,8 @@ function getNiftyLevelAlerts(indices) {
           }
         };
         await fetchChartData();
+        // Draw zone lines now that candleSeries exists (handles case where keyLevels arrived before chart init)
+        drawZoneLinesRef.current?.(keyLevelsForZoneRef.current, showZoneLinesRef.current);
         if (chartInterval === '5minute' || chartInterval === '15minute') {
           refreshInterval = setInterval(fetchChartData, 60000);
         }
@@ -1693,6 +1722,13 @@ function getNiftyLevelAlerts(indices) {
                         VWAP
                       </button>
                     )}
+                    <button
+                      onClick={() => setShowZoneLines(v => !v)}
+                      className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${showZoneLines ? 'bg-sky-700 text-white' : 'bg-[#0a1628] text-slate-400 hover:text-slate-200'}`}
+                      title="Toggle zone ceiling / floor lines"
+                    >
+                      Zone
+                    </button>
                     <a
                       href={`https://www.tradingview.com/chart/?symbol=NSE:${chartSymbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY'}&interval=${chartInterval === 'day' ? 'D' : chartInterval === 'week' ? 'W' : chartInterval.replace('minute', '')}`}
                       target="_blank"
