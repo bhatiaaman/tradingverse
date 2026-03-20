@@ -35,6 +35,51 @@ const TOOLS = [
     available: true,
   },
   {
+    href: '/investing/fii-dii',
+    tag: 'Live Data',
+    tagColor: 'text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800/50',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
+      </svg>
+    ),
+    title: 'FII / DII Flow',
+    description: 'Track foreign and domestic institutional buy/sell activity. 30-day trend showing who is accumulating and who is distributing.',
+    features: ['Daily FII net buy/sell', 'DII counter-flow', '30-day trend table', "Today's snapshot"],
+    available: true,
+  },
+  {
+    href: '/investing/sector-rotation',
+    tag: 'Live Data',
+    tagColor: 'text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800/50',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+      </svg>
+    ),
+    title: 'Sector Rotation',
+    description: 'See which sectors are leading, gaining, or lagging across 1D, 1W, and 1M timeframes. Spot where institutional money is rotating.',
+    features: ['1D · 1W · 1M performance', 'Leading vs Lagging sectors', 'Relative strength view', 'Sort by any timeframe'],
+    available: true,
+  },
+  {
+    href: '/investing/52-week-highs',
+    tag: 'Live Data',
+    tagColor: 'text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800/50',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+      </svg>
+    ),
+    title: '52-Week Highs & Lows',
+    description: 'Stocks making new 52-week highs or lows today. New highs signal momentum; new lows flag continued weakness.',
+    features: ['New 52W highs today', 'New 52W lows today', 'Price, volume & % change', 'Search by symbol'],
+    available: true,
+  },
+  {
     tag: 'Coming Soon',
     tagColor: 'text-slate-500 bg-slate-100 dark:bg-slate-800/40 border-slate-300 dark:border-slate-700/50',
     icon: (
