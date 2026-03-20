@@ -1421,16 +1421,21 @@ function StrikeAnalysisPanel({ analysis, loading, onRefresh, type }) {
               {/* Key levels row */}
               <div className="grid grid-cols-3 gap-1.5">
                 <div className="bg-white dark:bg-slate-800/60 rounded-lg px-2 py-1.5 border border-gray-100 dark:border-white/5">
-                  <div className="text-[10px] text-gray-400 mb-0.5">CE Wall</div>
+                  <div className="text-[10px] text-gray-400 mb-0.5">Call Resistance</div>
                   <div className="font-bold text-red-600 dark:text-red-400">{analysis.ceWall}</div>
+                  <div className="text-[9px] text-gray-400">sellers cap rallies here</div>
                 </div>
                 <div className="bg-white dark:bg-slate-800/60 rounded-lg px-2 py-1.5 border border-gray-100 dark:border-white/5 text-center">
-                  <div className="text-[10px] text-gray-400 mb-0.5">PCR</div>
-                  <div className={`font-bold ${analysis.pcr > 1.2 ? 'text-green-600 dark:text-green-400' : analysis.pcr < 0.8 ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>{analysis.pcr}</div>
+                  <div className="text-[10px] text-gray-400 mb-0.5">Sentiment</div>
+                  <div className={`font-bold ${analysis.pcr > 1.2 ? 'text-green-600 dark:text-green-400' : analysis.pcr < 0.8 ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                    {analysis.pcr > 1.2 ? 'Bullish' : analysis.pcr < 0.8 ? 'Bearish' : 'Neutral'}
+                  </div>
+                  <div className="text-[9px] text-gray-400">PCR {analysis.pcr}</div>
                 </div>
                 <div className="bg-white dark:bg-slate-800/60 rounded-lg px-2 py-1.5 border border-gray-100 dark:border-white/5 text-right">
-                  <div className="text-[10px] text-gray-400 mb-0.5">PE Wall</div>
+                  <div className="text-[10px] text-gray-400 mb-0.5">Put Support</div>
                   <div className="font-bold text-green-600 dark:text-green-400">{analysis.peWall}</div>
+                  <div className="text-[9px] text-gray-400">sellers defend falls here</div>
                 </div>
               </div>
 
@@ -1454,9 +1459,9 @@ function StrikeAnalysisPanel({ analysis, loading, onRefresh, type }) {
                   <div className="space-y-0.5">
                     <div className="flex text-[10px] text-gray-400 mb-0.5">
                       <span className="w-10 text-right mr-1">Strike</span>
-                      <span className="flex-1 text-right pr-1">CE OI</span>
+                      <span className="flex-1 text-right pr-1">Calls</span>
                       <span className="w-1" />
-                      <span className="flex-1 pl-1">PE OI</span>
+                      <span className="flex-1 pl-1">Puts</span>
                     </div>
                     {display.map(s => {
                       const ceW = Math.round((s.ceOI / maxOI) * 100);
@@ -1470,18 +1475,18 @@ function StrikeAnalysisPanel({ analysis, loading, onRefresh, type }) {
                             {s.strike}{isCeWall ? '🚧' : isPeWall ? '🛡️' : isMax ? '🎯' : ''}
                           </span>
                           <div className="flex-1 flex justify-end h-3">
-                            <div className="h-full bg-red-400/60 rounded-sm" style={{ width: `${ceW}%` }} title={`CE: ${s.ceOI}`} />
+                            <div className="h-full bg-red-400/60 rounded-sm" style={{ width: `${ceW}%` }} title={`Calls OI: ${s.ceOI}`} />
                           </div>
                           <div className="w-px bg-gray-300 dark:bg-white/10 mx-0.5" />
                           <div className="flex-1 h-3">
-                            <div className="h-full bg-green-400/60 rounded-sm" style={{ width: `${peW}%` }} title={`PE: ${s.peOI}`} />
+                            <div className="h-full bg-green-400/60 rounded-sm" style={{ width: `${peW}%` }} title={`Puts OI: ${s.peOI}`} />
                           </div>
                         </div>
                       );
                     })}
                     <div className="flex text-[10px] text-gray-400 mt-0.5 gap-3 justify-end">
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-400/60 inline-block" />CE (resistance)</span>
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-green-400/60 inline-block" />PE (support)</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-400/60 inline-block" />Calls (cap)</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-green-400/60 inline-block" />Puts (floor)</span>
                     </div>
                   </div>
                 );
@@ -1500,7 +1505,7 @@ function StrikeAnalysisPanel({ analysis, loading, onRefresh, type }) {
                 ))}
               </div>
 
-              <div className="text-[10px] text-gray-400 text-right">Max pain ₹{analysis.maxPain} · {analysis.daysToExpiry}d to expiry</div>
+              <div className="text-[10px] text-gray-400 text-right">Expiry pin ₹{analysis.maxPain} · price most options expire worthless · {analysis.daysToExpiry}d left</div>
             </>
           )}
         </div>

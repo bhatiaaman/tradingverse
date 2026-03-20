@@ -96,9 +96,12 @@ function StockRow({ item, highlightHigh }) {
 function StockTable({ items, highlightHigh, emptyMsg }) {
   if (items.length === 0) {
     return (
-      <div className="text-center py-14 text-slate-500 dark:text-slate-400 text-sm space-y-1">
+      <div className="text-center py-16 text-slate-500 dark:text-slate-400 text-sm space-y-1.5">
+        <svg className="w-8 h-8 mx-auto mb-3 text-slate-300 dark:text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+        </svg>
         <p className="font-semibold">{emptyMsg}</p>
-        <p className="text-xs text-slate-400 dark:text-slate-600">Try refreshing after market opens</p>
+        <p className="text-xs text-slate-400 dark:text-slate-600">Available Mon–Fri · 9:15 AM – 3:30 PM IST</p>
       </div>
     )
   }
@@ -211,9 +214,9 @@ export default function Week52Page() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <div>
-                <p className="text-amber-800 dark:text-amber-300 font-semibold text-sm mb-1">NSE session unavailable</p>
+                <p className="text-amber-800 dark:text-amber-300 font-semibold text-sm mb-1">Data available during market hours</p>
                 <p className="text-amber-700 dark:text-amber-400 text-xs leading-5">
-                  Could not connect to NSE. Try refreshing or check directly on NSE.
+                  NSE updates 52-week highs and lows live during trading hours — <strong>Mon–Fri, 9:15 AM to 3:30 PM IST</strong>. Come back when the market is open or try refreshing.
                 </p>
               </div>
             </div>
@@ -226,6 +229,34 @@ export default function Week52Page() {
             <p className="text-rose-600 dark:text-rose-400 text-sm font-semibold mb-1">Failed to load</p>
             <p className="text-rose-500 text-xs mb-3">{error}</p>
             <button onClick={() => load(true)} className="text-xs font-semibold text-rose-600 dark:text-rose-400 underline">Retry</button>
+          </div>
+        )}
+
+        {/* Summary cards — only when we have data */}
+        {!loading && data && !data.nseBlocked && (
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-5 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{allHighs.length}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">New 52W Highs</p>
+              </div>
+            </div>
+            <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-5 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-rose-600 dark:text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-2xl font-black text-rose-600 dark:text-rose-400">{allLows.length}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">New 52W Lows</p>
+              </div>
+            </div>
           </div>
         )}
 

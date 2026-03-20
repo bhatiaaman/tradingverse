@@ -121,46 +121,46 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
         : 'at spot';
     signals.push({
       tag: 'Pinned strike', icon: '📍', type: ceDominates ? 'bearish' : 'bullish',
-      text: `CE & PE walls both at ${ceWall.strike} — ${ceDominates ? 'CE-dominated' : 'PE-dominated'} (${domPct}% of OI) · acts as ${ceDominates ? 'resistance' : 'support'} · ${posText}`,
+      text: `Calls & Puts both peak at ${ceWall.strike} — ${ceDominates ? 'Call-heavy' : 'Put-heavy'} (${domPct}% of OI) · acts as ${ceDominates ? 'resistance' : 'support'} · ${posText}`,
     });
   } else {
     signals.push({
       tag: 'Resistance', icon: '🚧', type: 'bearish',
-      text: `CE wall at ${ceWall.strike} (${fmt(ceWall.ceOI)} OI) · ${distCeWall > 0 ? Math.round(distCeWall) + ' pts above spot' : 'already breached'}`,
+      text: `Call sellers piled up at ${ceWall.strike} (${fmt(ceWall.ceOI)} OI) · ${distCeWall > 0 ? Math.round(distCeWall) + ' pts above spot' : 'already breached'}`,
     });
     signals.push({
       tag: 'Support', icon: '🛡️', type: 'bullish',
-      text: `PE wall at ${peWall.strike} (${fmt(peWall.peOI)} OI) · ${distPeWall > 0 ? Math.round(distPeWall) + ' pts below spot' : 'already broken'}`,
+      text: `Put sellers defending ${peWall.strike} (${fmt(peWall.peOI)} OI) · ${distPeWall > 0 ? Math.round(distPeWall) + ' pts below spot' : 'already broken'}`,
     });
   }
 
   if (trapped) {
     signals.push({
       tag: 'Range', icon: '↔️', type: 'neutral',
-      text: `Spot trapped in ${ceWall.strike - peWall.strike}pt range (${peWall.strike}–${ceWall.strike}) — range-bound; avoid directional bets`,
+      text: `Spot stuck in ${ceWall.strike - peWall.strike}pt range (${peWall.strike}–${ceWall.strike}) — no clear direction; avoid chasing breakouts`,
     });
   } else if (spotPrice > ceWall.strike) {
     signals.push({
       tag: 'Breakout', icon: '🚀', type: 'bullish',
-      text: `Spot above CE wall ${ceWall.strike} — bullish breakout zone; CE writers may cover`,
+      text: `Spot broke above ${ceWall.strike} resistance — call sellers may start buying back; bullish momentum`,
     });
   } else if (spotPrice < peWall.strike || (sameWall && spotPrice < ceWall.strike)) {
-    const wallLabel = sameWall ? `dominant wall ${ceWall.strike}` : `PE wall ${peWall.strike}`;
+    const wallLabel = sameWall ? `${ceWall.strike} support` : `${peWall.strike} support`;
     signals.push({
       tag: 'Breakdown', icon: '📉', type: 'bearish',
-      text: `Spot below ${wallLabel} — bearish pressure; sellers in control`,
+      text: `Spot broke below ${wallLabel} — put sellers losing grip; bears in control`,
     });
   }
 
   if (oiRatio > 0.8) {
     signals.push({
       tag: 'Dominant wall', icon: '⚡', type: type === 'CE' ? 'bearish' : 'bullish',
-      text: `This ${strike} ${type} IS the dominant wall (${Math.round(oiRatio * 100)}% of max OI) — ideal for premium selling`,
+      text: `${strike} ${type} is the main concentration (${Math.round(oiRatio * 100)}% of peak OI) — sellers are most active here; good for option selling`,
     });
   } else if (oiRatio > 0.4) {
     signals.push({
       tag: 'Secondary level', icon: '⚠️', type: 'neutral',
-      text: `Moderate OI at ${strike} ${type} (${Math.round(oiRatio * 100)}% of wall) — primary wall is ${type === 'CE' ? ceWall.strike : peWall.strike}`,
+      text: `Some activity at ${strike} ${type} (${Math.round(oiRatio * 100)}% of peak) — bigger level is at ${type === 'CE' ? ceWall.strike : peWall.strike}`,
     });
   } else {
     // Light OI — not emitted; it's the default case for most strikes and adds noise
@@ -178,16 +178,16 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
     let flowTag, flowIcon, flowType, flowText;
     if (oiAdded && !priceUp) {
       flowTag = 'Short buildup'; flowIcon = '🐻'; flowType = 'bearish';
-      flowText = `${oiLabel}, ${priceLabel} — writers entering; fresh short positions at this strike`;
+      flowText = `${oiLabel}, ${priceLabel} — new sellers entering; price being pushed down at this level`;
     } else if (oiAdded && priceUp) {
       flowTag = 'Long buildup'; flowIcon = '🐂'; flowType = 'bullish';
-      flowText = `${oiLabel}, ${priceLabel} — buyers entering; fresh long positions at this strike`;
+      flowText = `${oiLabel}, ${priceLabel} — new buyers entering; price being pushed up at this level`;
     } else if (!oiAdded && priceUp) {
       flowTag = 'Short covering'; flowIcon = '📈'; flowType = 'bullish';
-      flowText = `${oiLabel}, ${priceLabel} — shorts closing; bears exiting this strike`;
+      flowText = `${oiLabel}, ${priceLabel} — sellers buying back; downward pressure easing`;
     } else {
       flowTag = 'Long unwinding'; flowIcon = '📉'; flowType = 'bearish';
-      flowText = `${oiLabel}, ${priceLabel} — longs closing; bulls exiting this strike`;
+      flowText = `${oiLabel}, ${priceLabel} — buyers exiting; upward momentum fading`;
     }
     signals.push({ tag: flowTag, icon: flowIcon, type: flowType, text: flowText });
   }
@@ -213,17 +213,17 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
 
   const painDist = Math.abs(strike - maxPain);
   if (painDist <= strikeGap) {
-    signals.push({ tag: 'Max pain', icon: '🎯', type: 'warning', text: `Strike near max pain ₹${maxPain} — sellers control expiry; time decay works hard against buyers` });
+    signals.push({ tag: 'Expiry pin', icon: '🎯', type: 'warning', text: `Your strike is near ₹${maxPain} — the price where most options expire worthless; time decay hurts buyers most here` });
   } else {
-    signals.push({ tag: 'Max pain', icon: '🎯', type: 'neutral', text: `Max pain ₹${maxPain} · ${painDist} pts ${strike > maxPain ? 'above' : 'below'} your strike` });
+    signals.push({ tag: 'Expiry pin', icon: '🎯', type: 'neutral', text: `Most options expire worthless at ₹${maxPain} · ${painDist} pts ${strike > maxPain ? 'above' : 'below'} your strike` });
   }
 
   if (pcr > 1.3) {
-    signals.push({ tag: 'PCR', icon: '📈', type: 'bullish', text: `PCR ${pcr.toFixed(2)} (±5 strikes) — put-heavy zone; put writers are defending this area` });
+    signals.push({ tag: 'Sentiment', icon: '📈', type: 'bullish', text: `Put sellers are active around this zone (PCR ${pcr.toFixed(2)}) — they're defending the downside; bullish bias` });
   } else if (pcr < 0.7) {
-    signals.push({ tag: 'PCR', icon: '📉', type: 'bearish', text: `PCR ${pcr.toFixed(2)} (±5 strikes) — call-heavy zone; call writers are capping this area` });
+    signals.push({ tag: 'Sentiment', icon: '📉', type: 'bearish', text: `Call sellers dominating this zone (PCR ${pcr.toFixed(2)}) — they're capping the upside; bearish bias` });
   } else {
-    signals.push({ tag: 'PCR', icon: '⚖️', type: 'neutral', text: `PCR ${pcr.toFixed(2)} (±5 strikes) — balanced OI around this strike` });
+    signals.push({ tag: 'Sentiment', icon: '⚖️', type: 'neutral', text: `Calls and puts evenly matched around this strike (PCR ${pcr.toFixed(2)}) — no strong bias either way` });
   }
 
   let verdict, verdictReason;
@@ -232,12 +232,12 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
       // Dominant CE wall above spot — clear resistance; selling favored
       verdict = 'sell';
       verdictReason = strike >= maxPain
-        ? 'Dominant resistance at/above max pain — ideal CE selling spot'
-        : 'Dominant CE wall above spot — strong resistance; CE premium likely to erode';
+        ? 'Heavy selling resistance at/above expiry pin — good level to sell calls'
+        : 'Call sellers dominating above spot — strong resistance; call premium likely to erode';
     } else if (!trapped && spotPrice > ceWall.strike) {
-      verdict = 'buy'; verdictReason = 'Breakout above CE wall — CE buying with strong momentum';
+      verdict = 'buy'; verdictReason = 'Resistance broken — call buying with strong upward momentum';
     } else if (trapped && distCeWall < strikeGap * 2) {
-      verdict = 'sell'; verdictReason = 'Range-bound with CE wall nearby — premium selling favored';
+      verdict = 'sell'; verdictReason = 'Price stuck in range near resistance — selling option premium favored';
     } else {
       verdict = 'neutral'; verdictReason = 'No strong edge; confirm trend before entry';
     }
@@ -246,12 +246,12 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
       // Dominant PE wall below spot — clear support; selling favored
       verdict = 'sell';
       verdictReason = strike <= maxPain
-        ? 'Dominant support at/below max pain — ideal PE selling spot'
-        : 'Dominant PE wall below spot — strong support; PE premium likely to erode';
+        ? 'Heavy put selling support at/below expiry pin — good level to sell puts'
+        : 'Put sellers defending below spot — strong support; put premium likely to erode';
     } else if (!trapped && spotPrice < peWall.strike) {
-      verdict = 'buy'; verdictReason = 'Breakdown below PE wall — PE buying with strong momentum';
+      verdict = 'buy'; verdictReason = 'Support broken — put buying with strong downward momentum';
     } else if (trapped && distPeWall < strikeGap * 2) {
-      verdict = 'sell'; verdictReason = 'Range-bound with PE wall nearby — premium selling favored';
+      verdict = 'sell'; verdictReason = 'Price stuck in range near support — selling option premium favored';
     } else {
       verdict = 'neutral'; verdictReason = 'No strong edge; confirm trend before entry';
     }

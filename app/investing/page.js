@@ -80,6 +80,21 @@ const TOOLS = [
     available: true,
   },
   {
+    href: '/investing/earnings-calendar',
+    tag: 'NSE Data',
+    tagColor: 'text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800/50',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+    ),
+    title: 'Earnings Calendar',
+    description: 'Upcoming quarterly and annual results for the next 45 days. Know which companies are reporting before you build or exit a position.',
+    features: ['45-day result schedule', 'Quarter type (Q1–Q4 / Annual)', 'Last quarter EPS', 'Search by company or symbol'],
+    available: true,
+  },
+  {
     tag: 'Coming Soon',
     tagColor: 'text-slate-500 bg-slate-100 dark:bg-slate-800/40 border-slate-300 dark:border-slate-700/50',
     icon: (
