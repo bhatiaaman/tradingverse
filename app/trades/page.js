@@ -997,7 +997,7 @@ function getNiftyLevelAlerts(indices) {
 
         {/* Sub-bar: Kite status + quick links */}
         <div className="border-b border-white/5 bg-[#060b14]">
-          <div className="max-w-[1400px] mx-auto px-6 py-2.5 flex items-center justify-between">
+          <div className="max-w-[1400px] mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between">
             {/* Kite status — admin only */}
             {userRole === 'admin' ? (
               <button
@@ -1069,7 +1069,7 @@ function getNiftyLevelAlerts(indices) {
             )}
 
             {/* Quick links */}
-            <div className="flex items-center gap-1">
+            <div className="hidden sm:flex items-center gap-1">
               {[
                 { href: '/terminal',       label: 'Terminal'    },
                 { href: '/trades/pre-market', label: 'Pre-Market' },
@@ -1084,7 +1084,7 @@ function getNiftyLevelAlerts(indices) {
         </div>
 
         {/* MAIN CONTENT */}
-        <main className="max-w-[1400px] mx-auto px-6 py-6">
+        <main className="max-w-[1400px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
 
           {/* NEW: glow commentary border when price approaching a key level */}
           {(() => {
@@ -1121,30 +1121,32 @@ function getNiftyLevelAlerts(indices) {
               {/* Collapsible Header */}
               <div
                 onClick={() => setCommentaryCollapsed(!commentaryCollapsed)}
-                className="w-full flex items-center justify-between p-4 hover:bg-blue-900/20 transition-colors cursor-pointer"
+                className="w-full flex items-start sm:items-center justify-between p-3 sm:p-4 hover:bg-blue-900/20 transition-colors cursor-pointer gap-2"
               >
-                <div className="flex items-center gap-3">
-                  <div className={`px-3 py-1.5 rounded-lg font-semibold text-sm flex items-center gap-2 ${
-                    commentary.bias === 'BULLISH' ? 'bg-green-900/50 text-green-300 border border-green-700/50' :
-                    commentary.bias === 'BEARISH' ? 'bg-red-900/50 text-red-300 border border-red-700/50' :
-                    'bg-yellow-900/50 text-yellow-300 border border-yellow-700/50'
-                  }`}>
-                    <span className="text-lg">{commentary.stateEmoji}</span>
-                    <span>{commentary.state}</span>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 min-w-0">
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className={`px-2.5 py-1 rounded-lg font-semibold text-xs sm:text-sm flex items-center gap-1.5 ${
+                      commentary.bias === 'BULLISH' ? 'bg-green-900/50 text-green-300 border border-green-700/50' :
+                      commentary.bias === 'BEARISH' ? 'bg-red-900/50 text-red-300 border border-red-700/50' :
+                      'bg-yellow-900/50 text-yellow-300 border border-yellow-700/50'
+                    }`}>
+                      <span>{commentary.stateEmoji}</span>
+                      <span>{commentary.state}</span>
+                    </div>
+                    <span className="text-base sm:text-lg">{commentary.biasEmoji}</span>
                   </div>
-                  <span className="text-lg">{commentary.biasEmoji}</span>
-                  <h3 className="text-base font-bold text-white">
+                  <h3 className="text-sm sm:text-base font-bold text-white leading-snug">
                     {commentary.headline}
                   </h3>
                 </div>
                 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 flex-shrink-0">
                   {!isMarketHours() && (
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-400 border border-slate-600/50">
+                    <span className="hidden sm:inline text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-400 border border-slate-600/50">
                       Markets Closed
                     </span>
                   )}
-                  <span className={`text-xs font-semibold px-2 py-1 rounded ${
+                  <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
                     commentary.bias === 'BULLISH' ? 'text-green-400' :
                     commentary.bias === 'BEARISH' ? 'text-red-400' :
                     'text-yellow-400'
@@ -1152,7 +1154,7 @@ function getNiftyLevelAlerts(indices) {
                     {commentary.bias}
                   </span>
                   {commentaryRefreshedAt && !commentaryLoading && (
-                    <span className="text-[10px] text-slate-600 tabular-nums">
+                    <span className="hidden sm:inline text-[10px] text-slate-600 tabular-nums">
                       {commentaryRefreshedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}
                     </span>
                   )}
@@ -1205,7 +1207,7 @@ function getNiftyLevelAlerts(indices) {
                   )}
 
                   {/* Two-column layout: left = commentary feed, right = signal panel */}
-                  <div className="mt-2 flex gap-4">
+                  <div className="mt-2 flex flex-col sm:flex-row gap-3 sm:gap-4">
 
                     {/* LEFT: text commentary feed */}
                     <div className="flex-1 flex flex-col gap-1.5 min-w-0">
@@ -1234,7 +1236,7 @@ function getNiftyLevelAlerts(indices) {
                     </div>
 
                     {/* RIGHT: signal panel */}
-                    <div className="border-l border-blue-800/40 pl-4 flex flex-col gap-1.5 min-w-[220px]">
+                    <div className="border-t sm:border-t-0 sm:border-l border-blue-800/40 pt-2 sm:pt-0 sm:pl-4 flex flex-col gap-1.5 sm:min-w-[220px]">
                       {/* 5m Regime */}
                       {niftyRegime && (() => {
                         const REGIME_STYLE = {
@@ -1654,7 +1656,7 @@ function getNiftyLevelAlerts(indices) {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mb-4">
 
             {/* LEFT COLUMN */}
-            <div className="lg:col-span-2 space-y-3">
+            <div className="lg:col-span-2 space-y-3 order-2 lg:order-none">
 
               {/* Scanners */}
               <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-3">
@@ -1945,14 +1947,14 @@ function getNiftyLevelAlerts(indices) {
             </div>
 
             {/* CENTER COLUMN: Chart */}
-            <div className="lg:col-span-8">
+            <div className="lg:col-span-8 order-1 lg:order-none">
               {/* OLD: min-h-[500px] */}
-              <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl overflow-hidden h-full flex flex-col min-h-[640px]">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-blue-800/40">
-                  <div className="flex items-center gap-3">
-                    <h2 className="text-lg font-semibold text-blue-300">Market Chart</h2>
+              <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl overflow-hidden h-full flex flex-col min-h-[380px] sm:min-h-[640px]">
+                <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 sm:py-3 border-b border-blue-800/40">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <h2 className="text-sm sm:text-lg font-semibold text-blue-300">Market Chart</h2>
                     <select
-                      className="bg-[#0a1628] border border-blue-700/50 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
+                      className="bg-[#0a1628] border border-blue-700/50 rounded-lg px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm text-slate-200 focus:outline-none focus:border-blue-500"
                       value={chartSymbol}
                       onChange={(e) => setChartSymbol(e.target.value)}
                     >
@@ -1960,7 +1962,7 @@ function getNiftyLevelAlerts(indices) {
                       <option value="BANKNIFTY">BANK NIFTY</option>
                     </select>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                     <div className="flex bg-[#0a1628] rounded-lg p-0.5">
                       {[{ value: '5minute', label: '5m' }, { value: '15minute', label: '15m' }, { value: 'day', label: 'D' }, { value: 'week', label: 'W' }].map((int) => (
                         <button
@@ -2020,7 +2022,7 @@ function getNiftyLevelAlerts(indices) {
                       href={`https://www.tradingview.com/chart/?symbol=NSE:${chartSymbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY'}&interval=${chartInterval === 'day' ? 'D' : chartInterval === 'week' ? 'W' : chartInterval.replace('minute', '')}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
+                      className="hidden sm:flex px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors items-center gap-1"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -2062,7 +2064,7 @@ function getNiftyLevelAlerts(indices) {
             </div>
 
             {/* RIGHT COLUMN: Sectors */}
-            <div className="lg:col-span-2 space-y-3">
+            <div className="lg:col-span-2 space-y-3 order-3 lg:order-none">
               <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-semibold text-blue-300">Sectors</h2>
@@ -2070,7 +2072,7 @@ function getNiftyLevelAlerts(indices) {
                 </div>
                 <div className="space-y-1 max-h-[420px] overflow-y-auto pr-0.5">
                   {sectorData.length > 0 ? (
-                    [...sectorData].sort((a, b) => Math.abs(b.value ?? 0) - Math.abs(a.value ?? 0)).map((sector) => {
+                    [...sectorData].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).map((sector) => {
                       const v = sector.value ?? 0;
                       const pos = v >= 0;
                       const intensity = Math.min(Math.abs(v) / 2.5, 1);
