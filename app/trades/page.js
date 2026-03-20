@@ -291,6 +291,13 @@ function getNiftyLevelAlerts(indices) {
     // Nifty-only levels — always NIFTY, used in commentary station alerts
     const [niftyLevels, setNiftyLevels] = useState(null);
 
+    // Layout state
+    const [marketContextCollapsed, setMarketContextCollapsed] = useState(() => {
+      const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+      const mins = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
+      return !(mins >= 480 && mins < 555); // expanded 8:00–9:15 IST, collapsed otherwise
+    });
+
     // Chart state
     const [chartSymbol, setChartSymbol] = useState('NIFTY');
     const [chartInterval, setChartInterval] = useState('15minute');
@@ -868,7 +875,16 @@ function getNiftyLevelAlerts(indices) {
         {/* MAIN CONTENT */}
         <main className="max-w-[1400px] mx-auto px-6 py-6">
 
-          <div className="mb-4 bg-gradient-to-r from-purple-900/50 via-blue-900/50 to-purple-900/50 border border-purple-700/50 rounded-xl backdrop-blur-sm overflow-hidden">
+          {/* NEW: glow commentary border when price approaching a key level */}
+          {(() => {
+            const isApproaching = niftyLevels?.levels?.some(l => l.dist !== null && Math.abs(l.dist) <= 0.5);
+            return (
+          <div className={`mb-4 rounded-xl backdrop-blur-sm overflow-hidden transition-all duration-500 ${
+            isApproaching
+              ? 'bg-gradient-to-r from-amber-900/40 via-blue-900/50 to-amber-900/40 border border-amber-500/60 shadow-[0_0_20px_rgba(245,158,11,0.15)]'
+              : 'bg-gradient-to-r from-purple-900/50 via-blue-900/50 to-purple-900/50 border border-purple-700/50'
+          }`}>
+          {/* OLD: <div className="mb-4 bg-gradient-to-r from-purple-900/50 via-blue-900/50 to-purple-900/50 border border-purple-700/50 rounded-xl backdrop-blur-sm overflow-hidden"> */}
             {commentaryLoading && !commentary ? (
               /* Loading skeleton */
               <div className="p-4 flex items-center gap-3">
@@ -1138,9 +1154,21 @@ function getNiftyLevelAlerts(indices) {
             </div>
             )}  {/* end commentary content / ternary */}
           </div>
+            ); // end IIFE return
+          })()} {/* end approaching glow IIFE */}
 
-          {/* Top Market Data Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-1 mb-4">
+          {/* Top Market Data Grid — collapsible "Market Context" */}
+          {/* OLD: always visible grid */}
+          <div className="mb-4">
+            <button
+              onClick={() => setMarketContextCollapsed(v => !v)}
+              className="flex items-center gap-2 text-[11px] font-semibold text-slate-500 hover:text-slate-300 transition-colors mb-1.5 w-full"
+            >
+              <span>Market Context</span>
+              <span className="text-[9px]">{marketContextCollapsed ? '↓ show' : '↑ hide'}</span>
+              <span className="flex-1 border-t border-white/5 ml-1" />
+            </button>
+            {!marketContextCollapsed && <div className="grid grid-cols-2 lg:grid-cols-4 gap-1">
             {/* Market Indices card removed — Nifty/BankNifty/VIX now in sub-bar ticker */}
             {false && <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-1.5 lg:p-2 flex flex-col justify-center min-h-14 lg:min-h-16">
               <h4 className="text-blue-300 text-[10px] font-semibold mb-1 lg:mb-1.5 text-center">Market Indices</h4>
@@ -1408,7 +1436,8 @@ function getNiftyLevelAlerts(indices) {
                 </div>
               </div>
             </div>
-          </div>
+          </div>}  {/* closes grid + !marketContextCollapsed expression */}
+        </div> {/* end Market Context collapsible wrapper */}
 
           {/* Main 3-Column Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mb-4">
@@ -1438,7 +1467,7 @@ function getNiftyLevelAlerts(indices) {
               {/* AI Sentiment Widget */}
               <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <h2 className="text-sm font-semibold text-blue-300">AI Sentiment</h2>
+                  <h2 className="text-sm font-semibold text-blue-300">Bias Gauge</h2>
                   <button
                     onClick={async () => {
                       setSentimentLoading(true);
@@ -1688,8 +1717,11 @@ function getNiftyLevelAlerts(indices) {
 
                     {/* Timestamp */}
                     {sentimentData.timestamp && (
-                      <div className="text-[9px] text-slate-600 text-center pt-1">
-                        Updated: {new Date(sentimentData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                      <div className="flex items-center justify-between pt-2 border-t border-blue-800/30 mt-1">
+                        <span className="text-[9px] text-slate-500">Last computed</span>
+                        <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.5 rounded">
+                          {new Date(sentimentData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -1703,7 +1735,8 @@ function getNiftyLevelAlerts(indices) {
 
             {/* CENTER COLUMN: Chart */}
             <div className="lg:col-span-8">
-              <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl overflow-hidden h-full flex flex-col min-h-[500px]">
+              {/* OLD: min-h-[500px] */}
+              <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl overflow-hidden h-full flex flex-col min-h-[640px]">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-blue-800/40">
                   <div className="flex items-center gap-3">
                     <h2 className="text-lg font-semibold text-blue-300">Market Chart</h2>
@@ -1789,18 +1822,17 @@ function getNiftyLevelAlerts(indices) {
             {/* RIGHT COLUMN: Sectors */}
             <div className="lg:col-span-2 space-y-3">
               <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-3">
-                <div className="flex justify-between items-center mb-2">
-                  <h2 className="text-sm font-semibold text-blue-300">Sector Performance</h2>
-                  <span className="text-[10px] text-slate-400">
-                    {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} | vs Prev Close
-                  </span>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-semibold text-blue-300">Sectors</h2>
+                  <span className="text-[10px] text-slate-500">vs Prev Close</span>
                 </div>
-                <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                <div className="space-y-1 max-h-[420px] overflow-y-auto pr-0.5">
                   {sectorData.length > 0 ? (
-                    sectorData.map((sector) => {
-                      const sectorValue = sector.value ?? 0;
-                      const absValue = Math.abs(sectorValue);
-                      const barWidth = Math.min((absValue / 3) * 100, 100);
+                    [...sectorData].sort((a, b) => Math.abs(b.value ?? 0) - Math.abs(a.value ?? 0)).map((sector) => {
+                      const v = sector.value ?? 0;
+                      const pos = v >= 0;
+                      const intensity = Math.min(Math.abs(v) / 2.5, 1);
+                      const barPct = Math.min((Math.abs(v) / 3) * 100, 100);
                       const tvSymbol = sector.tvSymbol || sector.symbol?.replace(/ /g, '') || sector.name?.toUpperCase().replace(/ /g, '');
                       return (
                         <a
@@ -1808,24 +1840,36 @@ function getNiftyLevelAlerts(indices) {
                           href={`https://www.tradingview.com/chart/?symbol=NSE:${tvSymbol}&interval=15`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-2 group cursor-pointer hover:bg-[#0a1628]/50 rounded px-1 py-0.5"
+                          className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border transition-all cursor-pointer ${
+                            pos
+                              ? 'bg-emerald-950/40 border-emerald-800/20 hover:border-emerald-600/50 hover:bg-emerald-950/60'
+                              : 'bg-red-950/40 border-red-900/20 hover:border-red-700/50 hover:bg-red-950/60'
+                          }`}
                         >
-                          <span className="text-[10px] w-16 text-slate-300 truncate">{sector.name}</span>
-                          <div className="flex-1 h-4 bg-[#0a1628] rounded overflow-hidden">
+                          {/* Accent bar */}
+                          <div
+                            className={`w-0.5 h-5 rounded-full flex-shrink-0 ${pos ? 'bg-emerald-400' : 'bg-red-400'}`}
+                            style={{ opacity: 0.35 + intensity * 0.65 }}
+                          />
+                          {/* Name */}
+                          <span className="text-[11px] text-slate-200 flex-1 truncate font-medium leading-none">{sector.name}</span>
+                          {/* Mini bar */}
+                          <div className="w-10 h-1 bg-white/5 rounded-full overflow-hidden flex-shrink-0">
                             <div
-                              className={`h-full ${sectorValue >= 0 ? 'bg-gradient-to-r from-emerald-600 to-emerald-500' : 'bg-gradient-to-r from-red-600 to-red-500'} transition-all duration-500`}
-                              style={{ width: `${Math.max(barWidth, 5)}%` }}
+                              className={`h-full rounded-full ${pos ? 'bg-emerald-400' : 'bg-red-400'}`}
+                              style={{ width: `${Math.max(barPct, 6)}%`, opacity: 0.45 + intensity * 0.55 }}
                             />
                           </div>
-                          <span className={`text-[10px] w-12 text-right font-mono font-semibold ${sectorValue >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {sectorValue >= 0 ? '+' : ''}{sectorValue.toFixed(2)}%
+                          {/* Percentage */}
+                          <span className={`text-[11px] font-mono font-bold w-11 text-right flex-shrink-0 ${pos ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {pos ? '+' : ''}{v.toFixed(2)}%
                           </span>
                         </a>
                       );
                     })
                   ) : (
-                    <div className="rounded-lg border border-blue-800/40 bg-[#0a1628] px-2 py-3 text-xs text-slate-400 text-center">
-                      {sectorLoading ? 'Loading sectors...' : (sectorError || 'No sector data available')}
+                    <div className="text-center py-6 text-slate-500 text-xs">
+                      {sectorLoading ? 'Loading...' : (sectorError || 'No data')}
                     </div>
                   )}
                 </div>
