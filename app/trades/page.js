@@ -802,17 +802,50 @@ function getNiftyLevelAlerts(indices) {
               </button>
             ) : <div />}
 
-            {/* Nifty price ticker — always visible */}
-            {marketData?.indices?.nifty && (
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-slate-500 font-medium">NIFTY</span>
-                <span className="text-sm font-mono font-bold text-white tabular-nums">
-                  {parseFloat(marketData.indices.nifty).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                {marketData.indices.niftyChangePercent && (
-                  <span className={`text-xs font-semibold tabular-nums ${parseFloat(marketData.indices.niftyChangePercent) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {parseFloat(marketData.indices.niftyChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.indices.niftyChangePercent).toFixed(2)}%
-                  </span>
+            {/* Live ticker — Nifty · BankNifty · VIX */}
+            {marketData?.indices && (
+              <div className="flex items-center gap-4">
+                {/* NIFTY */}
+                {marketData.indices.nifty && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-500 font-medium">NIFTY</span>
+                    <span className="text-sm font-mono font-bold text-white tabular-nums">
+                      {parseFloat(marketData.indices.nifty).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    {marketData.indices.niftyChangePercent && (
+                      <span className={`text-xs font-semibold tabular-nums ${parseFloat(marketData.indices.niftyChangePercent) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {parseFloat(marketData.indices.niftyChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.indices.niftyChangePercent).toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                )}
+                {/* BankNifty */}
+                {marketData.indices.bankNifty && (
+                  <div className="hidden sm:flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-500 font-medium">BANK</span>
+                    <span className="text-xs font-mono font-semibold text-slate-200 tabular-nums">
+                      {parseFloat(marketData.indices.bankNifty).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    {marketData.indices.bankNiftyChangePercent && (
+                      <span className={`text-[11px] font-semibold tabular-nums ${parseFloat(marketData.indices.bankNiftyChangePercent) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {parseFloat(marketData.indices.bankNiftyChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.indices.bankNiftyChangePercent).toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                )}
+                {/* VIX */}
+                {marketData.indices.vix && (
+                  <div className="hidden sm:flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-500 font-medium">VIX</span>
+                    <span className={`text-xs font-mono font-semibold tabular-nums ${parseFloat(marketData.indices.vix) > 18 ? 'text-rose-400' : parseFloat(marketData.indices.vix) > 13 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      {parseFloat(marketData.indices.vix).toFixed(2)}
+                    </span>
+                    {marketData.indices.vixChange && (
+                      <span className={`text-[10px] tabular-nums ${parseFloat(marketData.indices.vixChange) >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                        {parseFloat(marketData.indices.vixChange) >= 0 ? '+' : ''}{parseFloat(marketData.indices.vixChange).toFixed(2)}
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -905,9 +938,12 @@ function getNiftyLevelAlerts(indices) {
                     <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${commentaryLoading ? 'animate-spin' : ''}`} />
                   </button>
                   {commentaryCollapsed ? (
-                    <ChevronDown className="w-5 h-5 text-slate-400" />
+                    <div className="flex items-center gap-1 text-slate-400">
+                      <span className="text-[10px] font-medium">expand</span>
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
                   ) : (
-                    <ChevronUp className="w-5 h-5 text-slate-400" />
+                    <ChevronUp className="w-4 h-4 text-slate-400" />
                   )}
                 </div>
               </div>
@@ -1104,9 +1140,9 @@ function getNiftyLevelAlerts(indices) {
           </div>
 
           {/* Top Market Data Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-1 mb-4">
-            {/* Market Indices */}
-            <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-1.5 lg:p-2 flex flex-col justify-center min-h-14 lg:min-h-16">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-1 mb-4">
+            {/* Market Indices card removed — Nifty/BankNifty/VIX now in sub-bar ticker */}
+            {false && <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-1.5 lg:p-2 flex flex-col justify-center min-h-14 lg:min-h-16">
               <h4 className="text-blue-300 text-[10px] font-semibold mb-1 lg:mb-1.5 text-center">Market Indices</h4>
               <div className="space-y-0.5 lg:space-y-1">
                 <div className="flex justify-between items-center">
@@ -1192,7 +1228,7 @@ function getNiftyLevelAlerts(indices) {
                   </div>
                 </div>
               </div>
-            </div>
+            </div>}
 
             {/* Global Indices */}
             <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-1.5 lg:p-2 flex flex-col justify-center min-h-14 lg:min-h-16">
