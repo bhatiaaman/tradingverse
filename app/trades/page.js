@@ -159,6 +159,10 @@ function getNiftyLevelAlerts(indices) {
   function KeyLevelsBar({ levels, spot }) {
     if (!levels?.length) return null;
 
+    // Nearest resistance above and nearest support below define the current zone
+    const nearestCeiling = levels.find(l => l.dist !== null && l.dist > 0.5);
+    const nearestFloor   = levels.find(l => l.dist !== null && l.dist < -0.5);
+
     return (
       <div className="px-3 py-2 border-b border-blue-800/40 overflow-x-auto scrollbar-none">
         <div className="flex items-center gap-1.5 min-w-max">
@@ -166,6 +170,8 @@ function getNiftyLevelAlerts(indices) {
             const dist = l.dist;
             const isNear = dist !== null && Math.abs(dist) <= 0.5;
             const isAbove = dist !== null && dist > 0;
+            const isCeiling = nearestCeiling && l.label === nearestCeiling.label && !isNear;
+            const isFloor   = nearestFloor   && l.label === nearestFloor.label   && !isNear;
             const priceColor = isNear
               ? 'text-amber-400'
               : isAbove
@@ -174,9 +180,14 @@ function getNiftyLevelAlerts(indices) {
             const labelColor = LEVEL_CATEGORY_COLOR[l.category] || 'text-slate-400';
             const bg = isNear
               ? 'bg-amber-500/10 border border-amber-500/30 animate-pulse'
-              : 'bg-[#0a1628] border border-blue-800/20';
+              : isCeiling
+                ? 'bg-rose-950/40 border border-rose-700/50'
+                : isFloor
+                  ? 'bg-sky-950/40 border border-sky-700/50'
+                  : 'bg-[#0a1628] border border-blue-800/20';
             const fullName = LEVEL_FULL_NAME[l.label] || l.label;
-            const tooltipText = `${fullName}: ₹${l.price.toLocaleString('en-IN')}${dist !== null ? ` (${dist >= 0 ? '+' : ''}${dist.toFixed(2)}%)` : ''}`;
+            const zoneTag = isCeiling ? ' — zone ceiling' : isFloor ? ' — zone floor' : '';
+            const tooltipText = `${fullName}: ₹${l.price.toLocaleString('en-IN')}${dist !== null ? ` (${dist >= 0 ? '+' : ''}${dist.toFixed(2)}%)` : ''}${zoneTag}`;
 
             return (
               <div
@@ -191,8 +202,13 @@ function getNiftyLevelAlerts(indices) {
                     : l.price.toFixed(1)}
                 </span>
                 {dist !== null && (
-                  <span className={`text-[8px] leading-none mt-0.5 ${isNear ? 'text-amber-400' : 'text-slate-500'}`}>
+                  <span className={`text-[8px] leading-none mt-0.5 ${isNear ? 'text-amber-400' : isCeiling ? 'text-rose-500' : isFloor ? 'text-sky-500' : 'text-slate-500'}`}>
                     {dist >= 0 ? '+' : ''}{dist.toFixed(1)}%
+                  </span>
+                )}
+                {(isCeiling || isFloor) && (
+                  <span className={`text-[7px] leading-none mt-0.5 font-bold ${isCeiling ? 'text-rose-600' : 'text-sky-600'}`}>
+                    {isCeiling ? '▲ RES' : '▼ SUP'}
                   </span>
                 )}
               </div>
@@ -267,7 +283,7 @@ function getNiftyLevelAlerts(indices) {
     const [niftyRegime, setNiftyRegime] = useState(null);
     const [dailyBias, setDailyBias] = useState(null);
     const [fifteenMinBias, setFifteenMinBias] = useState(null);
-    const [commentaryCollapsed, setCommentaryCollapsed] = useState(false);
+    const [commentaryCollapsed, setCommentaryCollapsed] = useState(true);
     const prevCommentaryRef = useRef(null);
     const soundEnabledRef   = useRef(false); // only alert after first load
     // Key levels bar — follows chartSymbol
@@ -756,6 +772,21 @@ function getNiftyLevelAlerts(indices) {
                 </span>
               </button>
             ) : <div />}
+
+            {/* Nifty price ticker — always visible */}
+            {marketData?.indices?.nifty && (
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-500 font-medium">NIFTY</span>
+                <span className="text-sm font-mono font-bold text-white tabular-nums">
+                  {parseFloat(marketData.indices.nifty).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                {marketData.indices.niftyChangePercent && (
+                  <span className={`text-xs font-semibold tabular-nums ${parseFloat(marketData.indices.niftyChangePercent) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {parseFloat(marketData.indices.niftyChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.indices.niftyChangePercent).toFixed(2)}%
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Quick links */}
             <div className="flex items-center gap-1">
