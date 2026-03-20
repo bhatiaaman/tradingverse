@@ -96,11 +96,18 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
     if (pain < minPain) { minPain = pain; maxPain = test; }
   }
 
-  const sel     = strikeData.find(s => s.strike === strike) || { ceOI: 0, peOI: 0, ceVol: 0, peVol: 0 };
-  const myOI    = type === 'CE' ? sel.ceOI : sel.peOI;
-  const wallOI  = type === 'CE' ? ceWall.ceOI : peWall.peOI;
-  const oiRatio = wallOI > 0 ? myOI / wallOI : 0;
-  const myVol   = type === 'CE' ? sel.ceVol : sel.peVol;
+  const sel      = strikeData.find(s => s.strike === strike) || { ceOI: 0, peOI: 0, ceVol: 0, peVol: 0, ceIV: 0, peIV: 0, ceOiOpen: 0, peOiOpen: 0, ceChg: 0, peChg: 0 };
+  const myOI     = type === 'CE' ? sel.ceOI : sel.peOI;
+  const wallOI   = type === 'CE' ? ceWall.ceOI : peWall.peOI;
+  const oiRatio  = wallOI > 0 ? myOI / wallOI : 0;
+  const myIV     = type === 'CE' ? sel.ceIV : sel.peIV;
+  const myOiOpen = type === 'CE' ? sel.ceOiOpen : sel.peOiOpen;
+  const myPriceChg = type === 'CE' ? sel.ceChg : sel.peChg;
+
+  // ATM IV — for comparing whether this strike's IV is cheap or rich
+  const atmStrike = Math.round(spotPrice / strikeGap) * strikeGap;
+  const atmSel    = strikeData.find(s => s.strike === atmStrike);
+  const atmIV     = type === 'CE' ? (atmSel?.ceIV || 0) : (atmSel?.peIV || 0);
 
   // When CE wall and PE wall are at the same strike, emit a single "Pinned strike" signal
   // to avoid contradictory Resistance + Support labels at the same level.
@@ -156,18 +163,51 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
       text: `Moderate OI at ${strike} ${type} (${Math.round(oiRatio * 100)}% of wall) — primary wall is ${type === 'CE' ? ceWall.strike : peWall.strike}`,
     });
   } else {
-    signals.push({
-      tag: 'Light OI', icon: '💡', type: type === 'CE' ? 'bullish' : 'bearish',
-      text: `Low ${type} OI at ${strike} — less seller resistance; better for ${type} buyers`,
-    });
+    // Light OI — not emitted; it's the default case for most strikes and adds noise
   }
 
-  if (myVol > 0) {
-    const volOiRatio = myOI > 0 ? myVol / myOI : 0;
-    if (volOiRatio > 0.3) {
-      signals.push({ tag: 'High volume', icon: '📊', type: 'bullish', text: `Volume ${fmtVol(myVol)} vs OI ${fmt(myOI)} — heavy activity; fresh positions building` });
-    } else if (myVol > 1000) {
-      signals.push({ tag: 'Volume', icon: '📊', type: 'neutral', text: `Volume ${fmtVol(myVol)} — moderate activity; OI-backed level` });
+  // Position flow — OI change direction tells you if positions are being added or shed
+  // oi_day_low is used as a proxy for opening OI (prev-day close OI ≈ day's low OI)
+  const oiChange    = myOI - myOiOpen;
+  const oiChangePct = myOiOpen > 0 ? (oiChange / myOiOpen) * 100 : 0;
+  if (myOiOpen > 0 && Math.abs(oiChangePct) >= 10) {
+    const oiAdded = oiChange > 0;
+    const priceUp = myPriceChg > 0;
+    const oiLabel = `OI ${oiAdded ? '+' : ''}${fmt(oiChange)} today`;
+    const priceLabel = `${type} price ${priceUp ? 'rose' : 'fell'} ₹${Math.abs(myPriceChg).toFixed(1)}`;
+    let flowTag, flowIcon, flowType, flowText;
+    if (oiAdded && !priceUp) {
+      flowTag = 'Short buildup'; flowIcon = '🐻'; flowType = 'bearish';
+      flowText = `${oiLabel}, ${priceLabel} — writers entering; fresh short positions at this strike`;
+    } else if (oiAdded && priceUp) {
+      flowTag = 'Long buildup'; flowIcon = '🐂'; flowType = 'bullish';
+      flowText = `${oiLabel}, ${priceLabel} — buyers entering; fresh long positions at this strike`;
+    } else if (!oiAdded && priceUp) {
+      flowTag = 'Short covering'; flowIcon = '📈'; flowType = 'bullish';
+      flowText = `${oiLabel}, ${priceLabel} — shorts closing; bears exiting this strike`;
+    } else {
+      flowTag = 'Long unwinding'; flowIcon = '📉'; flowType = 'bearish';
+      flowText = `${oiLabel}, ${priceLabel} — longs closing; bulls exiting this strike`;
+    }
+    signals.push({ tag: flowTag, icon: flowIcon, type: flowType, text: flowText });
+  }
+
+  // IV vs ATM — is this strike's premium cheap or expensive?
+  if (myIV > 0) {
+    if (atmIV > 0) {
+      const ivRatio = myIV / atmIV;
+      if (ivRatio > 1.15) {
+        signals.push({ tag: 'IV', icon: '🔥', type: 'warning',
+          text: `IV ${myIV.toFixed(1)}% vs ATM ${atmIV.toFixed(1)}% — elevated; premium is rich; selling has edge over buying` });
+      } else if (ivRatio < 0.87) {
+        signals.push({ tag: 'IV', icon: '💎', type: 'bullish',
+          text: `IV ${myIV.toFixed(1)}% vs ATM ${atmIV.toFixed(1)}% — low; premium is cheap; buying has edge over selling` });
+      } else {
+        signals.push({ tag: 'IV', icon: '⚡', type: 'neutral',
+          text: `IV ${myIV.toFixed(1)}% — inline with ATM (${atmIV.toFixed(1)}%); no premium edge either way` });
+      }
+    } else {
+      signals.push({ tag: 'IV', icon: '⚡', type: 'neutral', text: `IV ${myIV.toFixed(1)}%` });
     }
   }
 
@@ -179,11 +219,11 @@ function buildAnalysis({ strike, type, spotPrice, strikeData, strikeGap }) {
   }
 
   if (pcr > 1.3) {
-    signals.push({ tag: 'PCR', icon: '📈', type: 'bullish', text: `PCR ${pcr.toFixed(2)} — heavy put writing; market expects to hold/rally` });
+    signals.push({ tag: 'PCR', icon: '📈', type: 'bullish', text: `PCR ${pcr.toFixed(2)} (±5 strikes) — put-heavy zone; put writers are defending this area` });
   } else if (pcr < 0.7) {
-    signals.push({ tag: 'PCR', icon: '📉', type: 'bearish', text: `PCR ${pcr.toFixed(2)} — heavy call writing; market expects fall or capped upside` });
+    signals.push({ tag: 'PCR', icon: '📉', type: 'bearish', text: `PCR ${pcr.toFixed(2)} (±5 strikes) — call-heavy zone; call writers are capping this area` });
   } else {
-    signals.push({ tag: 'PCR', icon: '⚖️', type: 'neutral', text: `PCR ${pcr.toFixed(2)} — balanced; no strong directional bias from option writers` });
+    signals.push({ tag: 'PCR', icon: '⚖️', type: 'neutral', text: `PCR ${pcr.toFixed(2)} (±5 strikes) — balanced OI around this strike` });
   }
 
   let verdict, verdictReason;
@@ -233,7 +273,7 @@ export async function GET(request) {
     return NextResponse.json({ error: 'symbol, strike and type required' }, { status: 400 });
   }
 
-  const cacheKey = `${NS}:strike-analysis-v4:${symbol}:${strike}:${type}:${expiryType}:${strikeGap}`;
+  const cacheKey = `${NS}:strike-analysis-v5:${symbol}:${strike}:${type}:${expiryType}:${strikeGap}`;
   const cached   = await redisGet(cacheKey);
   if (cached) return NextResponse.json({ ...cached, fromCache: true });
 
@@ -290,18 +330,22 @@ export async function GET(request) {
     for (const opt of relevantOptions) {
       const q = quotes[`NFO:${opt.tradingsymbol}`];
       if (!strikeMap[opt.strike]) {
-        strikeMap[opt.strike] = { strike: opt.strike, ceOI: 0, peOI: 0, ceLtp: 0, peLtp: 0, ceVol: 0, peVol: 0, ceChg: 0, peChg: 0 };
+        strikeMap[opt.strike] = { strike: opt.strike, ceOI: 0, peOI: 0, ceLtp: 0, peLtp: 0, ceVol: 0, peVol: 0, ceChg: 0, peChg: 0, ceIV: 0, peIV: 0, ceOiOpen: 0, peOiOpen: 0 };
       }
       if (opt.instrument_type === 'CE') {
-        strikeMap[opt.strike].ceOI  = q?.oi || 0;
-        strikeMap[opt.strike].ceLtp = q?.last_price || 0;
-        strikeMap[opt.strike].ceVol = q?.volume || 0;
-        strikeMap[opt.strike].ceChg = q?.net_change || 0;
+        strikeMap[opt.strike].ceOI     = q?.oi || 0;
+        strikeMap[opt.strike].ceLtp    = q?.last_price || 0;
+        strikeMap[opt.strike].ceVol    = q?.volume || 0;
+        strikeMap[opt.strike].ceChg    = q?.net_change || 0;
+        strikeMap[opt.strike].ceIV     = q?.implied_volatility || 0;
+        strikeMap[opt.strike].ceOiOpen = q?.oi_day_low || 0;
       } else {
-        strikeMap[opt.strike].peOI  = q?.oi || 0;
-        strikeMap[opt.strike].peLtp = q?.last_price || 0;
-        strikeMap[opt.strike].peVol = q?.volume || 0;
-        strikeMap[opt.strike].peChg = q?.net_change || 0;
+        strikeMap[opt.strike].peOI     = q?.oi || 0;
+        strikeMap[opt.strike].peLtp    = q?.last_price || 0;
+        strikeMap[opt.strike].peVol    = q?.volume || 0;
+        strikeMap[opt.strike].peChg    = q?.net_change || 0;
+        strikeMap[opt.strike].peIV     = q?.implied_volatility || 0;
+        strikeMap[opt.strike].peOiOpen = q?.oi_day_low || 0;
       }
     }
 

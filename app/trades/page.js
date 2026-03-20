@@ -312,6 +312,15 @@ function getNiftyLevelAlerts(indices) {
     const keyLevelsForZoneRef = useRef(null);
     const showZoneLinesRef = useRef(true);
     const drawZoneLinesRef = useRef(null);
+    const priceShiftRef = useRef(0);
+    const [hoverOHLC, setHoverOHLC] = useState(null);
+    const [showIndicators, setShowIndicators] = useState(false);
+    const [rsiValue, setRsiValue] = useState(null);
+    const [candleVersion, setCandleVersion] = useState(0);
+    const candleDataRef = useRef([]);
+    const rsiContainerRef = useRef(null);
+    const rsiChartRef = useRef(null);
+    const indicatorSyncUnsubRef = useRef(null);
 
     // Check Kite auth status
     useEffect(() => {
@@ -652,6 +661,64 @@ function getNiftyLevelAlerts(indices) {
       return emaData;
     };
 
+    // RSI(14) from candle data
+    const computeRSIData = (candles, period = 14) => {
+      if (!candles || candles.length < period + 1) return [];
+      const result = [];
+      let avgGain = 0, avgLoss = 0;
+      for (let i = 1; i <= period; i++) {
+        const d = candles[i].close - candles[i - 1].close;
+        if (d > 0) avgGain += d; else avgLoss -= d;
+      }
+      avgGain /= period; avgLoss /= period;
+      result.push({ time: candles[period].time, value: avgLoss === 0 ? 100 : parseFloat((100 - 100 / (1 + avgGain / avgLoss)).toFixed(2)) });
+      for (let i = period + 1; i < candles.length; i++) {
+        const d = candles[i].close - candles[i - 1].close;
+        avgGain = (avgGain * (period - 1) + (d > 0 ? d : 0)) / period;
+        avgLoss = (avgLoss * (period - 1) + (d < 0 ? -d : 0)) / period;
+        result.push({ time: candles[i].time, value: avgLoss === 0 ? 100 : parseFloat((100 - 100 / (1 + avgGain / avgLoss)).toFixed(2)) });
+      }
+      return result;
+    };
+
+    // ADX(14) — returns { adx, plusDI, minusDI }
+    const computeADXData = (candles, period = 14) => {
+      if (!candles || candles.length < period * 3) return { adx: [], plusDI: [], minusDI: [] };
+      const tr = [], pDM = [], mDM = [];
+      for (let i = 1; i < candles.length; i++) {
+        const h = candles[i].high, l = candles[i].low, pc = candles[i - 1].close;
+        tr.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+        const up = h - candles[i - 1].high, dn = candles[i - 1].low - l;
+        pDM.push(up > dn && up > 0 ? up : 0);
+        mDM.push(dn > up && dn > 0 ? dn : 0);
+      }
+      const wilderSmooth = arr => {
+        let s = arr.slice(0, period).reduce((a, b) => a + b, 0);
+        const out = [s];
+        for (let i = period; i < arr.length; i++) { s = s - s / period + arr[i]; out.push(s); }
+        return out;
+      };
+      const sTR = wilderSmooth(tr), sPDM = wilderSmooth(pDM), sMDM = wilderSmooth(mDM);
+      const plusDIData = [], minusDIData = [], dxArr = [];
+      for (let i = 0; i < sTR.length; i++) {
+        const idx = i + period;
+        if (idx >= candles.length) break;
+        const pDI = sTR[i] === 0 ? 0 : (sPDM[i] / sTR[i]) * 100;
+        const mDI = sTR[i] === 0 ? 0 : (sMDM[i] / sTR[i]) * 100;
+        plusDIData.push({ time: candles[idx].time, value: parseFloat(pDI.toFixed(2)) });
+        minusDIData.push({ time: candles[idx].time, value: parseFloat(mDI.toFixed(2)) });
+        dxArr.push(pDI + mDI === 0 ? 0 : Math.abs(pDI - mDI) / (pDI + mDI) * 100);
+      }
+      const smoothDX = wilderSmooth(dxArr);
+      const adxData = [];
+      for (let i = 0; i < smoothDX.length; i++) {
+        const idx = i + period * 2;
+        if (idx >= candles.length) break;
+        adxData.push({ time: candles[idx].time, value: parseFloat(smoothDX[i].toFixed(2)) });
+      }
+      return { adx: adxData, plusDI: plusDIData, minusDI: minusDIData };
+    };
+
     // Initialize chart
     useEffect(() => {
       const el = chartRef.current;
@@ -676,7 +743,13 @@ function getNiftyLevelAlerts(indices) {
           grid: { vertLines: { color: 'rgba(66, 99, 235, 0.1)' }, horzLines: { color: 'rgba(66, 99, 235, 0.1)' } },
           width: el.clientWidth,
           height: el.clientHeight || 400,
-          crosshair: { mode: window.LightweightCharts.CrosshairMode.Normal },
+          crosshair: {
+            mode: window.LightweightCharts.CrosshairMode.Normal,
+            vertLine: { color: 'rgba(148,163,184,0.6)', width: 1, style: 1, labelVisible: true },
+            horzLine: { color: 'rgba(148,163,184,0.6)', width: 1, style: 1, labelVisible: true },
+          },
+          handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+          handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true } },
           rightPriceScale: { borderColor: 'rgba(66, 99, 235, 0.3)' },
           timeScale: {
             borderColor: 'rgba(66, 99, 235, 0.3)',
@@ -725,12 +798,22 @@ function getNiftyLevelAlerts(indices) {
         chartInstanceRef.current = chart;
         candleSeriesRef.current = candleSeries;
 
+        // OHLC on crosshair hover
+        chart.subscribeCrosshairMove(param => {
+          if (!param || !param.time) { setHoverOHLC(null); return; }
+          const bar = param.seriesData?.get(candleSeries);
+          if (bar) setHoverOHLC({ open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+          else setHoverOHLC(null);
+        });
+
         const fetchChartData = async () => {
           try {
             const days = chartInterval === 'week' ? 365 : chartInterval === 'day' ? 60 : 5;
             const response = await fetch(`/api/nifty-chart?symbol=${chartSymbol}&interval=${chartInterval}&days=${days}`);
             const data = await response.json();
             if (data.candles && data.candles.length > 0) {
+              candleDataRef.current = data.candles;
+              setCandleVersion(v => v + 1);
               candleSeries.setData(data.candles);
               emaPeriods.forEach((period, idx) => {
                 const emaData = calculateEMA(data.candles, period);
@@ -765,12 +848,140 @@ function getNiftyLevelAlerts(indices) {
       };
 
       initChart();
+
+      // ── Vertical price-pan + double-click reset (mirrors terminal chart) ──────
+      priceShiftRef.current = 0;
+      const dragState = { active: false, startX: 0, startY: 0, lastY: 0, dir: null };
+
+      const applyPriceShift = deltaY => {
+        const cs = candleSeriesRef.current;
+        if (!cs) return;
+        const refY = el.clientHeight / 2;
+        const p1 = cs.coordinateToPrice(refY);
+        const p2 = cs.coordinateToPrice(refY + deltaY);
+        if (p1 == null || p2 == null) return;
+        priceShiftRef.current += p1 - p2;
+        const shift = priceShiftRef.current;
+        cs.applyOptions({
+          autoscaleInfoProvider: orig => {
+            const r = orig();
+            if (!r) return null;
+            return { priceRange: { minValue: r.priceRange.minValue - shift, maxValue: r.priceRange.maxValue - shift } };
+          },
+        });
+      };
+
+      const resetChartView = () => {
+        priceShiftRef.current = 0;
+        if (candleSeriesRef.current) candleSeriesRef.current.applyOptions({ autoscaleInfoProvider: undefined });
+        if (chartInstanceRef.current) chartInstanceRef.current.timeScale().fitContent();
+      };
+
+      const onMouseDown = e => {
+        if (e.button !== 0 || !el.contains(e.target)) return;
+        dragState.active = true; dragState.startX = e.clientX; dragState.startY = e.clientY;
+        dragState.lastY = e.clientY; dragState.dir = null;
+      };
+
+      const onMouseMove = e => {
+        if (!dragState.active) return;
+        const dx = Math.abs(e.clientX - dragState.startX);
+        const dy = Math.abs(e.clientY - dragState.startY);
+        if (!dragState.dir && (dx > 3 || dy > 3)) {
+          dragState.dir = dy > dx * 1.5 ? 'v' : 'h';
+          if (dragState.dir === 'v') {
+            chartInstanceRef.current?.applyOptions({ handleScroll: { pressedMouseMove: false, mouseWheel: true } });
+            el.style.cursor = 'ns-resize';
+          }
+        }
+        if (dragState.dir !== 'v') return;
+        const deltaY = e.clientY - dragState.lastY;
+        dragState.lastY = e.clientY;
+        if (deltaY !== 0) applyPriceShift(deltaY);
+      };
+
+      const onMouseUp = () => {
+        if (dragState.active && dragState.dir === 'v') {
+          chartInstanceRef.current?.applyOptions({ handleScroll: { pressedMouseMove: true, mouseWheel: true } });
+          el.style.cursor = '';
+        }
+        dragState.active = false; dragState.dir = null;
+      };
+
+      el.addEventListener('mousedown', onMouseDown);
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+      el.addEventListener('dblclick', resetChartView);
+
       return () => {
         if (refreshInterval) clearInterval(refreshInterval);
         if (resizeObserver) resizeObserver.disconnect();
         if (chart) chart.remove();
+        el.removeEventListener('mousedown', onMouseDown);
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+        el.removeEventListener('dblclick', resetChartView);
       };
     }, [chartSymbol, chartInterval, emaPeriods]);
+
+    // Indicator chart (RSI) — created/destroyed when showIndicators or candle data changes
+    useEffect(() => {
+      if (indicatorSyncUnsubRef.current) { indicatorSyncUnsubRef.current(); indicatorSyncUnsubRef.current = null; }
+      if (rsiChartRef.current) { rsiChartRef.current.remove(); rsiChartRef.current = null; }
+
+      if (!showIndicators || !candleDataRef.current.length || !rsiContainerRef.current) return;
+      if (typeof window.LightweightCharts === 'undefined') return;
+
+      const LWC = window.LightweightCharts;
+      const candles = candleDataRef.current;
+      const paneOpts = {
+        layout: { background: { type: 'solid', color: '#0c1a2e' }, textColor: '#64748b', fontSize: 9, fontFamily: 'monospace' },
+        grid: { vertLines: { color: 'rgba(66,99,235,0.06)' }, horzLines: { visible: false } },
+        crosshair: { mode: LWC.CrosshairMode.Normal, vertLine: { color: 'rgba(148,163,184,0.35)', width: 1, style: 1, labelVisible: false }, horzLine: { visible: false } },
+        handleScroll: false,
+        handleScale: false,
+        rightPriceScale: { borderColor: 'transparent', scaleMargins: { top: 0.1, bottom: 0.1 }, minimumWidth: 48 },
+        timeScale: { visible: false, borderColor: 'transparent' },
+        autoSize: true,
+      };
+
+      // RSI pane
+      rsiContainerRef.current.innerHTML = '';
+      const rsiChart = LWC.createChart(rsiContainerRef.current, paneOpts);
+      rsiChartRef.current = rsiChart;
+      const rsiSeries = rsiChart.addLineSeries({ color: '#818cf8', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: true, title: 'RSI' });
+      const rsiData = computeRSIData(candles);
+      rsiSeries.setData(rsiData);
+      const lastRsi = rsiData[rsiData.length - 1]?.value ?? null;
+      setRsiValue(lastRsi);
+      rsiSeries.createPriceLine({ price: 70, color: 'rgba(248,113,113,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '70' });
+      rsiSeries.createPriceLine({ price: 30, color: 'rgba(52,211,153,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '30' });
+      rsiSeries.createPriceLine({ price: 50, color: 'rgba(100,116,139,0.3)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: '' });
+      rsiChart.subscribeCrosshairMove(param => {
+        const bar = param?.seriesData?.get(rsiSeries);
+        setRsiValue(bar?.value ?? lastRsi ?? null);
+      });
+
+      rsiChart.timeScale().fitContent();
+
+      // Sync time range from main chart
+      const mainChart = chartInstanceRef.current;
+      if (mainChart) {
+        const syncRange = range => {
+          if (!range) return;
+          rsiChartRef.current?.timeScale().setVisibleLogicalRange(range);
+        };
+        const currentRange = mainChart.timeScale().getVisibleLogicalRange();
+        if (currentRange) syncRange(currentRange);
+        mainChart.timeScale().subscribeVisibleLogicalRangeChange(syncRange);
+        indicatorSyncUnsubRef.current = () => mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncRange);
+      }
+
+      return () => {
+        if (indicatorSyncUnsubRef.current) { indicatorSyncUnsubRef.current(); indicatorSyncUnsubRef.current = null; }
+        if (rsiChartRef.current) { rsiChartRef.current.remove(); rsiChartRef.current = null; }
+      };
+    }, [showIndicators, candleVersion]);
 
     // Helper: bias to emoji
     const biasEmoji = (bias) => {
@@ -1798,6 +2009,13 @@ function getNiftyLevelAlerts(indices) {
                     >
                       Zone
                     </button>
+                    <button
+                      onClick={() => setShowIndicators(v => !v)}
+                      className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${showIndicators ? 'bg-violet-700 text-white' : 'bg-[#0a1628] text-slate-400 hover:text-slate-200'}`}
+                      title="Toggle RSI(14) indicator pane"
+                    >
+                      RSI
+                    </button>
                     <a
                       href={`https://www.tradingview.com/chart/?symbol=NSE:${chartSymbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY'}&interval=${chartInterval === 'day' ? 'D' : chartInterval === 'week' ? 'W' : chartInterval.replace('minute', '')}`}
                       target="_blank"
@@ -1815,7 +2033,31 @@ function getNiftyLevelAlerts(indices) {
                 {keyLevels?.levels && (
                   <KeyLevelsBar levels={keyLevels.levels} spot={keyLevels.spot} />
                 )}
-                <div className="flex-1" ref={chartRef} key={`${chartSymbol}-${chartInterval}`} />
+                <div className="flex-1 relative" ref={chartRef} key={`${chartSymbol}-${chartInterval}`}>
+                  {/* OHLC hover overlay */}
+                  {hoverOHLC && (
+                    <div className="absolute top-2 left-2 z-10 flex items-center gap-2 text-[10px] font-mono bg-[#0a1628]/90 border border-blue-800/30 rounded px-2 py-1 pointer-events-none">
+                      <span className="text-slate-400">O</span><span className="text-slate-200">{hoverOHLC.open.toFixed(2)}</span>
+                      <span className="text-slate-400">H</span><span className="text-emerald-400">{hoverOHLC.high.toFixed(2)}</span>
+                      <span className="text-slate-400">L</span><span className="text-red-400">{hoverOHLC.low.toFixed(2)}</span>
+                      <span className="text-slate-400">C</span><span className={hoverOHLC.close >= hoverOHLC.open ? 'text-emerald-400' : 'text-red-400'}>{hoverOHLC.close.toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+                {showIndicators && (
+                  <div className="border-t border-blue-800/30">
+                    <div className="flex items-center gap-3 px-3 py-1 text-[9px] bg-[#0c1a2e]/60">
+                      <span className="text-indigo-400 font-medium">RSI(14)</span>
+                      {rsiValue != null && (
+                        <span className={`font-mono font-bold ${rsiValue >= 70 ? 'text-red-400' : rsiValue <= 30 ? 'text-emerald-400' : 'text-slate-200'}`}>
+                          {rsiValue.toFixed(1)}
+                        </span>
+                      )}
+                      <span className="text-slate-600">· 70 overbought · 30 oversold</span>
+                    </div>
+                    <div ref={rsiContainerRef} style={{ height: 80 }} />
+                  </div>
+                )}
               </div>
             </div>
 
