@@ -151,15 +151,14 @@ function analyzeVolume(candles) {
 
   if (lastCandle.volume === maxVol && volRatio > 2.5 &&
       Math.abs(lastCandle.close - prevCandle.close) < Math.abs(prevCandle.close - recent[recent.length - 3].close) * 0.5) {
-    return { signal: 'climax',
-      detail: `Volume climax: ${volRatio.toFixed(1)}× avg, price stalling`,
-      actionable: 'Volume climax — exhaustion likely. Watch for sharp reversal.' };
+    return { signal: 'absorption',
+      detail: `High volume (${volRatio.toFixed(1)}× avg), price barely moved — absorption or churn`,
+      actionable: 'High volume with little price progress — large players absorbing supply/demand. Direction unclear until breakout.' };
   }
-  if ((priceUp && lastCandle.volume < prevCandle.volume) ||
-      (!priceUp && lastCandle.volume > prevCandle.volume)) {
+  if (priceUp && lastCandle.volume < prevCandle.volume) {
     return { signal: 'divergence',
-      detail: 'Price and volume diverging — trend may be weakening.',
-      actionable: 'Volume divergence: move not confirmed by participation.' };
+      detail: 'Price rising on declining volume — participation is fading.',
+      actionable: 'Bullish divergence warning: move not confirmed by volume. May not sustain.' };
   }
   if (volRatio < 1 && Math.abs(lastCandle.close - prevCandle.close) > 0.005 * prevCandle.close) {
     return { signal: 'fakeout',
@@ -275,13 +274,13 @@ function checkVolumeAlignment15m(data) {
 
   const { signal, detail, actionable } = vol;
 
-  // Climax against trade direction
-  if (signal === 'climax') {
+  // Absorption: high volume + price stalling
+  if (signal === 'absorption') {
     return {
-      type: 'VOLUME_CLIMAX_15M', severity: 'warning',
-      title: 'Volume climax on 15m — exhaustion signal',
+      type: 'VOLUME_ABSORPTION_15M', severity: 'caution',
+      title: 'Volume absorption on 15m — high volume, price stalling',
       detail: `${detail}. ${actionable}`,
-      riskScore: 12,
+      riskScore: 8,
     };
   }
   // Divergence (price-volume disagreement)
@@ -357,11 +356,16 @@ function checkInsideBar15m(data) {
   const isInside = cur.high <= prev.high && cur.low >= prev.low;
   if (!isInside) return null;
 
+  // Only flag tight inside bars (≤60% of parent range) — wide inside bars are just normal consolidation
+  const parentRange = prev.high - prev.low;
+  const curRange    = cur.high - cur.low;
+  if (parentRange === 0 || curRange / parentRange > 0.6) return null;
+
   return {
     type:      'INSIDE_BAR_15M',
     severity:  'caution',
     title:     'Inside bar on 15m — breakout not yet confirmed',
-    detail:    `Current 15m candle is contained within the previous candle's range (${prev.low.toFixed(0)}–${prev.high.toFixed(0)}). Wait for a clear breakout of the inside bar before entering.`,
+    detail:    `Current 15m candle (range: ${curRange.toFixed(0)}) is ${Math.round(curRange / parentRange * 100)}% of the parent range (${prev.low.toFixed(0)}–${prev.high.toFixed(0)}). Wait for a clear breakout before entering.`,
     riskScore: 8,
   };
 }
@@ -599,12 +603,12 @@ function checkVolumeAlignmentDaily(data) {
 
   const { signal, detail, actionable } = vol;
 
-  if (signal === 'climax') {
+  if (signal === 'absorption') {
     return {
-      type: 'VOLUME_CLIMAX_DAILY', severity: 'warning',
-      title: 'Volume climax on daily — exhaustion signal',
-      detail: `${detail}. ${actionable} Higher significance on daily timeframe for swing trades.`,
-      riskScore: 12,
+      type: 'VOLUME_ABSORPTION_DAILY', severity: 'caution',
+      title: 'Volume absorption on daily — high volume, price stalling',
+      detail: `${detail}. ${actionable} On daily timeframe, this often marks distribution or accumulation zones.`,
+      riskScore: 8,
     };
   }
   if (signal === 'divergence') {

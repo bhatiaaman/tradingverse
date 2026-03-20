@@ -40,8 +40,8 @@ function getTradeIntent(instrumentType, transactionType) {
 // Classify the primary scenario based on zone state + trade bias
 // ─────────────────────────────────────────────────────────────────────────────
 function classifyScenario(tradeBias, zoneState, zoneType, zoneDistance, stationLoaded) {
-  // Station not loaded yet — can't classify without zone data
-  if (!stationLoaded) return 'UNCLEAR';
+  // Station not loaded yet — no zone data, default to open-space momentum
+  if (!stationLoaded) return tradeBias === 'BULLISH' ? 'MOMENTUM_LONG' : 'MOMENTUM_SHORT';
 
   // Station loaded, but no zone found nearby (or beyond 2%) — open space momentum
   if (!zoneState || !zoneType || zoneDistance == null || zoneDistance > 2) {

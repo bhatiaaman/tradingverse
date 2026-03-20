@@ -99,28 +99,28 @@ function checkPositionCount(data) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BEHAVIOR 4: High VIX (India VIX > 18)
-// Fires when market volatility is elevated — options are expensive, risk is high.
+// BEHAVIOR 4: High VIX (India VIX) — calibrated for Indian markets
+// India VIX normal range: 10–18. Elevated: 20–28. Extreme: > 28.
 // ─────────────────────────────────────────────────────────────────────────────
 function checkHighVIX(data) {
   const vix = data.vix;
   if (vix == null || isNaN(vix)) return null;
 
-  if (vix > 25) {
+  if (vix > 28) {
     return {
       type: 'HIGH_VIX',
       severity: 'warning',
-      title: `High volatility — VIX ${vix.toFixed(1)}`,
-      detail: `VIX above 25 means options are expensive and wide swings are likely. Use tighter stops and smaller size.`,
+      title: `Extreme volatility — VIX ${vix.toFixed(1)}`,
+      detail: `India VIX above 28 signals extreme fear/uncertainty. Options premiums are very expensive and gaps are likely. Reduce size significantly.`,
       riskScore: 18,
     };
   }
-  if (vix > 18) {
+  if (vix > 20) {
     return {
       type: 'ELEVATED_VIX',
       severity: 'caution',
       title: `Elevated volatility — VIX ${vix.toFixed(1)}`,
-      detail: `VIX above 18 — premium is above normal. Factor in wider stop-loss.`,
+      detail: `India VIX above 20 — premium is elevated above normal range (10–18). Factor in wider stop-loss and consider smaller size.`,
       riskScore: 8,
     };
   }

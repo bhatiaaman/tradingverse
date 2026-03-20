@@ -122,7 +122,13 @@ function findBreakVolumeRatio(zone, candles15m) {
 function checkZonePresence(data) {
   const sr = data.stationResult;
   if (!sr?.available || !sr.nearestStation) {
-    return { passed: true, title: 'No major zone within 2% — open space entry' };
+    return {
+      type:     'NO_ZONE_NEARBY',
+      severity: 'caution',
+      title:    'No major zone within 2% — trading in open space',
+      detail:   'Price is not near any identified support/resistance zone. Open space entries have no nearby reference for stop placement or target — size down and define your risk carefully.',
+      riskScore: 5,
+    };
   }
 
   const z = sr.nearestStation;
@@ -444,7 +450,7 @@ function checkDailyApproachAngle(data) {
 // Registries — paired [fn, passLabel] so labels never rely on check.name lookup
 // ─────────────────────────────────────────────────────────────────────────────
 const INTRADAY_CHECKS = [
-  [checkZonePresence,    'No major zone within 2% — open space entry'],
+  [checkZonePresence,    'Zone identified nearby'],
   [checkZoneAlignment,   'Zone aligned with trade direction'],
   [checkZoneScenario,    'No zone scenario conflict'],
   [checkVolumeExpansion, 'Volume confirms move'],

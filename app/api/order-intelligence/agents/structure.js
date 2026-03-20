@@ -240,7 +240,7 @@ function checkEMAAlignment(data) {
 // CHECK 2: VWAP alignment
 function checkVWAP(data) {
   const { vwap, spotPrice } = data.indicators;
-  if (vwap == null || spotPrice == null) return { passed: true, title: 'VWAP — no intraday data yet' };
+  if (vwap == null || spotPrice == null) return null;
 
   const tradeBias = getTradeBias(data.order.instrumentType, data.order.transactionType);
 
@@ -309,18 +309,13 @@ function checkRSI(data) {
       riskScore: 15,
     };
   }
-  return {
-    passed: true,
-    title: `RSI ${rsi_15m.toFixed(0)} on 15m — not overbought/oversold`,
-  };
+  return null;
 }
 
 // CHECK 5: Volume confirmation — last candle < 50% of 20-bar average
 function checkVolume(data) {
   const { avgVol20, lastVol } = data.indicators;
-  if (avgVol20 == null || lastVol == null || avgVol20 === 0) {
-    return { passed: true, title: 'Volume — no 15m data yet' };
-  }
+  if (avgVol20 == null || lastVol == null || avgVol20 === 0) return null;
 
   const volRatio = lastVol / avgVol20;
   if (volRatio >= 0.5) {
