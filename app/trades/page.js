@@ -135,6 +135,74 @@ function getNiftyLevelAlerts(indices) {
     return `${biasLabel(c.bias)} since ${c.time}${stateNote}${reversalSuffix}`;
   }
 
+  // Category colors for key levels bar
+  const LEVEL_CATEGORY_COLOR = {
+    pd:      'text-sky-300',
+    pivot:   'text-violet-300',
+    weekly:  'text-amber-300',
+    monthly: 'text-orange-300',
+    ema:     'text-emerald-300',
+    today:   'text-slate-300',
+    or:      'text-pink-300',
+  };
+
+  const LEVEL_FULL_NAME = {
+    PDH: 'Previous Day High', PDL: 'Previous Day Low', PDC: 'Previous Day Close',
+    PP: 'Pivot Point', R1: 'Resistance 1', S1: 'Support 1',
+    WkH: 'Weekly High', WkL: 'Weekly Low',
+    MoH: 'Monthly High', MoL: 'Monthly Low',
+    EMA9: 'EMA 9', EMA21: 'EMA 21', EMA50: 'EMA 50', EMA200: 'EMA 200',
+    TdH: "Today's High", TdL: "Today's Low",
+    ORH: 'Opening Range High', ORL: 'Opening Range Low',
+  };
+
+  function KeyLevelsBar({ levels, spot }) {
+    if (!levels?.length) return null;
+
+    return (
+      <div className="px-3 py-2 border-b border-blue-800/40 overflow-x-auto scrollbar-none">
+        <div className="flex items-center gap-1.5 min-w-max">
+          {levels.map((l) => {
+            const dist = l.dist;
+            const isNear = dist !== null && Math.abs(dist) <= 0.5;
+            const isAbove = dist !== null && dist > 0;
+            const priceColor = isNear
+              ? 'text-amber-400'
+              : isAbove
+                ? 'text-emerald-400'
+                : 'text-red-400';
+            const labelColor = LEVEL_CATEGORY_COLOR[l.category] || 'text-slate-400';
+            const bg = isNear
+              ? 'bg-amber-500/10 border border-amber-500/30 animate-pulse'
+              : 'bg-[#0a1628] border border-blue-800/20';
+            const fullName = LEVEL_FULL_NAME[l.label] || l.label;
+            const tooltipText = `${fullName}: ₹${l.price.toLocaleString('en-IN')}${dist !== null ? ` (${dist >= 0 ? '+' : ''}${dist.toFixed(2)}%)` : ''}`;
+
+            return (
+              <div
+                key={l.label}
+                className={`flex flex-col items-center px-2 py-1 rounded-md ${bg} min-w-[52px]`}
+                title={tooltipText}
+              >
+                <span className={`text-[9px] font-semibold leading-none ${labelColor}`}>{l.label}</span>
+                <span className={`text-[10px] font-mono font-medium leading-tight mt-0.5 ${priceColor}`}>
+                  {l.price >= 10000
+                    ? l.price.toLocaleString('en-IN', { maximumFractionDigits: 0 })
+                    : l.price.toFixed(1)}
+                </span>
+                {dist !== null && (
+                  <span className={`text-[8px] leading-none mt-0.5 ${isNear ? 'text-amber-400' : 'text-slate-500'}`}>
+                    {dist >= 0 ? '+' : ''}{dist.toFixed(1)}%
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   export default function TradesPage() {
     const [marketData, setMarketData] = useState(null);
     const [sectorData, setSectorData] = useState([]);
@@ -202,6 +270,11 @@ function getNiftyLevelAlerts(indices) {
     const [commentaryCollapsed, setCommentaryCollapsed] = useState(false);
     const prevCommentaryRef = useRef(null);
     const soundEnabledRef   = useRef(false); // only alert after first load
+    // Key levels bar — follows chartSymbol
+    const [keyLevels, setKeyLevels] = useState(null);
+    // Nifty-only levels — always NIFTY, used in commentary station alerts
+    const [niftyLevels, setNiftyLevels] = useState(null);
+
     // Chart state
     const [chartSymbol, setChartSymbol] = useState('NIFTY');
     const [chartInterval, setChartInterval] = useState('15minute');
@@ -256,6 +329,35 @@ function getNiftyLevelAlerts(indices) {
       };
       fetchMarketData();
       const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchMarketData(); }, 60000);
+      return () => clearInterval(interval);
+    }, []);
+
+    // Fetch key levels — re-fetch when chart symbol changes
+    useEffect(() => {
+      const fetchKeyLevels = async () => {
+        try {
+          const res = await fetch(`/api/key-levels?symbol=${chartSymbol}`);
+          const data = await res.json();
+          if (data.levels) setKeyLevels(data);
+        } catch { /* ignore */ }
+      };
+      setKeyLevels(null); // clear stale data immediately on symbol switch
+      fetchKeyLevels();
+      const interval = setInterval(fetchKeyLevels, 300000); // refresh every 5 min
+      return () => clearInterval(interval);
+    }, [chartSymbol]);
+
+    // Always fetch NIFTY levels for commentary station alerts (independent of chart symbol)
+    useEffect(() => {
+      const fetchNiftyLevels = async () => {
+        try {
+          const res = await fetch('/api/key-levels?symbol=NIFTY');
+          const data = await res.json();
+          if (data.levels) setNiftyLevels(data);
+        } catch { /* ignore */ }
+      };
+      fetchNiftyLevels();
+      const interval = setInterval(fetchNiftyLevels, 300000);
       return () => clearInterval(interval);
     }, []);
 
@@ -880,17 +982,56 @@ function getNiftyLevelAlerts(indices) {
                         );
                       })()}
 
-                      {/* H/L alert chips */}
-                      {marketData?.indices && (() => {
-                        const alerts = getNiftyLevelAlerts(marketData.indices);
-                        if (!alerts.length) return null;
+                      {/* Station proximity alerts — always NIFTY, independent of chart symbol */}
+                      {niftyLevels?.levels?.length > 0 && niftyLevels.spot && (() => {
+                        const spot = niftyLevels.spot;
+                        const levels = niftyLevels.levels;
+
+                        // Levels within 0.5% = "approaching station"
+                        const approaching = levels.filter(l => Math.abs(l.dist) <= 0.5);
+
+                        // Nearest resistance above and support below
+                        const above = levels.filter(l => l.dist > 0.5).sort((a, b) => a.dist - b.dist)[0];
+                        const below = levels.filter(l => l.dist < -0.5).sort((a, b) => b.dist - a.dist)[0];
+
+                        const fullName = LEVEL_FULL_NAME;
+
                         return (
-                          <div className="flex flex-wrap gap-1">
-                            {alerts.map((a, i) => (
-                              <span key={i} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${a.type === 'resistance' ? 'bg-amber-900/40 text-amber-300' : 'bg-sky-900/40 text-sky-300'}`}>
-                                ⚡ Near {a.label} ({parseFloat(a.val).toFixed(0)})
-                              </span>
+                          <div className="flex flex-col gap-1 pt-0.5 border-t border-blue-800/30">
+                            {/* Approaching alerts */}
+                            {approaching.map(l => (
+                              <div key={l.label} className="flex items-center gap-1.5 animate-pulse">
+                                <span className="text-amber-400 text-[11px]">⚡</span>
+                                <span className="text-[10px] font-semibold text-amber-300">
+                                  Approaching {fullName[l.label] || l.label}
+                                </span>
+                                <span className="text-[10px] font-mono text-amber-400">
+                                  ₹{l.price.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                </span>
+                                <span className="text-[9px] text-amber-600">
+                                  ({l.dist >= 0 ? '+' : ''}{l.dist.toFixed(2)}%)
+                                </span>
+                              </div>
                             ))}
+                            {/* Next stations */}
+                            <div className="flex items-center gap-2 text-[9px] text-slate-500">
+                              {below && (
+                                <span>
+                                  ↓ <span className="text-sky-500 font-medium">{fullName[below.label] || below.label}</span>
+                                  {' '}
+                                  <span className="font-mono text-sky-600">₹{below.price.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                                  <span className="text-slate-600"> ({below.dist.toFixed(1)}%)</span>
+                                </span>
+                              )}
+                              {above && (
+                                <span>
+                                  ↑ <span className="text-rose-500 font-medium">{fullName[above.label] || above.label}</span>
+                                  {' '}
+                                  <span className="font-mono text-rose-600">₹{above.price.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                                  <span className="text-slate-600"> (+{above.dist.toFixed(1)}%)</span>
+                                </span>
+                              )}
+                            </div>
                           </div>
                         );
                       })()}
@@ -1534,6 +1675,10 @@ function getNiftyLevelAlerts(indices) {
                     </a>
                   </div>
                 </div>
+                {/* Key Levels Bar */}
+                {keyLevels?.levels && (
+                  <KeyLevelsBar levels={keyLevels.levels} spot={keyLevels.spot} />
+                )}
                 <div className="flex-1" ref={chartRef} key={`${chartSymbol}-${chartInterval}`} />
               </div>
             </div>
