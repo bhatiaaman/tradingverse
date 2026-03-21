@@ -22,9 +22,10 @@ export default function AdminUsersPage() {
   const [users, setUsers]     = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
-  const [toggling, setToggling]   = useState(null) // email being toggled
-  const [resetting, setResetting] = useState(null) // email being reset
-  const [resetDone, setResetDone] = useState({})   // email → true after success
+  const [toggling, setToggling]     = useState(null) // email being toggled
+  const [resetting, setResetting]   = useState(null) // email being reset
+  const [resetDone, setResetDone]   = useState({})   // email → true after success
+  const [confirmReset, setConfirmReset] = useState(null) // email pending confirmation
 
   useEffect(() => {
     fetch('/api/admin/users')
@@ -34,6 +35,7 @@ export default function AdminUsersPage() {
   }, [])
 
   async function resetPassword(email) {
+    setConfirmReset(null)
     setResetting(email)
     const res = await fetch('/api/admin/users', {
       method:  'POST',
@@ -163,17 +165,34 @@ export default function AdminUsersPage() {
                     <td className="px-5 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         {u.provider !== 'google' && (
-                          <button
-                            onClick={() => resetPassword(u.email)}
-                            disabled={resetting === u.email || resetDone[u.email]}
-                            className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-all disabled:opacity-50 ${
-                              resetDone[u.email]
-                                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                                : 'bg-slate-700/50 text-slate-400 hover:bg-blue-500/10 hover:text-blue-400'
-                            }`}
-                          >
-                            {resetting === u.email ? '…' : resetDone[u.email] ? 'Email sent ✓' : 'Reset pwd'}
-                          </button>
+                          resetDone[u.email] ? (
+                            <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                              Email sent ✓
+                            </span>
+                          ) : confirmReset === u.email ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => resetPassword(u.email)}
+                                disabled={resetting === u.email}
+                                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50"
+                              >
+                                {resetting === u.email ? '…' : 'Yes, send'}
+                              </button>
+                              <button
+                                onClick={() => setConfirmReset(null)}
+                                className="text-xs px-2 py-1.5 rounded-lg text-slate-500 hover:text-slate-300 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmReset(u.email)}
+                              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-700/50 text-slate-400 hover:bg-blue-500/10 hover:text-blue-400 transition-all"
+                            >
+                              Reset pwd
+                            </button>
+                          )
                         )}
                         <button
                           onClick={() => togglePlan(u.email, u.plan)}
