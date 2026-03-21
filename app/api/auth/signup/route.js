@@ -39,8 +39,9 @@ export async function POST(req) {
   }
 
   const hash = await bcrypt.hash(password, 12)
-  const user = { name, email: email.toLowerCase(), hash, createdAt: Date.now() }
+  const user = { name, email: email.toLowerCase(), hash, createdAt: Date.now(), plan: 'free', provider: 'email' }
   await redis.set(userKey, JSON.stringify(user))
+  await redis.sadd(`${NS}:users:all`, email.toLowerCase())
 
   // Send welcome email (fire-and-forget — don't block registration if it fails)
   if (process.env.RESEND_API_KEY) {

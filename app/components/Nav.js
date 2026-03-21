@@ -85,6 +85,14 @@ export default function Nav({ fixed = false }) {
 
         {user ? (
           <div className="flex items-center gap-3">
+            {user.role === 'admin' && (
+              <Link
+                href="/admin/users"
+                className="text-xs font-bold px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:bg-amber-500/20 transition-all"
+              >
+                Admin
+              </Link>
+            )}
             <Link
               href="/settings/account"
               className="text-sm font-semibold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
