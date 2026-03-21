@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { Redis } from '@upstash/redis'
 import { cookies } from 'next/headers'
+import { randomBytes } from 'crypto'
+import { Resend } from 'resend'
 
 const redis = new Redis({
   url:   process.env.UPSTASH_REDIS_REST_URL,
@@ -66,4 +68,51 @@ export async function PATCH(req) {
   await redis.set(userKey, JSON.stringify({ ...user, plan }))
 
   return NextResponse.json({ ok: true, email, plan })
+}
+
+// POST — admin actions (reset-password)
+export async function POST(req) {
+  const admin = await requireAdmin()
+  if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const { email, action } = await req.json()
+  if (!email || action !== 'reset-password') {
+    return NextResponse.json({ error: 'Invalid params' }, { status: 400 })
+  }
+
+  const userKey = `${NS}:user:${email.toLowerCase()}`
+  const raw     = await redis.get(userKey)
+  if (!raw) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+
+  const user = typeof raw === 'string' ? JSON.parse(raw) : raw
+  if (user.provider === 'google') {
+    return NextResponse.json({ error: 'Google accounts do not have passwords' }, { status: 400 })
+  }
+
+  const token    = randomBytes(32).toString('hex')
+  const appUrl   = process.env.NEXT_PUBLIC_APP_URL || 'https://tradingverse.in'
+  const resetUrl = `${appUrl}/reset-password?token=${token}`
+  await redis.set(`${NS}:reset:${token}`, email.toLowerCase(), { ex: 60 * 60 * 24 }) // 24h for admin-initiated
+
+  if (process.env.RESEND_API_KEY) {
+    const resend = new Resend(process.env.RESEND_API_KEY)
+    await resend.emails.send({
+      from:    process.env.RESEND_FROM_EMAIL || 'TradingVerse <noreply@tradingverse.in>',
+      to:      email.toLowerCase(),
+      subject: 'Set your TradingVerse password',
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#0d1829;color:#e2e8f0;border-radius:12px">
+          <h2 style="margin:0 0 8px;font-size:22px;color:#fff">Set your password</h2>
+          <p style="color:#94a3b8;margin:0 0 24px;font-size:15px">
+            The TradingVerse team has sent you a password reset link. Click the button below to set your password.
+            This link expires in <strong style="color:#e2e8f0">24 hours</strong>.
+          </p>
+          <a href="${resetUrl}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px">Set Password</a>
+          <p style="color:#475569;margin:24px 0 0;font-size:13px">If you didn't request this, you can safely ignore this email.</p>
+        </div>
+      `,
+    })
+  }
+
+  return NextResponse.json({ ok: true, resetUrl })
 }

@@ -9,7 +9,7 @@ export default function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const rawNext = searchParams.get('next') || ''
-  const nextUrl = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/trades'
+  const nextUrl = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/'
   const [mode, setMode] = useState('login') // 'login' | 'signup' | 'forgot'
   const [form, setForm] = useState({ name: '', email: '', password: '' })
   const [showPass, setShowPass] = useState(false)

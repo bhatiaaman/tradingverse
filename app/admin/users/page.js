@@ -22,7 +22,9 @@ export default function AdminUsersPage() {
   const [users, setUsers]     = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
-  const [toggling, setToggling] = useState(null) // email being toggled
+  const [toggling, setToggling]   = useState(null) // email being toggled
+  const [resetting, setResetting] = useState(null) // email being reset
+  const [resetDone, setResetDone] = useState({})   // email → true after success
 
   useEffect(() => {
     fetch('/api/admin/users')
@@ -30,6 +32,20 @@ export default function AdminUsersPage() {
       .then(d => { setUsers(d.users || []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
+
+  async function resetPassword(email) {
+    setResetting(email)
+    const res = await fetch('/api/admin/users', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ email, action: 'reset-password' }),
+    })
+    if (res.ok) {
+      setResetDone(d => ({ ...d, [email]: true }))
+      setTimeout(() => setResetDone(d => { const n = { ...d }; delete n[email]; return n }), 4000)
+    }
+    setResetting(null)
+  }
 
   async function togglePlan(email, currentPlan) {
     const newPlan = currentPlan === 'pro' ? 'free' : 'pro'
@@ -102,7 +118,7 @@ export default function AdminUsersPage() {
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 tracking-wide">Provider</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 tracking-wide">Joined</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 tracking-wide">Plan</th>
-                  <th className="text-right px-5 py-3.5 text-xs font-semibold text-slate-500 tracking-wide">Action</th>
+                  <th className="text-right px-5 py-3.5 text-xs font-semibold text-slate-500 tracking-wide">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -145,17 +161,32 @@ export default function AdminUsersPage() {
                       </span>
                     </td>
                     <td className="px-5 py-4 text-right">
-                      <button
-                        onClick={() => togglePlan(u.email, u.plan)}
-                        disabled={toggling === u.email}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-all disabled:opacity-50 ${
-                          u.plan === 'pro'
-                            ? 'bg-slate-700/50 text-slate-400 hover:bg-rose-500/20 hover:text-rose-400'
-                            : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20'
-                        }`}
-                      >
-                        {toggling === u.email ? '…' : u.plan === 'pro' ? 'Revoke pro' : 'Grant pro'}
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        {u.provider !== 'google' && (
+                          <button
+                            onClick={() => resetPassword(u.email)}
+                            disabled={resetting === u.email || resetDone[u.email]}
+                            className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-all disabled:opacity-50 ${
+                              resetDone[u.email]
+                                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                : 'bg-slate-700/50 text-slate-400 hover:bg-blue-500/10 hover:text-blue-400'
+                            }`}
+                          >
+                            {resetting === u.email ? '…' : resetDone[u.email] ? 'Email sent ✓' : 'Reset pwd'}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => togglePlan(u.email, u.plan)}
+                          disabled={toggling === u.email}
+                          className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-all disabled:opacity-50 ${
+                            u.plan === 'pro'
+                              ? 'bg-slate-700/50 text-slate-400 hover:bg-rose-500/20 hover:text-rose-400'
+                              : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20'
+                          }`}
+                        >
+                          {toggling === u.email ? '…' : u.plan === 'pro' ? 'Revoke pro' : 'Grant pro'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
