@@ -12,7 +12,8 @@ async function redisGet(key) {
       cache: 'no-store',
     })
     const data = await res.json()
-    return data.result ? JSON.parse(data.result) : null
+    if (data.result === null || data.result === undefined) return null
+    try { return JSON.parse(data.result) } catch { return data.result }
   } catch { return null }
 }
 
