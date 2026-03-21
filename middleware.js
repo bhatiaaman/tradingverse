@@ -17,55 +17,91 @@ async function redisGet(key) {
   } catch { return null }
 }
 
-// Routes that require a logged-in pro account
-const PRO_PREFIXES   = ['/trades', '/investing', '/pre-market', '/settings', '/learn', '/games', '/orders', '/terminal', '/chart', '/stock-updates']
-// Routes only the owner can access
+// Page routes — order matters (more specific first)
+const PAGE_ROUTES = [
+  { key: 'pre-market',    prefix: '/pre-market'    },
+  { key: 'stock-updates', prefix: '/stock-updates'  },
+  { key: 'trades',        prefix: '/trades'         },
+  { key: 'terminal',      prefix: '/terminal'       },
+  { key: 'investing',     prefix: '/investing'      },
+  { key: 'learn',         prefix: '/learn'          },
+  { key: 'games',         prefix: '/games'          },
+  { key: 'orders',        prefix: '/orders'         },
+  { key: 'settings',      prefix: '/settings'       },
+  { key: 'chart',         prefix: '/chart'          },
+]
+
 const ADMIN_PREFIXES = ['/admin']
+
+// Module-level flags cache (per Edge instance, refreshes every 60s)
+let _flags    = null
+let _flagsAt  = 0
+const FLAGS_TTL = 60_000
+
+async function getFlags() {
+  if (_flags && Date.now() - _flagsAt < FLAGS_TTL) return _flags
+  const data = await redisGet(`${NS}:feature-flags`)
+  _flags   = data || {}
+  _flagsAt = Date.now()
+  return _flags
+}
+
+function loginRedirect(pathname, req) {
+  const url = req.nextUrl.clone()
+  url.pathname = '/login'
+  url.searchParams.set('next', pathname)
+  return NextResponse.redirect(url)
+}
 
 export async function middleware(req) {
   const { pathname } = req.nextUrl
 
-  const isProPath   = PRO_PREFIXES.some(p => pathname.startsWith(p))
   const isAdminPath = ADMIN_PREFIXES.some(p => pathname.startsWith(p))
+  const pageRoute   = PAGE_ROUTES.find(r => pathname.startsWith(r.prefix))
 
-  if (!isProPath && !isAdminPath) return NextResponse.next()
+  if (!isAdminPath && !pageRoute) return NextResponse.next()
 
   const token = req.cookies.get('tv_session')?.value
 
-  // Not logged in → redirect to login
-  if (!token) {
-    const url = req.nextUrl.clone()
-    url.pathname = '/login'
-    url.searchParams.set('next', pathname)
-    return NextResponse.redirect(url)
-  }
-
-  // Resolve session
-  const email = await redisGet(`${NS}:session:${token}`)
-  if (!email) {
-    const url = req.nextUrl.clone()
-    url.pathname = '/login'
-    url.searchParams.set('next', pathname)
-    return NextResponse.redirect(url)
-  }
-
-  const isOwner = typeof email === 'string' && email.toLowerCase() === OWNER_EMAIL
-
-  // Admin gate — owner only
-  if (isAdminPath && !isOwner) {
-    return NextResponse.redirect(new URL('/trades', req.url))
-  }
-
-  // Pro gate — owner always bypasses
-  if (isProPath && !isOwner) {
-    const user = await redisGet(`${NS}:user:${email}`)
-    const plan = user?.plan || 'free'
-    if (plan !== 'pro') {
-      return NextResponse.redirect(new URL('/upgrade', req.url))
+  // ── Admin gate ──────────────────────────────────────────────────────────
+  if (isAdminPath) {
+    if (!token) return loginRedirect(pathname, req)
+    const email = await redisGet(`${NS}:session:${token}`)
+    if (!email) return loginRedirect(pathname, req)
+    if (String(email).toLowerCase() !== OWNER_EMAIL) {
+      return NextResponse.redirect(new URL('/trades', req.url))
     }
+    return NextResponse.next()
   }
 
-  return NextResponse.next()
+  // ── Page gate ───────────────────────────────────────────────────────────
+  const flags    = await getFlags()
+  const pageFlag = flags[pageRoute.key] || { visitor: false, free: false }
+
+  // No session → visitor
+  if (!token) {
+    return pageFlag.visitor
+      ? NextResponse.next()
+      : loginRedirect(pathname, req)
+  }
+
+  // Has session → resolve email
+  const email = await redisGet(`${NS}:session:${token}`)
+  if (!email) return loginRedirect(pathname, req)
+
+  // Owner always passes
+  if (OWNER_EMAIL && String(email).toLowerCase() === OWNER_EMAIL) {
+    return NextResponse.next()
+  }
+
+  // Free users allowed for this page?
+  if (pageFlag.free) return NextResponse.next()
+
+  // Pro check
+  const user = await redisGet(`${NS}:user:${email}`)
+  if ((user?.plan || 'free') === 'pro') return NextResponse.next()
+
+  return NextResponse.redirect(new URL('/upgrade', req.url))
 }
 
 export const config = {
