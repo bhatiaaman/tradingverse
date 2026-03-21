@@ -22,9 +22,10 @@ export default function AdminUsersPage() {
   const [users, setUsers]     = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
-  const [toggling, setToggling]     = useState(null) // email being toggled
-  const [resetting, setResetting]   = useState(null) // email being reset
-  const [resetDone, setResetDone]   = useState({})   // email → true after success
+  const [toggling, setToggling]         = useState(null) // email being toggled
+  const [resetting, setResetting]       = useState(null) // email being reset
+  const [resetLinks, setResetLinks]     = useState({})   // email → resetUrl
+  const [copied, setCopied]             = useState(null) // email whose link was just copied
   const [confirmReset, setConfirmReset] = useState(null) // email pending confirmation
 
   useEffect(() => {
@@ -43,10 +44,16 @@ export default function AdminUsersPage() {
       body:    JSON.stringify({ email, action: 'reset-password' }),
     })
     if (res.ok) {
-      setResetDone(d => ({ ...d, [email]: true }))
-      setTimeout(() => setResetDone(d => { const n = { ...d }; delete n[email]; return n }), 4000)
+      const data = await res.json()
+      setResetLinks(l => ({ ...l, [email]: data.resetUrl }))
     }
     setResetting(null)
+  }
+
+  async function copyLink(email, url) {
+    await navigator.clipboard.writeText(url)
+    setCopied(email)
+    setTimeout(() => setCopied(c => c === email ? null : c), 2000)
   }
 
   async function togglePlan(email, currentPlan) {
@@ -165,10 +172,14 @@ export default function AdminUsersPage() {
                     <td className="px-5 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         {u.provider !== 'google' && (
-                          resetDone[u.email] ? (
-                            <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                              Email sent ✓
-                            </span>
+                          resetLinks[u.email] ? (
+                            <button
+                              onClick={() => copyLink(u.email, resetLinks[u.email])}
+                              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-all"
+                              title={resetLinks[u.email]}
+                            >
+                              {copied === u.email ? 'Copied!' : 'Copy reset link'}
+                            </button>
                           ) : confirmReset === u.email ? (
                             <div className="flex items-center gap-1">
                               <button
