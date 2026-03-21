@@ -2,12 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import Nav from '../components/Nav'
 import { useUser, isPro } from '@/app/lib/use-user'
 
 export default function SettingsPage() {
-  const user    = useUser()
-  const [kite, setKite] = useState(null) // null = loading
+  const user   = useUser()
+  const router = useRouter()
+  const [kite, setKite] = useState(null)
+
+  // Redirect visitors to login
+  useEffect(() => {
+    if (user === null) router.replace('/login?next=/settings')
+  }, [user, router])
 
   useEffect(() => {
     if (!isPro(user)) return
@@ -19,7 +26,7 @@ export default function SettingsPage() {
 
   const connected = kite?.tokenValid === true
 
-  if (user === undefined) return null // loading
+  if (!user) return null // loading or redirecting visitor
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#060b14] text-slate-900 dark:text-white">
