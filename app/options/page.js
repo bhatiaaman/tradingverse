@@ -294,8 +294,8 @@ function PayoffChart({ spot, atmStrike, premium, isStrangle, lowerStrike, upperS
   return <canvas ref={canvasRef} className="w-full h-[160px] rounded" />;
 }
 
-// ── Straddle Chart (line, reuses our canvas module) ───────────────────────────
-function StraddleChart({ data }) {
+// ── Straddle / Strangle Chart (line, reuses our canvas module) ───────────────
+function StraddleChart({ data, color = '#818cf8', label = 'Straddle' }) {
   const ref    = useRef(null);
   const chartR = useRef(null);
 
@@ -305,19 +305,18 @@ function StraddleChart({ data }) {
       if (chartR.current) { chartR.current.destroy(); chartR.current = null; }
       const chart = createChart(ref.current, { interval: '5minute' });
       chartR.current = chart;
-      // Pass as candles (open=close=high=low=value) for line rendering
       const candles = data.map(d => ({
         time: d.time, open: d.value, high: d.value, low: d.value, close: d.value, volume: 0,
       }));
       chart.setCandles(candles);
-      chart.setLine('straddle', { data: data.map(d => ({ time: d.time, value: d.value })), color: '#818cf8', width: 2 });
+      chart.setLine('premium', { data: data.map(d => ({ time: d.time, value: d.value })), color, width: 2 });
     });
     return () => { chartR.current?.destroy(); chartR.current = null; };
-  }, [data]);
+  }, [data, color]);
 
   if (!data?.length) return (
     <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">
-      No intraday straddle data available
+      No intraday {label.toLowerCase()} data available
     </div>
   );
   return <div ref={ref} className="flex-1 relative min-h-[180px]" />;
@@ -331,9 +330,12 @@ export default function OptionsPage() {
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState(null);
 
-  // Straddle chart
-  const [straddleData,   setStraddleData]   = useState(null);
+  // Straddle / Strangle chart
+  const [chartMode,       setChartMode]       = useState('straddle'); // 'straddle' | 'strangle'
+  const [straddleData,    setStraddleData]    = useState(null);
   const [straddleLoading, setStraddleLoading] = useState(false);
+  const [strangleData,    setStrangleData]    = useState(null);
+  const [strangleLoading, setStrangleLoading] = useState(false);
 
   // Probability panel
   const [probTarget,    setProbTarget]    = useState('');
@@ -379,6 +381,20 @@ export default function OptionsPage() {
       .catch(() => setStraddleData([]))
       .finally(() => setStraddleLoading(false));
   }, [chainData?.atm, chainData?.expiry, symbol]);
+
+  // ── Fetch strangle chart when strikes or ATM changes ────────────────────────
+  useEffect(() => {
+    if (!chainData?.expiry || !strikesInput.lower || !strikesInput.upper) return;
+    const ceS = parseInt(strikesInput.upper);
+    const peS = parseInt(strikesInput.lower);
+    if (!ceS || !peS) return;
+    setStrangleLoading(true);
+    fetch(`/api/options/straddle-chart?symbol=${symbol}&expiry=${chainData.expiry}&ceStrike=${ceS}&peStrike=${peS}&interval=5minute`)
+      .then(r => r.json())
+      .then(d => { setStrangleData(d.candles || []); })
+      .catch(() => setStrangleData([]))
+      .finally(() => setStrangleLoading(false));
+  }, [chainData?.expiry, symbol, strikesInput.lower, strikesInput.upper]);
 
   // ── Probability calculation ─────────────────────────────────────────────────
   const computeProbs = () => {
@@ -501,20 +517,46 @@ export default function OptionsPage() {
       {chainData && (
         <div className="max-w-[1400px] mx-auto px-6 pb-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-          {/* Straddle Chart */}
+          {/* Straddle / Strangle Chart */}
           <div className="lg:col-span-2 bg-[#0c1a2e] border border-white/5 rounded-xl overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2 border-b border-white/5">
-              <span className="text-xs font-semibold text-slate-300">ATM Straddle — Intraday</span>
-              {straddleData?.length > 0 && (
-                <span className="text-[10px] text-slate-500">
-                  {atm} CE + PE combined premium
-                </span>
-              )}
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-semibold text-slate-300">Intraday Premium</span>
+                <div className="flex bg-[#060b14] rounded-lg p-0.5">
+                  {[{ val: 'straddle', label: 'Straddle' }, { val: 'strangle', label: 'Strangle' }].map(m => (
+                    <button key={m.val} onClick={() => setChartMode(m.val)}
+                      className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${chartMode === m.val ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <span className="text-[10px] text-slate-500">
+                {chartMode === 'straddle'
+                  ? `${atm} CE + PE`
+                  : `${strikesInput.lower} PE + ${strikesInput.upper} CE`}
+              </span>
             </div>
+            {chartMode === 'strangle' && (
+              <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5 text-xs">
+                <span className="text-slate-500">PE strike</span>
+                <input type="number" value={strikesInput.lower}
+                  onChange={e => setStrikesInput(p => ({ ...p, lower: e.target.value }))}
+                  className="w-24 bg-[#060b14] border border-white/10 rounded px-2 py-1 text-slate-300" />
+                <span className="text-slate-500">CE strike</span>
+                <input type="number" value={strikesInput.upper}
+                  onChange={e => setStrikesInput(p => ({ ...p, upper: e.target.value }))}
+                  className="w-24 bg-[#060b14] border border-white/10 rounded px-2 py-1 text-slate-300" />
+              </div>
+            )}
             <div className="p-2 flex min-h-[200px]">
-              {straddleLoading
-                ? <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading chart...</div>
-                : <StraddleChart data={straddleData} />
+              {chartMode === 'straddle'
+                ? (straddleLoading
+                    ? <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading...</div>
+                    : <StraddleChart data={straddleData} color="#818cf8" label="Straddle" />)
+                : (strangleLoading
+                    ? <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading...</div>
+                    : <StraddleChart data={strangleData} color="#34d399" label="Strangle" />)
               }
             </div>
           </div>

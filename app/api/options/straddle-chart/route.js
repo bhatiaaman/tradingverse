@@ -67,12 +67,19 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const symbol   = (searchParams.get('symbol')   || 'NIFTY').toUpperCase();
   const expiry   = searchParams.get('expiry')    || '';
-  const strike   = parseFloat(searchParams.get('strike') || '0');
   const interval = searchParams.get('interval')  || '5minute';
 
-  if (!expiry || !strike) return NextResponse.json({ error: 'expiry and strike required' }, { status: 400 });
+  // Straddle: single strike for both legs.
+  // Strangle: ceStrike (OTM call) + peStrike (OTM put), different strikes.
+  const strike   = parseFloat(searchParams.get('strike')   || '0');
+  const ceStrike = parseFloat(searchParams.get('ceStrike') || '0') || strike;
+  const peStrike = parseFloat(searchParams.get('peStrike') || '0') || strike;
 
-  const cacheKey = `${NS}:straddle-chart-${symbol}-${expiry}-${strike}-${interval}`;
+  if (!expiry || (!strike && (!ceStrike || !peStrike))) {
+    return NextResponse.json({ error: 'expiry and strike (or ceStrike+peStrike) required' }, { status: 400 });
+  }
+
+  const cacheKey = `${NS}:straddle-chart-${symbol}-${expiry}-${ceStrike}-${peStrike}-${interval}`;
   const cached   = await redisGet(cacheKey);
   if (cached) return NextResponse.json({ ...cached, fromCache: true });
 
@@ -81,8 +88,8 @@ export async function GET(request) {
     if (!dp.isConnected()) return NextResponse.json({ error: 'Kite disconnected' }, { status: 503 });
 
     const instruments = await getNFOInstruments(dp);
-    const ce = instruments.find(i => i.name === symbol && i.expiry === expiry && i.strike === strike && i.type === 'CE');
-    const pe = instruments.find(i => i.name === symbol && i.expiry === expiry && i.strike === strike && i.type === 'PE');
+    const ce = instruments.find(i => i.name === symbol && i.expiry === expiry && i.strike === ceStrike && i.type === 'CE');
+    const pe = instruments.find(i => i.name === symbol && i.expiry === expiry && i.strike === peStrike && i.type === 'PE');
 
     if (!ce || !pe) return NextResponse.json({ error: `Options not found for ${symbol} ${expiry} ${strike}` }, { status: 404 });
 
@@ -116,7 +123,7 @@ export async function GET(request) {
     }).filter(c => c.value > 0);
 
     const response = {
-      symbol, expiry, strike, interval,
+      symbol, expiry, ceStrike, peStrike, interval,
       ceSymbol: ce.symbol, peSymbol: pe.symbol,
       candles,
       timestamp: new Date().toISOString(),
