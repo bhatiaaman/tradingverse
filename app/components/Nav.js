@@ -30,6 +30,7 @@ export default function Nav({ fixed = false }) {
 
   const links = [
     { href: '/trades',    label: 'Trading Dashboard' },
+    { href: '/options',   label: 'Options' },
     { href: '/games',     label: 'Trading Games' },
     { href: '/learn',     label: 'Learn' },
     { href: '/investing', label: 'Investing' },
