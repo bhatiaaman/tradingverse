@@ -144,16 +144,30 @@ export function probAtTime(S, X, tDays, r = R_DEFAULT, q = Q_DEFAULT, sigma, dir
 
 // ── Probability of touching a level at ANY point before expiry ────────────────
 // Uses the reflection principle for geometric Brownian motion.
-// Works for both up-barriers (X > S) and down-barriers (X < S).
+// Up-barrier (X > S) and down-barrier (X < S) use different sign conventions:
+//   Up:   z1 = (νT − lnRatio) / σ√T  → negative when barrier is far above
+//   Down: z1 = (lnRatio − νT) / σ√T  → negative when barrier is far below
+// The original single formula (lnRatio − νT) only works for down-barriers;
+// for up-barriers lnRatio > 0 makes z1 large positive and N(z1) → 1 (bug fixed here).
 export function probTouch(S, X, T, r = R_DEFAULT, q = Q_DEFAULT, sigma) {
   if (!sigma || T <= 0 || !X || X <= 0 || X === S) return null;
-  const nu   = r - q - 0.5 * sigma * sigma;   // risk-neutral drift
-  const lnRatio = Math.log(X / S);             // negative for down-barrier
-  const sqrtT   = Math.sqrt(T);
-  const z1 = (lnRatio - nu * T) / (sigma * sqrtT);
-  const z2 = (lnRatio + nu * T) / (sigma * sqrtT);
-  const exp = Math.pow(X / S, 2 * nu / (sigma * sigma));
-  const p   = normCDF(z1) + exp * normCDF(z2);
+  const nu       = r - q - 0.5 * sigma * sigma;   // log drift (risk-neutral)
+  const lnRatio  = Math.log(X / S);               // + for up-barrier, − for down
+  const sqrtT    = Math.sqrt(T);
+  const expTerm  = Math.pow(X / S, 2 * nu / (sigma * sigma));
+
+  let z1, z2;
+  if (X > S) {
+    // Up-barrier: P(max S_t ≥ X over [0,T])
+    z1 = (nu * T - lnRatio) / (sigma * sqrtT);    // < 0 for distant barrier
+    z2 = (-nu * T - lnRatio) / (sigma * sqrtT);
+  } else {
+    // Down-barrier: P(min S_t ≤ X over [0,T])
+    z1 = (lnRatio - nu * T) / (sigma * sqrtT);    // < 0 for distant barrier
+    z2 = (lnRatio + nu * T) / (sigma * sqrtT);
+  }
+
+  const p = normCDF(z1) + expTerm * normCDF(z2);
   return Math.min(1, Math.max(0, p));
 }
 
