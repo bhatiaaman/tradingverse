@@ -298,6 +298,11 @@ function PayoffChart({ spot, atmStrike, premium, isStrangle, lowerStrike, upperS
 function StraddleChart({ data, color = '#818cf8', label = 'Straddle' }) {
   const ref    = useRef(null);
   const chartR = useRef(null);
+  const [hover, setHover] = useState(null); // { value, ce, pe } | null
+
+  // Last data point — shown when crosshair is not active
+  const last = data?.length ? data[data.length - 1] : null;
+  const display = hover ?? (last ? { value: last.value, ce: last.ce, pe: last.pe } : null);
 
   useEffect(() => {
     if (!ref.current || !data?.length) return;
@@ -310,6 +315,14 @@ function StraddleChart({ data, color = '#818cf8', label = 'Straddle' }) {
       }));
       chart.setCandles(candles);
       chart.setLine('premium', { data: data.map(d => ({ time: d.time, value: d.value })), color, width: 2 });
+
+      // Map time → { ce, pe } for crosshair lookup
+      const cepeMap = new Map(data.map(d => [d.time, { ce: d.ce, pe: d.pe }]));
+      chart.onCrosshairMove(info => {
+        if (!info) { setHover(null); return; }
+        const cp = cepeMap.get(info.bar.time) || {};
+        setHover({ value: info.bar.close, ce: cp.ce ?? null, pe: cp.pe ?? null });
+      });
     });
     return () => { chartR.current?.destroy(); chartR.current = null; };
   }, [data, color]);
@@ -319,7 +332,19 @@ function StraddleChart({ data, color = '#818cf8', label = 'Straddle' }) {
       No intraday {label.toLowerCase()} data available
     </div>
   );
-  return <div ref={ref} className="flex-1 relative min-h-[180px]" />;
+
+  return (
+    <div className="flex-1 relative min-h-[180px]">
+      {display && (
+        <div className="absolute top-2 left-2 z-10 flex items-center gap-2 text-[11px] font-mono bg-[#0a1628]/90 border border-white/10 rounded px-2.5 py-1.5 pointer-events-none">
+          <span style={{ color }} className="font-bold">₹{display.value?.toFixed(2)}</span>
+          {display.ce != null && <span className="text-sky-400">CE {display.ce.toFixed(2)}</span>}
+          {display.pe != null && <span className="text-rose-400">PE {display.pe.toFixed(2)}</span>}
+        </div>
+      )}
+      <div ref={ref} className="absolute inset-0" />
+    </div>
+  );
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
