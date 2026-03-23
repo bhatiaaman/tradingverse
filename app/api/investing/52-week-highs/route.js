@@ -15,7 +15,23 @@ function todayIST() {
   return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36';
+
+const COMMON_HEADERS = {
+  'User-Agent': UA,
+  'Accept-Language': 'en-IN,en-GB;q=0.9,en;q=0.8',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'sec-ch-ua': '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"Windows"',
+  'sec-fetch-site': 'same-origin',
+  'sec-fetch-mode': 'navigate',
+  'sec-fetch-user': '?1',
+  'sec-fetch-dest': 'document',
+  'DNT': '1',
+  'Connection': 'keep-alive',
+  'Upgrade-Insecure-Requests': '1',
+};
 
 function extractCookies(response) {
   const all = typeof response.headers.getSetCookie === 'function'
@@ -27,22 +43,21 @@ function extractCookies(response) {
 async function nseSession() {
   const home = await fetch('https://www.nseindia.com/', {
     headers: {
-      'User-Agent': UA,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.5',
+      ...COMMON_HEADERS,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
     },
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(10000),
   });
   const c1 = extractCookies(home);
 
   const page = await fetch('https://www.nseindia.com/market-data/new-52-week-high-low', {
     headers: {
-      'User-Agent': UA,
-      'Accept': 'text/html,*/*',
+      ...COMMON_HEADERS,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
       'Cookie': c1,
       'Referer': 'https://www.nseindia.com/',
     },
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(10000),
   });
   const c2 = extractCookies(page);
 
@@ -71,9 +86,11 @@ async function fetchList(cookies, index, referer) {
   const url = `https://www.nseindia.com/api/live-analysis-variations?index=${index}`;
   const res = await fetch(url, {
     headers: {
-      'User-Agent': UA,
+      ...COMMON_HEADERS,
       'Accept': 'application/json, text/plain, */*',
-      'Accept-Language': 'en-US,en;q=0.9',
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-dest': 'empty',
+      'sec-fetch-site': 'same-origin',
       'Referer': referer,
       'X-Requested-With': 'XMLHttpRequest',
       'Cookie': cookies,
