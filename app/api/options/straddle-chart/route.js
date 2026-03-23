@@ -110,12 +110,13 @@ export async function GET(request) {
       return NextResponse.json({ candles: [], ceSymbol: ce.symbol, peSymbol: pe.symbol });
     }
 
-    // Merge CE + PE by timestamp → sum close prices as straddle value
-    const peMap = new Map((peData || []).map(c => [c.date, c.close]));
+    // Merge CE + PE by Unix-second timestamp (avoids string format mismatches)
+    const peMap = new Map((peData || []).map(c => [Math.floor(new Date(c.date).getTime() / 1000), c.close]));
     const candles = (ceData || []).map(c => {
-      const peClose = peMap.get(c.date) || 0;
+      const ts      = Math.floor(new Date(c.date).getTime() / 1000);
+      const peClose = peMap.get(ts) || 0;
       return {
-        time:  Math.floor(new Date(c.date).getTime() / 1000),
+        time:  ts,
         value: parseFloat((c.close + peClose).toFixed(2)),
         ce:    parseFloat(c.close.toFixed(2)),
         pe:    parseFloat(peClose.toFixed(2)),
