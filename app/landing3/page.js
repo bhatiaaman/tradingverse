@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import Nav from './components/Nav'
+import Nav from '../components/Nav'
 
 // ── Scroll-reveal ────────────────────────────────────────────────────────────
 function useReveal() {
@@ -627,7 +627,7 @@ export default function Home() {
             </Link>
             <Link href="/trades"
               className="w-full sm:w-auto px-8 py-4 bg-white/5 hover:bg-white/8 border border-white/10 text-white font-semibold rounded-2xl transition-all text-base">
-              Open Terminal →
+              Open Dashboard →
             </Link>
           </div>
           <p data-reveal className="delay-3 mt-4 text-xs text-slate-600">
@@ -765,7 +765,7 @@ export default function Home() {
                   ))}
                 </div>
                 <Link href="/trades" className="inline-flex items-center gap-2 text-sm font-semibold text-sky-400 hover:text-sky-300 transition-colors">
-                  Open Terminal →
+                  Open Dashboard →
                 </Link>
               </div>
             </div>

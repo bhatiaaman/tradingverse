@@ -70,7 +70,7 @@ async function fetchIndianIndicesFromKite(dp) {
       vix:       processIndex('VIX'),
       finNifty:  processIndex('FINNIFTY'),
       midcap:    processIndex('MIDCAP'),
-      giftNifty: processIndex('GIFTNIFTY'),
+      // GIFTNIFTY excluded — Kite's NSEIX feed is unreliable; Yahoo used instead
     };
   } catch (error) {
     console.error('Kite indices fetch error:', error.message);
@@ -498,8 +498,9 @@ export async function GET() {
     }
 
     // GIFT Nifty handling
-    // Price: Kite live → Yahoo fallback
-    let giftNiftyPrice = kiteIndices?.giftNifty?.price ?? giftNifty?.price ?? null;
+    // Price: Yahoo only — Kite's NSEIX feed returns stale/wrong values for GIFT NIFTY.
+    // Yahoo GIFTNIFTY.NS tracks the continuous front-month contract reliably.
+    let giftNiftyPrice = giftNifty?.price ?? null;
 
     // Prev close for change%: use NSE Nifty's last session close — this is what SGX/NSE IFSC
     // uses and what traders care about (implied gap on open). GIFT's own session close
