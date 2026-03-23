@@ -304,6 +304,7 @@ function getNiftyLevelAlerts(indices) {
     const [emaPeriods, setEmaPeriods] = useState([9,21]);
     const [showVwap, setShowVwap] = useState(true);
     const [showZoneLines, setShowZoneLines] = useState(true);
+    const [showVolume, setShowVolume] = useState(true);
     const chartRef = useRef(null);
     const chartInstanceRef = useRef(null);
     const candleSeriesRef = useRef(null);
@@ -313,7 +314,12 @@ function getNiftyLevelAlerts(indices) {
     const showZoneLinesRef = useRef(true);
     const drawZoneLinesRef = useRef(null);
     const priceShiftRef = useRef(0);
+    const [useCustomChart, setUseCustomChart] = useState(true);
+    const customChartRef = useRef(null);      // our chart instance
+    const customChartCtnRef = useRef(null);   // container div for our canvas
+    const customVwapDataRef = useRef(null);   // cached vwap data for toggle
     const [hoverOHLC, setHoverOHLC] = useState(null);
+    const [hoverLineValues, setHoverLineValues] = useState(null);
     const [showIndicators, setShowIndicators] = useState(false);
     const [rsiValue, setRsiValue] = useState(null);
     const [candleVersion, setCandleVersion] = useState(0);
@@ -849,7 +855,7 @@ function getNiftyLevelAlerts(indices) {
 
       initChart();
 
-      // ── Vertical price-pan + double-click reset (mirrors terminal chart) ──────
+      // ── Vertical price-pan + double-click reset ───────────────────────────────
       priceShiftRef.current = 0;
       const dragState = { active: false, startX: 0, startY: 0, lastY: 0, dir: null };
 
@@ -879,7 +885,8 @@ function getNiftyLevelAlerts(indices) {
 
       const onMouseDown = e => {
         if (e.button !== 0 || !el.contains(e.target)) return;
-        dragState.active = true; dragState.startX = e.clientX; dragState.startY = e.clientY;
+        dragState.active = true;
+        dragState.startX = e.clientX; dragState.startY = e.clientY;
         dragState.lastY = e.clientY; dragState.dir = null;
       };
 
@@ -982,6 +989,134 @@ function getNiftyLevelAlerts(indices) {
         if (rsiChartRef.current) { rsiChartRef.current.remove(); rsiChartRef.current = null; }
       };
     }, [showIndicators, candleVersion]);
+
+    // ── Custom chart (our canvas module) ─────────────────────────────────────
+    useEffect(() => {
+      if (!useCustomChart) return;
+      const el = customChartCtnRef.current;
+      if (!el) return;
+
+      import('@/app/lib/chart/Chart.js').then(({ createChart }) => {
+        // Destroy previous instance if any
+        if (customChartRef.current) { customChartRef.current.destroy(); customChartRef.current = null; }
+
+        const chart = createChart(el, { interval: chartInterval });
+        customChartRef.current = chart;
+
+        chart.onCrosshairMove(info => {
+          if (!info) { setHoverOHLC(null); setHoverLineValues(null); return; }
+          setHoverOHLC({ open: info.bar.open, high: info.bar.high, low: info.bar.low, close: info.bar.close, volume: info.bar.volume ?? 0 });
+          setHoverLineValues(info.lineValues ?? null);
+        });
+
+        const fetchData = async () => {
+          try {
+            const days = chartInterval === 'week' ? 365 : chartInterval === 'day' ? 60 : 5;
+            const res  = await fetch(`/api/nifty-chart?symbol=${chartSymbol}&interval=${chartInterval}&days=${days}`);
+            const data = await res.json();
+            if (!data.candles?.length) return;
+
+            candleDataRef.current = data.candles;
+            chart.setCandles(data.candles);
+
+            // EMA lines
+            emaPeriods.forEach((period, idx) => {
+              const colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#a21caf'];
+              const emaData = calculateEMA(data.candles, period);
+              chart.setLine(`ema${period}`, { data: emaData, color: colors[idx % colors.length], width: 1.5 });
+            });
+
+            // VWAP (intraday only)
+            const isIntraday = chartInterval === '5minute' || chartInterval === '15minute';
+            if (isIntraday) {
+              const IST_OFFSET_S = 5.5 * 3600;
+              const todayIST = new Date(Date.now() + IST_OFFSET_S * 1000).toISOString().slice(0, 10);
+              const todayCandles = data.candles.filter(c => new Date(c.time * 1000 + IST_OFFSET_S * 1000).toISOString().slice(0, 10) === todayIST);
+              const vwapData = computeVWAP(todayCandles.length ? todayCandles : data.candles);
+              customVwapDataRef.current = vwapData;
+              if (showVwap) chart.setLine('vwap', { data: vwapData, color: '#a78bfa', width: 2 });
+            } else {
+              chart.clearLine('vwap');
+            }
+
+            // Zone lines
+            const kl = keyLevelsForZoneRef.current;
+            if (showZoneLinesRef.current && kl?.levels?.length) {
+              const ceiling = kl.levels.find(l => l.dist > 0.5);
+              const floor   = kl.levels.find(l => l.dist < -0.5);
+              const fullName = LEVEL_FULL_NAME;
+              chart.clearAllZones();
+              if (ceiling) chart.setZone({ id: 'ceiling', price: ceiling.price, color: 'rgba(251,113,133,0.85)', label: `▲ ${fullName[ceiling.label] || ceiling.label}`, style: 'dashed' });
+              if (floor)   chart.setZone({ id: 'floor',   price: floor.price,   color: 'rgba(125,211,252,0.85)', label: `▼ ${fullName[floor.label]   || floor.label}`,   style: 'dashed' });
+            }
+          } catch (err) {
+            console.error('[custom chart] fetch error:', err);
+          }
+        };
+
+        fetchData();
+
+        let interval;
+        if (chartInterval === '5minute' || chartInterval === '15minute') {
+          interval = setInterval(fetchData, 60000);
+        }
+
+        return () => {
+          clearInterval(interval);
+          chart.destroy();
+          customChartRef.current = null;
+        };
+      });
+    }, [useCustomChart, chartSymbol, chartInterval]);
+
+    // Sync EMA lines to custom chart when emaPeriods toggle changes (no chart rebuild)
+    useEffect(() => {
+      const chart = customChartRef.current;
+      if (!useCustomChart || !chart) return;
+      const candles = candleDataRef.current;
+      if (!candles?.length) return;
+      const allPeriods = [9, 21, 50, 200];
+      const colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#a21caf'];
+      allPeriods.forEach((period, idx) => {
+        if (emaPeriods.includes(period)) {
+          const emaData = calculateEMA(candles, period);
+          chart.setLine(`ema${period}`, { data: emaData, color: colors[idx % colors.length], width: 1.5 });
+        } else {
+          chart.clearLine(`ema${period}`);
+        }
+      });
+    }, [useCustomChart, emaPeriods]);
+
+    // Sync VWAP visibility to custom chart when toggle changes
+    useEffect(() => {
+      const chart = customChartRef.current;
+      if (!useCustomChart || !chart) return;
+      if (showVwap && customVwapDataRef.current) {
+        chart.setLine('vwap', { data: customVwapDataRef.current, color: '#a78bfa', width: 2 });
+      } else {
+        chart.clearLine('vwap');
+      }
+    }, [useCustomChart, showVwap]);
+
+    // Sync zone lines to custom chart when toggle or key levels change
+    useEffect(() => {
+      const chart = customChartRef.current;
+      if (!useCustomChart || !chart) return;
+      chart.clearAllZones();
+      if (showZoneLines && keyLevels?.levels?.length) {
+        const ceiling = keyLevels.levels.find(l => l.dist > 0.5);
+        const floor   = keyLevels.levels.find(l => l.dist < -0.5);
+        if (ceiling) chart.setZone({ id: 'ceiling', price: ceiling.price, color: 'rgba(251,113,133,0.85)', label: `▲ ${LEVEL_FULL_NAME[ceiling.label] || ceiling.label}`, style: 'dashed' });
+        if (floor)   chart.setZone({ id: 'floor',   price: floor.price,   color: 'rgba(125,211,252,0.85)', label: `▼ ${LEVEL_FULL_NAME[floor.label]   || floor.label}`,   style: 'dashed' });
+      }
+    }, [useCustomChart, showZoneLines, keyLevels]);
+
+    // Sync volume visibility to custom chart when toggle changes
+    useEffect(() => {
+      const chart = customChartRef.current;
+      if (!useCustomChart || !chart) return;
+      chart.setShowVolume(showVolume);
+    }, [useCustomChart, showVolume]);
 
     // Helper: bias to emoji
     const biasEmoji = (bias) => {
@@ -1960,6 +2095,8 @@ function getNiftyLevelAlerts(indices) {
                     >
                       <option value="NIFTY">NIFTY 50</option>
                       <option value="BANKNIFTY">BANK NIFTY</option>
+                      <option value="NIFTYFUT">NIFTY FUT</option>
+                      <option value="BANKNIFTYFUT">BANKNIFTY FUT</option>
                     </select>
                   </div>
                   <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
@@ -2011,6 +2148,15 @@ function getNiftyLevelAlerts(indices) {
                     >
                       Zone
                     </button>
+                    {useCustomChart && (
+                      <button
+                        onClick={() => setShowVolume(v => !v)}
+                        className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${showVolume ? 'bg-teal-700 text-white' : 'bg-[#0a1628] text-slate-400 hover:text-slate-200'}`}
+                        title="Toggle volume bars"
+                      >
+                        Vol
+                      </button>
+                    )}
                     <button
                       onClick={() => setShowIndicators(v => !v)}
                       className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${showIndicators ? 'bg-violet-700 text-white' : 'bg-[#0a1628] text-slate-400 hover:text-slate-200'}`}
@@ -2019,7 +2165,7 @@ function getNiftyLevelAlerts(indices) {
                       RSI
                     </button>
                     <a
-                      href={`https://www.tradingview.com/chart/?symbol=NSE:${chartSymbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY'}&interval=${chartInterval === 'day' ? 'D' : chartInterval === 'week' ? 'W' : chartInterval.replace('minute', '')}`}
+                      href={`https://www.tradingview.com/chart/?symbol=${chartSymbol === 'BANKNIFTYFUT' ? 'NSE:BANKNIFTY1!' : chartSymbol === 'NIFTYFUT' ? 'NSE:NIFTY1!' : chartSymbol === 'BANKNIFTY' ? 'NSE:BANKNIFTY' : 'NSE:NIFTY'}&interval=${chartInterval === 'day' ? 'D' : chartInterval === 'week' ? 'W' : chartInterval.replace('minute', '')}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="hidden sm:flex px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors items-center gap-1"
@@ -2029,15 +2175,22 @@ function getNiftyLevelAlerts(indices) {
                       </svg>
                       TradingView
                     </a>
+                    <button
+                      onClick={() => setUseCustomChart(v => !v)}
+                      className={`hidden sm:flex px-3 py-1.5 text-xs font-medium rounded-lg transition-colors items-center gap-1 border ${useCustomChart ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-[#0c1a2e] border-white/10 text-slate-400 hover:text-white'}`}
+                      title="Toggle custom chart engine"
+                    >
+                      ⚡ {useCustomChart ? 'Custom' : 'LWC'}
+                    </button>
                   </div>
                 </div>
                 {/* Key Levels Bar */}
                 {keyLevels?.levels && (
                   <KeyLevelsBar levels={keyLevels.levels} spot={keyLevels.spot} />
                 )}
-                <div className="flex-1 relative" ref={chartRef} key={`${chartSymbol}-${chartInterval}`}>
-                  {/* OHLC hover overlay */}
-                  {hoverOHLC && (
+                {/* LWC chart — hidden when custom chart is active */}
+                <div className="flex-1 relative" ref={chartRef} key={`${chartSymbol}-${chartInterval}`} style={{ display: useCustomChart ? 'none' : undefined }}>
+                  {hoverOHLC && !useCustomChart && (
                     <div className="absolute top-2 left-2 z-10 flex items-center gap-2 text-[10px] font-mono bg-[#0a1628]/90 border border-blue-800/30 rounded px-2 py-1 pointer-events-none">
                       <span className="text-slate-400">O</span><span className="text-slate-200">{hoverOHLC.open.toFixed(2)}</span>
                       <span className="text-slate-400">H</span><span className="text-emerald-400">{hoverOHLC.high.toFixed(2)}</span>
@@ -2046,6 +2199,37 @@ function getNiftyLevelAlerts(indices) {
                     </div>
                   )}
                 </div>
+                {/* Custom chart — shown when toggle is on */}
+                {useCustomChart && (
+                  <div className="flex-1 relative" ref={customChartCtnRef} key={`custom-${chartSymbol}-${chartInterval}`}>
+                    {/* OHLC + line values overlay */}
+                    <div className="absolute top-2 left-2 z-10 flex flex-col gap-0.5 pointer-events-none">
+                      {hoverOHLC && (
+                        <div className="flex items-center gap-2 text-[10px] font-mono bg-[#0a1628]/90 border border-blue-800/30 rounded px-2 py-1">
+                          <span className="text-slate-400">O</span><span className="text-slate-200">{hoverOHLC.open.toFixed(2)}</span>
+                          <span className="text-slate-400">H</span><span className="text-emerald-400">{hoverOHLC.high.toFixed(2)}</span>
+                          <span className="text-slate-400">L</span><span className="text-red-400">{hoverOHLC.low.toFixed(2)}</span>
+                          <span className="text-slate-400">C</span><span className={hoverOHLC.close >= hoverOHLC.open ? 'text-emerald-400' : 'text-red-400'}>{hoverOHLC.close.toFixed(2)}</span>
+                          {hoverOHLC.volume > 0 && <><span className="text-slate-400">V</span><span className="text-slate-300">{hoverOHLC.volume >= 1e6 ? (hoverOHLC.volume / 1e6).toFixed(2) + 'M' : hoverOHLC.volume >= 1e3 ? (hoverOHLC.volume / 1e3).toFixed(1) + 'K' : hoverOHLC.volume}</span></>}
+                        </div>
+                      )}
+                      {hoverLineValues && (
+                        <div className="flex items-center gap-3 text-[10px] font-mono bg-[#0a1628]/90 border border-blue-800/30 rounded px-2 py-1">
+                          {emaPeriods.map((period, idx) => {
+                            const colors = ['#f59e0b','#3b82f6','#10b981','#ef4444','#a21caf'];
+                            const val = hoverLineValues[`ema${period}`];
+                            return val != null ? (
+                              <span key={period} style={{ color: colors[idx % colors.length] }}>EMA{period} {val.toFixed(2)}</span>
+                            ) : null;
+                          })}
+                          {showVwap && hoverLineValues['vwap'] != null && (
+                            <span className="text-violet-400">VWAP {hoverLineValues['vwap'].toFixed(2)}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {showIndicators && (
                   <div className="border-t border-blue-800/30">
                     <div className="flex items-center gap-3 px-3 py-1 text-[9px] bg-[#0c1a2e]/60">

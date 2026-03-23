@@ -340,18 +340,44 @@ export async function GET(request) {
         emoji: isPreMarket ? '🌅' : '🔔',
       };
     } else {
+      const recentKey = `${NS}:session-recent-${underlying}-${expiryType}`;
+      const snapshot = { totalCallOI, totalPutOI, spot: spotPrice };
+
+      // Session-open baseline — captured once at 9:15, never overwritten
       let sessionOpen = await redisGet(sessionKey);
       if (!sessionOpen) {
-        // First fetch of this session — capture as open baseline (expires after 8h)
-        sessionOpen = { totalCallOI, totalPutOI, spot: spotPrice };
+        sessionOpen = snapshot;
         await redisSet(sessionKey, sessionOpen, 8 * 3600);
       }
 
-      if (sessionOpen.totalCallOI !== undefined && sessionOpen.totalPutOI !== undefined && sessionOpen.spot !== undefined) {
+      // Rolling 15-min snapshot — what's happening RIGHT NOW vs 15 min ago
+      let recentSnap = await redisGet(recentKey);
+      // Always refresh: write current as the new "recent" with 15-min TTL
+      await redisSet(recentKey, snapshot, 15 * 60);
+
+      const hasOpen   = sessionOpen?.totalCallOI !== undefined;
+      const hasRecent = recentSnap?.totalCallOI  !== undefined;
+
+      if (hasRecent) {
+        // Primary: recent 15-min window (what's happening now)
         marketActivity = detectMarketActivity(
-          { totalCallOI, totalPutOI, spot: spotPrice },
+          snapshot,
+          { totalCallOI: recentSnap.totalCallOI, totalPutOI: recentSnap.totalPutOI, spot: recentSnap.spot },
+          false
+        );
+        // If recent is flat/consolidating, fall back to since-open for context
+        if (marketActivity.activity === 'Consolidation' && hasOpen) {
+          marketActivity = detectMarketActivity(
+            snapshot,
+            { totalCallOI: sessionOpen.totalCallOI, totalPutOI: sessionOpen.totalPutOI, spot: sessionOpen.spot },
+            true
+          );
+        }
+      } else if (hasOpen) {
+        marketActivity = detectMarketActivity(
+          snapshot,
           { totalCallOI: sessionOpen.totalCallOI, totalPutOI: sessionOpen.totalPutOI, spot: sessionOpen.spot },
-          true // sinceOpen = always true during session
+          true
         );
       } else {
         marketActivity = { activity: 'Initializing', strength: 0, description: 'Building session baseline…', actionable: '', emoji: '⏳' };

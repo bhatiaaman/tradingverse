@@ -26,9 +26,49 @@ async function redisSet(key, value, exSeconds) {
 }
 
 const SYMBOLS = {
-  NIFTY:     { token: 256265, name: 'NIFTY 50',   exchange: 'NSE' },
-  BANKNIFTY: { token: 260105, name: 'BANK NIFTY', exchange: 'NSE' },
+  NIFTY:        { token: 256265,  name: 'NIFTY 50',        exchange: 'NSE' },
+  BANKNIFTY:    { token: 260105,  name: 'BANK NIFTY',      exchange: 'NSE' },
+  NIFTYFUT:     { token: null,    name: 'NIFTY FUT',       exchange: 'NFO', futName: 'NIFTY' },
+  BANKNIFTYFUT: { token: null,    name: 'BANKNIFTY FUT',   exchange: 'NFO', futName: 'BANKNIFTY' },
 };
+
+// Resolve near-month futures token from NFO instruments CSV.
+// Cached in Redis for 6 hours (rolls automatically after expiry).
+async function resolveFuturesToken(dp, futName) {
+  const cacheKey = `${NS}:fut-token-${futName}`;
+  const cached = await redisGet(cacheKey);
+  if (cached) return cached;
+
+  const csvText = await dp.getInstrumentsCSV('NFO');
+  const lines   = csvText.trim().split('\n');
+  const headers = lines[0].split(',');
+
+  const tokenIdx  = headers.indexOf('instrument_token');
+  const nameIdx   = headers.indexOf('name');
+  const typeIdx   = headers.indexOf('instrument_type');
+  const expiryIdx = headers.indexOf('expiry');
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let best = null;
+  for (let i = 1; i < lines.length; i++) {
+    const cols   = lines[i].split(',');
+    const name   = cols[nameIdx]?.replace(/"/g, '').trim();
+    const type   = cols[typeIdx]?.replace(/"/g, '').trim();
+    const expiry = cols[expiryIdx]?.replace(/"/g, '').trim();
+    if (name !== futName || type !== 'FUT' || !expiry) continue;
+    const expiryDate = new Date(expiry);
+    if (expiryDate < today) continue;
+    if (!best || expiryDate < new Date(best.expiry)) {
+      best = { token: parseInt(cols[tokenIdx]), expiry };
+    }
+  }
+
+  if (!best) return null;
+  await redisSet(cacheKey, best.token, 6 * 3600);
+  return best.token;
+}
 
 const INTERVALS = {
   '5minute':  '5minute',
@@ -77,6 +117,13 @@ export async function GET(request) {
       return NextResponse.json({ candles: [], error: 'Kite API not configured' });
     }
 
+    // Resolve futures token dynamically if needed
+    let token = symbolConfig.token;
+    if (token === null && symbolConfig.futName) {
+      token = await resolveFuturesToken(dp, symbolConfig.futName);
+      if (!token) return NextResponse.json({ candles: [], error: `Could not resolve ${symbol} near-month futures token` });
+    }
+
     // Use IST for all date calculations
     let toDate = getISTDate();
     let fromDate = getISTDate();
@@ -95,7 +142,7 @@ export async function GET(request) {
     };
 
     const historicalData = await dp.getHistoricalData(
-      symbolConfig.token, kiteInterval, formatDate(fromDate), formatDate(toDate)
+      token, kiteInterval, formatDate(fromDate), formatDate(toDate)
     );
 
     if (!historicalData || historicalData.length === 0) {
