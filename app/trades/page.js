@@ -869,7 +869,7 @@ function getNiftyLevelAlerts(indices) {
             if (showBOSRef.current) {
               const bosLevels = detectBOS(data.candles);
               for (const b of bosLevels) {
-                chart.setZone({ id: `bos_${b.type}`, price: b.price, color: b.type === 'bull' ? 'rgba(16,185,129,0.85)' : 'rgba(239,68,68,0.85)', label: b.type === 'bull' ? 'BOS ▲' : 'BOS ▼', style: 'solid' });
+                chart.setZone({ id: `bos_${b.type}`, price: b.price, color: b.type === 'bull' ? 'rgba(16,185,129,0.85)' : 'rgba(239,68,68,0.85)', label: b.type === 'bull' ? 'BOS ▲' : 'BOS ▼', style: 'solid', inline: true });
               }
             }
           } catch (err) {
@@ -949,7 +949,7 @@ function getNiftyLevelAlerts(indices) {
       if (showBOS && candleDataRef.current.length) {
         const bosLevels = detectBOS(candleDataRef.current);
         for (const b of bosLevels) {
-          chart.setZone({ id: `bos_${b.type}`, price: b.price, color: b.type === 'bull' ? 'rgba(16,185,129,0.85)' : 'rgba(239,68,68,0.85)', label: b.type === 'bull' ? 'BOS ▲' : 'BOS ▼', style: 'solid' });
+          chart.setZone({ id: `bos_${b.type}`, price: b.price, color: b.type === 'bull' ? 'rgba(16,185,129,0.85)' : 'rgba(239,68,68,0.85)', label: b.type === 'bull' ? 'BOS ▲' : 'BOS ▼', style: 'solid', inline: true });
         }
       }
     }, [showBOS]);

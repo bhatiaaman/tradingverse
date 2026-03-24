@@ -75,7 +75,7 @@ export function createChart(container, options = {}) {
     // Draw order: grid/axes → volume → zones → lines → candles → crosshair
     renderAxes(ctx, vp, candles, interval);
     if (showVolume) renderVolume(ctx, vp, candles);
-    renderZones(ctx, vp, zones);
+    renderZones(ctx, vp, zones, crosshair);
     for (const [, line] of lineMap) {
       renderLine(ctx, vp, line.values, line.color, line.width);
     }

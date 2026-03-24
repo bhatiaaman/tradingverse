@@ -107,6 +107,16 @@ const GAMES = [
     href: '/games/exit-psychology',
   },
   {
+    emoji: '⚡',
+    title: 'Regime Change Detector',
+    desc: '9 chart scenarios — power candles, break of structure, late-session signals, and wick traps. Read the regime shift and decide: close, tighten, or hold? Includes deliberate traps to test your depth of understanding.',
+    tag: 'Price Action',
+    tagColor: 'text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/50',
+    difficulty: 'Advanced',
+    available: true,
+    href: '/games/regime-detector',
+  },
+  {
     emoji: '🎯',
     title: 'Entry Precision',
     desc: 'The setup is there. But where exactly do you enter? Tests your ability to time entries at optimal risk:reward without chasing.',
