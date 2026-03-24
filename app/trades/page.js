@@ -754,8 +754,8 @@ function getNiftyLevelAlerts(indices) {
             vertLine: { color: 'rgba(148,163,184,0.6)', width: 1, style: 1, labelVisible: true },
             horzLine: { color: 'rgba(148,163,184,0.6)', width: 1, style: 1, labelVisible: true },
           },
-          handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
-          handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true } },
+          handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+          handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: { time: true, price: true } },
           rightPriceScale: { borderColor: 'rgba(66, 99, 235, 0.3)' },
           timeScale: {
             borderColor: 'rgba(66, 99, 235, 0.3)',
@@ -897,7 +897,7 @@ function getNiftyLevelAlerts(indices) {
         if (!dragState.dir && (dx > 3 || dy > 3)) {
           dragState.dir = dy > dx * 1.5 ? 'v' : 'h';
           if (dragState.dir === 'v') {
-            chartInstanceRef.current?.applyOptions({ handleScroll: { pressedMouseMove: false, mouseWheel: true } });
+            chartInstanceRef.current?.applyOptions({ handleScroll: { pressedMouseMove: false, mouseWheel: false } });
             el.style.cursor = 'ns-resize';
           }
         }
@@ -909,7 +909,7 @@ function getNiftyLevelAlerts(indices) {
 
       const onMouseUp = () => {
         if (dragState.active && dragState.dir === 'v') {
-          chartInstanceRef.current?.applyOptions({ handleScroll: { pressedMouseMove: true, mouseWheel: true } });
+          chartInstanceRef.current?.applyOptions({ handleScroll: { pressedMouseMove: true, mouseWheel: false } });
           el.style.cursor = '';
         }
         dragState.active = false; dragState.dir = null;
