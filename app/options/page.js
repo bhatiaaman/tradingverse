@@ -101,11 +101,22 @@ function DistributionChart({ spot, atm, strikes, atmIV, T, targetPrice, onTarget
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !spot || !atmIV || !T) return;
+    if (!canvas || !spot || !atmIV || T == null) return;
     const ctx  = canvas.getContext('2d');
     const dpr  = window.devicePixelRatio || 1;
-    const W    = canvas.clientWidth  || 700;
+    const W    = canvas.parentElement?.clientWidth || canvas.clientWidth || 700;
     const H    = canvas.clientHeight || 140;
+
+    // On expiry day T may be 0 — show a simple "expired" label instead of blank
+    if (T <= 0) {
+      canvas.width = W * dpr; canvas.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = '#060b14'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#475569'; ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('Options expired — distribution not applicable', W / 2, H / 2);
+      return;
+    }
     canvas.width  = W * dpr;
     canvas.height = H * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
