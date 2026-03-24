@@ -212,9 +212,7 @@ export function lognormalPDF(x, S, T, r = R_DEFAULT, q = Q_DEFAULT, sigma) {
 // ── Time to expiry in years ───────────────────────────────────────────────────
 // expiryDate: 'YYYY-MM-DD' string
 export function timeToExpiry(expiryDateStr) {
-  const expiry  = new Date(expiryDateStr);
-  const nowIST  = new Date(Date.now() + 5.5 * 3600 * 1000); // UTC → IST
-  expiry.setHours(15, 30, 0, 0);  // Options expire at 3:30 PM IST
-  const msLeft  = expiry.getTime() - nowIST.getTime();
-  return Math.max(0, msLeft / (365 * 24 * 3600 * 1000));
+  // Pin expiry to 3:30 PM IST = 10:00 UTC explicitly — avoids setHours() local-timezone issues
+  const expiryClose = new Date(expiryDateStr.slice(0, 10) + 'T10:00:00Z');
+  return Math.max(0, (expiryClose.getTime() - Date.now()) / (365 * 24 * 3600 * 1000));
 }

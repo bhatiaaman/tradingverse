@@ -511,10 +511,9 @@ export default function OptionsPage() {
   const computeProbs = () => {
     const S     = chainData?.spot;
     const iv    = chainData?.atmIV;
-    const t     = chainData && chainData.expiry ? (() => {
-      const exp  = new Date(chainData.expiry);
-      const now  = new Date(Date.now() + 5.5 * 3600 * 1000);
-      return Math.max(0, (exp - now) / (365 * 24 * 3600 * 1000));
+    const t     = chainData?.expiry ? (() => {
+      const exp = new Date(chainData.expiry.slice(0, 10) + 'T10:00:00Z');
+      return Math.max(0, (exp - Date.now()) / (365 * 24 * 3600 * 1000));
     })() : null;
 
     const X = parseFloat(probTarget || targetPrice);
