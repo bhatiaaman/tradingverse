@@ -20,6 +20,7 @@ import { renderLine }        from './renderers/lines.js';
 import { renderZones }       from './renderers/zones.js';
 import { renderVolume }      from './renderers/volume.js';
 import { renderCrosshair }   from './renderers/crosshair.js';
+import { renderMarkers }     from './renderers/markers.js';
 
 export function createChart(container, options = {}) {
   const interval = options.interval ?? '15minute';
@@ -49,6 +50,7 @@ export function createChart(container, options = {}) {
   let   timeIndex   = new Map();          // unix timestamp → candle index
   const lineMap     = new Map();          // id → { values: number[], color, width }
   let   zones       = [];                 // [{ id, price, color, label, style }]
+  let   markers     = [];                 // [{ index, direction: 'bull'|'bear' }]
   let   showVolume  = options.showVolume ?? true;
   let   crosshair   = { visible: false };
   let   crosshairCb = null;
@@ -78,6 +80,7 @@ export function createChart(container, options = {}) {
       renderLine(ctx, vp, line.values, line.color, line.width);
     }
     renderCandles(ctx, vp, candles);
+    renderMarkers(ctx, vp, candles, markers);
     renderCrosshair(ctx, vp, crosshair, candles, interval);
   }
 
@@ -162,7 +165,18 @@ export function createChart(container, options = {}) {
       for (const [id, line] of lineMap) {
         lineMap.set(id, { ...line, values: _reindex(line._raw) });
       }
+      // Rebuild marker indices
+      markers = markers.map(m => ({ ...m, index: timeIndex.get(m.time) ?? -1 })).filter(m => m.index >= 0);
       vp.fitContent(candles);
+      markDirty();
+    },
+
+    // Set power-candle markers. data: [{ time, direction: 'bull'|'bear' }]
+    setMarkers(data) {
+      if (!data?.length) { markers = []; markDirty(); return; }
+      markers = data
+        .map(m => ({ ...m, index: timeIndex.get(m.time) ?? -1 }))
+        .filter(m => m.index >= 0);
       markDirty();
     },
 

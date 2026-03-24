@@ -314,6 +314,7 @@ function getNiftyLevelAlerts(indices) {
     const [hoverLineValues, setHoverLineValues] = useState(null);
     const [showIndicators, setShowIndicators] = useState(false);
     const [rsiValue, setRsiValue] = useState(null);
+    const [powerCandles, setPowerCandles] = useState([]);
     const candleDataRef = useRef([]);
 
     // Check Kite auth status
@@ -638,6 +639,49 @@ function getNiftyLevelAlerts(indices) {
       return emaData;
     };
 
+    // ── Power candle detector ─────────────────────────────────────────────────
+    // A "power candle" has: body > 1.5× ATR(14), volume > 1.5× 20-bar avg,
+    // and a strong body (body ≥ 60% of range). Scans last 5 bars only.
+    const detectPowerCandles = (candles, lookback = 5) => {
+      if (!candles || candles.length < 21) return [];
+
+      // ATR(14)
+      const atrSlice = candles.slice(-15);
+      let atrSum = 0;
+      for (let i = 1; i < atrSlice.length; i++) {
+        const c = atrSlice[i], p = atrSlice[i - 1];
+        atrSum += Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+      }
+      const atr = atrSum / 14;
+
+      // 20-bar average volume (excluding the most recent `lookback` bars to avoid self-reference)
+      const volSlice = candles.slice(-20 - lookback, -lookback);
+      const avgVol   = volSlice.reduce((s, c) => s + (c.volume || 0), 0) / volSlice.length;
+
+      if (!atr || !avgVol) return [];
+
+      const results = [];
+      const start   = Math.max(0, candles.length - lookback);
+      for (let i = start; i < candles.length; i++) {
+        const c        = candles[i];
+        const body     = Math.abs(c.close - c.open);
+        const range    = c.high - c.low;
+        const bodyRatio = range > 0 ? body / range : 0;
+        const volMult   = (c.volume || 0) / avgVol;
+        const rangeMult = range / atr;
+
+        if (bodyRatio >= 0.6 && volMult >= 1.5 && rangeMult >= 1.5) {
+          results.push({
+            time:      c.time,
+            direction: c.close >= c.open ? 'bull' : 'bear',
+            volMult:   Math.round(volMult  * 10) / 10,
+            rangeMult: Math.round(rangeMult * 10) / 10,
+          });
+        }
+      }
+      return results;
+    };
+
     // RSI(14) from candle data
     const computeRSIData = (candles, period = 14) => {
       if (!candles || candles.length < period + 1) return [];
@@ -726,6 +770,11 @@ function getNiftyLevelAlerts(indices) {
             // RSI value
             const rsiData = computeRSIData(data.candles);
             setRsiValue(rsiData[rsiData.length - 1]?.value ?? null);
+
+            // Power candle detection
+            const pc = detectPowerCandles(data.candles);
+            setPowerCandles(pc);
+            chart.setMarkers(pc);
 
             // EMA lines
             emaPeriods.forEach((period, idx) => {
@@ -1893,6 +1942,27 @@ function getNiftyLevelAlerts(indices) {
                 {keyLevels?.levels && (
                   <KeyLevelsBar levels={keyLevels.levels} spot={keyLevels.spot} />
                 )}
+                {/* Power Candle Alert */}
+                {powerCandles.length > 0 && (() => {
+                  const pc = powerCandles[powerCandles.length - 1];
+                  const isBull = pc.direction === 'bull';
+                  return (
+                    <div className={`flex items-center gap-2 px-3 py-1.5 text-xs border-b ${isBull ? 'bg-amber-500/10 border-amber-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                      <span className={`font-bold ${isBull ? 'text-amber-400' : 'text-red-400'}`}>
+                        ⚡ Power Candle
+                      </span>
+                      <span className={`font-medium ${isBull ? 'text-amber-300' : 'text-red-300'}`}>
+                        {isBull ? '▲ Bullish' : '▼ Bearish'}
+                      </span>
+                      <span className="text-slate-400">
+                        Vol {pc.volMult}× avg · Range {pc.rangeMult}× ATR
+                      </span>
+                      <span className={`${isBull ? 'text-amber-200/60' : 'text-red-200/60'}`}>
+                        · {isBull ? 'Possible bullish reversal or strong continuation — watch next candle' : 'Possible bearish reversal or strong continuation — watch next candle'}
+                      </span>
+                    </div>
+                  );
+                })()}
                 <div className="flex-1 relative" ref={customChartCtnRef} key={`custom-${chartSymbol}-${chartInterval}`}>
                     {/* OHLC + line values overlay */}
                     <div className="absolute top-2 left-2 z-10 flex flex-col gap-0.5 pointer-events-none">
