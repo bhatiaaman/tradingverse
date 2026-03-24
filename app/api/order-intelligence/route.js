@@ -365,6 +365,7 @@ export async function POST(req) {
     const {
       symbol, exchange, instrumentType, transactionType, spotPrice,
       productType, includeStructure, includePattern, includeStation, includeOI,
+      marketRegime,
     } = body;
 
     if (!symbol || !transactionType) {
@@ -441,6 +442,7 @@ export async function POST(req) {
       stationOutput:   station,        // null if not requested this call
       oiData:          rawOIData,      // null for non-index or if OI not requested
       structureChecks: structure?.checks ?? null,
+      marketRegime,                    // intraday regime from frontend (TREND_DAY_UP etc.)
     });
 
     // 9. Return combined result

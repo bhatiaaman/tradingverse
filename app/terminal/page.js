@@ -248,11 +248,11 @@ function computeRegimeAlignment(regime, scenario, transactionType) {
   }
 
   if (regime === 'TREND_DAY_UP') {
-    if (bullish)  return { status: 'ALIGNED',  title: 'With the trend',       msg: 'Trend day up confirms your long. Proceed at normal size.' };
+    if (bullish)  return { status: 'ALIGNED',  title: 'With the trend',       msg: 'Trend day up confirms your long — structure and direction aligned.' };
     if (bearish)  return { status: 'CONFLICT', title: 'Counter-trend',        msg: 'Selling into an up-trend day. Halve size or skip.' };
   }
   if (regime === 'TREND_DAY_DOWN') {
-    if (bearish)  return { status: 'ALIGNED',  title: 'With the trend',       msg: 'Trend day down confirms your short. Proceed at normal size.' };
+    if (bearish)  return { status: 'ALIGNED',  title: 'With the trend',       msg: 'Trend day down confirms your short — structure and direction aligned.' };
     if (bullish)  return { status: 'CONFLICT', title: 'Counter-trend',        msg: 'Buying into a down-trend day. Halve size or skip.' };
   }
   if (regime === 'TRAP_DAY') {
@@ -273,7 +273,7 @@ function computeRegimeAlignment(regime, scenario, transactionType) {
     if (bearish)  return { status: 'CAUTION',  title: 'Shorting the flush',   msg: 'Liquidation near exhaustion — risk of sharp bounce. Tight stop.' };
   }
   if (regime === 'BREAKOUT_DAY') {
-    if (breakout) return { status: 'ALIGNED',  title: 'Breakout day confirms', msg: 'Session character supports directional breakouts. Normal size.' };
+    if (breakout) return { status: 'ALIGNED',  title: 'Breakout day confirms', msg: 'Session character supports directional breakouts — momentum aligned.' };
     if (meanRev)  return { status: 'CONFLICT', title: 'Fading a breakout day', msg: 'Breakout days extend — fades carry extra risk.' };
     return          { status: 'NEUTRAL',  title: 'Breakout session',     msg: 'Session favors momentum over mean reversion.' };
   }
@@ -360,14 +360,14 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockConte
       const DOWNGRADE = { ALIGNED: 'CAUTION', CAUTION: 'CONFLICT', CONFLICT: 'DANGER', DANGER: 'DANGER', NEUTRAL: 'NEUTRAL' };
       if (agentRisk.maxRisk >= 50) {
         // A DANGER-level agent (e.g. Structure 51) — drop two levels from ALIGNED
-        if (alignment.status === 'ALIGNED') alignment = { ...alignment, status: 'CONFLICT' };
+        if (alignment.status === 'ALIGNED') alignment = { ...alignment, status: 'CONFLICT', msg: alignment.msg + ' Agents flag high-risk factors — halve size or skip.' };
         else alignment = { ...alignment, status: DOWNGRADE[alignment.status] };
       } else if (agentRisk.hasDanger) {
         // Any agent at danger — drop one level
-        alignment = { ...alignment, status: DOWNGRADE[alignment.status] };
+        alignment = { ...alignment, status: DOWNGRADE[alignment.status], msg: alignment.msg + ' One or more agents flag danger — reduce size.' };
       } else if (agentRisk.hasWarning && alignment.status === 'ALIGNED') {
         // Warning-level agent pulling back a clean "Go ahead"
-        alignment = { ...alignment, status: 'CAUTION' };
+        alignment = { ...alignment, status: 'CAUTION', msg: alignment.msg + ' Agents flag additional risk — reduce size.' };
       }
     }
 
@@ -2600,11 +2600,15 @@ export default function TerminalPage() {
   }, [optionStrike, fetchStrikeAnalysis]);
 
   // ── Intelligence helpers
-  const buildIntelBody = useCallback((extras = {}) => ({
-    symbol,
-    exchange: (instrumentType === 'CE' || instrumentType === 'PE' || instrumentType === 'FUT') ? 'NFO' : 'NSE',
-    instrumentType, transactionType, spotPrice, productType, ...extras,
-  }), [symbol, instrumentType, transactionType, spotPrice, productType]);
+  const buildIntelBody = useCallback((extras = {}) => {
+    const regimeKey = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
+    const marketRegime = regimeData?.[regimeKey]?.regime ?? null;
+    return {
+      symbol,
+      exchange: (instrumentType === 'CE' || instrumentType === 'PE' || instrumentType === 'FUT') ? 'NFO' : 'NSE',
+      instrumentType, transactionType, spotPrice, productType, marketRegime, ...extras,
+    };
+  }, [symbol, instrumentType, transactionType, spotPrice, productType, regimeData]);
 
   const runIntelligence = useCallback(async () => {
     if (!symbol) return;

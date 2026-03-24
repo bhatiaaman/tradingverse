@@ -108,11 +108,21 @@ const SCENARIO_META = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Gather individual evidence signals
 // ─────────────────────────────────────────────────────────────────────────────
-function gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structureChecks }) {
+// Map an intraday regime string to a clear bias direction (BULLISH/BEARISH/null)
+function regimeToBias(regime) {
+  if (!regime) return null;
+  if (regime === 'TREND_DAY_UP'  || regime === 'SHORT_SQUEEZE')    return 'BULLISH';
+  if (regime === 'TREND_DAY_DOWN'|| regime === 'LONG_LIQUIDATION') return 'BEARISH';
+  return null; // RANGE_DAY, TRAP_DAY, BREAKOUT_DAY etc. have no clear single direction
+}
+
+function gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structureChecks, marketRegime }) {
   const signals = [];
 
   // ── Market bias (intraday) ────────────────────────────────────────────────
-  const mktBias = sentiment?.intradayBias ?? 'NEUTRAL';
+  // Prefer regime-derived bias (more current than commentary) when it gives a clear direction
+  const regimeBias = regimeToBias(marketRegime);
+  const mktBias    = regimeBias ?? sentiment?.intradayBias ?? 'NEUTRAL';
   if (mktBias !== 'NEUTRAL') {
     const mktAligned = mktBias === tradeBias;
     signals.push({
@@ -234,7 +244,7 @@ function scoreConfidence(signals, scenario) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Main export
 // ─────────────────────────────────────────────────────────────────────────────
-export function runScenarioAgent({ order, sentiment, stationOutput, oiData, structureChecks }) {
+export function runScenarioAgent({ order, sentiment, stationOutput, oiData, structureChecks, marketRegime }) {
   const tradeBias    = getTradeBias(order?.instrumentType, order?.transactionType);
   const tradeIntent  = getTradeIntent(order?.instrumentType, order?.transactionType);
   const zoneState    = stationOutput?.zoneState   ?? null;
@@ -246,7 +256,7 @@ export function runScenarioAgent({ order, sentiment, stationOutput, oiData, stru
 
   const scenario  = classifyScenario(tradeBias, zoneState, zoneType, zoneDistance, stationLoaded);
   const meta      = SCENARIO_META[scenario] ?? SCENARIO_META.UNCLEAR;
-  const signals   = gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structureChecks });
+  const signals   = gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structureChecks, marketRegime });
   const confidence = scoreConfidence(signals, scenario);
 
   const forSignals     = signals.filter(s => s.aligned);
