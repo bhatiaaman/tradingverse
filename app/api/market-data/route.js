@@ -70,7 +70,11 @@ async function fetchIndianIndicesFromKite(dp) {
       vix:       processIndex('VIX'),
       finNifty:  processIndex('FINNIFTY'),
       midcap:    processIndex('MIDCAP'),
-      // GIFTNIFTY excluded — Kite's NSEIX feed is unreliable; Yahoo used instead
+      // Note: GIFTNIFTY prevClose from NSEIX is NOT used for change% —
+      // we override it below with niftyLastSessionClose (NSE Nifty prev close)
+      // so the displayed change = implied gap vs yesterday's NSE close, which
+      // is exactly what traders need for pre-market gap reading.
+      giftNifty: processIndex('GIFTNIFTY'),
     };
   } catch (error) {
     console.error('Kite indices fetch error:', error.message);
@@ -427,11 +431,12 @@ export async function GET() {
     const niftyWeeklyHigh      = historicalResult?.weeklyHigh ?? null;
     const niftyWeeklyLow       = historicalResult?.weeklyLow  ?? null;
 
-    const [kiteIndices, globalIndices, kiteCommodities, yahooCommodities, giftNifty, breadthData] = await Promise.all([
+    const [kiteIndices, globalIndices, kiteCommodities, yahooCommodities, giftNiftyYahoo, breadthData] = await Promise.all([
       hasKite ? fetchIndianIndicesFromKite(dp) : Promise.resolve(null),
       fetchGlobalIndices(),
       hasKite ? fetchCommoditiesFromKite(dp) : Promise.resolve(null),
       fetchCommoditiesFromYahoo(),
+      // Fetch Yahoo in parallel regardless — used as fallback if Kite GIFT price is null
       fetchGIFTNifty(),
       hasKite ? fetchMarketBreadth(dp) : Promise.resolve(null),
     ]);
@@ -516,16 +521,17 @@ export async function GET() {
       else if (niftyData.changePercent < -0.5) bias = 'Bearish';
     }
 
-    // GIFT Nifty handling
-    // Price: Yahoo only — Kite's NSEIX feed returns stale/wrong values for GIFT NIFTY.
-    // Yahoo GIFTNIFTY.NS tracks the continuous front-month contract reliably.
-    let giftNiftyPrice = giftNifty?.price ?? null;
+    // GIFT Nifty price: Kite primary → Yahoo fallback → Redis stale cache last resort
+    // We use Kite's last_price (live, reliable) but override prevClose with niftyLastSessionClose
+    // below, because NSEIX's own session close gives a misleading change% vs what NSE traders care
+    // about (implied gap on next NSE open). Yahoo/stale cache kick in when Kite is disconnected.
+    let giftNiftyPrice = kiteIndices?.giftNifty?.price ?? giftNiftyYahoo?.price ?? null;
 
     // Prev close for change%: use NSE Nifty's last session close — this is what SGX/NSE IFSC
     // uses and what traders care about (implied gap on open). GIFT's own session close
     // (e.g. yesterday evening NSEIX close ~23,208) gives a misleading +0.4% when the real
     // gap vs NSE is -2%.
-    const giftPrevClose = niftyLastSessionClose ?? giftNifty?.prevClose ?? kiteIndices?.giftNifty?.prevClose ?? null;
+    const giftPrevClose = niftyLastSessionClose ?? giftNiftyYahoo?.prevClose ?? kiteIndices?.giftNifty?.prevClose ?? null;
     let giftNiftyChange        = (giftNiftyPrice && giftPrevClose) ? giftNiftyPrice - giftPrevClose : null;
     let giftNiftyChangePercent = (giftNiftyChange !== null && giftPrevClose) ? (giftNiftyChange / giftPrevClose) * 100 : null;
 
