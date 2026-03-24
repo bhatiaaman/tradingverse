@@ -728,28 +728,57 @@ export default function OptionsPage() {
               </button>
             </div>
 
-            {probResult != null && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between bg-[#060b14] border border-white/5 rounded-lg px-3 py-2">
-                  <div>
-                    <div className="text-[10px] text-slate-500">{probDirection === 'above' ? 'Prob Above' : 'Prob Below'} {probTarget} in {probDays}d</div>
-                    <div className="text-xs text-slate-400 mt-0.5">at that specific time</div>
+            {probResult != null && (() => {
+              const daysLeft = T != null ? Math.ceil(T * 365) : 0;
+              const cappedToExpiry = parseFloat(probDays) >= daysLeft;
+              const pAt    = parseFloat(probResult);
+              const pTouch = parseFloat(touchResult);
+              const dir    = probDirection === 'above' ? 'above' : 'below';
+              const dirLabel = probDirection === 'above' ? 'Above' : 'Below';
+              // Seller-friendly: "below" for CE sellers, "above" for PE sellers
+              // Keep it neutral — just describe what the number means
+              const atVerdict    = pAt < 30 ? 'Unlikely at close — seller edge' : pAt > 70 ? 'Likely at close — buyer edge' : 'Coin-flip territory at close';
+              const touchVerdict = pTouch < 30 ? 'Unlikely to reach — safe zone' : pTouch > 70 ? 'Likely to be touched — hedge risk' : 'May touch intraday — watch closely';
+              return (
+                <div className="space-y-2">
+                  <div className="bg-[#060b14] border border-white/5 rounded-lg px-3 py-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-[10px] text-slate-500 font-medium">
+                          {dirLabel} {probTarget} {cappedToExpiry ? 'at expiry close' : `in ${probDays} days`}
+                        </div>
+                        <div className="text-[10px] text-slate-600 mt-0.5">Where does price <em>finish</em>?</div>
+                      </div>
+                      <div className={`text-xl font-bold font-mono flex-shrink-0 ${pAt > 50 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {probResult}%
+                      </div>
+                    </div>
+                    <div className={`text-[10px] mt-1.5 ${pAt < 30 || pAt > 70 ? 'text-amber-400' : 'text-slate-500'}`}>
+                      {atVerdict}
+                    </div>
                   </div>
-                  <div className={`text-xl font-bold font-mono ${parseFloat(probResult) > 50 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {probResult}%
+                  <div className="bg-[#060b14] border border-white/5 rounded-lg px-3 py-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-[10px] text-slate-500 font-medium">Touches {probTarget} before expiry</div>
+                        <div className="text-[10px] text-slate-600 mt-0.5">Does price <em>visit</em> this level at all?</div>
+                      </div>
+                      <div className={`text-xl font-bold font-mono flex-shrink-0 ${pTouch > 50 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {touchResult}%
+                      </div>
+                    </div>
+                    <div className={`text-[10px] mt-1.5 ${pTouch > 70 ? 'text-amber-400' : 'text-slate-500'}`}>
+                      {touchVerdict}
+                    </div>
                   </div>
+                  {pTouch - pAt > 25 && (
+                    <div className="text-[10px] text-slate-500 bg-amber-500/5 border border-amber-500/10 rounded-lg px-2.5 py-1.5">
+                      ⚡ {Math.round(pTouch - pAt)}pt gap between touch and close — high intraday whipsaw risk
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center justify-between bg-[#060b14] border border-white/5 rounded-lg px-3 py-2">
-                  <div>
-                    <div className="text-[10px] text-slate-500">Prob Touch {probTarget}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">anytime before expiry</div>
-                  </div>
-                  <div className={`text-xl font-bold font-mono ${parseFloat(touchResult) > 50 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {touchResult}%
-                  </div>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {expMove && (
               <div className="border-t border-white/5 pt-3">
