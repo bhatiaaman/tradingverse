@@ -814,6 +814,8 @@ function getNiftyLevelAlerts(indices) {
           setHoverLineValues(info.lineValues ?? null);
         });
 
+        let chartInitialised = false;
+
         const fetchData = async () => {
           try {
             const days = chartInterval === 'week' ? 365 : chartInterval === 'day' ? 60 : 5;
@@ -822,7 +824,14 @@ function getNiftyLevelAlerts(indices) {
             if (!data.candles?.length) return;
 
             candleDataRef.current = data.candles;
-            chart.setCandles(data.candles);
+            // First load: fit all content into view.
+            // Subsequent refreshes: preserve the user's pan/zoom, only update data.
+            if (!chartInitialised) {
+              chart.setCandles(data.candles);
+              chartInitialised = true;
+            } else {
+              chart.updateCandles(data.candles);
+            }
 
             // RSI value
             const rsiData = computeRSIData(data.candles);

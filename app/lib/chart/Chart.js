@@ -157,17 +157,36 @@ export function createChart(container, options = {}) {
   // ── Public API ───────────────────────────────────────────────────────────────
   return {
 
-    // Set or replace the full candle dataset.
+    // Set or replace the full candle dataset — resets viewport to fit all content.
+    // Use only on initial load or symbol/interval change.
     setCandles(data) {
       candles   = data ?? [];
       timeIndex = new Map(candles.map((c, i) => [c.time, i]));
-      // Rebuild all line values against new candle indices
       for (const [id, line] of lineMap) {
         lineMap.set(id, { ...line, values: _reindex(line._raw) });
       }
-      // Rebuild marker indices
       markers = markers.map(m => ({ ...m, index: timeIndex.get(m.time) ?? -1 })).filter(m => m.index >= 0);
       vp.fitContent(candles);
+      markDirty();
+    },
+
+    // Refresh candle data WITHOUT resetting the viewport (preserves user pan/zoom).
+    // Use for periodic auto-refresh. If new candles were appended and the user
+    // was already viewing the latest bars, the view slides forward by the delta.
+    updateCandles(data) {
+      const prevLen = candles.length;
+      candles   = data ?? [];
+      timeIndex = new Map(candles.map((c, i) => [c.time, i]));
+      for (const [id, line] of lineMap) {
+        lineMap.set(id, { ...line, values: _reindex(line._raw) });
+      }
+      markers = markers.map(m => ({ ...m, index: timeIndex.get(m.time) ?? -1 })).filter(m => m.index >= 0);
+      // If new candles appended and the right edge was already in view, slide forward
+      if (candles.length > prevLen && vp.logTo >= prevLen - 2) {
+        const delta = candles.length - prevLen;
+        vp.logFrom += delta;
+        vp.logTo   += delta;
+      }
       markDirty();
     },
 
