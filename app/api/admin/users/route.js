@@ -62,10 +62,19 @@ export async function PATCH(req) {
 
   const userKey = `${NS}:user:${email.toLowerCase()}`
   const raw     = await redis.get(userKey)
-  if (!raw) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
-  const user = typeof raw === 'string' ? JSON.parse(raw) : raw
+  let user
+  if (raw) {
+    user = typeof raw === 'string' ? JSON.parse(raw) : raw
+  } else {
+    // No record yet (e.g. Google login session existed but user doc wasn't saved)
+    // Create a minimal record so we can set the plan
+    user = { name: email.toLowerCase().split('@')[0], email: email.toLowerCase(), provider: 'google', createdAt: Date.now(), plan: 'free' }
+  }
+
   await redis.set(userKey, JSON.stringify({ ...user, plan }))
+  // Ensure they appear in the users index
+  try { await redis.sadd(`${NS}:users:all`, email.toLowerCase()) } catch {}
 
   return NextResponse.json({ ok: true, email, plan })
 }
