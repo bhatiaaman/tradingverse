@@ -540,9 +540,10 @@ export default function OptionsPage() {
           expiries, strikes, expiry: resolvedExpiry } = chainData || {};
 
   const T = resolvedExpiry ? (() => {
-    const exp = new Date(resolvedExpiry);
-    const now = new Date(Date.now() + 5.5 * 3600 * 1000);
-    return Math.max(0, (exp - now) / (365 * 24 * 3600 * 1000));
+    // Date-only strings (e.g. "2026-03-27") parse as midnight UTC = 5:30 AM IST.
+    // NSE options expire at 3:30 PM IST = 10:00 AM UTC — set that explicitly.
+    const exp = new Date(resolvedExpiry.slice(0, 10) + 'T10:00:00Z');
+    return Math.max(0, (exp - Date.now()) / (365 * 24 * 3600 * 1000));
   })() : null;
 
   const atmRow        = strikes?.find(s => s.strike === atm);
