@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { nseStrikeSteps } from '@/app/lib/nseStrikeSteps';
 import { getDataProvider } from '@/app/lib/providers';
+import { computeIV, computeGreeks } from '@/app/lib/options/black-scholes';
 
 function getStrikeStep(symbol, price) {
   if (nseStrikeSteps[symbol]) return nseStrikeSteps[symbol];
@@ -141,6 +142,20 @@ export async function GET(request) {
       console.error('option-details LTP fetch failed:', e.message);
     }
 
+    // Compute probOTM via Black-Scholes
+    let probOTM = null;
+    if (ltp > 0 && spotPrice > 0) {
+      const T = Math.max(0, (expiry.getTime() - Date.now()) / (365 * 24 * 3600 * 1000));
+      if (T > 0) {
+        const isCall = instrumentType === 'CE';
+        const iv = computeIV(ltp, spotPrice, atmStrike, T, undefined, undefined, isCall);
+        if (iv) {
+          const greeks = computeGreeks(spotPrice, atmStrike, T, undefined, undefined, iv, isCall);
+          probOTM = greeks ? parseFloat((greeks.probOTM * 100).toFixed(1)) : null;
+        }
+      }
+    }
+
     return NextResponse.json({
       optionSymbol: kiteSymbol,
       tvSymbol,
@@ -149,6 +164,7 @@ export async function GET(request) {
       expiry:    expiry.toISOString(),
       expiryDay: expiry.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
       step,
+      probOTM,
     });
 
   } catch (error) {

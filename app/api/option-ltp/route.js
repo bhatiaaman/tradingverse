@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { nseStrikeSteps } from '@/app/lib/nseStrikeSteps';
 import { getDataProvider } from '@/app/lib/providers';
+import { computeIV, computeGreeks } from '@/app/lib/options/black-scholes';
 
 // Indices that have Thursday expiry (monthly)
 const INDICES = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX'];
@@ -168,6 +169,20 @@ export async function GET(request) {
     const tvOptType = optionType === 'CE' ? 'C' : 'P';
     const tvSymbol = `${symbol}${tvExpiry}${tvOptType}${atmStrike}`;
 
+    // Compute prob of expiring worthless (probOTM) via Black-Scholes
+    let probOTM = null;
+    if (ltp > 0 && price > 0) {
+      const T = Math.max(0, (expiry.getTime() - Date.now()) / (365 * 24 * 3600 * 1000));
+      if (T > 0) {
+        const isCall = optionType === 'CE';
+        const iv = computeIV(ltp, price, atmStrike, T, undefined, undefined, isCall);
+        if (iv) {
+          const greeks = computeGreeks(price, atmStrike, T, undefined, undefined, iv, isCall);
+          probOTM = greeks ? parseFloat((greeks.probOTM * 100).toFixed(1)) : null;
+        }
+      }
+    }
+
     return NextResponse.json({
       symbol,
       optionSymbol: kiteSymbol,      // Kite format for orders: TCS26FEB2950CE
@@ -180,6 +195,7 @@ export async function GET(request) {
       expiry: expiry.toISOString(),
       expiryDay: expiry.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
       step,
+      probOTM,  // % probability option expires worthless (out of the money)
     });
     
   } catch (error) {

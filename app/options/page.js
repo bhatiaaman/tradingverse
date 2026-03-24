@@ -19,6 +19,82 @@ function probColour(pct) {
   return 'text-red-400';
 }
 
+// ── Rules-based straddle commentary ──────────────────────────────────────────
+// Derives time-aware trading insights from live straddle data + chain stats.
+function getStraddleCommentary(candles, chainData) {
+  if (!candles?.length || !chainData) return [];
+  const { spot, atm, atmIV, hv30, ivHvRatio, straddlePremium, expectedMove: expMove } = chainData;
+  const lines = [];
+
+  // Time-of-day in IST
+  const now     = new Date();
+  const istMins = ((now.getUTCHours() * 60 + now.getUTCMinutes()) + 5 * 60 + 30) % (24 * 60);
+  const minsFromOpen = istMins - (9 * 60 + 15);
+
+  // Opening vs current premium
+  const openPremium = candles[0]?.value;
+  const curPremium  = candles[candles.length - 1]?.value;
+  const decayPct    = openPremium > 0 ? ((openPremium - curPremium) / openPremium * 100) : 0;
+
+  if (openPremium && curPremium) {
+    if (decayPct > 30) {
+      lines.push({ key: 'decay', icon: '↓', color: 'text-emerald-400', text: `Premium has decayed ${decayPct.toFixed(0)}% from open (₹${openPremium.toFixed(0)} → ₹${curPremium.toFixed(0)}). Strong theta — sellers in control all session.` });
+    } else if (decayPct > 12) {
+      lines.push({ key: 'decay', icon: '↓', color: 'text-slate-300', text: `Premium down ${decayPct.toFixed(0)}% from ₹${openPremium.toFixed(0)} open. Normal intraday decay; sellers have maintained edge.` });
+    } else if (decayPct < -20) {
+      lines.push({ key: 'spike', icon: '↑', color: 'text-rose-400', text: `Premium has spiked ${Math.abs(decayPct).toFixed(0)}% above open (₹${openPremium.toFixed(0)} → ₹${curPremium.toFixed(0)}). Volatility expansion — likely news or directional breakout. Avoid fresh sells.` });
+    } else if (decayPct < -8) {
+      lines.push({ key: 'spike', icon: '↑', color: 'text-amber-400', text: `Premium is ${Math.abs(decayPct).toFixed(0)}% above the opening level. IV expanding — buyers gaining edge.` });
+    }
+  }
+
+  // IV vs HV bias
+  if (ivHvRatio != null) {
+    if (ivHvRatio > 1.3) {
+      lines.push({ key: 'ivhv', icon: '⊕', color: 'text-emerald-400', text: `IV/HV ${ivHvRatio.toFixed(2)}× — options are expensive vs realised vol. Statistical edge for sellers (iron condors, straddle sells).` });
+    } else if (ivHvRatio > 1.1) {
+      lines.push({ key: 'ivhv', icon: '≈', color: 'text-slate-300', text: `IV/HV ${ivHvRatio.toFixed(2)}× — slightly elevated. Mild seller edge; size positions conservatively.` });
+    } else if (ivHvRatio < 0.85) {
+      lines.push({ key: 'ivhv', icon: '⊖', color: 'text-violet-400', text: `IV/HV ${ivHvRatio.toFixed(2)}× — options are cheap vs historical vol. Buyer edge: consider buying before a catalyst.` });
+    }
+  }
+
+  // Time-based session context
+  if (minsFromOpen >= 0) {
+    if (minsFromOpen < 30) {
+      lines.push({ key: 'time', icon: '⏱', color: 'text-slate-400', text: 'Opening 30 min: Premium is unstable. Wait for the first directional candle before initiating straddle positions.' });
+    } else if (minsFromOpen < 120) {
+      lines.push({ key: 'time', icon: '⏱', color: 'text-slate-400', text: 'Morning session: Theta decay is moderate. Watch for a trend forming before noon; avoid mid-range entries.' });
+    } else if (minsFromOpen < 225) {
+      lines.push({ key: 'time', icon: '⏱', color: 'text-slate-400', text: 'Post-noon: Theta decay accelerating. Selling premium here captures maximum time value with less gamma risk.' });
+    } else {
+      lines.push({ key: 'time', icon: '⚡', color: 'text-amber-400', text: 'Final hour: Gamma spikes near ATM. Short straddles have high pin risk — avoid new positions after 3 PM.' });
+    }
+  }
+
+  // Breakeven check
+  if (straddlePremium > 0 && atm > 0 && spot > 0) {
+    const upperBE = atm + straddlePremium;
+    const lowerBE = atm - straddlePremium;
+    const distPct = Math.abs((spot - atm) / atm * 100).toFixed(1);
+    lines.push({ key: 'be', icon: '⇔', color: 'text-slate-300', text: `Breakeven ₹${lowerBE.toFixed(0)} / ₹${upperBE.toFixed(0)}. Spot ₹${spot.toFixed(0)} is ${distPct}% from ATM.` });
+  }
+
+  // Expected move vs premium
+  if (expMove?.points > 0 && straddlePremium > 0) {
+    const em = expMove.points;
+    if (em > straddlePremium * 1.1) {
+      lines.push({ key: 'em', icon: '→', color: 'text-violet-400', text: `1σ expected move ±${em}pts exceeds premium ₹${straddlePremium.toFixed(0)}. Market is pricing a smaller range than IV implies — potential long straddle setup.` });
+    } else if (em < straddlePremium * 0.9) {
+      lines.push({ key: 'em', icon: '→', color: 'text-emerald-400', text: `Premium ₹${straddlePremium.toFixed(0)} exceeds 1σ expected move ±${em}pts. Market may be over-pricing the move — sellers have mathematical edge.` });
+    } else {
+      lines.push({ key: 'em', icon: '→', color: 'text-slate-400', text: `Premium ₹${straddlePremium.toFixed(0)} is fairly priced vs 1σ expected move ±${em}pts. Neither buyers nor sellers have a clear edge from pricing alone.` });
+    }
+  }
+
+  return lines;
+}
+
 // ── Distribution Chart (canvas) ───────────────────────────────────────────────
 function DistributionChart({ spot, atm, strikes, atmIV, T, targetPrice, onTargetChange }) {
   const canvasRef = useRef(null);
@@ -583,6 +659,25 @@ export default function OptionsPage() {
                     : <StraddleChart data={strangleData} color="#34d399" label="Strangle" />)
               }
             </div>
+            {/* Commentary */}
+            {(() => {
+              const commentary = getStraddleCommentary(
+                chartMode === 'straddle' ? straddleData : strangleData,
+                chainData
+              );
+              if (!commentary.length) return null;
+              return (
+                <div className="border-t border-white/5 px-4 py-3 flex flex-col gap-1.5">
+                  <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Session Analysis</div>
+                  {commentary.map(c => (
+                    <div key={c.key} className="flex items-start gap-2 text-[11px] leading-relaxed">
+                      <span className={`mt-px font-mono shrink-0 ${c.color}`}>{c.icon}</span>
+                      <span className="text-slate-400">{c.text}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Probability Panel */}

@@ -1524,7 +1524,7 @@ function PlaceOrderTab({
   productType, setProductType, orderType, setOrderType,
   quantity, setQuantity, price, setPrice, triggerPrice, setTriggerPrice,
   expiryType, setExpiryType,
-  optionSymbol, optionTvSymbol, optionLtp, optionStrike, optionExpiry,
+  optionSymbol, optionTvSymbol, optionLtp, optionStrike, optionExpiry, optionProbOTM,
   strikeAnalysis, analysisLoading, onRefreshAnalysis,
   orderPlacing, orderResult,
   intel, structureIntel, patternIntel, stationIntel, oiIntel,
@@ -1727,11 +1727,21 @@ function PlaceOrderTab({
                 </div>
               )}
             </div>
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-gray-700 dark:text-white/80 truncate mr-2">{optionSymbol}</span>
+            <div className="flex items-start justify-between">
+              <span className="font-medium text-gray-700 dark:text-white/80 truncate mr-2 mt-0.5">{optionSymbol}</span>
               <div className="text-right flex-shrink-0">
-                <span className={`font-bold ${instrumentType === 'CE' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>₹{optionLtp ?? '--'}</span>
-                {optionExpiry && <span className="text-gray-400 ml-2">{optionExpiry}</span>}
+                <div>
+                  <span className={`font-bold ${instrumentType === 'CE' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>₹{optionLtp ?? '--'}</span>
+                  {optionExpiry && <span className="text-gray-400 ml-2">{optionExpiry}</span>}
+                </div>
+                <div className={`text-[10px] font-semibold mt-0.5 ${
+                  optionProbOTM == null ? 'text-gray-400' :
+                  optionProbOTM >= 70 ? 'text-green-500 dark:text-green-400' :
+                  optionProbOTM >= 40 ? 'text-amber-500 dark:text-amber-400' :
+                  'text-red-500 dark:text-red-400'
+                }`}>
+                  {optionProbOTM != null ? `${optionProbOTM}% prob worthless` : '— prob worthless'}
+                </div>
               </div>
             </div>
             {optionStrike && <div className="text-gray-400 mt-0.5">Strike ₹{optionStrike}</div>}
@@ -2132,6 +2142,7 @@ export default function TerminalPage() {
   const [optionLtp, setOptionLtp]           = useState(null);
   const [optionStrike, setOptionStrike]     = useState(null);
   const [optionExpiry, setOptionExpiry]     = useState('');
+  const [optionProbOTM, setOptionProbOTM]   = useState(null);
   const [strikeStep, setStrikeStep]         = useState(50);
 
   // Strike analysis
@@ -2552,6 +2563,7 @@ export default function TerminalPage() {
         setOptionLtp(d.ltp || null);
         setOptionStrike(d.strike || null);
         setOptionExpiry(d.expiryDay || '');
+        setOptionProbOTM(d.probOTM ?? null);
         if (d.step) setStrikeStep(d.step);
         setQuantity(lotSize || 1);
         setStrikeAnalysis(null);
@@ -2563,7 +2575,7 @@ export default function TerminalPage() {
     if ((instrumentType === 'CE' || instrumentType === 'PE') && symbol && spotPrice) {
       fetchOptionDetails();
     } else {
-      setOptionSymbol(''); setOptionTvSymbol(''); setOptionLtp(null); setOptionStrike(null); setOptionExpiry('');
+      setOptionSymbol(''); setOptionTvSymbol(''); setOptionLtp(null); setOptionStrike(null); setOptionExpiry(''); setOptionProbOTM(null);
       setStrikeAnalysis(null);
     }
   }, [instrumentType, symbol, spotPrice, expiryType]);
@@ -2824,7 +2836,7 @@ export default function TerminalPage() {
                 price={price} setPrice={setPrice}
                 triggerPrice={triggerPrice} setTriggerPrice={setTriggerPrice}
                 expiryType={expiryType} setExpiryType={setExpiryType}
-                optionSymbol={optionSymbol} optionTvSymbol={optionTvSymbol} optionLtp={optionLtp} optionStrike={optionStrike} optionExpiry={optionExpiry}
+                optionSymbol={optionSymbol} optionTvSymbol={optionTvSymbol} optionLtp={optionLtp} optionStrike={optionStrike} optionExpiry={optionExpiry} optionProbOTM={optionProbOTM}
                 strikeAnalysis={strikeAnalysis} analysisLoading={analysisLoading} onRefreshAnalysis={fetchStrikeAnalysis}
                 orderPlacing={orderPlacing} orderResult={orderResult}
                 intel={intel} structureIntel={structureIntel} patternIntel={patternIntel} stationIntel={stationIntel} oiIntel={oiIntel}

@@ -233,7 +233,7 @@ export default function OrdersPage() {
   const [fetchingPrice, setFetchingPrice] = useState(false);
 
   // Option (CE/PE)
-  const [option, setOption] = useState({ symbol: null, ltp: null, strike: null, expiry: null, loading: false });
+  const [option, setOption] = useState({ symbol: null, ltp: null, strike: null, expiry: null, probOTM: null, loading: false });
 
   // Order form
   const [form, setForm] = useState({
@@ -297,7 +297,7 @@ export default function OrdersPage() {
   // ── Fetch option when CE/PE ───────────────────────────────────────────────
   useEffect(() => {
     if (form.instrumentType === 'EQ' || !selected || !auth.loggedIn) {
-      setOption({ symbol: null, ltp: null, strike: null, expiry: null, loading: false });
+      setOption({ symbol: null, ltp: null, strike: null, expiry: null, probOTM: null, loading: false });
       return;
     }
     (async () => {
@@ -305,9 +305,9 @@ export default function OrdersPage() {
       try {
         const r = await fetch(`/api/option-ltp?symbol=${selected.symbol}&price=${selected.spotPrice}&type=${form.instrumentType}`);
         const d = await r.json();
-        setOption({ symbol: d.optionSymbol ?? null, ltp: d.ltp ?? null, strike: d.strike ?? null, expiry: d.expiryDay ?? null, loading: false });
+        setOption({ symbol: d.optionSymbol ?? null, ltp: d.ltp ?? null, strike: d.strike ?? null, expiry: d.expiryDay ?? null, probOTM: d.probOTM ?? null, loading: false });
       } catch {
-        setOption({ symbol: null, ltp: null, strike: null, expiry: null, loading: false });
+        setOption({ symbol: null, ltp: null, strike: null, expiry: null, probOTM: null, loading: false });
       }
     })();
   }, [form.instrumentType, selected, auth.loggedIn]);
@@ -624,6 +624,15 @@ export default function OrdersPage() {
                         <div className="text-right">
                           <span className="text-white font-mono">₹{option.ltp ?? '--'}</span>
                           <div className="text-slate-500">LTP</div>
+                          {option.probOTM != null && (
+                            <div className={`mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded-md inline-block ${
+                              option.probOTM >= 70 ? 'bg-green-500/20 text-green-400' :
+                              option.probOTM >= 40 ? 'bg-amber-500/20 text-amber-400' :
+                              'bg-rose-500/20 text-rose-400'
+                            }`}>
+                              {option.probOTM}% OTM
+                            </div>
+                          )}
                         </div>
                       </div>
                     : <span className="text-slate-500">Option not available</span>
