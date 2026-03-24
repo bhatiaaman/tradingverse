@@ -1041,7 +1041,9 @@ function synthesizeNarrative({
   }
 
   if (atSup) {
-    const dir  = (rsiOS || oiAct === 'Long Buildup') ? 'NEUTRAL' : !aboveVwap ? 'BEARISH' : 'NEUTRAL';
+    // Only BEARISH if spot is clearly below VWAP (not just marginally — e.g. first candle of day, VWAP ≈ spot)
+    const clearlyBelowVwap = !aboveVwap && !nearVwap;
+    const dir  = (rsiOS || oiAct === 'Long Buildup') ? 'NEUTRAL' : clearlyBelowVwap ? 'BEARISH' : 'NEUTRAL';
     const holding = change5min >= 0;
     const headline = `Testing support ${R(support)}${!aboveVwap ? ', below VWAP' : ''}${rsiOS ? ', RSI oversold' : ''}`;
     const action = `${oiAct === 'Long Buildup' ? 'Put writing building a floor here. ' : oiAct === 'Short Buildup' ? 'Call writers active — bears not giving up at this level. ' : ''}${rsiNote('BULLISH')}${volNote} ${holding ? 'Holding so far.' : 'Still under pressure.'} Hold = bounce to ${R(parseFloat(support) + 60)}. Break = ${R(parseFloat(support) - 80)}.`;
@@ -1390,7 +1392,10 @@ export async function GET(request) {
     // Pre-market commentary should never show intraday bias timestamps.
     if (marketIsOpen) {
       const BIAS_HISTORY_KEY = `${NS}:commentary:bias-history`;
-      const prevHistory = (await redisGet(BIAS_HISTORY_KEY)) || [];
+      const allHistory  = (await redisGet(BIAS_HISTORY_KEY)) || [];
+      // Filter to today's IST date only — yesterday's entries have a 24h TTL but must not show
+      const todayIST    = getISTTime().toISOString().slice(0, 10);
+      const prevHistory = allHistory.filter(e => e.timestamp?.slice(0, 10) === todayIST);
       if (!prevHistory[0] || prevHistory[0].bias !== commentary.bias) {
         const ist = getISTTime();
         const hh  = String(ist.getUTCHours()).padStart(2, '0');
