@@ -315,6 +315,7 @@ function getNiftyLevelAlerts(indices) {
     const [showIndicators, setShowIndicators] = useState(false);
     const [rsiValue, setRsiValue] = useState(null);
     const [powerCandles, setPowerCandles] = useState([]);
+    const [powerCandleDismissed, setPowerCandleDismissed] = useState(null); // dismissed candle time
     const candleDataRef = useRef([]);
 
     // Check Kite auth status
@@ -1068,6 +1069,36 @@ function getNiftyLevelAlerts(indices) {
                   )}
                 </div>
               </div>
+
+              {/* Power Candle — Regime Shift Alert (always visible, blinks until dismissed) */}
+              {powerCandles.length > 0 && (() => {
+                const pc = powerCandles[powerCandles.length - 1];
+                if (powerCandleDismissed === pc.time) return null;
+                const isBull = pc.direction === 'bull';
+                return (
+                  <div className={`relative flex items-start gap-2 px-3 py-2 border-t border-b ${isBull ? 'bg-amber-500/10 border-amber-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+                    {/* Pinging dot — grabs attention */}
+                    <span className="relative flex-shrink-0 mt-0.5">
+                      <span className={`absolute inline-flex h-2.5 w-2.5 rounded-full opacity-75 animate-ping ${isBull ? 'bg-amber-400' : 'bg-red-400'}`} />
+                      <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${isBull ? 'bg-amber-400' : 'bg-red-400'}`} />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-xs font-bold tracking-wide animate-pulse ${isBull ? 'text-amber-300' : 'text-red-300'}`}>
+                        ⚡ REGIME SHIFT ALERT
+                      </div>
+                      <div className="text-[11px] text-slate-300 mt-0.5 leading-snug">
+                        {isBull ? 'Bullish' : 'Bearish'} power candle — Vol {pc.volMult}× avg, Range {pc.rangeMult}× ATR.
+                        {' '}<span className="text-slate-400">Trend may be reversing. Reassess bias and position size.</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setPowerCandleDismissed(pc.time)}
+                      className="flex-shrink-0 text-slate-500 hover:text-slate-300 text-xs leading-none mt-0.5 px-1"
+                      title="Dismiss"
+                    >✕</button>
+                  </div>
+                );
+              })()}
 
               {/* Collapsible Content */}
               {!commentaryCollapsed && (
