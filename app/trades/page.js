@@ -305,6 +305,10 @@ function getNiftyLevelAlerts(indices) {
     const [showVwap, setShowVwap] = useState(true);
     const [showZoneLines, setShowZoneLines] = useState(true);
     const [showVolume, setShowVolume] = useState(true);
+    const [showBOS, setShowBOS] = useState(true);
+    const [showChartSettings, setShowChartSettings] = useState(false);
+    const chartSettingsRef = useRef(null);
+    const showBOSRef = useRef(true);
     const keyLevelsForZoneRef = useRef(null);
     const showZoneLinesRef = useRef(true);
     const customChartRef = useRef(null);      // our chart instance
@@ -398,6 +402,21 @@ function getNiftyLevelAlerts(indices) {
       keyLevelsForZoneRef.current = keyLevels;
       showZoneLinesRef.current = showZoneLines;
     }, [keyLevels, showZoneLines]);
+
+    // Keep showBOSRef in sync (used by fetchData closure)
+    useEffect(() => { showBOSRef.current = showBOS; }, [showBOS]);
+
+    // Close chart settings dropdown on outside click
+    useEffect(() => {
+      if (!showChartSettings) return;
+      const handler = (e) => {
+        if (chartSettingsRef.current && !chartSettingsRef.current.contains(e.target)) {
+          setShowChartSettings(false);
+        }
+      };
+      document.addEventListener('mousedown', handler);
+      return () => document.removeEventListener('mousedown', handler);
+    }, [showChartSettings]);
 
     // Fetch sector performance data
     useEffect(() => {
@@ -640,6 +659,43 @@ function getNiftyLevelAlerts(indices) {
       return emaData;
     };
 
+    // ── Break of Structure (BOS) detector ────────────────────────────────────
+    // Finds the most recent broken swing high (bullish BOS) and broken swing
+    // low (bearish BOS). strength = number of bars on each side of pivot.
+    const detectBOS = (candles, strength = 3) => {
+      if (!candles || candles.length < strength * 2 + 5) return [];
+      const result = [];
+      for (let i = strength; i < candles.length - strength; i++) {
+        let isHigh = true, isLow = true;
+        for (let j = 1; j <= strength; j++) {
+          if (candles[i - j].high >= candles[i].high || candles[i + j].high >= candles[i].high) isHigh = false;
+          if (candles[i - j].low  <= candles[i].low  || candles[i + j].low  <= candles[i].low)  isLow  = false;
+        }
+        if (isHigh) {
+          // Check if any later candle closed above this swing high
+          for (let j = i + 1; j < candles.length; j++) {
+            if (candles[j].close > candles[i].high) {
+              result.push({ type: 'bull', price: candles[i].high, idx: i });
+              break;
+            }
+          }
+        }
+        if (isLow) {
+          // Check if any later candle closed below this swing low
+          for (let j = i + 1; j < candles.length; j++) {
+            if (candles[j].close < candles[i].low) {
+              result.push({ type: 'bear', price: candles[i].low, idx: i });
+              break;
+            }
+          }
+        }
+      }
+      // Keep only most recent of each type
+      const bulls = result.filter(r => r.type === 'bull');
+      const bears = result.filter(r => r.type === 'bear');
+      return [bulls[bulls.length - 1], bears[bears.length - 1]].filter(Boolean);
+    };
+
     // ── Power candle detector ─────────────────────────────────────────────────
     // A "power candle" has: body > 1.5× ATR(14), volume > 1.5× 20-bar avg,
     // and a strong body (body ≥ 60% of range). Scans last 5 bars only.
@@ -799,13 +855,22 @@ function getNiftyLevelAlerts(indices) {
 
             // Zone lines
             const kl = keyLevelsForZoneRef.current;
+            chart.clearZone('ceiling'); chart.clearZone('floor');
             if (showZoneLinesRef.current && kl?.levels?.length) {
               const ceiling = kl.levels.find(l => l.dist > 0.5);
               const floor   = kl.levels.find(l => l.dist < -0.5);
               const fullName = LEVEL_FULL_NAME;
-              chart.clearAllZones();
               if (ceiling) chart.setZone({ id: 'ceiling', price: ceiling.price, color: 'rgba(251,113,133,0.85)', label: `▲ ${fullName[ceiling.label] || ceiling.label}`, style: 'dashed' });
               if (floor)   chart.setZone({ id: 'floor',   price: floor.price,   color: 'rgba(125,211,252,0.85)', label: `▼ ${fullName[floor.label]   || floor.label}`,   style: 'dashed' });
+            }
+
+            // BOS zones
+            chart.clearZone('bos_bull'); chart.clearZone('bos_bear');
+            if (showBOSRef.current) {
+              const bosLevels = detectBOS(data.candles);
+              for (const b of bosLevels) {
+                chart.setZone({ id: `bos_${b.type}`, price: b.price, color: b.type === 'bull' ? 'rgba(16,185,129,0.85)' : 'rgba(239,68,68,0.85)', label: b.type === 'bull' ? 'BOS ▲' : 'BOS ▼', style: 'solid' });
+              }
             }
           } catch (err) {
             console.error('[custom chart] fetch error:', err);
@@ -860,7 +925,7 @@ function getNiftyLevelAlerts(indices) {
     useEffect(() => {
       const chart = customChartRef.current;
       if (!chart) return;
-      chart.clearAllZones();
+      chart.clearZone('ceiling'); chart.clearZone('floor');
       if (showZoneLines && keyLevels?.levels?.length) {
         const ceiling = keyLevels.levels.find(l => l.dist > 0.5);
         const floor   = keyLevels.levels.find(l => l.dist < -0.5);
@@ -875,6 +940,19 @@ function getNiftyLevelAlerts(indices) {
       if (!chart) return;
       chart.setShowVolume(showVolume);
     }, [showVolume]);
+
+    // Sync BOS zones when toggle changes
+    useEffect(() => {
+      const chart = customChartRef.current;
+      if (!chart) return;
+      chart.clearZone('bos_bull'); chart.clearZone('bos_bear');
+      if (showBOS && candleDataRef.current.length) {
+        const bosLevels = detectBOS(candleDataRef.current);
+        for (const b of bosLevels) {
+          chart.setZone({ id: `bos_${b.type}`, price: b.price, color: b.type === 'bull' ? 'rgba(16,185,129,0.85)' : 'rgba(239,68,68,0.85)', label: b.type === 'bull' ? 'BOS ▲' : 'BOS ▼', style: 'solid' });
+        }
+      }
+    }, [showBOS]);
 
     // Helper: bias to emoji
     const biasEmoji = (bias) => {
@@ -1888,6 +1966,7 @@ function getNiftyLevelAlerts(indices) {
                     </select>
                   </div>
                   <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                    {/* Interval selector */}
                     <div className="flex bg-[#0a1628] rounded-lg p-0.5">
                       {[{ value: '5minute', label: '5m' }, { value: '15minute', label: '15m' }, { value: 'day', label: 'D' }, { value: 'week', label: 'W' }].map((int) => (
                         <button
@@ -1899,53 +1978,98 @@ function getNiftyLevelAlerts(indices) {
                         </button>
                       ))}
                     </div>
-                    <div className="flex bg-[#0a1628] rounded-lg p-0.5">
-                      {[9, 21, 50, 200].map((period) => (
-                        <button
-                          key={period}
-                          onClick={() => {
-                            setEmaPeriods((prev) =>
-                              prev.includes(period)
-                                ? prev.filter((p) => p !== period)
-                                : [...prev, period]
-                            );
-                          }}
-                          className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${emaPeriods.includes(period) ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-                        >
-                          {period}
-                        </button>
-                      ))}
-                      <span className="px-1.5 py-1 text-[10px] text-amber-400 font-medium">EMA</span>
-                    </div>
-                    {(chartInterval === '5minute' || chartInterval === '15minute') && (
+
+                    {/* ⚙ Chart settings dropdown */}
+                    <div className="relative" ref={chartSettingsRef}>
                       <button
-                        onClick={() => setShowVwap(v => !v)}
-                        className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${showVwap ? 'bg-violet-600 text-white' : 'bg-[#0a1628] text-slate-400 hover:text-slate-200'}`}
+                        onClick={() => setShowChartSettings(v => !v)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors ${showChartSettings ? 'bg-slate-700 border-slate-500 text-white' : 'bg-[#0a1628] border-white/10 text-slate-400 hover:text-white'}`}
+                        title="Chart settings"
                       >
-                        VWAP
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Indicators
                       </button>
-                    )}
-                    <button
-                      onClick={() => setShowZoneLines(v => !v)}
-                      className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${showZoneLines ? 'bg-sky-700 text-white' : 'bg-[#0a1628] text-slate-400 hover:text-slate-200'}`}
-                      title="Toggle zone ceiling / floor lines"
-                    >
-                      Zone
-                    </button>
-                    <button
-                      onClick={() => setShowVolume(v => !v)}
-                      className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${showVolume ? 'bg-teal-700 text-white' : 'bg-[#0a1628] text-slate-400 hover:text-slate-200'}`}
-                      title="Toggle volume bars"
-                    >
-                      Vol
-                    </button>
-                    <button
-                      onClick={() => setShowIndicators(v => !v)}
-                      className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${showIndicators ? 'bg-violet-700 text-white' : 'bg-[#0a1628] text-slate-400 hover:text-slate-200'}`}
-                      title="Toggle RSI(14) indicator pane"
-                    >
-                      RSI
-                    </button>
+                      {showChartSettings && (
+                        <div className="absolute top-full left-0 mt-1 z-50 bg-[#0d1f38] border border-blue-800/50 rounded-xl shadow-2xl p-3 w-52">
+                          {/* EMA Lines */}
+                          <div className="mb-2.5">
+                            <div className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider mb-1.5">EMA Lines</div>
+                            <div className="grid grid-cols-4 gap-1">
+                              {[9, 21, 50, 200].map((period) => (
+                                <label key={period} className="flex flex-col items-center gap-0.5 cursor-pointer group">
+                                  <div
+                                    onClick={() => setEmaPeriods(prev => prev.includes(period) ? prev.filter(p => p !== period) : [...prev, period])}
+                                    className={`w-full text-center py-1 text-xs font-medium rounded cursor-pointer transition-colors ${emaPeriods.includes(period) ? 'bg-amber-600/80 text-white' : 'bg-white/5 text-slate-500 hover:text-slate-300'}`}
+                                  >
+                                    {period}
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Overlays */}
+                          <div className="mb-2.5">
+                            <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">Overlays</div>
+                            <div className="flex flex-col gap-1.5">
+                              {[
+                                { id: 'vwap',  label: 'VWAP', sub: 'intraday only', val: showVwap,      set: setShowVwap,      disabled: chartInterval !== '5minute' && chartInterval !== '15minute' },
+                                { id: 'zone',  label: 'Zone Lines', sub: 'S/R levels',  val: showZoneLines, set: setShowZoneLines },
+                                { id: 'bos',   label: 'BOS',  sub: 'Break of Structure', val: showBOS,  set: setShowBOS },
+                              ].map(({ id, label, sub, val, set, disabled }) => (
+                                <label key={id} className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-40' : ''}`}>
+                                  <div
+                                    onClick={() => !disabled && set(v => !v)}
+                                    className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-colors ${val && !disabled ? 'bg-blue-600 border-blue-500' : 'bg-transparent border-slate-600'}`}
+                                  >
+                                    {val && !disabled && (
+                                      <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="text-xs text-slate-200">{label}</div>
+                                    {sub && <div className="text-[10px] text-slate-500">{sub}</div>}
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Sub-panels */}
+                          <div>
+                            <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">Sub-panels</div>
+                            <div className="flex flex-col gap-1.5">
+                              {[
+                                { id: 'vol', label: 'Volume',  sub: 'bars below candles', val: showVolume,     set: setShowVolume },
+                                { id: 'rsi', label: 'RSI(14)', sub: 'value in header',    val: showIndicators, set: setShowIndicators },
+                              ].map(({ id, label, sub, val, set }) => (
+                                <label key={id} className="flex items-center gap-2 cursor-pointer">
+                                  <div
+                                    onClick={() => set(v => !v)}
+                                    className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-colors ${val ? 'bg-blue-600 border-blue-500' : 'bg-transparent border-slate-600'}`}
+                                  >
+                                    {val && (
+                                      <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="text-xs text-slate-200">{label}</div>
+                                    {sub && <div className="text-[10px] text-slate-500">{sub}</div>}
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* External links */}
                     <a
                       href="/options"
                       className="hidden sm:flex px-3 py-1.5 bg-violet-700 hover:bg-violet-600 text-white text-xs font-medium rounded-lg transition-colors items-center gap-1"
