@@ -172,7 +172,11 @@ export async function GET(request) {
     // Compute prob of expiring worthless (probOTM) via Black-Scholes
     let probOTM = null;
     if (ltp > 0 && price > 0) {
-      const T = Math.max(0, (expiry.getTime() - Date.now()) / (365 * 24 * 3600 * 1000));
+      // Expiry date has no time component — default is midnight UTC which is 5:30 AM IST,
+      // already past by market hours. Pin to 3:30 PM IST (10:00 UTC) so T > 0 on expiry day.
+      const expiryClose = new Date(expiry);
+      expiryClose.setUTCHours(10, 0, 0, 0);
+      const T = Math.max(0, (expiryClose.getTime() - Date.now()) / (365 * 24 * 3600 * 1000));
       if (T > 0) {
         const isCall = optionType === 'CE';
         const iv = computeIV(ltp, price, atmStrike, T, undefined, undefined, isCall);

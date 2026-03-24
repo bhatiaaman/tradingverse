@@ -145,7 +145,9 @@ export async function GET(request) {
     // Compute probOTM via Black-Scholes
     let probOTM = null;
     if (ltp > 0 && spotPrice > 0) {
-      const T = Math.max(0, (expiry.getTime() - Date.now()) / (365 * 24 * 3600 * 1000));
+      const expiryClose = new Date(expiry);
+      expiryClose.setUTCHours(10, 0, 0, 0); // 3:30 PM IST = 10:00 UTC
+      const T = Math.max(0, (expiryClose.getTime() - Date.now()) / (365 * 24 * 3600 * 1000));
       if (T > 0) {
         const isCall = instrumentType === 'CE';
         const iv = computeIV(ltp, spotPrice, atmStrike, T, undefined, undefined, isCall);
