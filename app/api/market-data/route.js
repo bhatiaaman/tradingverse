@@ -180,27 +180,46 @@ async function fetchNiftyFromYahoo() {
 // Fetch GIFT Nifty current price + its own previous session close (5d daily history).
 // Using GIFT's own prev close (not NSE NIFTY's) gives the correct change% that
 // matches what SGX/NSE IFSC shows and correctly reflects the expected NIFTY gap.
+const GIFT_CACHE_KEY = `${NS}:gift-nifty-v2`;
+const GIFT_CACHE_TTL = 10 * 60; // 10 min — stale data is better than nothing
+
 async function fetchGIFTNifty() {
-  for (const ticker of ['GIFTNIFTY.NS', 'NIFTY.NS']) {
-    try {
-      const response = await fetch(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=5d`,
-        { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }
-      );
-      if (response.ok) {
-        const data = await response.json();
-        const result    = data.chart.result?.[0];
-        const meta      = result?.meta;
-        const price     = meta?.regularMarketPrice;
-        // Use chartPreviousClose — Yahoo's "last completed session close" for this ticker.
-        // The closes[] array approach breaks pre-market: GIFT Nifty trades from 6 AM IST,
-        // so by 7–9 AM Yahoo already includes an incomplete Monday candle in closes[],
-        // making closes[-1] the partial today value instead of Friday's close.
+  // Try Yahoo Finance: multiple tickers × both query domains to beat rate-limits
+  const tickers = ['GIFTNIFTY.NS', 'NIFTYIFSC.NS', 'NIFTY.NS'];
+  const domains  = ['query1', 'query2'];
+
+  for (const domain of domains) {
+    for (const ticker of tickers) {
+      try {
+        const res = await fetch(
+          `https://${domain}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`,
+          {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Accept': 'application/json',
+            },
+            signal: AbortSignal.timeout(6000),
+          }
+        );
+        if (!res.ok) continue;
+        const data  = await res.json();
+        const meta  = data.chart?.result?.[0]?.meta;
+        const price = meta?.regularMarketPrice;
+        // chartPreviousClose = Yahoo's last completed session — correct for pre-market
         const prevClose = meta?.chartPreviousClose ?? meta?.previousClose ?? null;
-        if (price) return { price, prevClose };
-      }
-    } catch { continue; }
+        if (price && price > 10000) {           // sanity: GIFT Nifty is always >10k
+          const result = { price, prevClose, ticker };
+          await redisSet(GIFT_CACHE_KEY, result, GIFT_CACHE_TTL);
+          return result;
+        }
+      } catch { continue; }
+    }
   }
+
+  // All live fetches failed — serve stale Redis value so the UI shows something
+  const stale = await redisGet(GIFT_CACHE_KEY);
+  if (stale?.price) return { ...stale, stale: true };
+
   return null;
 }
 
