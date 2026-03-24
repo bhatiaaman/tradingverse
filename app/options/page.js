@@ -579,6 +579,12 @@ export default function OptionsPage() {
             disabled={loading}>
             {loading ? '...' : '↻ Refresh'}
           </button>
+
+          <a href="/options/expiry"
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-600/20 border border-amber-500/30 text-amber-400 hover:bg-amber-600/30 hover:text-amber-300 transition-colors">
+            Expiry Dashboard ↗
+          </a>
+
           {resolvedExpiry && (
             <span className="text-xs text-slate-500">Expiry: {resolvedExpiry}</span>
           )}
