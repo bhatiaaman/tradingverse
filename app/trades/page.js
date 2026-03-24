@@ -888,10 +888,14 @@ function getNiftyLevelAlerts(indices) {
 
         fetchData();
 
-        let interval;
-        if (chartInterval === '5minute' || chartInterval === '15minute') {
-          interval = setInterval(fetchData, 60000);
-        }
+        const REFRESH_MS = {
+          '5minute':  30_000,   // 30s — live candle updates feel responsive
+          '15minute': 60_000,   // 60s — one update per minute is plenty
+          'hour':     300_000,  // 5 min — hourly bar changes slowly
+          'day':      1_800_000, // 30 min — daily bar only needs occasional refresh
+        };
+        const refreshMs = REFRESH_MS[chartInterval];
+        const interval = refreshMs ? setInterval(fetchData, refreshMs) : null;
 
         return () => {
           clearInterval(interval);
