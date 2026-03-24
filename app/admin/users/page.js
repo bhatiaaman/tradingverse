@@ -45,6 +45,9 @@ export default function AdminUsersPage() {
   const [resetLinks, setResetLinks]     = useState({})
   const [copied, setCopied]             = useState(null)
   const [confirmReset, setConfirmReset] = useState(null)
+  const [grantEmail, setGrantEmail]     = useState('')
+  const [granting, setGranting]         = useState(false)
+  const [grantMsg, setGrantMsg]         = useState(null) // { ok, text }
 
   // ── Access (feature flags) state ─────────────────────────────────────────
   const [pages, setPages]           = useState([])
@@ -80,6 +83,31 @@ export default function AdminUsersPage() {
     await navigator.clipboard.writeText(url)
     setCopied(email)
     setTimeout(() => setCopied(c => c === email ? null : c), 2000)
+  }
+
+  async function grantProByEmail(e) {
+    e.preventDefault()
+    const email = grantEmail.trim().toLowerCase()
+    if (!email) return
+    setGranting(true)
+    setGrantMsg(null)
+    const res = await fetch('/api/admin/users', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, plan: 'pro' }),
+    })
+    if (res.ok) {
+      setGrantMsg({ ok: true, text: `Pro granted to ${email}` })
+      setGrantEmail('')
+      // Add to list if not already there
+      setUsers(u => u.find(x => x.email === email)
+        ? u.map(x => x.email === email ? { ...x, plan: 'pro' } : x)
+        : [{ email, name: email.split('@')[0], plan: 'pro', provider: 'google', createdAt: null }, ...u]
+      )
+    } else {
+      const d = await res.json().catch(() => ({}))
+      setGrantMsg({ ok: false, text: d.error || 'Failed — user may not exist yet' })
+    }
+    setGranting(false)
   }
 
   async function togglePlan(email, currentPlan) {
@@ -157,6 +185,29 @@ export default function AdminUsersPage() {
                 </div>
               ))}
             </div>
+
+            {/* Grant pro by email */}
+            <form onSubmit={grantProByEmail} className="mb-4 flex gap-2">
+              <input
+                type="email"
+                placeholder="Grant pro by email (for unlisted users)…"
+                value={grantEmail}
+                onChange={e => { setGrantEmail(e.target.value); setGrantMsg(null) }}
+                className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-white placeholder-slate-600 text-sm focus:outline-none focus:border-emerald-500/50"
+              />
+              <button
+                type="submit"
+                disabled={granting || !grantEmail.trim()}
+                className="px-4 py-3 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-sm font-semibold hover:bg-emerald-500/20 transition-all disabled:opacity-40"
+              >
+                {granting ? '…' : 'Grant Pro'}
+              </button>
+            </form>
+            {grantMsg && (
+              <p className={`text-xs mb-3 px-1 ${grantMsg.ok ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {grantMsg.text}
+              </p>
+            )}
 
             {/* Search */}
             <div className="mb-4">

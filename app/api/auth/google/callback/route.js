@@ -73,7 +73,6 @@ export async function GET(req) {
       // New user — create account (no hash; Google is the auth provider)
       const user = { name, email, createdAt: Date.now(), provider: 'google', googleId, plan: 'free' }
       await redis.set(userKey, JSON.stringify(user))
-      await redis.sadd(`${NS}:users:all`, email)
     } else {
       // Existing user (password or Google) — link Google ID if not already set
       const user = typeof raw === 'string' ? JSON.parse(raw) : raw
@@ -83,7 +82,10 @@ export async function GET(req) {
       if (Object.keys(updates).length) {
         await redis.set(userKey, JSON.stringify({ ...user, ...updates }))
       }
-      await redis.sadd(`${NS}:users:all`, email)
+    }
+    // Always ensure email is in the user index (sadd is idempotent)
+    try { await redis.sadd(`${NS}:users:all`, email) } catch (e) {
+      console.error('[google-callback] sadd users:all failed:', e.message)
     }
 
     // Create 30-day session
