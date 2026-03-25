@@ -744,6 +744,227 @@ export function detectSetups(candles, patterns, context, pre) {
     }
   }
 
+  const isBull0 = c0.close > c0.open;
+
+  // ── S8: Higher Low / Lower High ──────────────────────────────────────────
+  // Confirmed swing structure + price bouncing at latest HL or LH.
+  if (pre.swingSequence?.type === 'uptrend') {
+    const { lows } = pre.swingPivots2;
+    if (lows.length >= 2) {
+      const lastLow = lows[lows.length - 1], prevLow = lows[lows.length - 2];
+      if (lastLow.price > prevLow.price) {
+        const distPct = Math.abs((c0.close - lastLow.price) / lastLow.price * 100);
+        if (distPct <= 0.5 && isBull0)
+          setups.push({ id: 's8_hl', name: 'Higher Low Bounce', direction: 'bull', strength: 3,
+            sl: lastLow.price * 0.998, target: null,
+            details: { hlPrice: lastLow.price, prevLow: prevLow.price, distPct: parseFloat(distPct.toFixed(2)) } });
+      }
+    }
+  }
+  if (pre.swingSequence?.type === 'downtrend') {
+    const { highs } = pre.swingPivots2;
+    if (highs.length >= 2) {
+      const lastHigh = highs[highs.length - 1], prevHigh = highs[highs.length - 2];
+      if (lastHigh.price < prevHigh.price) {
+        const distPct = Math.abs((c0.close - lastHigh.price) / lastHigh.price * 100);
+        if (distPct <= 0.5 && !isBull0)
+          setups.push({ id: 's8_lh', name: 'Lower High Rejection', direction: 'bear', strength: 3,
+            sl: lastHigh.price * 1.002, target: null,
+            details: { lhPrice: lastHigh.price, prevHigh: prevHigh.price, distPct: parseFloat(distPct.toFixed(2)) } });
+      }
+    }
+  }
+
+  // ── S9: S/R Flip ─────────────────────────────────────────────────────────
+  // BOS level that had 2+ prior touches before breaking — clean resistance-to-support flip.
+  if (pre.bosLevels.length) {
+    const recentBOS9 = pre.bosLevels.reduce((a, b) => b.idx > a.idx ? b : a);
+    const dist9      = Math.abs((c0.close - recentBOS9.price) / recentBOS9.price * 100);
+    if (dist9 <= 0.3 && recentBOS9.breakIdx !== undefined) {
+      const preBOSSlice = candles.slice(0, recentBOS9.breakIdx);
+      const touchCount  = preBOSSlice.filter(c => {
+        const pct = recentBOS9.type === 'bull'
+          ? Math.abs(c.high - recentBOS9.price) / recentBOS9.price * 100
+          : Math.abs(c.low  - recentBOS9.price) / recentBOS9.price * 100;
+        return pct <= 0.25;
+      }).length;
+      if (touchCount >= 2)
+        setups.push({ id: 's9_sr_flip', name: 'S/R Flip Retest', direction: recentBOS9.type, strength: 4,
+          sl: recentBOS9.type === 'bull' ? recentBOS9.price * 0.997 : recentBOS9.price * 1.003, target: null,
+          details: { flipPrice: recentBOS9.price, touchCount, distPct: parseFloat(dist9.toFixed(2)) } });
+    }
+  }
+
+  // ── S10: Double Bottom / Double Top ──────────────────────────────────────
+  // Two swing pivots within 0.3% of each other, second touch on lower volume.
+  const sliceStart10 = Math.max(0, n - 20);
+  const { lows: sp2L, highs: sp2H } = pre.swingPivots2;
+
+  if (sp2L.length >= 2) {
+    const l1 = sp2L[sp2L.length - 2], l2 = sp2L[sp2L.length - 1];
+    const diff = Math.abs(l1.price - l2.price) / l1.price * 100;
+    if (diff <= 0.3) {
+      const vol1 = candles[sliceStart10 + l1.idx]?.volume || 0;
+      const vol2 = candles[sliceStart10 + l2.idx]?.volume || 0;
+      const volDiv = vol1 > 0 && vol2 < vol1;
+      const distDB = Math.abs((c0.close - l2.price) / l2.price * 100);
+      if (distDB <= 0.5 && isBull0 && volDiv)
+        setups.push({ id: 's10_double_bottom', name: 'Double Bottom', direction: 'bull', strength: 4,
+          sl: l2.price * 0.998, target: null,
+          details: { level: parseFloat(l2.price.toFixed(2)), diff: parseFloat(diff.toFixed(2)), volDiv } });
+    }
+  }
+  if (sp2H.length >= 2) {
+    const h1 = sp2H[sp2H.length - 2], h2 = sp2H[sp2H.length - 1];
+    const diff = Math.abs(h1.price - h2.price) / h1.price * 100;
+    if (diff <= 0.3) {
+      const vol1 = candles[sliceStart10 + h1.idx]?.volume || 0;
+      const vol2 = candles[sliceStart10 + h2.idx]?.volume || 0;
+      const volDiv = vol1 > 0 && vol2 < vol1;
+      const distDT = Math.abs((c0.close - h2.price) / h2.price * 100);
+      if (distDT <= 0.5 && !isBull0 && volDiv)
+        setups.push({ id: 's10_double_top', name: 'Double Top', direction: 'bear', strength: 4,
+          sl: h2.price * 1.002, target: null,
+          details: { level: parseFloat(h2.price.toFixed(2)), diff: parseFloat(diff.toFixed(2)), volDiv } });
+    }
+  }
+
+  // ── S11: Inside Bar Breakout (with volume confirmation) ───────────────────
+  const ibBull = patterns.find(p => p.id === 'ib_breakout');
+  const ibBear = patterns.find(p => p.id === 'ib_breakdown');
+  if (ibBull && pre.volume.mult >= 1.5)
+    setups.push({ id: 's11_ib_bull', name: 'IB Breakout', direction: 'bull', strength: 4,
+      sl: candles[n - 2].low * 0.999, target: null, coversPattern: 'ib_breakout',
+      details: { volMult: pre.volume.mult } });
+  if (ibBear && pre.volume.mult >= 1.5)
+    setups.push({ id: 's11_ib_bear', name: 'IB Breakdown', direction: 'bear', strength: 4,
+      sl: candles[n - 2].high * 1.001, target: null, coversPattern: 'ib_breakdown',
+      details: { volMult: pre.volume.mult } });
+
+  // ── S12: VWAP + Key Level Confluence ─────────────────────────────────────
+  // Within 0.15% of VWAP AND within 0.2% of BOS level simultaneously.
+  if (pre.vwap?.distPct <= 0.15 && context.bos?.distPct <= 0.2) {
+    const bPct = (c0.high - c0.low) > 0 ? Math.abs(c0.close - c0.open) / (c0.high - c0.low) : 0;
+    if (bPct >= 0.35)
+      setups.push({ id: `s12_confluence_${isBull0 ? 'bull' : 'bear'}`, name: 'VWAP + Level Confluence',
+        direction: isBull0 ? 'bull' : 'bear', strength: 4,
+        sl: isBull0 ? pre.vwap.price * 0.999 : pre.vwap.price * 1.001, target: null,
+        details: { vwapDist: pre.vwap.distPct, bosDist: context.bos.distPct } });
+  }
+
+  // ── S13: Liquidity Sweep + CHoCH ─────────────────────────────────────────
+  // Prior candle swept a swing high/low; current candle confirms direction change.
+  if (candles.length >= 16) {
+    const c1    = candles[n - 2];
+    const sl16  = candles.slice(-16, -1);
+    const sH    = Math.max(...sl16.slice(0, -1).map(c => c.high));
+    const sL    = Math.min(...sl16.slice(0, -1).map(c => c.low));
+    const thr   = 0.001;
+    if (c1.high > sH * (1 + thr) && c1.close < sH && !isBull0 && c0.close < c1.low)
+      setups.push({ id: 's13_choch_bear', name: 'Liq. Sweep + CHoCH', direction: 'bear', strength: 4,
+        sl: c1.high * 1.001, target: null, coversPattern: 'liq_sweep_high',
+        details: { sweepHigh: parseFloat(sH.toFixed(2)), chochClose: c0.close } });
+    if (c1.low < sL * (1 - thr) && c1.close > sL && isBull0 && c0.close > c1.high)
+      setups.push({ id: 's13_choch_bull', name: 'Liq. Sweep + CHoCH', direction: 'bull', strength: 4,
+        sl: c1.low * 0.999, target: null, coversPattern: 'liq_sweep_low',
+        details: { sweepLow: parseFloat(sL.toFixed(2)), chochClose: c0.close } });
+  }
+
+  // ── S14: FVG Fill at Structure ────────────────────────────────────────────
+  // Price enters an unmitigated FVG that sits near a BOS or OB zone, rejection candle present.
+  if (pre.fvgs.length) {
+    const rejIds = ['hammer','bull_pin','shooting_star','bear_pin',
+                    'bull_engulfing','bear_engulfing','doji','morning_star','evening_star'];
+    for (const fvg of pre.fvgs) {
+      if (c0.close < fvg.low || c0.close > fvg.high) continue;
+      const nearBOS = pre.bosLevels.some(b => Math.abs(b.price - fvg.mid) / fvg.mid * 100 <= 0.5);
+      const nearOB  = pre.orderBlocks.some(ob => ob.low <= fvg.high * 1.002 && ob.high >= fvg.low * 0.998);
+      if (!(nearBOS || nearOB)) continue;
+      const hasRej  = patterns.some(p => rejIds.includes(p.id) && (p.direction === fvg.type || p.direction === 'neutral'));
+      if (hasRej) {
+        setups.push({ id: `s14_fvg_${fvg.type}`, name: 'FVG Fill at Structure', direction: fvg.type, strength: 4,
+          sl: fvg.type === 'bull' ? fvg.low * 0.999 : fvg.high * 1.001, target: null,
+          details: { fvgHigh: parseFloat(fvg.high.toFixed(2)), fvgLow: parseFloat(fvg.low.toFixed(2)), nearBOS, nearOB } });
+        break;
+      }
+    }
+  }
+
+  // ── S15: OTE Fibonacci (62–79% retracement) ───────────────────────────────
+  // BOS with impulse ≥ 2%, price retraces into 62–79% zone, PA confirmation.
+  if (pre.bosLevels.length) {
+    const bos15 = pre.bosLevels.reduce((a, b) => b.idx > a.idx ? b : a);
+    if (bos15.breakIdx !== undefined) {
+      const iS = candles[bos15.idx], iE = candles[bos15.breakIdx];
+      if (iS && iE) {
+        const iH = bos15.type === 'bull' ? iE.high : iS.high;
+        const iL = bos15.type === 'bull' ? iS.low  : iE.low;
+        const iR = iH - iL;
+        const movePct = iR / iL * 100;
+        if (movePct >= 2.0) {
+          const ote62 = bos15.type === 'bull' ? iH - iR * 0.62 : iL + iR * 0.62;
+          const ote79 = bos15.type === 'bull' ? iH - iR * 0.79 : iL + iR * 0.79;
+          const inOTE = bos15.type === 'bull'
+            ? c0.close >= ote79 && c0.close <= ote62
+            : c0.close >= ote62 && c0.close <= ote79;
+          if (inOTE) {
+            const confIds = ['hammer','bull_pin','shooting_star','bear_pin',
+                             'bull_engulfing','bear_engulfing','doji','morning_star','evening_star'];
+            const hasConf = patterns.some(p => confIds.includes(p.id) && (p.direction === bos15.type || p.direction === 'neutral'));
+            if (hasConf)
+              setups.push({ id: `s15_ote_${bos15.type}`, name: 'OTE Retracement', direction: bos15.type, strength: 4,
+                sl: bos15.type === 'bull' ? ote79 * 0.999 : ote79 * 1.001,
+                target: bos15.type === 'bull' ? iH * 1.027 : iL * 0.973,
+                details: { ote62: parseFloat(ote62.toFixed(2)), ote79: parseFloat(ote79.toFixed(2)), movePct: parseFloat(movePct.toFixed(2)) } });
+          }
+        }
+      }
+    }
+  }
+
+  // ── S16: Wyckoff Spring / Upthrust ───────────────────────────────────────
+  // Price briefly breaks a defined trading range boundary then snaps back inside.
+  if (pre.tradingRange) {
+    const { high: rH, low: rL } = pre.tradingRange;
+    const rng = c0.high - c0.low || 1;
+    if (c0.low < rL && c0.close > rL && (c0.close - c0.low) / rng >= 0.5)
+      setups.push({ id: 's16_spring', name: 'Wyckoff Spring', direction: 'bull', strength: 4,
+        sl: c0.low * 0.999, target: rH,
+        details: { rangeLow: rL, rangeHigh: rH, wickLow: c0.low } });
+    if (c0.high > rH && c0.close < rH && (c0.high - c0.close) / rng >= 0.5)
+      setups.push({ id: 's16_upthrust', name: 'Wyckoff Upthrust', direction: 'bear', strength: 4,
+        sl: c0.high * 1.001, target: rL,
+        details: { rangeLow: rL, rangeHigh: rH, wickHigh: c0.high } });
+  }
+
+  // ── S17: Confluence Stack (4+ independent factors) ────────────────────────
+  // No dominant pattern needed — multiple independent signals at same price.
+  {
+    let factors = 0, stackDir = null;
+    if (context.bos?.distPct <= 0.2)           { factors++; stackDir = context.bos.type; }
+    if (context.orderBlock)                     { factors++; }
+    if (pre.fvgs.some(f => c0.close >= f.low && c0.close <= f.high)) factors++;
+    if (pre.vwap?.atVwap)                       { factors++; }
+    if (pre.ema?.atEma21 || pre.ema?.atEma50)   { factors++; }
+    if (pre.rsi != null && pre.rsi < 30)        { factors++; if (!stackDir) stackDir = 'bull'; }
+    if (pre.rsi != null && pre.rsi > 70)        { factors++; if (!stackDir) stackDir = 'bear'; }
+    if (pre.volume.context === 'climax' || pre.volume.context === 'dryup') factors++;
+    if (pre.powerCandles.length)                { factors++; if (!stackDir) stackDir = pre.powerCandles[pre.powerCandles.length - 1].direction; }
+    if (patterns.some(p => ['liq_sweep_high','liq_sweep_low'].includes(p.id))) factors++;
+    if (pre.tradingRange) {
+      const atBoundary =
+        Math.abs(c0.close - pre.tradingRange.high) / pre.tradingRange.high * 100 <= 0.2 ||
+        Math.abs(c0.close - pre.tradingRange.low)  / pre.tradingRange.low  * 100 <= 0.2;
+      if (atBoundary) factors++;
+    }
+    if (factors >= 4 && stackDir) {
+      const hasConf = patterns.some(p => p.direction === stackDir || p.direction === 'neutral');
+      if (hasConf)
+        setups.push({ id: `s17_confluence_${stackDir}`, name: 'Confluence Stack', direction: stackDir, strength: 5,
+          sl: null, target: null, details: { factors } });
+    }
+  }
+
   return setups;
 }
 
