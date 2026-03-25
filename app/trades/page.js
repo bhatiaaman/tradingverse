@@ -324,9 +324,11 @@ function getNiftyLevelAlerts(indices) {
 
     // Human Eye state
     const [humanEyeData, setHumanEyeData] = useState(null);
-    const [humanEyeEnv, setHumanEyeEnv] = useState('medium');
+    const [humanEyeLog, setHumanEyeLog]   = useState([]);   // rolling candle log
+    const [humanEyeEnv, setHumanEyeEnv]   = useState('medium');
     const [humanEyeOpen, setHumanEyeOpen] = useState(true);
-    const humanEyeEnvRef = useRef('medium');
+    const humanEyeEnvRef      = useRef('medium');
+    const lastCandleCountRef  = useRef(0);
 
     // Check Kite auth status
     useEffect(() => {
@@ -874,9 +876,28 @@ function getNiftyLevelAlerts(indices) {
             // Human Eye scan (after VWAP is populated in the ref)
             try {
               const { runHumanEye } = await import('@/app/lib/humanEye.js');
-              const vwapForHE = customVwapDataRef.current;
-              const heResult = runHumanEye(data.candles, vwapForHE, rsiData[rsiData.length - 1]?.value ?? null, humanEyeEnvRef.current);
+              const vwapForHE  = customVwapDataRef.current;
+              const rsiVal     = rsiData[rsiData.length - 1]?.value ?? null;
+              const heResult   = runHumanEye(data.candles, vwapForHE, rsiVal, humanEyeEnvRef.current);
               setHumanEyeData(heResult);
+
+              // Append to rolling log only when a new candle has formed
+              const newCount = data.candles.length;
+              if (newCount > lastCandleCountRef.current) {
+                lastCandleCountRef.current = newCount;
+                const lastCandle = data.candles[data.candles.length - 1];
+                // Format IST time from unix timestamp
+                const d = new Date((lastCandle.time + 19800) * 1000); // +5:30 offset
+                const hh = String(d.getUTCHours()).padStart(2, '0');
+                const mm = String(d.getUTCMinutes()).padStart(2, '0');
+                const entry = {
+                  time:     `${hh}:${mm}`,
+                  topSetup: heResult.strongSetups?.[0] ?? heResult.watchList?.[0] ?? null,
+                  context:  heResult.context,
+                  candle:   { open: lastCandle.open, high: lastCandle.high, low: lastCandle.low, close: lastCandle.close },
+                };
+                setHumanEyeLog(prev => [entry, ...prev].slice(0, 15));
+              }
             } catch (heErr) {
               console.error('[Human Eye] scan error:', heErr);
             }
@@ -2232,132 +2253,110 @@ function getNiftyLevelAlerts(indices) {
                 </div>
 
                 {humanEyeOpen && (
-                  <div className="px-4 py-3 space-y-3">
-                    {!humanEyeData ? (
-                      <p className="text-slate-600 text-xs">Scanning…</p>
-                    ) : (
-                      <>
-                        {/* Context row */}
-                        <div className="flex flex-wrap gap-2">
-                          {/* Trend */}
+                  <div>
+                    {/* Current context strip */}
+                    {humanEyeData && (
+                      <div className="flex flex-wrap gap-1.5 px-4 py-2.5 border-b border-white/[0.04]">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          humanEyeData.context.trend === 'uptrend'   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                          humanEyeData.context.trend === 'downtrend' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                          'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                        }`}>
+                          {humanEyeData.context.trend === 'uptrend' ? '↑ Up' : humanEyeData.context.trend === 'downtrend' ? '↓ Down' : '↔ Range'}
+                        </span>
+                        {humanEyeData.context.vwap && (
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                            humanEyeData.context.trend === 'uptrend'   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                            humanEyeData.context.trend === 'downtrend' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                            'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                            humanEyeData.context.vwap.atVwap ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
+                            humanEyeData.context.vwap.above  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                            'bg-rose-500/10 text-rose-400 border-rose-500/20'
                           }`}>
-                            {humanEyeData.context.trend === 'uptrend' ? '↑ Uptrend' : humanEyeData.context.trend === 'downtrend' ? '↓ Downtrend' : '↔ Ranging'}
+                            {humanEyeData.context.vwap.atVwap ? '~VWAP' : humanEyeData.context.vwap.above ? `+${humanEyeData.context.vwap.distPct}%` : `-${humanEyeData.context.vwap.distPct}%`}
                           </span>
-                          {/* VWAP */}
-                          {humanEyeData.context.vwap && (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                              humanEyeData.context.vwap.atVwap  ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
-                              humanEyeData.context.vwap.above   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                              'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                            }`}>
-                              {humanEyeData.context.vwap.atVwap
-                                ? '~ VWAP'
-                                : humanEyeData.context.vwap.above
-                                  ? `+${humanEyeData.context.vwap.distPct}% VWAP`
-                                  : `-${humanEyeData.context.vwap.distPct}% VWAP`}
-                            </span>
-                          )}
-                          {/* Volume */}
+                        )}
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          humanEyeData.context.volume.context === 'climax' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                          humanEyeData.context.volume.context === 'high'   ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' :
+                          humanEyeData.context.volume.context === 'dryup'  ? 'bg-slate-700/50 text-slate-500 border-slate-600/20' :
+                          'bg-slate-700/30 text-slate-500 border-slate-600/20'
+                        }`}>Vol {humanEyeData.context.volume.mult}×</span>
+                        {humanEyeData.context.rsi != null && (
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                            humanEyeData.context.volume.context === 'climax' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                            humanEyeData.context.volume.context === 'high'   ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' :
-                            humanEyeData.context.volume.context === 'dryup'  ? 'bg-slate-700/50 text-slate-500 border-slate-600/20' :
+                            humanEyeData.context.rsi > 70 ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                            humanEyeData.context.rsi < 30 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
                             'bg-slate-700/30 text-slate-500 border-slate-600/20'
-                          }`}>
-                            Vol {humanEyeData.context.volume.mult}×
-                          </span>
-                          {/* BOS proximity */}
-                          {humanEyeData.context.bos && (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                              humanEyeData.context.bos.type === 'bull' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                            }`}>
-                              BOS {humanEyeData.context.bos.distPct}% away
-                            </span>
-                          )}
-                          {/* RSI */}
-                          {humanEyeData.context.rsi != null && (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                              humanEyeData.context.rsi > 70 ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                              humanEyeData.context.rsi < 30 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                              'bg-slate-700/30 text-slate-500 border-slate-600/20'
-                            }`}>
-                              RSI {Math.round(humanEyeData.context.rsi)}
-                            </span>
-                          )}
-                        </div>
+                          }`}>RSI {Math.round(humanEyeData.context.rsi)}</span>
+                        )}
+                        {humanEyeData.context.bos && (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            humanEyeData.context.bos.type === 'bull' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                          }`}>BOS {humanEyeData.context.bos.distPct}%</span>
+                        )}
+                      </div>
+                    )}
 
-                        {/* Strong setups */}
-                        {humanEyeData.strongSetups?.length > 0 && (
-                          <div className="space-y-2">
-                            {humanEyeData.strongSetups.map((s, i) => (
-                              <div key={i} className={`rounded-xl p-3 border ${
-                                s.pattern.direction === 'bull' ? 'bg-emerald-500/5 border-emerald-500/20' :
-                                s.pattern.direction === 'bear' ? 'bg-rose-500/5 border-rose-500/20' :
-                                'bg-slate-700/20 border-slate-600/20'
-                              }`}>
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className={`text-xs font-bold ${
-                                    s.pattern.direction === 'bull' ? 'text-emerald-400' :
-                                    s.pattern.direction === 'bear' ? 'text-rose-400' : 'text-slate-400'
+                    {/* Rolling candle log */}
+                    <div className="divide-y divide-white/[0.03]">
+                      {humanEyeLog.length === 0 ? (
+                        <p className="px-4 py-4 text-slate-600 text-xs">Waiting for next candle close…</p>
+                      ) : humanEyeLog.map((entry, i) => {
+                        const s    = entry.topSetup;
+                        const dir  = s?.pattern?.direction;
+                        const isStrong = s && s.score >= 6;
+                        return (
+                          <div key={i} className={`flex items-start gap-3 px-4 py-2.5 ${i === 0 ? 'bg-white/[0.02]' : ''}`}>
+                            {/* Time */}
+                            <span className="text-[10px] text-slate-600 font-mono w-9 flex-shrink-0 pt-0.5">{entry.time}</span>
+
+                            {/* Direction dot */}
+                            <span className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                              !s            ? 'bg-slate-700' :
+                              dir === 'bull' ? (isStrong ? 'bg-emerald-400' : 'bg-emerald-700') :
+                              dir === 'bear' ? (isStrong ? 'bg-rose-400'    : 'bg-rose-700')    :
+                              'bg-slate-500'
+                            }`} />
+
+                            {/* Content */}
+                            <div className="flex-1 min-w-0">
+                              {s ? (
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className={`text-[11px] font-semibold truncate ${
+                                    dir === 'bull' ? (isStrong ? 'text-emerald-400' : 'text-emerald-700') :
+                                    dir === 'bear' ? (isStrong ? 'text-rose-400'    : 'text-rose-700')    :
+                                    'text-slate-400'
                                   }`}>
-                                    {s.pattern.direction === 'bull' ? '▲' : s.pattern.direction === 'bear' ? '▼' : '→'} {s.pattern.name}
+                                    {dir === 'bull' ? '▲' : dir === 'bear' ? '▼' : '→'} {s.pattern.name}
                                   </span>
-                                  {/* Score bar */}
-                                  <div className="flex items-center gap-1.5">
-                                    <div className="flex gap-0.5">
+                                  {/* Mini score bar */}
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <div className="flex gap-px">
                                       {[...Array(10)].map((_, j) => (
-                                        <div key={j} className={`w-1.5 h-2.5 rounded-sm ${
+                                        <div key={j} className={`w-1 h-2 rounded-sm ${
                                           j < s.score
-                                            ? s.pattern.direction === 'bull' ? 'bg-emerald-400' : s.pattern.direction === 'bear' ? 'bg-rose-400' : 'bg-slate-400'
+                                            ? dir === 'bull' ? 'bg-emerald-500' : dir === 'bear' ? 'bg-rose-500' : 'bg-slate-500'
                                             : 'bg-white/5'
                                         }`} />
                                       ))}
                                     </div>
-                                    <span className={`text-[10px] font-black ${
-                                      s.pattern.direction === 'bull' ? 'text-emerald-400' : s.pattern.direction === 'bear' ? 'text-rose-400' : 'text-slate-400'
+                                    <span className={`text-[9px] font-black w-4 text-right ${
+                                      dir === 'bull' ? 'text-emerald-500' : dir === 'bear' ? 'text-rose-500' : 'text-slate-500'
                                     }`}>{s.score}</span>
                                   </div>
                                 </div>
-                                <p className="text-[10px] text-slate-500 leading-snug">
-                                  {s.scoreBreakdown.locationBonus > 0 && 'At key level · '}
-                                  {s.scoreBreakdown.trendBonus > 0 && 'Trend aligned · '}
-                                  {s.scoreBreakdown.volumeBonus > 0 && 'Volume confirming · '}
-                                  {s.scoreBreakdown.rsiBonus > 0 && 'RSI supporting · '}
-                                  {s.scoreBreakdown.penalties < 0 && 'Some warnings · '}
-                                  Score {s.score}/10
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Watch list */}
-                        {humanEyeData.watchList?.length > 0 && (
-                          <div>
-                            <p className="text-[10px] text-slate-600 font-semibold uppercase tracking-wide mb-1.5">Watching</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {humanEyeData.watchList.map((s, i) => (
-                                <span key={i} className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                                  s.pattern.direction === 'bull' ? 'bg-emerald-500/5 text-emerald-600 border-emerald-500/10' :
-                                  s.pattern.direction === 'bear' ? 'bg-rose-500/5 text-rose-600 border-rose-500/10' :
-                                  'bg-slate-700/20 text-slate-600 border-slate-600/10'
-                                }`}>
-                                  {s.pattern.name} ({s.score})
-                                </span>
-                              ))}
+                              ) : (
+                                <span className="text-[11px] text-slate-700">—</span>
+                              )}
+                              {/* Context summary */}
+                              <p className="text-[9px] text-slate-700 mt-0.5 leading-none">
+                                {entry.context.trend === 'uptrend' ? '↑' : entry.context.trend === 'downtrend' ? '↓' : '↔'}
+                                {entry.context.vwap ? ` · ${entry.context.vwap.atVwap ? '~VWAP' : entry.context.vwap.above ? `+${entry.context.vwap.distPct}%` : `-${entry.context.vwap.distPct}%`}` : ''}
+                                {` · Vol ${entry.context.volume.mult}×`}
+                                {entry.context.rsi != null ? ` · RSI ${Math.round(entry.context.rsi)}` : ''}
+                              </p>
                             </div>
                           </div>
-                        )}
-
-                        {humanEyeData.strongSetups?.length === 0 && humanEyeData.watchList?.length === 0 && (
-                          <p className="text-slate-600 text-xs">No setups detected. Market is quiet.</p>
-                        )}
-                      </>
-                    )}
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
