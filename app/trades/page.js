@@ -322,6 +322,12 @@ function getNiftyLevelAlerts(indices) {
     const [powerCandleDismissed, setPowerCandleDismissed] = useState(null); // dismissed candle time
     const candleDataRef = useRef([]);
 
+    // Human Eye state
+    const [humanEyeData, setHumanEyeData] = useState(null);
+    const [humanEyeEnv, setHumanEyeEnv] = useState('medium');
+    const [humanEyeOpen, setHumanEyeOpen] = useState(true);
+    const humanEyeEnvRef = useRef('medium');
+
     // Check Kite auth status
     useEffect(() => {
       fetch('/api/auth/me').then(r => r.json()).then(d => setUserRole(d.user?.role || 'user')).catch(() => {});
@@ -405,6 +411,9 @@ function getNiftyLevelAlerts(indices) {
 
     // Keep showBOSRef in sync (used by fetchData closure)
     useEffect(() => { showBOSRef.current = showBOS; }, [showBOS]);
+
+    // Keep humanEyeEnvRef in sync (used by fetchData closure)
+    useEffect(() => { humanEyeEnvRef.current = humanEyeEnv; }, [humanEyeEnv]);
 
     // Close chart settings dropdown on outside click
     useEffect(() => {
@@ -860,6 +869,16 @@ function getNiftyLevelAlerts(indices) {
               if (showVwap) chart.setLine('vwap', { data: vwapData, color: '#a78bfa', width: 2 });
             } else {
               chart.clearLine('vwap');
+            }
+
+            // Human Eye scan (after VWAP is populated in the ref)
+            try {
+              const { runHumanEye } = await import('@/app/lib/humanEye.js');
+              const vwapForHE = customVwapDataRef.current;
+              const heResult = runHumanEye(data.candles, vwapForHE, rsiData[rsiData.length - 1]?.value ?? null, humanEyeEnvRef.current);
+              setHumanEyeData(heResult);
+            } catch (heErr) {
+              console.error('[Human Eye] scan error:', heErr);
             }
 
             // Zone lines
@@ -2175,8 +2194,174 @@ function getNiftyLevelAlerts(indices) {
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Sectors */}
+            {/* RIGHT COLUMN: Sectors + Human Eye */}
             <div className="lg:col-span-2 space-y-3 order-3 lg:order-none">
+
+              {/* ── Human Eye ────────────────────────────────────────── */}
+              <div className="bg-[#0d1829] border border-white/[0.06] rounded-2xl overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.05]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">👁</span>
+                    <span className="text-sm font-bold text-white">Human Eye</span>
+                    {humanEyeData?.strongSetups?.length > 0 && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    )}
+                  </div>
+                  {/* Environment toggle */}
+                  <div className="flex items-center gap-1">
+                    {['light', 'medium', 'tight'].map(env => (
+                      <button
+                        key={env}
+                        onClick={() => setHumanEyeEnv(env)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all ${
+                          humanEyeEnv === env
+                            ? env === 'light'  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                            : env === 'medium' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            : 'text-slate-600 hover:text-slate-400'
+                        }`}
+                      >
+                        {env}
+                      </button>
+                    ))}
+                    <button onClick={() => setHumanEyeOpen(o => !o)} className="ml-1 text-slate-600 hover:text-slate-400">
+                      {humanEyeOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+                  </div>
+                </div>
+
+                {humanEyeOpen && (
+                  <div className="px-4 py-3 space-y-3">
+                    {!humanEyeData ? (
+                      <p className="text-slate-600 text-xs">Scanning…</p>
+                    ) : (
+                      <>
+                        {/* Context row */}
+                        <div className="flex flex-wrap gap-2">
+                          {/* Trend */}
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            humanEyeData.context.trend === 'uptrend'   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                            humanEyeData.context.trend === 'downtrend' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                            'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                          }`}>
+                            {humanEyeData.context.trend === 'uptrend' ? '↑ Uptrend' : humanEyeData.context.trend === 'downtrend' ? '↓ Downtrend' : '↔ Ranging'}
+                          </span>
+                          {/* VWAP */}
+                          {humanEyeData.context.vwap && (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              humanEyeData.context.vwap.atVwap  ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
+                              humanEyeData.context.vwap.above   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                              'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                            }`}>
+                              {humanEyeData.context.vwap.atVwap
+                                ? '~ VWAP'
+                                : humanEyeData.context.vwap.above
+                                  ? `+${humanEyeData.context.vwap.distPct}% VWAP`
+                                  : `-${humanEyeData.context.vwap.distPct}% VWAP`}
+                            </span>
+                          )}
+                          {/* Volume */}
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            humanEyeData.context.volume.context === 'climax' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                            humanEyeData.context.volume.context === 'high'   ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' :
+                            humanEyeData.context.volume.context === 'dryup'  ? 'bg-slate-700/50 text-slate-500 border-slate-600/20' :
+                            'bg-slate-700/30 text-slate-500 border-slate-600/20'
+                          }`}>
+                            Vol {humanEyeData.context.volume.mult}×
+                          </span>
+                          {/* BOS proximity */}
+                          {humanEyeData.context.bos && (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              humanEyeData.context.bos.type === 'bull' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                            }`}>
+                              BOS {humanEyeData.context.bos.distPct}% away
+                            </span>
+                          )}
+                          {/* RSI */}
+                          {humanEyeData.context.rsi != null && (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              humanEyeData.context.rsi > 70 ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                              humanEyeData.context.rsi < 30 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                              'bg-slate-700/30 text-slate-500 border-slate-600/20'
+                            }`}>
+                              RSI {Math.round(humanEyeData.context.rsi)}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Strong setups */}
+                        {humanEyeData.strongSetups?.length > 0 && (
+                          <div className="space-y-2">
+                            {humanEyeData.strongSetups.map((s, i) => (
+                              <div key={i} className={`rounded-xl p-3 border ${
+                                s.pattern.direction === 'bull' ? 'bg-emerald-500/5 border-emerald-500/20' :
+                                s.pattern.direction === 'bear' ? 'bg-rose-500/5 border-rose-500/20' :
+                                'bg-slate-700/20 border-slate-600/20'
+                              }`}>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className={`text-xs font-bold ${
+                                    s.pattern.direction === 'bull' ? 'text-emerald-400' :
+                                    s.pattern.direction === 'bear' ? 'text-rose-400' : 'text-slate-400'
+                                  }`}>
+                                    {s.pattern.direction === 'bull' ? '▲' : s.pattern.direction === 'bear' ? '▼' : '→'} {s.pattern.name}
+                                  </span>
+                                  {/* Score bar */}
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="flex gap-0.5">
+                                      {[...Array(10)].map((_, j) => (
+                                        <div key={j} className={`w-1.5 h-2.5 rounded-sm ${
+                                          j < s.score
+                                            ? s.pattern.direction === 'bull' ? 'bg-emerald-400' : s.pattern.direction === 'bear' ? 'bg-rose-400' : 'bg-slate-400'
+                                            : 'bg-white/5'
+                                        }`} />
+                                      ))}
+                                    </div>
+                                    <span className={`text-[10px] font-black ${
+                                      s.pattern.direction === 'bull' ? 'text-emerald-400' : s.pattern.direction === 'bear' ? 'text-rose-400' : 'text-slate-400'
+                                    }`}>{s.score}</span>
+                                  </div>
+                                </div>
+                                <p className="text-[10px] text-slate-500 leading-snug">
+                                  {s.scoreBreakdown.locationBonus > 0 && 'At key level · '}
+                                  {s.scoreBreakdown.trendBonus > 0 && 'Trend aligned · '}
+                                  {s.scoreBreakdown.volumeBonus > 0 && 'Volume confirming · '}
+                                  {s.scoreBreakdown.rsiBonus > 0 && 'RSI supporting · '}
+                                  {s.scoreBreakdown.penalties < 0 && 'Some warnings · '}
+                                  Score {s.score}/10
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Watch list */}
+                        {humanEyeData.watchList?.length > 0 && (
+                          <div>
+                            <p className="text-[10px] text-slate-600 font-semibold uppercase tracking-wide mb-1.5">Watching</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {humanEyeData.watchList.map((s, i) => (
+                                <span key={i} className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                                  s.pattern.direction === 'bull' ? 'bg-emerald-500/5 text-emerald-600 border-emerald-500/10' :
+                                  s.pattern.direction === 'bear' ? 'bg-rose-500/5 text-rose-600 border-rose-500/10' :
+                                  'bg-slate-700/20 text-slate-600 border-slate-600/10'
+                                }`}>
+                                  {s.pattern.name} ({s.score})
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {humanEyeData.strongSetups?.length === 0 && humanEyeData.watchList?.length === 0 && (
+                          <p className="text-slate-600 text-xs">No setups detected. Market is quiet.</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-semibold text-blue-300">Sectors</h2>
