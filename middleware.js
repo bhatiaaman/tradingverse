@@ -19,16 +19,18 @@ async function redisGet(key) {
 
 // Page routes — order matters (more specific first)
 const PAGE_ROUTES = [
-  { key: 'pre-market',    prefix: '/pre-market'    },
-  { key: 'stock-updates', prefix: '/stock-updates'  },
-  { key: 'trades',        prefix: '/trades'         },
-  { key: 'terminal',      prefix: '/terminal'       },
-  { key: 'investing',     prefix: '/investing'      },
-  { key: 'learn',         prefix: '/learn'          },
-  { key: 'games',         prefix: '/games'          },
-  { key: 'orders',        prefix: '/orders'         },
-  { key: 'settings',      prefix: '/settings'       },
-  { key: 'chart',         prefix: '/chart'          },
+  { key: 'pre-market',      prefix: '/pre-market'       },
+  { key: 'stock-updates',   prefix: '/stock-updates'    },
+  { key: 'trades',          prefix: '/trades'           },
+  { key: 'terminal',        prefix: '/terminal'         },
+  { key: 'investing',       prefix: '/investing'        },
+  { key: 'learn',           prefix: '/learn'            },
+  { key: 'games',           prefix: '/games'            },
+  { key: 'orders',          prefix: '/orders'           },
+  { key: 'settings',        prefix: '/settings'         },
+  { key: 'chart',           prefix: '/chart'            },
+  { key: 'options-expiry',  prefix: '/options/expiry'   },
+  { key: 'options',         prefix: '/options'          },
 ]
 
 const ADMIN_PREFIXES = ['/admin']
@@ -122,6 +124,7 @@ export const config = {
     '/terminal/:path*',
     '/chart/:path*',
     '/stock-updates/:path*',
+    '/options/:path*',
     '/admin/:path*',
   ],
 }

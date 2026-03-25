@@ -12,15 +12,17 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL?.toLowerCase().trim()
 const FLAGS_KEY   = `${NS}:feature-flags`
 
 export const PAGES = [
-  { key: 'trades',        label: 'Trading Dashboard' },
-  { key: 'terminal',      label: 'Live Terminal'      },
-  { key: 'pre-market',    label: 'Pre-Market'         },
-  { key: 'investing',     label: 'Investing'          },
-  { key: 'learn',         label: 'Learn'              },
-  { key: 'games',         label: 'Trading Games'      },
-  { key: 'orders',        label: 'Orders'             },
-  { key: 'settings',      label: 'Settings'           },
-  { key: 'stock-updates', label: 'Stock Updates'      },
+  { key: 'trades',         label: 'Trading Dashboard'  },
+  { key: 'terminal',       label: 'Live Terminal'       },
+  { key: 'pre-market',     label: 'Pre-Market'          },
+  { key: 'options',        label: 'Options'             },
+  { key: 'options-expiry', label: 'Options Expiry Dashboard' },
+  { key: 'investing',      label: 'Investing'           },
+  { key: 'learn',          label: 'Learn'               },
+  { key: 'games',          label: 'Trading Games'       },
+  { key: 'orders',         label: 'Orders'              },
+  { key: 'settings',       label: 'Settings'            },
+  { key: 'stock-updates',  label: 'Chartink Scanner'    },
 ]
 
 // Default: visitors blocked, logged-in free users allowed.
