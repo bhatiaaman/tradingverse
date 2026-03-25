@@ -1,13 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useTheme } from '../../lib/theme-context'
 import { useState, useEffect } from 'react'
 
 export default function Nav({ fixed = false }) {
   const path = usePathname()
-  const router = useRouter()
+
   const { isDark, toggleTheme } = useTheme()
   const [user, setUser] = useState(null)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -24,8 +24,7 @@ export default function Nav({ fixed = false }) {
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
-    setUser(null)
-    router.push('/')
+    window.location.href = '/'
   }
 
   const links = [
