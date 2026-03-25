@@ -45,7 +45,10 @@ export async function GET() {
 
   const raw   = await redis.get(FLAGS_KEY)
   const saved = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : {}
-  const flags = { ...DEFAULTS, ...saved }
+
+  // If no page has free:true, stored data is the old default state — migrate to new defaults
+  const hasExplicitFreeAccess = Object.values(saved).some(f => f?.free === true)
+  const flags = hasExplicitFreeAccess ? { ...DEFAULTS, ...saved } : { ...DEFAULTS }
 
   return NextResponse.json({ flags, pages: PAGES })
 }

@@ -40,8 +40,12 @@ const FLAGS_TTL = 5_000
 
 async function getFlags() {
   if (_flags && Date.now() - _flagsAt < FLAGS_TTL) return _flags
-  const data = await redisGet(`${NS}:feature-flags`)
-  _flags   = data || {}
+  const data  = await redisGet(`${NS}:feature-flags`)
+  const saved = data || {}
+  // If no page has free:true, the stored data is the old default state (all false).
+  // Treat it as empty so the per-page fallback (free:true) applies everywhere.
+  const hasExplicitFreeAccess = Object.values(saved).some(f => f?.free === true)
+  _flags   = hasExplicitFreeAccess ? saved : {}
   _flagsAt = Date.now()
   return _flags
 }
