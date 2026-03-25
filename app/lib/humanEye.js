@@ -291,6 +291,44 @@ function computeSwingSequence(candles) {
   return null;
 }
 
+function computePowerCandles(candles, lookback = 15) {
+  // Power candle: large body (≥ 65% of range), strong move (≥ 0.8%), scanned in last N candles.
+  // Excludes the current (last) candle — we're looking for a prior impulse to pull back from.
+  if (candles.length < 5) return [];
+  const n      = candles.length;
+  const refEnd = Math.max(0, n - 4);
+  const refSlice = candles.slice(Math.max(0, refEnd - 20), refEnd);
+  const avgVol = refSlice.length
+    ? refSlice.reduce((s, c) => s + (c.volume || 0), 0) / refSlice.length
+    : 0;
+
+  const result = [];
+  const start  = Math.max(0, n - 1 - lookback);
+  for (let i = start; i < n - 1; i++) {
+    const c     = candles[i];
+    const body  = Math.abs(c.close - c.open);
+    const range = c.high - c.low;
+    if (!range) continue;
+    const bodyPct = body / range;
+    const movePct = Math.abs((c.close - c.open) / c.open * 100);
+    const volMult = avgVol > 0 ? c.volume / avgVol : 1;
+    if (bodyPct >= 0.65 && movePct >= 0.8 && volMult >= 1.3) {
+      result.push({
+        idx:       i,
+        direction: c.close > c.open ? 'bull' : 'bear',
+        high:      c.high,
+        low:       c.low,
+        open:      c.open,
+        close:     c.close,
+        range:     range,
+        bodyPct:   parseFloat(bodyPct.toFixed(2)),
+        movePct:   parseFloat(movePct.toFixed(2)),
+      });
+    }
+  }
+  return result;
+}
+
 export function precompute(candles, vwapData, rsiValue) {
   const bosLevels = detectBOSInternal(candles);
   return {
@@ -307,6 +345,7 @@ export function precompute(candles, vwapData, rsiValue) {
     ema:            computeEMAStack(candles),
     fvgs:           detectFVGs(candles),
     tradingRange:   detectTradingRange(candles),
+    powerCandles:   computePowerCandles(candles),
     rsi:            rsiValue ?? null,
   };
 }
@@ -620,6 +659,88 @@ export function detectSetups(candles, patterns, context, pre) {
         sl: c0.high * 1.0015, target: null, coversPattern: 'bear_engulfing',
         details: { atVwap: !!pre.vwap?.atVwap, atBOS: context.bos?.distPct <= 0.3, volMult: pre.volume.mult },
       });
+    }
+  }
+
+  // ── S4: Power Candle Pullback ─────────────────────────────────────────────
+  // Recent power candle, price pulled back 35–65% of its range, re-entry candle forming.
+  if (pre.powerCandles.length) {
+    const pc      = pre.powerCandles[pre.powerCandles.length - 1]; // most recent
+    const pcRange = pc.range;
+    if (pcRange > 0) {
+      const isBull0    = c0.close > c0.open;
+      const pullback   = pc.direction === 'bull' ? pc.high - c0.close : c0.close - pc.low;
+      const pullbackPct = (pullback / pcRange) * 100;
+
+      if (pullbackPct >= 35 && pullbackPct <= 65) {
+        // Re-entry: candle in same direction as power candle
+        const reEntry = (pc.direction === 'bull' && isBull0) || (pc.direction === 'bear' && !isBull0);
+        if (reEntry) {
+          // Volume: expanding vs prior 2 candles avg
+          const priorVolAvg = ((candles[n - 2]?.volume || 0) + (candles[n - 3]?.volume || 0)) / 2;
+          const volExpanding = priorVolAvg > 0 && c0.volume > priorVolAvg;
+          setups.push({
+            id: `s4_pc_pullback_${pc.direction}`,
+            name: 'Power Candle Pullback',
+            direction: pc.direction,
+            strength: volExpanding ? 4 : 3,
+            sl:     pc.direction === 'bull' ? pc.low  * 0.999 : pc.high * 1.001,
+            target: pc.direction === 'bull' ? pc.high : pc.low,
+            details: { pullbackPct: parseFloat(pullbackPct.toFixed(1)), pcHigh: pc.high, pcLow: pc.low, volExpanding },
+          });
+        }
+      }
+    }
+  }
+
+  // ── S5: EMA Stack Bounce ──────────────────────────────────────────────────
+  // EMAs stacked in trend direction, price at EMA 21, bounce candle with body ≥ 40%.
+  if (pre.ema) {
+    const bodyPct = (c0.high - c0.low) > 0
+      ? Math.abs(c0.close - c0.open) / (c0.high - c0.low) : 0;
+    const isBull0 = c0.close > c0.open;
+
+    if (pre.ema.stackedBull && pre.ema.atEma21 && isBull0 && bodyPct >= 0.40) {
+      setups.push({
+        id: 's5_ema_bounce_bull', name: 'EMA Stack Bounce', direction: 'bull', strength: 3,
+        sl:     pre.ema.ema50 * 0.999,
+        target: null,
+        details: { ema21: parseFloat(pre.ema.ema21.toFixed(2)), ema50: parseFloat(pre.ema.ema50.toFixed(2)), distPct: pre.ema.distEma21Pct },
+      });
+    }
+    if (pre.ema.stackedBear && pre.ema.atEma21 && !isBull0 && bodyPct >= 0.40) {
+      setups.push({
+        id: 's5_ema_bounce_bear', name: 'EMA Stack Bounce', direction: 'bear', strength: 3,
+        sl:     pre.ema.ema50 * 1.001,
+        target: null,
+        details: { ema21: parseFloat(pre.ema.ema21.toFixed(2)), ema50: parseFloat(pre.ema.ema50.toFixed(2)), distPct: pre.ema.distEma21Pct },
+      });
+    }
+  }
+
+  // ── S7: BOS + Pullback ────────────────────────────────────────────────────
+  // BOS detected, price retraced back to within 0.3% of BOS level, declining volume.
+  if (pre.bosLevels.length) {
+    const recentBOS  = pre.bosLevels.reduce((a, b) => b.idx > a.idx ? b : a);
+    const lastClose  = c0.close;
+    const distPct    = Math.abs((lastClose - recentBOS.price) / recentBOS.price * 100);
+
+    if (distPct <= 0.3) {
+      // Not re-broken: price still on correct side of BOS
+      const reBroken = (recentBOS.type === 'bull' && lastClose < recentBOS.price * 0.997) ||
+                       (recentBOS.type === 'bear' && lastClose > recentBOS.price * 1.003);
+      if (!reBroken) {
+        const v0 = c0.volume || 0;
+        const v1 = candles[n - 2]?.volume || 0;
+        const v2 = candles[n - 3]?.volume || 0;
+        const volDeclining = v0 < v1 || v1 < v2;
+        setups.push({
+          id: 's7_bos_pullback', name: 'BOS Pullback', direction: recentBOS.type, strength: 3,
+          sl:     recentBOS.type === 'bull' ? recentBOS.price * 0.997 : recentBOS.price * 1.003,
+          target: null,
+          details: { bosPrice: recentBOS.price, distPct: parseFloat(distPct.toFixed(2)), volDeclining },
+        });
+      }
     }
   }
 
