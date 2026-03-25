@@ -44,8 +44,10 @@ export default function AdminUsersPage() {
   const [resetting, setResetting]       = useState(null)
   const [resetLinks, setResetLinks]     = useState({})
   const [copied, setCopied]             = useState(null)
-  const [confirmReset, setConfirmReset] = useState(null)
-  const [grantEmail, setGrantEmail]     = useState('')
+  const [confirmReset, setConfirmReset]   = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [deleting, setDeleting]           = useState(null)
+  const [grantEmail, setGrantEmail]       = useState('')
   const [granting, setGranting]         = useState(false)
   const [grantMsg, setGrantMsg]         = useState(null) // { ok, text }
 
@@ -108,6 +110,17 @@ export default function AdminUsersPage() {
       setGrantMsg({ ok: false, text: d.error || 'Failed — user may not exist yet' })
     }
     setGranting(false)
+  }
+
+  async function deleteUser(email) {
+    setConfirmDelete(null)
+    setDeleting(email)
+    const res = await fetch('/api/admin/users', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
+    if (res.ok) setUsers(u => u.filter(x => x.email !== email))
+    setDeleting(null)
   }
 
   async function togglePlan(email, currentPlan) {
@@ -320,6 +333,27 @@ export default function AdminUsersPage() {
                             >
                               {toggling === u.email ? '…' : u.plan === 'pro' ? 'Revoke pro' : 'Grant pro'}
                             </button>
+                            {confirmDelete === u.email ? (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => deleteUser(u.email)}
+                                  disabled={deleting === u.email}
+                                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500/30 transition-all disabled:opacity-50"
+                                >
+                                  {deleting === u.email ? '…' : 'Confirm'}
+                                </button>
+                                <button onClick={() => setConfirmDelete(null)} className="text-xs px-2 py-1.5 rounded-lg text-slate-500 hover:text-slate-300 transition-colors">
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmDelete(u.email)}
+                                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-700/50 text-slate-500 hover:bg-rose-500/10 hover:text-rose-400 transition-all"
+                              >
+                                Remove
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -336,7 +370,7 @@ export default function AdminUsersPage() {
           <>
             <div className="mb-6">
               <p className="text-slate-400 text-sm leading-relaxed">
-                Control which pages each user type can access. Changes take effect within 60 seconds (middleware cache).
+                Control which pages each user type can access. Changes take effect within 5 seconds (middleware cache).
               </p>
             </div>
 

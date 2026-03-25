@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useState } from 'react'
 
 const FEATURES = [
   { icon: '📊', title: 'Live Trading Terminal', desc: 'Real-time option chain, indices, regime detection, and AI scenario synthesis' },
@@ -12,6 +13,25 @@ const FEATURES = [
 ]
 
 export default function UpgradePage() {
+  const [email, setEmail]   = useState('')
+  const [status, setStatus] = useState(null) // 'loading' | 'done' | 'error'
+
+  async function requestAccess(e) {
+    e.preventDefault()
+    if (!email.trim()) return
+    setStatus('loading')
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
+      })
+      setStatus(res.ok ? 'done' : 'error')
+    } catch {
+      setStatus('error')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#060b14] flex flex-col items-center justify-center px-6 py-16">
 
@@ -51,17 +71,32 @@ export default function UpgradePage() {
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-8 text-center">
           <p className="text-white font-semibold mb-2">Request access</p>
           <p className="text-slate-500 text-sm mb-6">
-            Send a message and we'll review your request within 24 hours.
+            Enter your email and we'll review your request within 24 hours.
           </p>
-          <a
-            href="mailto:bhatiaaman.p@gmail.com?subject=TradingVerse Access Request"
-            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-3 rounded-xl text-sm transition-all"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-            Email to request access
-          </a>
+          {status === 'done' ? (
+            <p className="text-emerald-400 font-semibold text-sm">Request sent! We'll be in touch soon.</p>
+          ) : (
+            <form onSubmit={requestAccess} className="flex gap-2 max-w-sm mx-auto">
+              <input
+                type="email"
+                required
+                placeholder="you@example.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                className="flex-1 bg-white/[0.06] border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-slate-600 text-sm focus:outline-none focus:border-blue-500/50"
+              />
+              <button
+                type="submit"
+                disabled={status === 'loading'}
+                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold px-5 py-3 rounded-xl text-sm transition-all whitespace-nowrap"
+              >
+                {status === 'loading' ? '…' : 'Request'}
+              </button>
+            </form>
+          )}
+          {status === 'error' && (
+            <p className="text-rose-400 text-xs mt-3">Something went wrong. Please try again.</p>
+          )}
         </div>
 
         {/* Footer links */}

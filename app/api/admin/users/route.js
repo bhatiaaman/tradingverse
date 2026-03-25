@@ -79,6 +79,21 @@ export async function PATCH(req) {
   return NextResponse.json({ ok: true, email, plan })
 }
 
+// DELETE — remove a user
+export async function DELETE(req) {
+  const admin = await requireAdmin()
+  if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const { email } = await req.json()
+  if (!email) return NextResponse.json({ error: 'Invalid params' }, { status: 400 })
+
+  const e = email.toLowerCase()
+  await redis.del(`${NS}:user:${e}`)
+  await redis.srem(`${NS}:users:all`, e)
+
+  return NextResponse.json({ ok: true })
+}
+
 // POST — admin actions (reset-password)
 export async function POST(req) {
   const admin = await requireAdmin()
