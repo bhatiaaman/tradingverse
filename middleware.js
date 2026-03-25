@@ -36,7 +36,7 @@ const ADMIN_PREFIXES = ['/admin']
 // Module-level flags cache (per Edge instance, refreshes every 60s)
 let _flags    = null
 let _flagsAt  = 0
-const FLAGS_TTL = 60_000
+const FLAGS_TTL = 5_000
 
 async function getFlags() {
   if (_flags && Date.now() - _flagsAt < FLAGS_TTL) return _flags
@@ -76,7 +76,9 @@ export async function middleware(req) {
 
   // ── Page gate ───────────────────────────────────────────────────────────
   const flags    = await getFlags()
-  const pageFlag = flags[pageRoute.key] || { visitor: false, free: false }
+  // Default: visitors blocked, logged-in users (free or pro) allowed.
+  // Admins can explicitly set free:false on a page to make it pro-only.
+  const pageFlag = flags[pageRoute.key] || { visitor: false, free: true }
 
   // No session → visitor
   if (!token) {
@@ -94,10 +96,10 @@ export async function middleware(req) {
     return NextResponse.next()
   }
 
-  // Free users allowed for this page?
+  // Any logged-in user passes unless page is explicitly pro-only (free: false)
   if (pageFlag.free) return NextResponse.next()
 
-  // Pro check
+  // Pro-only page — check plan
   const user = await redisGet(`${NS}:user:${email}`)
   if ((user?.plan || 'free') === 'pro') return NextResponse.next()
 

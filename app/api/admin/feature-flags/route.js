@@ -23,9 +23,10 @@ export const PAGES = [
   { key: 'stock-updates', label: 'Stock Updates'      },
 ]
 
-// Default: everything locked for visitors and free users
+// Default: visitors blocked, logged-in free users allowed.
+// Set free:false on a page to make it pro-only.
 export const DEFAULTS = Object.fromEntries(
-  PAGES.map(p => [p.key, { visitor: false, free: false }])
+  PAGES.map(p => [p.key, { visitor: false, free: true }])
 )
 
 async function requireAdmin() {
