@@ -2,6 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(node -e \":*)"
+    ],
+    "additionalDirectories": [
+      "/Volumes/Work/projects/bhatiaverse/app/api/auth/vault/check"
     ]
   }
 }

@@ -327,6 +327,7 @@ function getNiftyLevelAlerts(indices) {
     const [humanEyeLog, setHumanEyeLog]   = useState([]);   // rolling candle log
     const [humanEyeEnv, setHumanEyeEnv]   = useState('medium');
     const [humanEyeOpen, setHumanEyeOpen] = useState(true);
+    const [leftTab, setLeftTab]           = useState('bias');
     const humanEyeEnvRef      = useRef('medium');
     const lastCandleCountRef  = useRef(0);
 
@@ -1731,31 +1732,96 @@ function getNiftyLevelAlerts(indices) {
                 </ul>
               </div>
 
-              {/* AI Sentiment Widget */}
+              {/* Bias + Sectors Tabbed Widget */}
               <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-3">
+                {/* Tab bar */}
                 <div className="flex items-center justify-between mb-2">
-                  <h2 className="text-sm font-semibold text-blue-300">Bias Gauge</h2>
-                  <button
-                    onClick={async () => {
-                      setSentimentLoading(true);
-                      try {
-                        const pcr = optionChainData?.pcr;
-                        const url = pcr ? `/api/sentiment?pcr=${pcr}&refresh=1` : '/api/sentiment?refresh=1';
-                        const response = await fetch(url);
-                        const data = await response.json();
-                        setSentimentData(data);
-                      } catch (error) {
-                        console.error('Error refreshing sentiment:', error);
-                      } finally {
-                        setSentimentLoading(false);
-                      }
-                    }}
-                    className="p-1 hover:bg-blue-800/40 rounded transition-colors"
-                    title="Refresh sentiment"
-                  >
-                    <RefreshCw className={`w-3 h-3 text-blue-400 ${sentimentLoading ? 'animate-spin' : ''}`} />
-                  </button>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => setLeftTab('bias')}
+                      className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${leftTab === 'bias' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                    >Bias</button>
+                    <button
+                      onClick={() => setLeftTab('sectors')}
+                      className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${leftTab === 'sectors' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                    >Sectors</button>
+                  </div>
+                  {leftTab === 'bias' && (
+                    <button
+                      onClick={async () => {
+                        setSentimentLoading(true);
+                        try {
+                          const pcr = optionChainData?.pcr;
+                          const url = pcr ? `/api/sentiment?pcr=${pcr}&refresh=1` : '/api/sentiment?refresh=1';
+                          const response = await fetch(url);
+                          const data = await response.json();
+                          setSentimentData(data);
+                        } catch (error) {
+                          console.error('Error refreshing sentiment:', error);
+                        } finally {
+                          setSentimentLoading(false);
+                        }
+                      }}
+                      className="p-1 hover:bg-blue-800/40 rounded transition-colors"
+                      title="Refresh sentiment"
+                    >
+                      <RefreshCw className={`w-3 h-3 text-blue-400 ${sentimentLoading ? 'animate-spin' : ''}`} />
+                    </button>
+                  )}
+                  {leftTab === 'sectors' && (
+                    <span className="text-[10px] text-slate-500">vs Prev Close</span>
+                  )}
                 </div>
+
+                {/* Sectors tab */}
+                {leftTab === 'sectors' && (
+                  <div className="space-y-1 max-h-[420px] overflow-y-auto pr-0.5">
+                    {sectorData.length > 0 ? (
+                      [...sectorData].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).map((sector) => {
+                        const v = sector.value ?? 0;
+                        const pos = v >= 0;
+                        const intensity = Math.min(Math.abs(v) / 2.5, 1);
+                        const barPct = Math.min((Math.abs(v) / 3) * 100, 100);
+                        const tvSymbol = sector.tvSymbol || sector.symbol?.replace(/ /g, '') || sector.name?.toUpperCase().replace(/ /g, '');
+                        return (
+                          <a
+                            key={sector.name}
+                            href={`https://www.tradingview.com/chart/?symbol=NSE:${tvSymbol}&interval=15`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border transition-all cursor-pointer ${
+                              pos
+                                ? 'bg-emerald-950/40 border-emerald-800/20 hover:border-emerald-600/50 hover:bg-emerald-950/60'
+                                : 'bg-red-950/40 border-red-900/20 hover:border-red-700/50 hover:bg-red-950/60'
+                            }`}
+                          >
+                            <div
+                              className={`w-0.5 h-5 rounded-full flex-shrink-0 ${pos ? 'bg-emerald-400' : 'bg-red-400'}`}
+                              style={{ opacity: 0.35 + intensity * 0.65 }}
+                            />
+                            <span className="text-[11px] text-slate-200 flex-1 truncate font-medium leading-none">{sector.name}</span>
+                            <div className="w-10 h-1 bg-white/5 rounded-full overflow-hidden flex-shrink-0">
+                              <div
+                                className={`h-full rounded-full ${pos ? 'bg-emerald-400' : 'bg-red-400'}`}
+                                style={{ width: `${Math.max(barPct, 6)}%`, opacity: 0.45 + intensity * 0.55 }}
+                              />
+                            </div>
+                            <span className={`text-[11px] font-mono font-bold w-11 text-right flex-shrink-0 ${pos ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {pos ? '+' : ''}{v.toFixed(2)}%
+                            </span>
+                          </a>
+                        );
+                      })
+                    ) : (
+                      <div className="text-center py-6 text-slate-500 text-xs">
+                        {sectorLoading ? 'Loading...' : (sectorError || 'No data')}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Bias tab */}
+                {leftTab === 'bias' && (<div>
 
                 {sentimentData ? (
                   <div className="space-y-2 text-xs">
@@ -1997,6 +2063,7 @@ function getNiftyLevelAlerts(indices) {
                     {sentimentLoading ? 'Loading sentiment...' : 'No data available'}
                   </div>
                 )}
+                </div>)}
               </div>
             </div>
 
@@ -2361,59 +2428,6 @@ function getNiftyLevelAlerts(indices) {
                 )}
               </div>
 
-              <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-3">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-semibold text-blue-300">Sectors</h2>
-                  <span className="text-[10px] text-slate-500">vs Prev Close</span>
-                </div>
-                <div className="space-y-1 max-h-[420px] overflow-y-auto pr-0.5">
-                  {sectorData.length > 0 ? (
-                    [...sectorData].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).map((sector) => {
-                      const v = sector.value ?? 0;
-                      const pos = v >= 0;
-                      const intensity = Math.min(Math.abs(v) / 2.5, 1);
-                      const barPct = Math.min((Math.abs(v) / 3) * 100, 100);
-                      const tvSymbol = sector.tvSymbol || sector.symbol?.replace(/ /g, '') || sector.name?.toUpperCase().replace(/ /g, '');
-                      return (
-                        <a
-                          key={sector.name}
-                          href={`https://www.tradingview.com/chart/?symbol=NSE:${tvSymbol}&interval=15`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border transition-all cursor-pointer ${
-                            pos
-                              ? 'bg-emerald-950/40 border-emerald-800/20 hover:border-emerald-600/50 hover:bg-emerald-950/60'
-                              : 'bg-red-950/40 border-red-900/20 hover:border-red-700/50 hover:bg-red-950/60'
-                          }`}
-                        >
-                          {/* Accent bar */}
-                          <div
-                            className={`w-0.5 h-5 rounded-full flex-shrink-0 ${pos ? 'bg-emerald-400' : 'bg-red-400'}`}
-                            style={{ opacity: 0.35 + intensity * 0.65 }}
-                          />
-                          {/* Name */}
-                          <span className="text-[11px] text-slate-200 flex-1 truncate font-medium leading-none">{sector.name}</span>
-                          {/* Mini bar */}
-                          <div className="w-10 h-1 bg-white/5 rounded-full overflow-hidden flex-shrink-0">
-                            <div
-                              className={`h-full rounded-full ${pos ? 'bg-emerald-400' : 'bg-red-400'}`}
-                              style={{ width: `${Math.max(barPct, 6)}%`, opacity: 0.45 + intensity * 0.55 }}
-                            />
-                          </div>
-                          {/* Percentage */}
-                          <span className={`text-[11px] font-mono font-bold w-11 text-right flex-shrink-0 ${pos ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {pos ? '+' : ''}{v.toFixed(2)}%
-                          </span>
-                        </a>
-                      );
-                    })
-                  ) : (
-                    <div className="text-center py-6 text-slate-500 text-xs">
-                      {sectorLoading ? 'Loading...' : (sectorError || 'No data')}
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
           </div>
 
