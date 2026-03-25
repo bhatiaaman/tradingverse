@@ -897,7 +897,7 @@ function getNiftyLevelAlerts(indices) {
                   context:  heResult.context,
                   candle:   { open: lastCandle.open, high: lastCandle.high, low: lastCandle.low, close: lastCandle.close },
                 };
-                setHumanEyeLog(prev => [entry, ...prev].slice(0, 15));
+                setHumanEyeLog(prev => [entry, ...prev].slice(0, 12));
               }
             } catch (heErr) {
               console.error('[Human Eye] scan error:', heErr);
@@ -1014,6 +1014,76 @@ function getNiftyLevelAlerts(indices) {
       if (bias.includes('bullish')) return '🟢';
       if (bias.includes('bearish')) return '🔴';
       return '🟡';
+    };
+
+    // Human Eye: plain-English narrative builder for each candle entry
+    const buildNarrative = (entry) => {
+      const { topSetup: s, context: c, candle } = entry;
+
+      // Opening noise
+      if (c.sessionTime === 'opening') {
+        return { type: 'wait', action: 'WAIT', headline: 'Opening noise — stand aside', reason: 'First 15 min still forming. Wait for range to establish before taking trades.' };
+      }
+      // Closing caution
+      if (c.sessionTime === 'closing') {
+        return { type: 'caution', action: 'CAUTION', headline: 'Closing risk — reduce exposure', reason: 'Last 30 min. Avoid new entries, tighten stops on open positions.' };
+      }
+
+      // BOS break against prior trend → exit signal
+      if (c.bos) {
+        if (c.bos.type === 'bear' && c.trend === 'uptrend') {
+          return { type: 'exit', action: 'EXIT LONG', headline: 'Exit longs — structure broke down', reason: `Bearish BOS formed. Prior uptrend structure invalidated. ${c.bos.distPct}% from current price.` };
+        }
+        if (c.bos.type === 'bull' && c.trend === 'downtrend') {
+          return { type: 'exit', action: 'EXIT SHORT', headline: 'Cover shorts — structure broke up', reason: `Bullish BOS formed. Prior downtrend structure invalidated. ${c.bos.distPct}% from current price.` };
+        }
+      }
+
+      // Strong entry (score ≥ 6)
+      if (s && s.score >= 6) {
+        const dir = s.pattern.direction;
+        const parts = [s.pattern.name];
+        if (c.vwap?.atVwap) parts.push('at VWAP');
+        else if (c.vwap && Math.abs(c.vwap.distPct) < 0.3) parts.push('near VWAP');
+        if (c.bos) parts.push(`near BOS`);
+        if (c.orderBlock) parts.push('in OB zone');
+        if (c.volume.mult >= 1.5) parts.push(`${c.volume.mult}× volume`);
+        if (dir === 'bull' && c.rsi != null && c.rsi < 35) parts.push(`RSI oversold ${Math.round(c.rsi)}`);
+        if (dir === 'bear' && c.rsi != null && c.rsi > 65) parts.push(`RSI overbought ${Math.round(c.rsi)}`);
+        if ((dir === 'bull' && c.trend === 'uptrend') || (dir === 'bear' && c.trend === 'downtrend')) parts.push('trend aligned');
+        return {
+          type: 'entry',
+          action: dir === 'bull' ? 'LONG' : dir === 'bear' ? 'SHORT' : 'ENTRY',
+          headline: `${dir === 'bull' ? 'Go long' : dir === 'bear' ? 'Go short' : 'Setup'} — score ${s.score}/10`,
+          reason: parts.join(' · '),
+        };
+      }
+
+      // Watch list (score 3–5)
+      if (s && s.score >= 3) {
+        const dir = s.pattern.direction;
+        const parts = [s.pattern.name];
+        if (c.vwap?.atVwap) parts.push('at VWAP');
+        if (c.volume.mult >= 1.3) parts.push(`${c.volume.mult}× vol`);
+        return {
+          type: 'watch',
+          action: 'WATCH',
+          headline: `${dir === 'bull' ? '↑ Possible long' : dir === 'bear' ? '↓ Possible short' : 'Setup'} forming`,
+          reason: `${parts.join(' · ')} — wait for confirmation`,
+        };
+      }
+
+      // No pattern — read the candle itself
+      const chg = ((candle.close - candle.open) / candle.open * 100).toFixed(2);
+      const bull = candle.close > candle.open;
+      if (c.volume.context === 'climax') {
+        return { type: 'watch', action: 'WATCH', headline: 'Volume climax — possible reversal ahead', reason: `${bull ? 'Bullish' : 'Bearish'} ${Math.abs(chg)}% candle on ${c.volume.mult}× volume. Climax often precedes a turn.` };
+      }
+      if (c.volume.context === 'dryup') {
+        return { type: 'quiet', action: 'WAIT', headline: 'Low conviction — volume dry-up', reason: `${bull ? 'Bullish' : 'Bearish'} candle ${Math.abs(chg)}% on ${c.volume.mult}× volume. No strong participants.` };
+      }
+      const trendLabel = c.trend === 'uptrend' ? 'Uptrend intact' : c.trend === 'downtrend' ? 'Downtrend intact' : 'Market ranging';
+      return { type: 'quiet', action: '—', headline: `${bull ? '▲' : '▼'} ${Math.abs(chg)}% — no setup`, reason: `${trendLabel}. Vol ${c.volume.mult}×${c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : ''}.` };
     };
 
     return (
@@ -2071,7 +2141,7 @@ function getNiftyLevelAlerts(indices) {
             </div>
 
             {/* CENTER COLUMN: Chart */}
-            <div className="lg:col-span-8 order-1 lg:order-none">
+            <div className="lg:col-span-7 order-1 lg:order-none">
               {/* OLD: min-h-[500px] */}
               <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl overflow-hidden h-full flex flex-col min-h-[380px] sm:min-h-[640px]">
                 <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 sm:py-3 border-b border-blue-800/40">
@@ -2286,7 +2356,7 @@ function getNiftyLevelAlerts(indices) {
             </div>
 
             {/* RIGHT COLUMN: Sectors + Human Eye */}
-            <div className="lg:col-span-2 space-y-3 order-3 lg:order-none">
+            <div className="lg:col-span-3 space-y-3 order-3 lg:order-none">
 
               {/* ── Human Eye ────────────────────────────────────────── */}
               <div className="bg-[#0d1829] border border-white/[0.06] rounded-2xl overflow-hidden">
@@ -2323,110 +2393,37 @@ function getNiftyLevelAlerts(indices) {
                 </div>
 
                 {humanEyeOpen && (
-                  <div>
-                    {/* Current context strip */}
-                    {humanEyeData && (
-                      <div className="flex flex-wrap gap-1.5 px-4 py-2.5 border-b border-white/[0.04]">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          humanEyeData.context.trend === 'uptrend'   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                          humanEyeData.context.trend === 'downtrend' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                          'bg-slate-500/10 text-slate-400 border-slate-500/20'
-                        }`}>
-                          {humanEyeData.context.trend === 'uptrend' ? '↑ Up' : humanEyeData.context.trend === 'downtrend' ? '↓ Down' : '↔ Range'}
-                        </span>
-                        {humanEyeData.context.vwap && (
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                            humanEyeData.context.vwap.atVwap ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
-                            humanEyeData.context.vwap.above  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                            'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                          }`}>
-                            {humanEyeData.context.vwap.atVwap ? '~VWAP' : humanEyeData.context.vwap.above ? `+${humanEyeData.context.vwap.distPct}%` : `-${humanEyeData.context.vwap.distPct}%`}
-                          </span>
-                        )}
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          humanEyeData.context.volume.context === 'climax' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                          humanEyeData.context.volume.context === 'high'   ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' :
-                          humanEyeData.context.volume.context === 'dryup'  ? 'bg-slate-700/50 text-slate-500 border-slate-600/20' :
-                          'bg-slate-700/30 text-slate-500 border-slate-600/20'
-                        }`}>Vol {humanEyeData.context.volume.mult}×</span>
-                        {humanEyeData.context.rsi != null && (
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                            humanEyeData.context.rsi > 70 ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                            humanEyeData.context.rsi < 30 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                            'bg-slate-700/30 text-slate-500 border-slate-600/20'
-                          }`}>RSI {Math.round(humanEyeData.context.rsi)}</span>
-                        )}
-                        {humanEyeData.context.bos && (
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                            humanEyeData.context.bos.type === 'bull' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                          }`}>BOS {humanEyeData.context.bos.distPct}%</span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Rolling candle log */}
-                    <div className="divide-y divide-white/[0.03]">
-                      {humanEyeLog.length === 0 ? (
-                        <p className="px-4 py-4 text-slate-600 text-xs">Waiting for next candle close…</p>
-                      ) : humanEyeLog.map((entry, i) => {
-                        const s    = entry.topSetup;
-                        const dir  = s?.pattern?.direction;
-                        const isStrong = s && s.score >= 6;
-                        return (
-                          <div key={i} className={`flex items-start gap-3 px-4 py-2.5 ${i === 0 ? 'bg-white/[0.02]' : ''}`}>
-                            {/* Time */}
-                            <span className="text-[10px] text-slate-600 font-mono w-9 flex-shrink-0 pt-0.5">{entry.time}</span>
-
-                            {/* Direction dot */}
-                            <span className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                              !s            ? 'bg-slate-700' :
-                              dir === 'bull' ? (isStrong ? 'bg-emerald-400' : 'bg-emerald-700') :
-                              dir === 'bear' ? (isStrong ? 'bg-rose-400'    : 'bg-rose-700')    :
-                              'bg-slate-500'
-                            }`} />
-
-                            {/* Content */}
-                            <div className="flex-1 min-w-0">
-                              {s ? (
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className={`text-[11px] font-semibold truncate ${
-                                    dir === 'bull' ? (isStrong ? 'text-emerald-400' : 'text-emerald-700') :
-                                    dir === 'bear' ? (isStrong ? 'text-rose-400'    : 'text-rose-700')    :
-                                    'text-slate-400'
-                                  }`}>
-                                    {dir === 'bull' ? '▲' : dir === 'bear' ? '▼' : '→'} {s.pattern.name}
-                                  </span>
-                                  {/* Mini score bar */}
-                                  <div className="flex items-center gap-1 flex-shrink-0">
-                                    <div className="flex gap-px">
-                                      {[...Array(10)].map((_, j) => (
-                                        <div key={j} className={`w-1 h-2 rounded-sm ${
-                                          j < s.score
-                                            ? dir === 'bull' ? 'bg-emerald-500' : dir === 'bear' ? 'bg-rose-500' : 'bg-slate-500'
-                                            : 'bg-white/5'
-                                        }`} />
-                                      ))}
-                                    </div>
-                                    <span className={`text-[9px] font-black w-4 text-right ${
-                                      dir === 'bull' ? 'text-emerald-500' : dir === 'bear' ? 'text-rose-500' : 'text-slate-500'
-                                    }`}>{s.score}</span>
-                                  </div>
-                                </div>
-                              ) : (
-                                <span className="text-[11px] text-slate-700">—</span>
-                              )}
-                              {/* Context summary */}
-                              <p className="text-[9px] text-slate-700 mt-0.5 leading-none">
-                                {entry.context.trend === 'uptrend' ? '↑' : entry.context.trend === 'downtrend' ? '↓' : '↔'}
-                                {entry.context.vwap ? ` · ${entry.context.vwap.atVwap ? '~VWAP' : entry.context.vwap.above ? `+${entry.context.vwap.distPct}%` : `-${entry.context.vwap.distPct}%`}` : ''}
-                                {` · Vol ${entry.context.volume.mult}×`}
-                                {entry.context.rsi != null ? ` · RSI ${Math.round(entry.context.rsi)}` : ''}
-                              </p>
-                            </div>
+                  <div className="divide-y divide-white/[0.04]">
+                    {humanEyeLog.length === 0 ? (
+                      <p className="px-4 py-6 text-slate-600 text-xs text-center">Waiting for next candle close…</p>
+                    ) : humanEyeLog.map((entry, i) => {
+                      const n = buildNarrative(entry);
+                      const isFirst = i === 0;
+                      const badgeStyle =
+                        n.type === 'entry'   ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
+                        n.type === 'exit'    ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' :
+                        n.type === 'watch'   ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
+                        n.type === 'caution' ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
+                        'bg-slate-700/30 text-slate-500 border-slate-600/20';
+                      const headlineStyle =
+                        n.type === 'entry'   ? 'text-emerald-300' :
+                        n.type === 'exit'    ? 'text-rose-300' :
+                        n.type === 'watch'   ? 'text-amber-300' :
+                        n.type === 'caution' ? 'text-orange-300' :
+                        'text-slate-400';
+                      return (
+                        <div key={i} className={`px-4 py-3 ${isFirst ? 'bg-white/[0.025]' : ''}`}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider ${badgeStyle}`}>
+                              {n.action}
+                            </span>
+                            <span className="text-[10px] text-slate-600 font-mono">{entry.time}</span>
                           </div>
-                        );
-                      })}
-                    </div>
+                          <p className={`text-[11px] font-semibold leading-snug mb-1 ${headlineStyle}`}>{n.headline}</p>
+                          <p className="text-[10px] text-slate-500 leading-relaxed">{n.reason}</p>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
