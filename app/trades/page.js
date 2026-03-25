@@ -327,7 +327,7 @@ function getNiftyLevelAlerts(indices) {
     const [humanEyeLog, setHumanEyeLog]   = useState([]);   // rolling candle log
     const [humanEyeEnv, setHumanEyeEnv]   = useState('medium');
     const [humanEyeOpen, setHumanEyeOpen] = useState(true);
-    const [leftTab, setLeftTab]           = useState('bias');
+    const [leftTab, setLeftTab]           = useState('sectors');
     const humanEyeEnvRef      = useRef('medium');
     const lastCandleCountRef  = useRef(0);
 
@@ -1735,46 +1735,25 @@ function getNiftyLevelAlerts(indices) {
               {/* Bias + Sectors Tabbed Widget */}
               <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-3">
                 {/* Tab bar */}
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => setLeftTab('bias')}
-                      className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${leftTab === 'bias' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-                    >Bias</button>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex w-full bg-white/[0.05] rounded-lg p-0.5 gap-0.5">
                     <button
                       onClick={() => setLeftTab('sectors')}
-                      className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${leftTab === 'sectors' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                      className={`flex-1 text-xs py-1.5 rounded-md font-semibold transition-all ${leftTab === 'sectors' ? 'bg-[#1e3a5f] text-blue-300 shadow' : 'text-slate-500 hover:text-slate-300'}`}
                     >Sectors</button>
-                  </div>
-                  {leftTab === 'bias' && (
                     <button
-                      onClick={async () => {
-                        setSentimentLoading(true);
-                        try {
-                          const pcr = optionChainData?.pcr;
-                          const url = pcr ? `/api/sentiment?pcr=${pcr}&refresh=1` : '/api/sentiment?refresh=1';
-                          const response = await fetch(url);
-                          const data = await response.json();
-                          setSentimentData(data);
-                        } catch (error) {
-                          console.error('Error refreshing sentiment:', error);
-                        } finally {
-                          setSentimentLoading(false);
-                        }
-                      }}
-                      className="p-1 hover:bg-blue-800/40 rounded transition-colors"
-                      title="Refresh sentiment"
-                    >
-                      <RefreshCw className={`w-3 h-3 text-blue-400 ${sentimentLoading ? 'animate-spin' : ''}`} />
-                    </button>
-                  )}
-                  {leftTab === 'sectors' && (
-                    <span className="text-[10px] text-slate-500">vs Prev Close</span>
-                  )}
+                      onClick={() => setLeftTab('bias')}
+                      className={`flex-1 text-xs py-1.5 rounded-md font-semibold transition-all ${leftTab === 'bias' ? 'bg-[#1e3a5f] text-blue-300 shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                    >Bias</button>
+                  </div>
                 </div>
 
                 {/* Sectors tab */}
                 {leftTab === 'sectors' && (
+                  <>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] text-slate-500">vs Prev Close</span>
+                  </div>
                   <div className="space-y-1 max-h-[420px] overflow-y-auto pr-0.5">
                     {sectorData.length > 0 ? (
                       [...sectorData].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).map((sector) => {
@@ -1818,10 +1797,34 @@ function getNiftyLevelAlerts(indices) {
                       </div>
                     )}
                   </div>
+                  </>
                 )}
 
                 {/* Bias tab */}
                 {leftTab === 'bias' && (<div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-blue-300">Bias Gauge</span>
+                  <button
+                    onClick={async () => {
+                      setSentimentLoading(true);
+                      try {
+                        const pcr = optionChainData?.pcr;
+                        const url = pcr ? `/api/sentiment?pcr=${pcr}&refresh=1` : '/api/sentiment?refresh=1';
+                        const response = await fetch(url);
+                        const data = await response.json();
+                        setSentimentData(data);
+                      } catch (error) {
+                        console.error('Error refreshing sentiment:', error);
+                      } finally {
+                        setSentimentLoading(false);
+                      }
+                    }}
+                    className="p-1 hover:bg-blue-800/40 rounded transition-colors"
+                    title="Refresh sentiment"
+                  >
+                    <RefreshCw className={`w-3 h-3 text-blue-400 ${sentimentLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
 
                 {sentimentData ? (
                   <div className="space-y-2 text-xs">
