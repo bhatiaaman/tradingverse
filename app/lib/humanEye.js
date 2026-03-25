@@ -150,6 +150,20 @@ function detectFlagAndPole(candles) {
 // Everything else reads from the returned object.
 // ─────────────────────────────────────────────────────────────────────────────
 
+function computeVwapHistory(candles, vwapData) {
+  // Returns per-candle above/below VWAP for the last 5 candles (matched by timestamp)
+  if (!vwapData?.length) return [];
+  const vwapMap = new Map(vwapData.map(v => [v.time, v.value]));
+  const n = candles.length;
+  const result = [];
+  for (let i = Math.max(0, n - 5); i < n; i++) {
+    const vwapVal = vwapMap.get(candles[i].time);
+    if (!vwapVal) continue;
+    result.push({ idx: i, close: candles[i].close, aboveVwap: candles[i].close >= vwapVal, vwapVal });
+  }
+  return result;
+}
+
 function computeVwapPosition(candles, vwapData) {
   if (!vwapData?.length) return null;
   const lastVwap  = vwapData[vwapData.length - 1]?.value;
@@ -288,6 +302,7 @@ export function precompute(candles, vwapData, rsiValue) {
     volume:         getVolumeContext(candles),
     sessionTime:    getSessionTime(candles),
     vwap:           computeVwapPosition(candles, vwapData),
+    vwapHistory:    computeVwapHistory(candles, vwapData),
     orb:            computeORB(candles),
     ema:            computeEMAStack(candles),
     fvgs:           detectFVGs(candles),
@@ -489,13 +504,126 @@ export function buildContext(candles, pre) {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LAYER 4 — SETUP DETECTION (stub — S1–S6 coming next)
+// LAYER 4 — SETUP DETECTION
+// Multi-condition setups. Each setup validates against pre-computed context.
+// Returns setup objects with the same shape as patterns { id, name, direction, strength }
+// plus optional: sl, target, details, coversPattern (suppresses a raw pattern).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function detectSetups(candles, patterns, context, pre) {
-  // Placeholder — setup library builds here in next phase
-  // Returns same shape as patterns for now
-  return patterns;
+  const setups = [];
+  const n  = candles.length;
+  const c0 = candles[n - 1];
+
+  // ── S1: BOS + Order Block Retest ─────────────────────────────────────────
+  // BOS detected, price retests the OB zone, rejection candle present.
+  if (pre.bosLevels.length && pre.orderBlocks.length) {
+    const recentBOS = pre.bosLevels.reduce((a, b) => b.idx > a.idx ? b : a);
+    const ob        = pre.orderBlocks.find(o => o.bosType === recentBOS.type);
+    if (ob) {
+      const touchingOB = c0.low <= ob.high && c0.high >= ob.low;
+      if (touchingOB) {
+        const rejectionIds = ['hammer','bull_pin','shooting_star','bear_pin',
+                              'bull_engulfing','bear_engulfing','doji',
+                              'tweezer_bottom','tweezer_top'];
+        const hasRejection = patterns.some(p =>
+          rejectionIds.includes(p.id) &&
+          (p.direction === recentBOS.type || p.direction === 'neutral')
+        );
+        if (hasRejection) {
+          const dir = recentBOS.type;
+          const sl  = dir === 'bull' ? ob.low  * 0.9985 : ob.high * 1.0015;
+          const ext = Math.abs(recentBOS.price - ob.mid);
+          const tgt = dir === 'bull' ? recentBOS.price + ext : recentBOS.price - ext;
+          setups.push({
+            id: 's1_ob_retest', name: 'BOS + OB Retest', direction: dir, strength: 5,
+            sl, target: tgt, coversPattern: 'ob_retest',
+            details: { obHigh: ob.high, obLow: ob.low, bosPrice: recentBOS.price, hasRejection },
+          });
+        }
+      }
+    }
+  }
+
+  // ── S2: VWAP Reclaim / VWAP Break ────────────────────────────────────────
+  // 2+ candles on one side of VWAP, current candle crosses with body ≥ 55%.
+  if (pre.vwapHistory.length >= 3) {
+    const hist    = pre.vwapHistory;
+    const curr    = hist[hist.length - 1];
+    const prior   = hist.slice(-3, -1);
+    const bodyPct = (c0.high - c0.low) > 0
+      ? Math.abs(c0.close - c0.open) / (c0.high - c0.low) : 0;
+
+    if (curr && prior.length === 2 && bodyPct >= 0.55) {
+      // Bullish reclaim: prior 2 below VWAP, current above
+      if (curr.aboveVwap && prior.every(h => !h.aboveVwap)) {
+        setups.push({
+          id: 's2_vwap_reclaim', name: 'VWAP Reclaim', direction: 'bull', strength: 3,
+          sl: pre.vwap.price * 0.999, target: null,
+          details: { vwapPrice: pre.vwap.price, bodyPct: parseFloat(bodyPct.toFixed(2)) },
+        });
+      }
+      // Bearish loss: prior 2 above VWAP, current below
+      if (!curr.aboveVwap && prior.every(h => h.aboveVwap)) {
+        setups.push({
+          id: 's2_vwap_break', name: 'VWAP Break', direction: 'bear', strength: 3,
+          sl: pre.vwap.price * 1.001, target: null,
+          details: { vwapPrice: pre.vwap.price, bodyPct: parseFloat(bodyPct.toFixed(2)) },
+        });
+      }
+    }
+  }
+
+  // ── S3: Opening Range Breakout ────────────────────────────────────────────
+  // ORB formed, body fully closes beyond ORB high or low, volume ≥ 1.8×.
+  if (pre.orb?.formed && pre.sessionTime !== 'opening' && pre.sessionTime !== 'premarket') {
+    const bodyHigh  = Math.max(c0.open, c0.close);
+    const bodyLow   = Math.min(c0.open, c0.close);
+    const orbRange  = pre.orb.high - pre.orb.low;
+
+    if (bodyLow > pre.orb.high && pre.volume.mult >= 1.8) {
+      setups.push({
+        id: 's3_orb_bull', name: 'ORB Breakout', direction: 'bull', strength: 4,
+        sl: pre.orb.high * 0.999, target: pre.orb.high + orbRange,
+        details: { orbHigh: pre.orb.high, orbLow: pre.orb.low, volMult: pre.volume.mult },
+      });
+    }
+    if (bodyHigh < pre.orb.low && pre.volume.mult >= 1.8) {
+      setups.push({
+        id: 's3_orb_bear', name: 'ORB Breakdown', direction: 'bear', strength: 4,
+        sl: pre.orb.low  * 1.001, target: pre.orb.low - orbRange,
+        details: { orbHigh: pre.orb.high, orbLow: pre.orb.low, volMult: pre.volume.mult },
+      });
+    }
+  }
+
+  // ── S6: Strong Engulfing at Key Level ────────────────────────────────────
+  // Engulfing candle at BOS level, VWAP, or OB zone. Volume ≥ 1.4×.
+  const atKeyLevel = (pre.vwap?.atVwap) ||
+                     (context.bos?.distPct != null && context.bos.distPct <= 0.3) ||
+                     (context.orderBlock != null);
+
+  if (atKeyLevel && pre.volume.mult >= 1.4) {
+    const bullEngulf = patterns.find(p => p.id === 'bull_engulfing');
+    const bearEngulf = patterns.find(p => p.id === 'bear_engulfing');
+
+    if (bullEngulf) {
+      setups.push({
+        id: 's6_engulf_bull', name: 'Bull Engulfing at Level', direction: 'bull', strength: 4,
+        sl: c0.low * 0.9985, target: null, coversPattern: 'bull_engulfing',
+        details: { atVwap: !!pre.vwap?.atVwap, atBOS: context.bos?.distPct <= 0.3, volMult: pre.volume.mult },
+      });
+    }
+    if (bearEngulf) {
+      setups.push({
+        id: 's6_engulf_bear', name: 'Bear Engulfing at Level', direction: 'bear', strength: 4,
+        sl: c0.high * 1.0015, target: null, coversPattern: 'bear_engulfing',
+        details: { atVwap: !!pre.vwap?.atVwap, atBOS: context.bos?.distPct <= 0.3, volMult: pre.volume.mult },
+      });
+    }
+  }
+
+  return setups;
 }
 
 
@@ -578,11 +706,18 @@ export function runHumanEye(candles, vwapData, rsiValue, environment = 'medium')
   // Layer 3: context assembly (reads from pre, no re-scanning)
   const context = buildContext(candles, pre);
 
-  // Layer 4: setup detection (stub for now — setup library next)
-  const allSetups = detectSetups(candles, rawPatterns, context, pre);
+  // Layer 4: setup detection — multi-condition setups
+  const setups = detectSetups(candles, rawPatterns, context, pre);
 
-  // Layer 5: score each setup
-  const scored = allSetups.map(p => {
+  // Suppress raw patterns that are already covered by a setup (avoid duplicates)
+  const coveredIds     = new Set(setups.map(s => s.coversPattern).filter(Boolean));
+  const residualPatterns = rawPatterns.filter(p => !coveredIds.has(p.id));
+
+  // Setups take priority; raw patterns fill in when no setup covers them
+  const allSignals = [...setups, ...residualPatterns];
+
+  // Layer 5: score each signal
+  const scored = allSignals.map(p => {
     const { total, breakdown } = scoreSetup(p, context, environment);
     return { pattern: p, score: total, scoreBreakdown: breakdown };
   });
