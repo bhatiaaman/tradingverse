@@ -878,7 +878,7 @@ function getNiftyLevelAlerts(indices) {
 
             // Third Eye scan (after VWAP is populated in the ref)
             try {
-              const { runHumanEye } = await import('@/app/lib/humanEye.js');
+              const { runHumanEye } = await import('@/app/lib/thirdEye.js');
               const vwapForHE  = customVwapDataRef.current;
               const rsiVal     = rsiData[rsiData.length - 1]?.value ?? null;
               const heResult   = runHumanEye(data.candles, vwapForHE, rsiVal, thirdEyeEnvRef.current);
@@ -1024,7 +1024,7 @@ function getNiftyLevelAlerts(indices) {
     const placeThirdEyeOrder = async (entry) => {
       setThirdEyePlacing(entry.time);
       try {
-        const res  = await fetch('/api/human-eye/place', {
+        const res  = await fetch('/api/third-eye/place', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({

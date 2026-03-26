@@ -121,7 +121,7 @@ export async function POST(req) {
     });
 
   } catch (err) {
-    console.error('[human-eye/place]', err.message);
+    console.error('[third-eye/place]', err.message);
     return NextResponse.json({ error: err.message || 'Order placement failed' }, { status: 500 });
   }
 }
