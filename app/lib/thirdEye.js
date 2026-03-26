@@ -5,7 +5,7 @@
 //   3. buildContext()     — assembles context object from precomputed data
 //   4. detectSetups()     — multi-condition setups (S1–S17)
 //   5. scoreSetup()       — adds context bonuses to setup base strength
-//   6. runHumanEye()      — orchestrates all layers
+//   6. runThirdEye()      — orchestrates all layers
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -983,7 +983,7 @@ export function scoreSetup(pattern, context, environment) {
 // LAYER 6 — ORCHESTRATOR
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function runHumanEye(candles, vwapData, rsiValue, environment = 'medium') {
+export function runThirdEye(candles, vwapData, rsiValue, environment = 'medium') {
   if (!candles || candles.length < 3) {
     return { patterns: [], context: null, topSetup: null, watchList: [], strongSetups: [] };
   }

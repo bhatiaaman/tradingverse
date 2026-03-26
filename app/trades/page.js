@@ -878,10 +878,10 @@ function getNiftyLevelAlerts(indices) {
 
             // Third Eye scan (after VWAP is populated in the ref)
             try {
-              const { runHumanEye } = await import('@/app/lib/thirdEye.js');
+              const { runThirdEye } = await import('@/app/lib/thirdEye.js');
               const vwapForHE  = customVwapDataRef.current;
               const rsiVal     = rsiData[rsiData.length - 1]?.value ?? null;
-              const heResult   = runHumanEye(data.candles, vwapForHE, rsiVal, thirdEyeEnvRef.current);
+              const heResult   = runThirdEye(data.candles, vwapForHE, rsiVal, thirdEyeEnvRef.current);
               setThirdEyeData(heResult);
 
               // Append to rolling log only when a new candle has formed
