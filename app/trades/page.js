@@ -322,15 +322,15 @@ function getNiftyLevelAlerts(indices) {
     const [powerCandleDismissed, setPowerCandleDismissed] = useState(null); // dismissed candle time
     const candleDataRef = useRef([]);
 
-    // Human Eye state
-    const [humanEyeData, setHumanEyeData] = useState(null);
-    const [humanEyeLog, setHumanEyeLog]   = useState([]);   // rolling candle log
-    const [humanEyeEnv, setHumanEyeEnv]   = useState('medium');
-    const [humanEyeOpen, setHumanEyeOpen] = useState(true);
-    const [humanEyePlacing, setHumanEyePlacing] = useState(null);  // entry.time being placed
-    const [humanEyePlaced,  setHumanEyePlaced]  = useState({});    // { [entry.time]: result }
+    // Third Eye state
+    const [thirdEyeData, setThirdEyeData] = useState(null);
+    const [thirdEyeLog, setThirdEyeLog]   = useState([]);   // rolling candle log
+    const [thirdEyeEnv, setThirdEyeEnv]   = useState('medium');
+    const [thirdEyeOpen, setThirdEyeOpen] = useState(true);
+    const [thirdEyePlacing, setThirdEyePlacing] = useState(null);  // entry.time being placed
+    const [thirdEyePlaced,  setThirdEyePlaced]  = useState({});    // { [entry.time]: result }
     const [leftTab, setLeftTab]           = useState('sectors');
-    const humanEyeEnvRef      = useRef('medium');
+    const thirdEyeEnvRef      = useRef('medium');
     const lastCandleCountRef  = useRef(0);
 
     // Check Kite auth status
@@ -417,8 +417,8 @@ function getNiftyLevelAlerts(indices) {
     // Keep showBOSRef in sync (used by fetchData closure)
     useEffect(() => { showBOSRef.current = showBOS; }, [showBOS]);
 
-    // Keep humanEyeEnvRef in sync (used by fetchData closure)
-    useEffect(() => { humanEyeEnvRef.current = humanEyeEnv; }, [humanEyeEnv]);
+    // Keep thirdEyeEnvRef in sync (used by fetchData closure)
+    useEffect(() => { thirdEyeEnvRef.current = thirdEyeEnv; }, [thirdEyeEnv]);
 
     // Close chart settings dropdown on outside click
     useEffect(() => {
@@ -876,13 +876,13 @@ function getNiftyLevelAlerts(indices) {
               chart.clearLine('vwap');
             }
 
-            // Human Eye scan (after VWAP is populated in the ref)
+            // Third Eye scan (after VWAP is populated in the ref)
             try {
               const { runHumanEye } = await import('@/app/lib/humanEye.js');
               const vwapForHE  = customVwapDataRef.current;
               const rsiVal     = rsiData[rsiData.length - 1]?.value ?? null;
-              const heResult   = runHumanEye(data.candles, vwapForHE, rsiVal, humanEyeEnvRef.current);
-              setHumanEyeData(heResult);
+              const heResult   = runHumanEye(data.candles, vwapForHE, rsiVal, thirdEyeEnvRef.current);
+              setThirdEyeData(heResult);
 
               // Append to rolling log only when a new candle has formed
               const newCount = data.candles.length;
@@ -899,10 +899,10 @@ function getNiftyLevelAlerts(indices) {
                   context:  heResult.context,
                   candle:   { open: lastCandle.open, high: lastCandle.high, low: lastCandle.low, close: lastCandle.close },
                 };
-                setHumanEyeLog(prev => [entry, ...prev].slice(0, 12));
+                setThirdEyeLog(prev => [entry, ...prev].slice(0, 12));
               }
             } catch (heErr) {
-              console.error('[Human Eye] scan error:', heErr);
+              console.error('[Third Eye] scan error:', heErr);
             }
 
             // Zone lines
@@ -1018,11 +1018,11 @@ function getNiftyLevelAlerts(indices) {
       return '🟡';
     };
 
-    // Human Eye: semi-auto order placement for S3/S6 on Nifty
+    // Third Eye: semi-auto order placement for S3/S6 on Nifty
     const SEMI_AUTO_IDS = ['s3_orb_bull','s3_orb_bear','s6_engulf_bull','s6_engulf_bear'];
 
-    const placeHumanEyeOrder = async (entry) => {
-      setHumanEyePlacing(entry.time);
+    const placeThirdEyeOrder = async (entry) => {
+      setThirdEyePlacing(entry.time);
       try {
         const res  = await fetch('/api/human-eye/place', {
           method:  'POST',
@@ -1033,15 +1033,15 @@ function getNiftyLevelAlerts(indices) {
           }),
         });
         const data = await res.json();
-        setHumanEyePlaced(prev => ({ ...prev, [entry.time]: data }));
+        setThirdEyePlaced(prev => ({ ...prev, [entry.time]: data }));
       } catch (err) {
-        setHumanEyePlaced(prev => ({ ...prev, [entry.time]: { error: err.message } }));
+        setThirdEyePlaced(prev => ({ ...prev, [entry.time]: { error: err.message } }));
       } finally {
-        setHumanEyePlacing(null);
+        setThirdEyePlacing(null);
       }
     };
 
-    // Human Eye: plain-English narrative builder for each candle entry
+    // Third Eye: plain-English narrative builder for each candle entry
     const buildNarrative = (entry) => {
       const { topSetup: s, context: c, candle } = entry;
 
@@ -2380,17 +2380,17 @@ function getNiftyLevelAlerts(indices) {
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Sectors + Human Eye */}
+            {/* RIGHT COLUMN: Sectors + Third Eye */}
             <div className="lg:col-span-3 space-y-3 order-3 lg:order-none">
 
-              {/* ── Human Eye ────────────────────────────────────────── */}
+              {/* ── Third Eye ────────────────────────────────────────── */}
               <div className="bg-[#0d1829] border border-white/[0.06] rounded-2xl overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.05]">
                   <div className="flex items-center gap-2">
                     <span className="text-base">👁</span>
-                    <span className="text-sm font-bold text-white">Human Eye</span>
-                    {humanEyeData?.strongSetups?.length > 0 && (
+                    <span className="text-sm font-bold text-white">Third Eye</span>
+                    {thirdEyeData?.strongSetups?.length > 0 && (
                       <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                     )}
                   </div>
@@ -2399,9 +2399,9 @@ function getNiftyLevelAlerts(indices) {
                     {['light', 'medium', 'tight'].map(env => (
                       <button
                         key={env}
-                        onClick={() => setHumanEyeEnv(env)}
+                        onClick={() => setThirdEyeEnv(env)}
                         className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all ${
-                          humanEyeEnv === env
+                          thirdEyeEnv === env
                             ? env === 'light'  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
                             : env === 'medium' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                             : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
@@ -2411,17 +2411,17 @@ function getNiftyLevelAlerts(indices) {
                         {env}
                       </button>
                     ))}
-                    <button onClick={() => setHumanEyeOpen(o => !o)} className="ml-1 text-slate-600 hover:text-slate-400">
-                      {humanEyeOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    <button onClick={() => setThirdEyeOpen(o => !o)} className="ml-1 text-slate-600 hover:text-slate-400">
+                      {thirdEyeOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                     </button>
                   </div>
                 </div>
 
-                {humanEyeOpen && (
+                {thirdEyeOpen && (
                   <div className="divide-y divide-white/[0.04]">
-                    {humanEyeLog.length === 0 ? (
+                    {thirdEyeLog.length === 0 ? (
                       <p className="px-4 py-6 text-slate-600 text-xs text-center">Waiting for next candle close…</p>
-                    ) : humanEyeLog.map((entry, i) => {
+                    ) : thirdEyeLog.map((entry, i) => {
                       const n       = buildNarrative(entry);
                       const isFirst = i === 0;
 
@@ -2441,8 +2441,8 @@ function getNiftyLevelAlerts(indices) {
                         const sl        = s.sl;
                         const dist      = sl ? Math.abs(close - sl) : null;
                         const target    = sl ? (isBull ? close + 2 * dist : close - 2 * dist) : null;
-                        const placed    = humanEyePlaced[entry.time];
-                        const placing   = humanEyePlacing === entry.time;
+                        const placed    = thirdEyePlaced[entry.time];
+                        const placing   = thirdEyePlacing === entry.time;
                         return (
                           <div key={i} className={`px-4 py-3 bg-white/[0.03] border-l-2 ${isBull ? 'border-emerald-500/60' : 'border-rose-500/60'}`}>
                             <div className="flex items-center justify-between mb-2">
@@ -2479,7 +2479,7 @@ function getNiftyLevelAlerts(indices) {
                               )
                             ) : (
                               <button
-                                onClick={() => placeHumanEyeOrder(entry)}
+                                onClick={() => placeThirdEyeOrder(entry)}
                                 disabled={placing}
                                 className={`w-full py-2 rounded-lg text-[11px] font-bold tracking-wide transition-all disabled:opacity-50 ${isBull ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'} text-white`}
                               >
