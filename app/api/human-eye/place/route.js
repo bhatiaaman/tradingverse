@@ -1,0 +1,125 @@
+import { NextResponse } from 'next/server';
+import { getBroker, getDataProvider } from '@/app/lib/providers';
+
+// ── Expiry helpers ────────────────────────────────────────────────────────────
+
+function getLastThursdayOfMonth(year, month) {
+  // month is 0-indexed. Returns UTC Date at midnight.
+  let d = new Date(Date.UTC(year, month + 1, 0)); // last day of month
+  while (d.getUTCDay() !== 4) d.setUTCDate(d.getUTCDate() - 1);
+  return d;
+}
+
+function getNearestThursdayExpiry() {
+  // Work in IST (UTC+5:30) to get the correct date
+  const istMs  = Date.now() + 5.5 * 60 * 60 * 1000;
+  const ist    = new Date(istMs);
+  const day    = ist.getUTCDay(); // 0=Sun, 4=Thu
+  let daysToThursday = (4 - day + 7) % 7;
+
+  // If today IS Thursday but market is effectively closed (≥ 15:20 IST), roll to next week
+  if (daysToThursday === 0) {
+    const h = ist.getUTCHours(), m = ist.getUTCMinutes();
+    if (h > 15 || (h === 15 && m >= 20)) daysToThursday = 7;
+  }
+
+  const expiryIst = new Date(istMs + daysToThursday * 86400000);
+  // Return as a UTC Date with the IST calendar date components (time = midnight UTC)
+  return new Date(Date.UTC(
+    expiryIst.getUTCFullYear(),
+    expiryIst.getUTCMonth(),
+    expiryIst.getUTCDate(),
+  ));
+}
+
+// ── Symbol builder ────────────────────────────────────────────────────────────
+
+// Kite weekly format : NIFTY25317{STRIKE}CE  (YY + single-char month + DD + STRIKE + type)
+// Kite monthly format: NIFTY25MAR{STRIKE}CE  (YY + 3-letter month + STRIKE + type)
+// Monthly = last Thursday of that month.
+// Month codes for weekly: 1-9 for Jan-Sep, O=Oct, N=Nov, D=Dec
+
+const WEEKLY_MONTH_CODES  = '123456789OND'; // index 0=Jan … 11=Dec
+const MONTHLY_MONTH_NAMES = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+function buildNiftyKiteSymbol(niftyPrice, direction, expiry) {
+  const strike  = Math.round(niftyPrice / 50) * 50;
+  const optType = direction === 'bull' ? 'CE' : 'PE';
+  const year    = expiry.getUTCFullYear();
+  const month   = expiry.getUTCMonth();   // 0-indexed
+  const day     = expiry.getUTCDate();
+  const yy      = String(year).slice(-2);
+
+  const lastThursday = getLastThursdayOfMonth(year, month);
+  const isMonthly    = lastThursday.getUTCDate() === day;
+
+  if (isMonthly) {
+    return `NIFTY${yy}${MONTHLY_MONTH_NAMES[month]}${strike}${optType}`;
+  } else {
+    const mCode = WEEKLY_MONTH_CODES[month];
+    const dd    = String(day).padStart(2, '0');
+    return `NIFTY${yy}${mCode}${dd}${strike}${optType}`;
+  }
+}
+
+// ── Route handler ─────────────────────────────────────────────────────────────
+
+export async function POST(req) {
+  try {
+    const { niftyPrice, direction } = await req.json();
+
+    if (!niftyPrice || !['bull', 'bear'].includes(direction)) {
+      return NextResponse.json({ error: 'Missing or invalid niftyPrice / direction' }, { status: 400 });
+    }
+
+    const expiry     = getNearestThursdayExpiry();
+    const symbol     = buildNiftyKiteSymbol(niftyPrice, direction, expiry);
+    const instrument = `NFO:${symbol}`;
+
+    // ── Fetch option LTP ──────────────────────────────────────────────────────
+    const dp = await getDataProvider();
+    if (!dp.isConnected()) {
+      return NextResponse.json({ error: 'Kite not connected — reconnect and retry' }, { status: 401 });
+    }
+
+    let ltp;
+    try {
+      const ltpData = await dp.getLTP(instrument);
+      ltp = ltpData.data?.[instrument]?.last_price;
+    } catch (e) {
+      return NextResponse.json({ error: `LTP fetch failed: ${e.message}` }, { status: 502 });
+    }
+
+    if (!ltp) {
+      return NextResponse.json({ error: `No price found for ${symbol} — symbol may not exist yet` }, { status: 404 });
+    }
+
+    const limitPrice = Math.round(ltp); // nearest integer
+
+    // ── Place order ───────────────────────────────────────────────────────────
+    const broker = await getBroker();
+    const order  = await broker.placeOrder('regular', {
+      tradingsymbol:    symbol,
+      exchange:         'NFO',
+      transaction_type: 'BUY',
+      order_type:       'LIMIT',
+      product:          'MIS',
+      quantity:         65,
+      price:            limitPrice,
+    });
+
+    return NextResponse.json({
+      ok:         true,
+      symbol,
+      strike:     Math.round(niftyPrice / 50) * 50,
+      optionType: direction === 'bull' ? 'CE' : 'PE',
+      limitPrice,
+      orderId:    order.order_id,
+      expiry:     expiry.toISOString().split('T')[0],
+    });
+
+  } catch (err) {
+    console.error('[human-eye/place]', err.message);
+    return NextResponse.json({ error: err.message || 'Order placement failed' }, { status: 500 });
+  }
+}

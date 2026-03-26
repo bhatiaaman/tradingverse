@@ -327,6 +327,8 @@ function getNiftyLevelAlerts(indices) {
     const [humanEyeLog, setHumanEyeLog]   = useState([]);   // rolling candle log
     const [humanEyeEnv, setHumanEyeEnv]   = useState('medium');
     const [humanEyeOpen, setHumanEyeOpen] = useState(true);
+    const [humanEyePlacing, setHumanEyePlacing] = useState(null);  // entry.time being placed
+    const [humanEyePlaced,  setHumanEyePlaced]  = useState({});    // { [entry.time]: result }
     const [leftTab, setLeftTab]           = useState('sectors');
     const humanEyeEnvRef      = useRef('medium');
     const lastCandleCountRef  = useRef(0);
@@ -1014,6 +1016,29 @@ function getNiftyLevelAlerts(indices) {
       if (bias.includes('bullish')) return '🟢';
       if (bias.includes('bearish')) return '🔴';
       return '🟡';
+    };
+
+    // Human Eye: semi-auto order placement for S3/S6 on Nifty
+    const SEMI_AUTO_IDS = ['s3_orb_bull','s3_orb_bear','s6_engulf_bull','s6_engulf_bear'];
+
+    const placeHumanEyeOrder = async (entry) => {
+      setHumanEyePlacing(entry.time);
+      try {
+        const res  = await fetch('/api/human-eye/place', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            niftyPrice: entry.candle.close,
+            direction:  entry.topSetup.pattern.direction,
+          }),
+        });
+        const data = await res.json();
+        setHumanEyePlaced(prev => ({ ...prev, [entry.time]: data }));
+      } catch (err) {
+        setHumanEyePlaced(prev => ({ ...prev, [entry.time]: { error: err.message } }));
+      } finally {
+        setHumanEyePlacing(null);
+      }
     };
 
     // Human Eye: plain-English narrative builder for each candle entry
@@ -2397,8 +2422,74 @@ function getNiftyLevelAlerts(indices) {
                     {humanEyeLog.length === 0 ? (
                       <p className="px-4 py-6 text-slate-600 text-xs text-center">Waiting for next candle close…</p>
                     ) : humanEyeLog.map((entry, i) => {
-                      const n = buildNarrative(entry);
+                      const n       = buildNarrative(entry);
                       const isFirst = i === 0;
+
+                      // Semi-auto action card: S3/S6, score ≥ 6, Nifty chart, most recent candle only
+                      const setupId    = entry.topSetup?.pattern?.id;
+                      const isActionable = (
+                        isFirst &&
+                        chartSymbol === 'NIFTY' &&
+                        (entry.topSetup?.score ?? 0) >= 6 &&
+                        SEMI_AUTO_IDS.includes(setupId)
+                      );
+
+                      if (isActionable) {
+                        const s         = entry.topSetup.pattern;
+                        const isBull    = s.direction === 'bull';
+                        const close     = entry.candle.close;
+                        const sl        = s.sl;
+                        const dist      = sl ? Math.abs(close - sl) : null;
+                        const target    = sl ? (isBull ? close + 2 * dist : close - 2 * dist) : null;
+                        const placed    = humanEyePlaced[entry.time];
+                        const placing   = humanEyePlacing === entry.time;
+                        return (
+                          <div key={i} className={`px-4 py-3 bg-white/[0.03] border-l-2 ${isBull ? 'border-emerald-500/60' : 'border-rose-500/60'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider ${isBull ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'}`}>
+                                {isBull ? 'LONG' : 'SHORT'}
+                              </span>
+                              <span className="text-[10px] text-slate-600 font-mono">{entry.time}</span>
+                            </div>
+                            <p className="text-[11px] font-semibold text-white mb-1">{s.name}</p>
+                            <p className="text-[10px] text-slate-500 mb-2.5">Score {entry.topSetup.score} · ATM {isBull ? 'CE' : 'PE'} · 65 qty</p>
+                            <div className="grid grid-cols-3 gap-1 mb-3 text-center">
+                              <div>
+                                <p className="text-[9px] text-slate-600 mb-0.5">Entry</p>
+                                <p className="text-[11px] font-mono text-white">{close.toFixed(0)}</p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] text-slate-600 mb-0.5">SL</p>
+                                <p className="text-[11px] font-mono text-rose-400">{sl ? sl.toFixed(0) : '—'}</p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] text-slate-600 mb-0.5">Target 2:1</p>
+                                <p className="text-[11px] font-mono text-emerald-400">{target ? target.toFixed(0) : '—'}</p>
+                              </div>
+                            </div>
+                            {placed ? (
+                              placed.ok ? (
+                                <div className="text-[10px] text-emerald-400 text-center py-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20 font-mono">
+                                  ✓ {placed.symbol} @ ₹{placed.limitPrice}
+                                </div>
+                              ) : (
+                                <div className="text-[10px] text-rose-400 text-center py-1.5 bg-rose-500/10 rounded-lg border border-rose-500/20">
+                                  {placed.error || 'Order failed'}
+                                </div>
+                              )
+                            ) : (
+                              <button
+                                onClick={() => placeHumanEyeOrder(entry)}
+                                disabled={placing}
+                                className={`w-full py-2 rounded-lg text-[11px] font-bold tracking-wide transition-all disabled:opacity-50 ${isBull ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'} text-white`}
+                              >
+                                {placing ? 'Placing…' : `Buy ATM ${isBull ? 'CE' : 'PE'} · 65 qty`}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      }
+
                       const badgeStyle =
                         n.type === 'entry'   ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
                         n.type === 'exit'    ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' :
