@@ -329,6 +329,18 @@ function computePowerCandles(candles, lookback = 15) {
   return result;
 }
 
+function computeATR(candles, period = 14) {
+  if (candles.length < period + 1) return null;
+  const slice = candles.slice(-(period + 1));
+  let sum = 0;
+  for (let i = 1; i <= period; i++) {
+    const curr = slice[i], prev = slice[i - 1];
+    const tr = Math.max(curr.high - curr.low, Math.abs(curr.high - prev.close), Math.abs(curr.low - prev.close));
+    sum += tr;
+  }
+  return parseFloat((sum / period).toFixed(2));
+}
+
 function computeBollingerBands(candles, period = 20, stdMult = 2) {
   if (candles.length < period) return null;
   const slice    = candles.slice(-period);
@@ -360,6 +372,7 @@ export function precompute(candles, vwapData, rsiValue) {
     tradingRange:   detectTradingRange(candles),
     powerCandles:   computePowerCandles(candles),
     bb:             computeBollingerBands(candles),
+    atr14:          computeATR(candles),
     rsi:            rsiValue ?? null,
   };
 }
@@ -932,29 +945,42 @@ export function detectSetups(candles, patterns, context, pre) {
   }
 
   // ── S18: BB Momentum Breakout ─────────────────────────────────────────────
-  // Close breaks outside Bollinger Band (20,2), same-direction candle (green/red),
-  // RSI(12) momentum aligned (>50 bull / <50 bear), body ≤ 0.5% of price (no runaway candle),
-  // vol ≥ 1.5×, close also breaks above/below last 10-candle swing high/low.
+  // Close breaks outside Bollinger Band (20,2), same-direction candle,
+  // RSI(12) aligned (>50 bull / <50 bear), vol ≥ 1.5×,
+  // close breaks prior 10-candle swing high/low.
+  // Non-opening candles: range must be ≤ 1.5× ATR14 (no chasing runaway spikes).
+  // Opening candle gets a pass on range — gap moves are inherently wide.
+  // SL: if candle body ≤ 1× ATR → c0.open; if body > 1× ATR (wide/gap candle) → c0.close ± 1 ATR.
   if (pre.bb && candles.length >= 21) {
     const { upper, middle, lower } = pre.bb;
-    const body0     = Math.abs(c0.close - c0.open);
-    const bodyPct   = body0 / c0.close * 100;
-    const prior10H  = Math.max(...candles.slice(-11, -1).map(c => c.high));
-    const prior10L  = Math.min(...candles.slice(-11, -1).map(c => c.low));
+    const atr        = pre.atr14;
+    const candleRange = c0.high - c0.low;
+    const candleBody  = Math.abs(c0.close - c0.open);
+    const isOpening  = pre.sessionTime === 'opening';
+    const prior10H   = Math.max(...candles.slice(-11, -1).map(c => c.high));
+    const prior10L   = Math.min(...candles.slice(-11, -1).map(c => c.low));
+
+    // ATR range gate: skip mid-session runaway candles (opening candle exempt)
+    const passesRangeGate = !atr || isOpening || candleRange <= 1.5 * atr;
+
+    // Two-tier SL: tight when candle is normal, ATR-capped when candle is wide
+    const wideCandle  = atr && candleBody > atr;
+    const slBull = wideCandle ? parseFloat((c0.close - atr).toFixed(2)) : c0.open;
+    const slBear = wideCandle ? parseFloat((c0.close + atr).toFixed(2)) : c0.open;
 
     if (
       c0.close > upper &&
       isBull0 &&
       (pre.rsi == null || pre.rsi > 50) &&
-      bodyPct <= 0.5 &&
       pre.volume.mult >= 1.5 &&
-      c0.close > prior10H
+      c0.close > prior10H &&
+      passesRangeGate
     ) {
       setups.push({
         id: 's18_bb_bull', name: 'BB Momentum Breakout', direction: 'bull', strength: 4,
-        sl: middle, target: null,
+        sl: slBull, target: null,
         lifecycle: { slType: 'trailing', exitCondition: 'middle_band' },
-        details: { upper, middle, bodyPct: parseFloat(bodyPct.toFixed(2)), volMult: pre.volume.mult },
+        details: { upper, middle, volMult: pre.volume.mult, wideCandle: !!wideCandle },
       });
     }
 
@@ -962,15 +988,15 @@ export function detectSetups(candles, patterns, context, pre) {
       c0.close < lower &&
       !isBull0 &&
       (pre.rsi == null || pre.rsi < 50) &&
-      bodyPct <= 0.5 &&
       pre.volume.mult >= 1.5 &&
-      c0.close < prior10L
+      c0.close < prior10L &&
+      passesRangeGate
     ) {
       setups.push({
         id: 's18_bb_bear', name: 'BB Momentum Breakout', direction: 'bear', strength: 4,
-        sl: middle, target: null,
+        sl: slBear, target: null,
         lifecycle: { slType: 'trailing', exitCondition: 'middle_band' },
-        details: { lower, middle, bodyPct: parseFloat(bodyPct.toFixed(2)), volMult: pre.volume.mult },
+        details: { lower, middle, volMult: pre.volume.mult, wideCandle: !!wideCandle },
       });
     }
   }

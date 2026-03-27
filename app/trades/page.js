@@ -2836,7 +2836,7 @@ function getNiftyLevelAlerts(indices) {
                             </div>
                             <p className="text-[11px] font-semibold text-white mb-1">{s.name}</p>
                             <p className="text-[10px] text-slate-500 mb-2.5">Score {entry.topSetup.score} · <span className="text-white/70 font-mono">{optLabel}</span> · <span className="text-slate-600">{atm.expiryLabel}</span> · 65 qty</p>
-                            <div className="grid grid-cols-3 gap-1 mb-3 text-center">
+                            <div className="grid grid-cols-3 gap-1 mb-2 text-center">
                               <div>
                                 <p className="text-[9px] text-slate-600 mb-0.5">Entry</p>
                                 <p className="text-[11px] font-mono text-white">{close.toFixed(0)}</p>
@@ -2850,6 +2850,9 @@ function getNiftyLevelAlerts(indices) {
                                 <p className="text-[11px] font-mono text-emerald-400">{target ? target.toFixed(0) : '—'}</p>
                               </div>
                             </div>
+                            {s.details?.wideCandle && (
+                              <p className="text-[9px] text-amber-400/80 mb-2">⚠ Wide candle — SL capped at 1 ATR · size down</p>
+                            )}
                             {placed ? (
                               placed.ok ? (
                                 <div className="text-[10px] text-emerald-400 text-center py-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20 font-mono">
