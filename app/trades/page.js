@@ -1161,6 +1161,30 @@ function getNiftyLevelAlerts(indices) {
     const GO_IDS = new Set(['s3_orb_bull','s3_orb_bear','s6_engulf_bull','s6_engulf_bear',
                              's11_ib_bull','s11_ib_bear','s18_bb_bull','s18_bb_bear']);
 
+    // Compute ATM strike + weekly/monthly label from a Nifty price (client-side, mirrors place/route.js)
+    function getAtmInfo(niftyPrice) {
+      const strike = Math.round(niftyPrice / 50) * 50;
+      const istMs  = Date.now() + 5.5 * 60 * 60 * 1000;
+      const ist    = new Date(istMs);
+      const day    = ist.getUTCDay();
+      let daysToTue = (2 - day + 7) % 7;
+      if (daysToTue === 0) {
+        const h = ist.getUTCHours(), m = ist.getUTCMinutes();
+        if (h > 15 || (h === 15 && m >= 20)) daysToTue = 7;
+      }
+      const expIst  = new Date(istMs + daysToTue * 86400000);
+      const expYear = expIst.getUTCFullYear();
+      const expMonth = expIst.getUTCMonth();
+      const expDay  = expIst.getUTCDate();
+      // Last Tuesday of the month
+      let lastTue = new Date(Date.UTC(expYear, expMonth + 1, 0));
+      while (lastTue.getUTCDay() !== 2) lastTue.setUTCDate(lastTue.getUTCDate() - 1);
+      const isMonthly = lastTue.getUTCDate() === expDay;
+      const dd = String(expDay).padStart(2, '0');
+      const mm = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][expMonth];
+      return { strike, isMonthly, expiryLabel: isMonthly ? `${dd} ${mm} Monthly` : `${dd} ${mm} Weekly` };
+    }
+
     // Third Eye: plain-English narrative builder for each candle entry
     const buildNarrative = (entry) => {
       const { topSetup: s, context: c, candle, rawPatterns = [] } = entry;
@@ -2781,6 +2805,8 @@ function getNiftyLevelAlerts(indices) {
                         const target    = sl ? (isBull ? close + 2 * dist : close - 2 * dist) : null;
                         const placed    = thirdEyePlaced[entry.time];
                         const placing   = thirdEyePlacing === entry.time;
+                        const atm       = getAtmInfo(close);
+                        const optLabel  = `${atm.strike} ${isBull ? 'CE' : 'PE'}`;
                         return (
                           <div key={i} className={`px-4 py-3 bg-white/[0.03] border-l-2 ${isBull ? 'border-emerald-500/60' : 'border-rose-500/60'}`}>
                             <div className="flex items-center justify-between mb-2">
@@ -2793,7 +2819,7 @@ function getNiftyLevelAlerts(indices) {
                               <span className="text-[10px] text-slate-600 font-mono">{entry.isTest ? '—' : entry.time}</span>
                             </div>
                             <p className="text-[11px] font-semibold text-white mb-1">{s.name}</p>
-                            <p className="text-[10px] text-slate-500 mb-2.5">Score {entry.topSetup.score} · ATM {isBull ? 'CE' : 'PE'} · 65 qty</p>
+                            <p className="text-[10px] text-slate-500 mb-2.5">Score {entry.topSetup.score} · <span className="text-white/70 font-mono">{optLabel}</span> · <span className="text-slate-600">{atm.expiryLabel}</span> · 65 qty</p>
                             <div className="grid grid-cols-3 gap-1 mb-3 text-center">
                               <div>
                                 <p className="text-[9px] text-slate-600 mb-0.5">Entry</p>
@@ -2824,7 +2850,7 @@ function getNiftyLevelAlerts(indices) {
                                 disabled={placing}
                                 className={`w-full py-2 rounded-lg text-[11px] font-bold tracking-wide transition-all disabled:opacity-50 ${isBull ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'} text-white`}
                               >
-                                {placing ? 'Placing…' : `Buy ATM ${isBull ? 'CE' : 'PE'} · 65 qty`}
+                                {placing ? 'Placing…' : `Buy ${optLabel} · 65 qty`}
                               </button>
                             )}
                           </div>
