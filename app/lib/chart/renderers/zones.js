@@ -18,7 +18,7 @@ export function renderZones(ctx, vp, zones, crosshair) {
     if (y < vp.chartTop - 2 || y > vp.chartBottom + 2) continue;
 
     ctx.strokeStyle = z.color;
-    ctx.lineWidth   = z.inline ? 1.5 : 1;
+    ctx.lineWidth   = z.width ?? (z.inline ? 1.5 : 1);
     ctx.setLineDash(z.style === 'dashed' ? [5, 4] : []);
 
     // Line across chart area only

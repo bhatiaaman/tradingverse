@@ -33,7 +33,7 @@ const PAGE_ROUTES = [
   { key: 'options',         prefix: '/options'          },
 ]
 
-const ADMIN_PREFIXES = ['/admin']
+const ADMIN_PREFIXES = ['/admin', '/eye']
 
 // Module-level flags cache (per Edge instance, refreshes every 60s)
 let _flags    = null
@@ -126,5 +126,6 @@ export const config = {
     '/stock-updates/:path*',
     '/options/:path*',
     '/admin/:path*',
+    '/eye/:path*',
   ],
 }

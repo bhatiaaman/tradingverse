@@ -219,7 +219,7 @@ function getNiftyLevelAlerts(indices) {
     );
   }
 
-  export default function TradesPage() {
+  export default function EyePage() {
     const [marketData, setMarketData] = useState(null);
     const [sectorData, setSectorData] = useState([]);
     const [sectorError, setSectorError] = useState('');
@@ -336,6 +336,7 @@ function getNiftyLevelAlerts(indices) {
     const [tradeExited,     setTradeExited]     = useState(null);   // exit result
     const [thirdEyeLive,    setThirdEyeLive]    = useState(null);   // current forming candle (updates every 30s)
     const [thirdEyeTestMode, setThirdEyeTestMode] = useState(false); // Ctrl+Shift+T toggles test card
+    const [leftTab, setLeftTab]           = useState('sectors');
     const thirdEyeEnvRef      = useRef('medium');
     const lastCandleCountRef  = useRef(0);
 
@@ -2053,8 +2054,76 @@ function getNiftyLevelAlerts(indices) {
                 </ul>
               </div>
 
-              {/* Bias Gauge */}
+              {/* Bias + Sectors Tabbed Widget */}
               <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-3">
+                {/* Tab bar */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex w-full bg-white/[0.05] rounded-lg p-0.5 gap-0.5">
+                    <button
+                      onClick={() => setLeftTab('sectors')}
+                      className={`flex-1 text-xs py-1.5 rounded-md font-semibold transition-all ${leftTab === 'sectors' ? 'bg-[#1e3a5f] text-blue-300 shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                    >Sectors</button>
+                    <button
+                      onClick={() => setLeftTab('bias')}
+                      className={`flex-1 text-xs py-1.5 rounded-md font-semibold transition-all ${leftTab === 'bias' ? 'bg-[#1e3a5f] text-blue-300 shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                    >Bias</button>
+                  </div>
+                </div>
+
+                {/* Sectors tab */}
+                {leftTab === 'sectors' && (
+                  <>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] text-slate-500">vs Prev Close</span>
+                  </div>
+                  <div className="space-y-1 max-h-[420px] overflow-y-auto pr-0.5">
+                    {sectorData.length > 0 ? (
+                      [...sectorData].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).map((sector) => {
+                        const v = sector.value ?? 0;
+                        const pos = v >= 0;
+                        const intensity = Math.min(Math.abs(v) / 2.5, 1);
+                        const barPct = Math.min((Math.abs(v) / 3) * 100, 100);
+                        const tvSymbol = sector.tvSymbol || sector.symbol?.replace(/ /g, '') || sector.name?.toUpperCase().replace(/ /g, '');
+                        return (
+                          <a
+                            key={sector.name}
+                            href={`https://www.tradingview.com/chart/?symbol=NSE:${tvSymbol}&interval=15`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border transition-all cursor-pointer ${
+                              pos
+                                ? 'bg-emerald-950/40 border-emerald-800/20 hover:border-emerald-600/50 hover:bg-emerald-950/60'
+                                : 'bg-red-950/40 border-red-900/20 hover:border-red-700/50 hover:bg-red-950/60'
+                            }`}
+                          >
+                            <div
+                              className={`w-0.5 h-5 rounded-full flex-shrink-0 ${pos ? 'bg-emerald-400' : 'bg-red-400'}`}
+                              style={{ opacity: 0.35 + intensity * 0.65 }}
+                            />
+                            <span className="text-[11px] text-slate-200 flex-1 truncate font-medium leading-none">{sector.name}</span>
+                            <div className="w-10 h-1 bg-white/5 rounded-full overflow-hidden flex-shrink-0">
+                              <div
+                                className={`h-full rounded-full ${pos ? 'bg-emerald-400' : 'bg-red-400'}`}
+                                style={{ width: `${Math.max(barPct, 6)}%`, opacity: 0.45 + intensity * 0.55 }}
+                              />
+                            </div>
+                            <span className={`text-[11px] font-mono font-bold w-11 text-right flex-shrink-0 ${pos ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {pos ? '+' : ''}{v.toFixed(2)}%
+                            </span>
+                          </a>
+                        );
+                      })
+                    ) : (
+                      <div className="text-center py-6 text-slate-500 text-xs">
+                        {sectorLoading ? 'Loading...' : (sectorError || 'No data')}
+                      </div>
+                    )}
+                  </div>
+                  </>
+                )}
+
+                {/* Bias tab */}
+                {leftTab === 'bias' && (<div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold text-blue-300">Bias Gauge</span>
                   <button
@@ -2319,6 +2388,7 @@ function getNiftyLevelAlerts(indices) {
                     {sentimentLoading ? 'Loading sentiment...' : 'No data available'}
                   </div>
                 )}
+                </div>)}
               </div>
             </div>
 
@@ -2537,59 +2607,322 @@ function getNiftyLevelAlerts(indices) {
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Sectors */}
+            {/* RIGHT COLUMN: Sectors + Third Eye */}
             <div className="lg:col-span-3 space-y-3 order-3 lg:order-none">
 
-              {/* ── Sector Performance ───────────────────────────────── */}
-              <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-3">
-                {/* Sector Performance Panel */}
-                <h2 className="text-sm font-semibold mb-3 text-blue-300">Sectors</h2>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] text-slate-500">vs Prev Close</span>
-                </div>
-                <div className="space-y-1 max-h-[520px] overflow-y-auto pr-0.5">
-                  {sectorData.length > 0 ? (
-                    [...sectorData].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).map((sector) => {
-                      const v = sector.value ?? 0;
-                      const pos = v >= 0;
-                      const intensity = Math.min(Math.abs(v) / 2.5, 1);
-                      const barPct = Math.min((Math.abs(v) / 3) * 100, 100);
-                      const tvSymbol = sector.tvSymbol || sector.symbol?.replace(/ /g, '') || sector.name?.toUpperCase().replace(/ /g, '');
-                      return (
-                        <a
-                          key={sector.name}
-                          href={`https://www.tradingview.com/chart/?symbol=NSE:${tvSymbol}&interval=15`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border transition-all cursor-pointer ${
-                            pos
-                              ? 'bg-emerald-950/40 border-emerald-800/20 hover:border-emerald-600/50 hover:bg-emerald-950/60'
-                              : 'bg-red-950/40 border-red-900/20 hover:border-red-700/50 hover:bg-red-950/60'
-                          }`}
-                        >
-                          <div
-                            className={`w-0.5 h-5 rounded-full flex-shrink-0 ${pos ? 'bg-emerald-400' : 'bg-red-400'}`}
-                            style={{ opacity: 0.35 + intensity * 0.65 }}
-                          />
-                          <span className="text-[11px] text-slate-200 flex-1 truncate font-medium leading-none">{sector.name}</span>
-                          <div className="w-10 h-1 bg-white/5 rounded-full overflow-hidden flex-shrink-0">
-                            <div
-                              className={`h-full rounded-full ${pos ? 'bg-emerald-400' : 'bg-red-400'}`}
-                              style={{ width: `${Math.max(barPct, 6)}%`, opacity: 0.45 + intensity * 0.55 }}
-                            />
-                          </div>
-                          <span className={`text-[11px] font-mono font-bold w-11 text-right flex-shrink-0 ${pos ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {pos ? '+' : ''}{v.toFixed(2)}%
-                          </span>
-                        </a>
-                      );
-                    })
-                  ) : (
-                    <div className="text-center py-6 text-slate-500 text-xs">
-                      {sectorLoading ? 'Loading...' : (sectorError || 'No data')}
+              {/* ── Third Eye ────────────────────────────────────────── */}
+              <div className="bg-[#0d1829] border border-white/[0.06] rounded-2xl overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.05]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">👁</span>
+                    <span className="text-sm font-bold text-white">Third Eye</span>
+                    {thirdEyeData?.strongSetups?.length > 0 && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {/* Mode toggle */}
+                    <div className="flex items-center gap-0.5 border-r border-white/10 pr-2">
+                      <button
+                        onClick={() => setThirdEyeMode('semi')}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all ${
+                          thirdEyeMode === 'semi'
+                            ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                            : 'text-slate-600 hover:text-slate-400'
+                        }`}
+                        title="Semi-Auto: action card shown, you confirm before order fires"
+                      >
+                        Semi
+                      </button>
+                      <button
+                        disabled
+                        className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide text-slate-700 cursor-not-allowed"
+                        title="Auto mode — coming soon"
+                      >
+                        Auto
+                      </button>
                     </div>
-                  )}
+                    {/* Environment toggle */}
+                    {['light', 'medium', 'tight'].map(env => (
+                      <button
+                        key={env}
+                        onClick={() => setThirdEyeEnv(env)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all ${
+                          thirdEyeEnv === env
+                            ? env === 'light'  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                            : env === 'medium' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            : 'text-slate-600 hover:text-slate-400'
+                        }`}
+                      >
+                        {env}
+                      </button>
+                    ))}
+                    <button onClick={() => setThirdEyeOpen(o => !o)} className="ml-0.5 text-slate-600 hover:text-slate-400">
+                      {thirdEyeOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+                  </div>
                 </div>
+
+                {thirdEyeOpen && activeTrade && (
+                  <div className={`mx-3 my-2 p-3 rounded-xl border ${activeTrade.direction === 'bull' ? 'bg-emerald-500/[0.06] border-emerald-500/20' : 'bg-rose-500/[0.06] border-rose-500/20'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider ${activeTrade.direction === 'bull' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'}`}>
+                        ACTIVE · {activeTrade.optionType}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 truncate max-w-[130px]">{activeTrade.symbol}</span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1 mb-2.5 text-center">
+                      <div>
+                        <p className="text-[9px] text-slate-600 mb-0.5">Entry</p>
+                        <p className="text-[11px] font-mono text-white">₹{activeTrade.limitPrice}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-slate-600 mb-0.5">LTP</p>
+                        <p className={`text-[11px] font-mono ${!tradeLTP ? 'text-slate-500' : tradeLTP > activeTrade.limitPrice ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {tradeLTP ? `₹${tradeLTP}` : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-slate-600 mb-0.5">P&amp;L</p>
+                        <p className={`text-[11px] font-mono ${!tradeLTP ? 'text-slate-500' : ((tradeLTP - activeTrade.limitPrice) * activeTrade.qty) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {tradeLTP ? `₹${((tradeLTP - activeTrade.limitPrice) * activeTrade.qty).toFixed(0)}` : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-slate-600 mb-0.5">SL Idx</p>
+                        <p className="text-[11px] font-mono text-rose-400">{activeTrade.slLevel ? activeTrade.slLevel.toFixed(0) : '—'}</p>
+                      </div>
+                    </div>
+                    {tradeExited ? (
+                      <div className={`text-[10px] text-center py-1.5 rounded-lg border font-mono ${tradeExited.ok ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-rose-400 bg-rose-500/10 border-rose-500/20'}`}>
+                        {tradeExited.ok ? '✓ Exit order sent' : tradeExited.error || 'Exit failed'}
+                      </div>
+                    ) : (
+                      <button
+                        onClick={exitThirdEyeTrade}
+                        disabled={tradeExiting}
+                        className="w-full py-1.5 rounded-lg text-[11px] font-bold tracking-wide transition-all bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-50"
+                      >
+                        {tradeExiting ? 'Exiting…' : 'Exit Trade (Market)'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {thirdEyeOpen && thirdEyeLive && (() => {
+                  const ln = buildNarrative(thirdEyeLive);
+                  const liveIsBull = thirdEyeLive.topSetup?.pattern?.direction === 'bull';
+                  const liveClose  = thirdEyeLive.candle?.close;
+                  const liveSl     = thirdEyeLive.topSetup?.pattern?.sl;
+                  const liveScore  = thirdEyeLive.topSetup?.score;
+
+                  // Stale signal detection: prior log was directional but raw patterns now contradict it
+                  const lastLogDir   = thirdEyeLog[0]?.topSetup?.pattern?.direction;
+                  const BULL_REVERSAL_IDS = new Set(['morning_star','hammer','bull_pin','bull_engulfing','tweezer_bottom']);
+                  const BEAR_REVERSAL_IDS = new Set(['evening_star','shooting_star','bear_pin','bear_engulfing','tweezer_top']);
+                  const liveHasBullReversal = thirdEyeLive.rawPatterns?.some(p => BULL_REVERSAL_IDS.has(p.pattern?.id));
+                  const liveHasBearReversal = thirdEyeLive.rawPatterns?.some(p => BEAR_REVERSAL_IDS.has(p.pattern?.id));
+                  const staleWarning =
+                    (lastLogDir === 'bear' && liveHasBullReversal) ? '⚠ Prior short — bounce pattern forming, hold fire' :
+                    (lastLogDir === 'bull' && liveHasBearReversal) ? '⚠ Prior long — rejection pattern forming, tighten stops' :
+                    null;
+                  return (
+                    <div className="px-3 pt-2 pb-1">
+                      <div className={`relative px-3 py-2.5 rounded-xl border ${
+                        ln?.action?.startsWith('EXIT') ? 'bg-violet-500/[0.06] border-violet-500/25' :
+                        ln?.action === 'BOS WATCH'     ? 'bg-yellow-500/[0.06] border-yellow-500/25' :
+                        liveIsBull                     ? 'bg-emerald-500/[0.05] border-emerald-500/20' :
+                        thirdEyeLive.topSetup          ? 'bg-rose-500/[0.05] border-rose-500/20' :
+                                                         'bg-white/[0.02] border-white/[0.06]'
+                      }`}>
+                        {/* LIVE pulse dot */}
+                        <div className="absolute top-2 right-2 flex items-center gap-1">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-sky-400"></span>
+                          </span>
+                          <span className="text-[9px] font-bold text-sky-400 tracking-wider">LIVE</span>
+                        </div>
+                        <div className="flex items-center gap-2 mb-1.5 pr-12">
+                          {ln && (
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider shrink-0 ${
+                              ln.action === 'LONG (Fresh)'        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
+                              ln.action === 'LONG (Cont.)'     ? 'bg-teal-500/15 text-teal-300 border-teal-500/30' :
+                              ln.action === 'LONG (Careful)'   ? 'bg-sky-500/15 text-sky-300 border-sky-500/30' :
+                              ln.action === 'SHORT (Fresh)'       ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' :
+                              ln.action === 'SHORT (Cont.)'    ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
+                              ln.action === 'SHORT (Careful)'  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
+                              ln.action?.startsWith('EXIT')    ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' :
+                              ln.action === 'BOS WATCH'        ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' :
+                              ln.action === 'OBSERVE'          ? 'bg-slate-700/40 text-slate-500 border-slate-600/30' :
+                                                                 'bg-slate-500/15 text-slate-400 border-slate-500/30'
+                            }`}>{ln.action ?? 'WATCH'}</span>
+                          )}
+                          {thirdEyeLive.topSetup?.pattern?.name && <span className="text-[10px] text-white font-medium truncate">{thirdEyeLive.topSetup.pattern.name}</span>}
+                          {liveScore != null && <span className="text-[9px] text-slate-500 ml-auto shrink-0">{liveScore}/10</span>}
+                        </div>
+                        <p className="text-[10px] text-slate-400 leading-snug line-clamp-2">{ln?.reason ?? 'No signal yet — monitoring price action'}</p>
+                        {staleWarning && (
+                          <p className="mt-1.5 text-[9px] text-amber-400/80 font-medium">{staleWarning}</p>
+                        )}
+                        <div className="flex items-center gap-3 mt-1.5 text-[9px] font-mono text-slate-600">
+                          <span>C {liveClose?.toFixed(0) ?? '—'}</span>
+                          {liveSl && <span className="text-rose-500/80">SL {liveSl.toFixed(0)}</span>}
+                          <span className="ml-auto">
+                            <span className="text-slate-700">{thirdEyeLive.time} candle · </span>
+                            <span>upd {thirdEyeLive.updatedAt ?? thirdEyeLive.time}</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {thirdEyeOpen && thirdEyeTestMode && (
+                  <div className="mx-3 mb-1 px-2 py-1 rounded text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/20 font-bold tracking-wider text-center">
+                    TEST MODE · Ctrl+Shift+T to exit
+                  </div>
+                )}
+
+                {thirdEyeOpen && (() => {
+                  const FAKE_TEST_ENTRY = {
+                    time: '⚠ TEST', isTest: true,
+                    topSetup: { pattern: { id: 's3_orb_bull', name: 'ORB Breakout [TEST]', direction: 'bull', strength: 5, sl: 21950 }, score: 8 },
+                    context:  { sessionTime: 'midday', trend: 'uptrend', bos: null, vwap: { above: true, distPct: 0.2 }, volume: { mult: 1.8, context: 'high' }, rsi: 58 },
+                    candle:   { open: 22000, high: 22050, low: 21980, close: 22020 },
+                    rawPatterns: [],
+                  };
+                  const displayLog = thirdEyeTestMode ? [FAKE_TEST_ENTRY, ...thirdEyeLog] : thirdEyeLog;
+                  return (
+                  <div className="divide-y divide-white/[0.04] max-h-[560px] overflow-y-auto">
+                    {displayLog.length === 0 ? (
+                      <p className="px-4 py-6 text-slate-600 text-xs text-center">Waiting for next candle close…</p>
+                    ) : displayLog.map((entry, i) => {
+                      const n       = buildNarrative(entry);
+                      const isFirst = i === 0;
+
+                      // Semi-auto action card: S3/S6, score ≥ 6, Nifty chart, most recent candle only
+                      const setupId    = entry.topSetup?.pattern?.id;
+                      const isActionable = (
+                        isFirst &&
+                        (entry.isTest || chartSymbol === 'NIFTY') &&
+                        (entry.topSetup?.score ?? 0) >= 6 &&
+                        SEMI_AUTO_IDS.includes(setupId)
+                      );
+
+                      if (isActionable) {
+                        const s         = entry.topSetup.pattern;
+                        const isBull    = s.direction === 'bull';
+                        const close     = entry.candle.close;
+                        const sl        = s.sl;
+                        const dist      = sl ? Math.abs(close - sl) : null;
+                        const target    = sl ? (isBull ? close + 2 * dist : close - 2 * dist) : null;
+                        const placed    = thirdEyePlaced[entry.time];
+                        const placing   = thirdEyePlacing === entry.time;
+                        const atm       = getAtmInfo(close);
+                        const optLabel  = `${atm.strike} ${isBull ? 'CE' : 'PE'}`;
+                        return (
+                          <div key={i} className={`px-4 py-3 bg-white/[0.03] border-l-2 ${isBull ? 'border-emerald-500/60' : 'border-rose-500/60'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider ${isBull ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'}`}>
+                                  {isBull ? 'LONG' : 'SHORT'}
+                                </span>
+                                {entry.isTest && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/30 tracking-widest">TEST</span>}
+                              </div>
+                              <span className="text-[10px] text-slate-600 font-mono">{entry.isTest ? '—' : entry.time}</span>
+                            </div>
+                            <p className="text-[11px] font-semibold text-white mb-1">{s.name}</p>
+                            <p className="text-[10px] text-slate-500 mb-2.5">Score {entry.topSetup.score} · <span className="text-white/70 font-mono">{optLabel}</span> · <span className="text-slate-600">{atm.expiryLabel}</span> · 65 qty</p>
+                            <div className="grid grid-cols-3 gap-1 mb-2 text-center">
+                              <div>
+                                <p className="text-[9px] text-slate-600 mb-0.5">Entry</p>
+                                <p className="text-[11px] font-mono text-white">{close.toFixed(0)}</p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] text-slate-600 mb-0.5">SL</p>
+                                <p className="text-[11px] font-mono text-rose-400">{sl ? sl.toFixed(0) : '—'}</p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] text-slate-600 mb-0.5">Target 2:1</p>
+                                <p className="text-[11px] font-mono text-emerald-400">{target ? target.toFixed(0) : '—'}</p>
+                              </div>
+                            </div>
+                            {s.details?.wideCandle && (
+                              <p className="text-[9px] text-amber-400/80 mb-2">⚠ Wide candle — SL capped at 1 ATR · size down</p>
+                            )}
+                            {placed ? (
+                              placed.ok ? (
+                                <div className="text-[10px] text-emerald-400 text-center py-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20 font-mono">
+                                  ✓ {placed.symbol} @ ₹{placed.limitPrice}
+                                </div>
+                              ) : (
+                                <div className="text-[10px] text-rose-400 text-center py-1.5 bg-rose-500/10 rounded-lg border border-rose-500/20">
+                                  {placed.error || 'Order failed'}
+                                </div>
+                              )
+                            ) : (
+                              <button
+                                onClick={() => placeThirdEyeOrder(entry)}
+                                disabled={placing}
+                                className={`w-full py-2 rounded-lg text-[11px] font-bold tracking-wide transition-all disabled:opacity-50 ${isBull ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'} text-white`}
+                              >
+                                {placing ? 'Placing…' : `Buy ${optLabel} · 65 qty`}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      const isEntry  = n.type === 'entry';
+                      const isExit   = n.type === 'exit';
+                      const isCaut   = n.type === 'caution';
+                      const nLong    = n.direction === 'bull';
+                      const isGo     = n.subType === 'fresh';
+                      const isCont   = n.subType === 'cont';
+
+                      const isBosWatch = n.action === 'BOS WATCH';
+
+                      const badgeStyle =
+                        (isEntry && isGo   && nLong)  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
+                        (isEntry && isCont && nLong)  ? 'bg-teal-500/15 text-teal-300 border-teal-500/30' :
+                        (isEntry && isGo   && !nLong) ? 'bg-rose-500/20 text-rose-400 border-rose-500/40' :
+                        (isEntry && isCont && !nLong) ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
+                        isExit                        ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' :
+                        isBosWatch                    ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' :
+                        (isCaut && nLong)             ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' :
+                        isCaut                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                        n.type === 'watch'            ? 'bg-slate-500/10 text-slate-400 border-slate-500/20' :
+                        'bg-slate-700/20 text-slate-600 border-slate-600/10';
+
+                      const headlineStyle =
+                        (isEntry && isGo   && nLong)  ? 'text-emerald-300' :
+                        (isEntry && isCont && nLong)  ? 'text-teal-300' :
+                        (isEntry && isGo   && !nLong) ? 'text-rose-300' :
+                        (isEntry && isCont && !nLong) ? 'text-orange-300' :
+                        isExit                        ? 'text-violet-300' :
+                        isBosWatch                    ? 'text-yellow-300' :
+                        isCaut                        ? 'text-amber-300' :
+                        n.type === 'watch'            ? 'text-slate-400' :
+                        'text-slate-500';
+                      return (
+                        <div key={i} className={`px-4 py-3 ${isFirst ? 'bg-white/[0.025]' : ''}`}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider ${badgeStyle}`}>
+                              {n.action}
+                            </span>
+                            <span className="text-[10px] text-slate-600 font-mono">{entry.time}</span>
+                          </div>
+                          <p className={`text-[11px] font-semibold leading-snug mb-1 ${headlineStyle}`}>{n.headline}</p>
+                          <p className="text-[10px] text-slate-500 leading-relaxed">{n.reason}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  );
+                })()}
               </div>
 
             </div>

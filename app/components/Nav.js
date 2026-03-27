@@ -86,12 +86,24 @@ export default function Nav({ fixed = false }) {
         {user ? (
           <div className="flex items-center gap-3">
             {user.role === 'admin' && (
-              <Link
-                href="/admin/users"
-                className="text-xs font-bold px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:bg-amber-500/20 transition-all"
-              >
-                Admin
-              </Link>
+              <>
+                <Link
+                  href="/eye"
+                  className={`text-xs font-bold px-2.5 py-1 rounded-lg border transition-all ${
+                    isActive('/eye')
+                      ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                      : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/20'
+                  }`}
+                >
+                  👁 Eye
+                </Link>
+                <Link
+                  href="/admin/users"
+                  className="text-xs font-bold px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:bg-amber-500/20 transition-all"
+                >
+                  Admin
+                </Link>
+              </>
             )}
             <Link
               href="/settings/account"
@@ -155,13 +167,20 @@ export default function Nav({ fixed = false }) {
           ))}
           <div className="border-t border-slate-200 dark:border-white/10 mt-2 pt-3">
             {user ? (
-              <div className="flex items-center justify-between">
-                <Link href="/settings/account" className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                  {user.name?.split(' ')[0]}
-                </Link>
-                <button onClick={handleLogout} className="text-xs text-red-500 dark:text-red-400 font-semibold">
-                  Logout
-                </button>
+              <div className="flex flex-col gap-2">
+                {user.role === 'admin' && (
+                  <Link href="/eye" className="py-2 px-3 rounded-lg text-sm font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20">
+                    👁 Eye (Admin)
+                  </Link>
+                )}
+                <div className="flex items-center justify-between">
+                  <Link href="/settings/account" className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                    {user.name?.split(' ')[0]}
+                  </Link>
+                  <button onClick={handleLogout} className="text-xs text-red-500 dark:text-red-400 font-semibold">
+                    Logout
+                  </button>
+                </div>
               </div>
             ) : (
               <Link href="/login" className="block w-full text-center py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-700 dark:text-slate-300">
