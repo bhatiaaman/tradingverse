@@ -5,7 +5,7 @@ const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS          = process.env.REDIS_NAMESPACE || 'default';
 const CACHE_KEY   = `${NS}:fno-movers`;
-const CACHE_TTL   = 300; // 5 minutes
+const CACHE_TTL   = 90; // 90s — matches UI poll interval
 
 function isWeekend() {
   const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);

@@ -329,6 +329,12 @@ function getNiftyLevelAlerts(indices) {
     const [thirdEyeOpen, setThirdEyeOpen] = useState(true);
     const [thirdEyePlacing, setThirdEyePlacing] = useState(null);  // entry.time being placed
     const [thirdEyePlaced,  setThirdEyePlaced]  = useState({});    // { [entry.time]: result }
+    const [thirdEyeMode,    setThirdEyeMode]    = useState('semi'); // 'semi' | 'auto' (auto = coming soon)
+    const [activeTrade,     setActiveTrade]     = useState(null);   // placed trade object
+    const [tradeLTP,        setTradeLTP]        = useState(null);   // live option LTP
+    const [tradeExiting,    setTradeExiting]    = useState(false);
+    const [tradeExited,     setTradeExited]     = useState(null);   // exit result
+    const [thirdEyeLive,    setThirdEyeLive]    = useState(null);   // current forming candle (updates every 30s)
     const [leftTab, setLeftTab]           = useState('sectors');
     const thirdEyeEnvRef      = useRef('medium');
     const lastCandleCountRef  = useRef(0);
@@ -419,6 +425,37 @@ function getNiftyLevelAlerts(indices) {
 
     // Keep thirdEyeEnvRef in sync (used by fetchData closure)
     useEffect(() => { thirdEyeEnvRef.current = thirdEyeEnv; }, [thirdEyeEnv]);
+
+    // Poll live LTP for active trade every 30s
+    useEffect(() => {
+      if (!activeTrade) return;
+      const poll = async () => {
+        try {
+          const res  = await fetch(`/api/third-eye/ltp?instrument=NFO:${activeTrade.symbol}`);
+          const data = await res.json();
+          if (data.ltp) setTradeLTP(data.ltp);
+        } catch { /* ignore */ }
+      };
+      poll();
+      const id = setInterval(poll, 30000);
+      return () => clearInterval(id);
+    }, [activeTrade?.symbol]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Live LTP tick — update last chart candle every 5s (intraday only)
+    useEffect(() => {
+      const intraday = chartInterval === '5minute' || chartInterval === '15minute';
+      if (!intraday) return;
+      const tick = async () => {
+        try {
+          const res  = await fetch(`/api/quotes?symbols=${chartSymbol}`);
+          const data = await res.json();
+          const ltp  = data.quotes?.[0]?.ltp;
+          if (ltp && customChartRef.current) customChartRef.current.updateTick(ltp);
+        } catch { /* ignore */ }
+      };
+      const id = setInterval(tick, 5000);
+      return () => clearInterval(id);
+    }, [chartSymbol, chartInterval]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Close chart settings dropdown on outside click
     useEffect(() => {
@@ -884,6 +921,26 @@ function getNiftyLevelAlerts(indices) {
               const heResult   = runThirdEye(data.candles, vwapForHE, rsiVal, thirdEyeEnvRef.current);
               setThirdEyeData(heResult);
 
+              // Always update live card (current forming candle) — runs every 30s
+              {
+                const liveCandle = data.candles[data.candles.length - 1];
+                const ld = new Date((liveCandle.time + 19800) * 1000);
+                const lhh = String(ld.getUTCHours()).padStart(2, '0');
+                const lmm = String(ld.getUTCMinutes()).padStart(2, '0');
+                const now = new Date(Date.now() + 19800 * 1000);
+                const nhh = String(now.getUTCHours()).padStart(2, '0');
+                const nmm = String(now.getUTCMinutes()).padStart(2, '0');
+                setThirdEyeLive({
+                  time:        `${lhh}:${lmm}`,   // candle open time
+                  updatedAt:   `${nhh}:${nmm}`,    // wall-clock refresh time
+                  topSetup:    heResult.strongSetups?.[0] ?? heResult.watchList?.[0] ?? null,
+                  context:     heResult.context,
+                  candle:      { open: liveCandle.open, high: liveCandle.high, low: liveCandle.low, close: liveCandle.close },
+                  rawPatterns: heResult.rawPatterns ?? [],
+                  isLive:      true,
+                });
+              }
+
               // Append to rolling log only when a new candle has formed
               const newCount = data.candles.length;
               if (newCount > lastCandleCountRef.current) {
@@ -894,10 +951,11 @@ function getNiftyLevelAlerts(indices) {
                 const hh = String(d.getUTCHours()).padStart(2, '0');
                 const mm = String(d.getUTCMinutes()).padStart(2, '0');
                 const entry = {
-                  time:     `${hh}:${mm}`,
-                  topSetup: heResult.strongSetups?.[0] ?? heResult.watchList?.[0] ?? null,
-                  context:  heResult.context,
-                  candle:   { open: lastCandle.open, high: lastCandle.high, low: lastCandle.low, close: lastCandle.close },
+                  time:        `${hh}:${mm}`,
+                  topSetup:    heResult.strongSetups?.[0] ?? heResult.watchList?.[0] ?? null,
+                  context:     heResult.context,
+                  candle:      { open: lastCandle.open, high: lastCandle.high, low: lastCandle.low, close: lastCandle.close },
+                  rawPatterns: heResult.rawPatterns ?? [],
                 };
                 setThirdEyeLog(prev => [entry, ...prev].slice(0, 12));
               }
@@ -1019,7 +1077,7 @@ function getNiftyLevelAlerts(indices) {
     };
 
     // Third Eye: semi-auto order placement for S3/S6 on Nifty
-    const SEMI_AUTO_IDS = ['s3_orb_bull','s3_orb_bear','s6_engulf_bull','s6_engulf_bear'];
+    const SEMI_AUTO_IDS = ['s3_orb_bull','s3_orb_bear','s6_engulf_bull','s6_engulf_bear','s18_bb_bull','s18_bb_bear'];
 
     const placeThirdEyeOrder = async (entry) => {
       setThirdEyePlacing(entry.time);
@@ -1034,6 +1092,21 @@ function getNiftyLevelAlerts(indices) {
         });
         const data = await res.json();
         setThirdEyePlaced(prev => ({ ...prev, [entry.time]: data }));
+        if (data.ok) {
+          setActiveTrade({
+            symbol:     data.symbol,
+            strike:     data.strike,
+            optionType: data.optionType,
+            limitPrice: data.limitPrice,
+            qty:        65,
+            direction:  entry.topSetup.pattern.direction,
+            setupName:  entry.topSetup.pattern.name,
+            slLevel:    entry.topSetup.pattern.sl ?? null,
+            entryClose: entry.candle.close,
+          });
+          setTradeLTP(data.limitPrice);
+          setTradeExited(null);
+        }
       } catch (err) {
         setThirdEyePlaced(prev => ({ ...prev, [entry.time]: { error: err.message } }));
       } finally {
@@ -1041,9 +1114,32 @@ function getNiftyLevelAlerts(indices) {
       }
     };
 
+    const exitThirdEyeTrade = async () => {
+      if (!activeTrade) return;
+      setTradeExiting(true);
+      try {
+        const res  = await fetch('/api/third-eye/exit', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ symbol: activeTrade.symbol, qty: activeTrade.qty }),
+        });
+        const data = await res.json();
+        setTradeExited(data);
+        if (data.ok) setActiveTrade(null);
+      } catch (err) {
+        setTradeExited({ error: err.message });
+      } finally {
+        setTradeExiting(false);
+      }
+    };
+
+    // Primary entry setups — strong initial move, not continuation
+    const GO_IDS = new Set(['s3_orb_bull','s3_orb_bear','s6_engulf_bull','s6_engulf_bear',
+                             's11_ib_bull','s11_ib_bear','s18_bb_bull','s18_bb_bear']);
+
     // Third Eye: plain-English narrative builder for each candle entry
     const buildNarrative = (entry) => {
-      const { topSetup: s, context: c, candle } = entry;
+      const { topSetup: s, context: c, candle, rawPatterns = [] } = entry;
 
       // Opening noise
       if (c.sessionTime === 'opening') {
@@ -1054,32 +1150,97 @@ function getNiftyLevelAlerts(indices) {
         return { type: 'caution', action: 'CAUTION', headline: 'Closing risk — reduce exposure', reason: 'Last 30 min. Avoid new entries, tighten stops on open positions.' };
       }
 
-      // BOS break against prior trend → exit signal
-      if (c.bos) {
-        if (c.bos.type === 'bear' && c.trend === 'uptrend') {
-          return { type: 'exit', action: 'EXIT LONG', headline: 'Exit longs — structure broke down', reason: `Bearish BOS formed. Prior uptrend structure invalidated. ${c.bos.distPct}% from current price.` };
+      // ── EXIT: structural reversal setups (CHoCH, Wyckoff) ─────────────────
+      if (s) {
+        const id = s.pattern.id;
+        if (id === 's13_choch_bull' || id === 's16_spring') {
+          return { type: 'exit', direction: 'bull', action: 'EXIT SHORT',
+            headline: 'Structure flipped bullish — cover shorts',
+            reason: `${s.pattern.name}. Downtrend structure broken. Exit shorts if holding. Potential long entry.` };
         }
-        if (c.bos.type === 'bull' && c.trend === 'downtrend') {
-          return { type: 'exit', action: 'EXIT SHORT', headline: 'Cover shorts — structure broke up', reason: `Bullish BOS formed. Prior downtrend structure invalidated. ${c.bos.distPct}% from current price.` };
+        if (id === 's13_choch_bear' || id === 's16_upthrust') {
+          return { type: 'exit', direction: 'bear', action: 'EXIT LONG',
+            headline: 'Structure flipped bearish — exit longs',
+            reason: `${s.pattern.name}. Uptrend structure broken. Exit longs if holding. Potential short entry.` };
         }
       }
 
-      // Strong entry (score ≥ 6)
+      // ── EXIT / WATCH: BOS forms against prior trend ───────────────────────
+      if (c.bos) {
+        if (c.bos.type === 'bear' && c.trend === 'uptrend') {
+          if (c.bos.freshBreak) {
+            return { type: 'watch', direction: 'bear', action: 'BOS WATCH',
+              headline: 'Bearish BOS formed — watch next candle',
+              reason: `Swing low broken. ${c.bos.distPct}% below level. If next candle holds below, exit longs.` };
+          }
+          return { type: 'exit', direction: 'bear', action: 'EXIT LONG',
+            headline: 'Exit longs — BOS confirmed',
+            reason: `Bearish BOS held. Uptrend structure invalidated. ${c.bos.distPct}% from price. Exit longs if holding.` };
+        }
+        if (c.bos.type === 'bull' && c.trend === 'downtrend') {
+          if (c.bos.freshBreak) {
+            return { type: 'watch', direction: 'bull', action: 'BOS WATCH',
+              headline: 'Bullish BOS formed — watch next candle',
+              reason: `Swing high broken. ${c.bos.distPct}% above level. If next candle holds above, cover shorts.` };
+          }
+          return { type: 'exit', direction: 'bull', action: 'EXIT SHORT',
+            headline: 'Cover shorts — BOS confirmed',
+            reason: `Bullish BOS held. Downtrend structure invalidated. ${c.bos.distPct}% from price. Cover shorts if holding.` };
+        }
+      }
+
+      // ── Strong setups (score ≥ 6) ──────────────────────────────────────────
       if (s && s.score >= 6) {
-        const dir = s.pattern.direction;
+        const dir   = s.pattern.direction;
+        const trend = c.trend;
+        const id    = s.pattern.id;
+
+        const trendAligned = (trend === 'uptrend'   && dir === 'bull') ||
+                             (trend === 'downtrend' && dir === 'bear') ||
+                             trend === 'ranging';
+        const vwapAligned  = c.vwap
+          ? (dir === 'bull' ? c.vwap.above : !c.vwap.above)
+          : null;
+        const allowEntry = trendAligned || vwapAligned === true;
+
+        if (!allowEntry) {
+          // Counter-trend + wrong side of VWAP → Careful (reversal building, not confirmed)
+          const parts = [s.pattern.name];
+          if (c.vwap) parts.push(dir === 'bull' ? 'below VWAP' : 'above VWAP');
+          if (c.volume.mult >= 1.3) parts.push(`${c.volume.mult}× vol`);
+          return {
+            type: 'caution',
+            direction: dir,
+            action: dir === 'bull' ? 'LONG (Careful)' : 'SHORT (Careful)',
+            headline: dir === 'bull'
+              ? 'Reversal setup — wait for VWAP reclaim to go long'
+              : 'Distribution setup — wait for VWAP break to go short',
+            reason: `${parts.join(' · ')} — score ${s.score} but ${trend}. ${dir === 'bull' ? 'No long until VWAP reclaimed.' : 'No short until VWAP lost.'}`,
+          };
+        }
+
+        // Fresh = primary initiating entry; Cont. = continuation/re-entry
+        const subType = GO_IDS.has(id) ? 'fresh' : 'cont';
+        const subLabel = subType === 'fresh' ? '(Fresh)' : '(Cont.)';
+
         const parts = [s.pattern.name];
         if (c.vwap?.atVwap) parts.push('at VWAP');
         else if (c.vwap && Math.abs(c.vwap.distPct) < 0.3) parts.push('near VWAP');
-        if (c.bos) parts.push(`near BOS`);
+        if (c.bos) parts.push('near BOS');
         if (c.orderBlock) parts.push('in OB zone');
         if (c.volume.mult >= 1.5) parts.push(`${c.volume.mult}× volume`);
         if (dir === 'bull' && c.rsi != null && c.rsi < 35) parts.push(`RSI oversold ${Math.round(c.rsi)}`);
         if (dir === 'bear' && c.rsi != null && c.rsi > 65) parts.push(`RSI overbought ${Math.round(c.rsi)}`);
-        if ((dir === 'bull' && c.trend === 'uptrend') || (dir === 'bear' && c.trend === 'downtrend')) parts.push('trend aligned');
+        if (trendAligned && trend !== 'ranging') parts.push('trend aligned');
+        // Supporting candlestick pattern (if any aligns with setup direction)
+        const supPat = rawPatterns.find(p => p.pattern.direction === dir || p.pattern.direction === 'neutral');
+        if (supPat) parts.push(supPat.pattern.name);
         return {
           type: 'entry',
-          action: dir === 'bull' ? 'LONG' : dir === 'bear' ? 'SHORT' : 'ENTRY',
-          headline: `${dir === 'bull' ? 'Go long' : dir === 'bear' ? 'Go short' : 'Setup'} — score ${s.score}/10`,
+          subType,
+          direction: dir,
+          action: `${dir === 'bull' ? 'LONG' : 'SHORT'} ${subLabel}`,
+          headline: `${dir === 'bull' ? 'Go long' : 'Go short'} ${subLabel} — score ${s.score}/10`,
           reason: parts.join(' · '),
         };
       }
@@ -1092,23 +1253,25 @@ function getNiftyLevelAlerts(indices) {
         if (c.volume.mult >= 1.3) parts.push(`${c.volume.mult}× vol`);
         return {
           type: 'watch',
+          direction: dir,
           action: 'WATCH',
           headline: `${dir === 'bull' ? '↑ Possible long' : dir === 'bear' ? '↓ Possible short' : 'Setup'} forming`,
           reason: `${parts.join(' · ')} — wait for confirmation`,
         };
       }
 
-      // No pattern — read the candle itself
-      const chg = ((candle.close - candle.open) / candle.open * 100).toFixed(2);
-      const bull = candle.close > candle.open;
+      // No setup — read the candle itself
+      const chg    = ((candle.close - candle.open) / candle.open * 100).toFixed(2);
+      const bull   = candle.close > candle.open;
+      const patHint = rawPatterns[0] ? ` · ${rawPatterns[0].pattern.name}` : '';
       if (c.volume.context === 'climax') {
-        return { type: 'watch', action: 'WATCH', headline: 'Volume climax — possible reversal ahead', reason: `${bull ? 'Bullish' : 'Bearish'} ${Math.abs(chg)}% candle on ${c.volume.mult}× volume. Climax often precedes a turn.` };
+        return { type: 'watch', action: 'WATCH', headline: 'Volume climax — possible reversal ahead', reason: `${bull ? 'Bullish' : 'Bearish'} ${Math.abs(chg)}% on ${c.volume.mult}× volume${patHint}. Climax often precedes a turn.` };
       }
       if (c.volume.context === 'dryup') {
-        return { type: 'quiet', action: 'WAIT', headline: 'Low conviction — volume dry-up', reason: `${bull ? 'Bullish' : 'Bearish'} candle ${Math.abs(chg)}% on ${c.volume.mult}× volume. No strong participants.` };
+        return { type: 'quiet', action: 'WAIT', headline: 'Low conviction — volume dry-up', reason: `${bull ? 'Bullish' : 'Bearish'} candle ${Math.abs(chg)}% on ${c.volume.mult}× volume${patHint}. No strong participants.` };
       }
       const trendLabel = c.trend === 'uptrend' ? 'Uptrend intact' : c.trend === 'downtrend' ? 'Downtrend intact' : 'Market ranging';
-      return { type: 'quiet', action: '—', headline: `${bull ? '▲' : '▼'} ${Math.abs(chg)}% — no setup`, reason: `${trendLabel}. Vol ${c.volume.mult}×${c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : ''}.` };
+      return { type: 'quiet', action: '—', headline: `${bull ? '▲' : '▼'} ${Math.abs(chg)}% — no setup`, reason: `${trendLabel}. Vol ${c.volume.mult}×${c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : ''}${patHint}.` };
     };
 
     return (
@@ -2394,8 +2557,29 @@ function getNiftyLevelAlerts(indices) {
                       <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                     )}
                   </div>
-                  {/* Environment toggle */}
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
+                    {/* Mode toggle */}
+                    <div className="flex items-center gap-0.5 border-r border-white/10 pr-2">
+                      <button
+                        onClick={() => setThirdEyeMode('semi')}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all ${
+                          thirdEyeMode === 'semi'
+                            ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                            : 'text-slate-600 hover:text-slate-400'
+                        }`}
+                        title="Semi-Auto: action card shown, you confirm before order fires"
+                      >
+                        Semi
+                      </button>
+                      <button
+                        disabled
+                        className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide text-slate-700 cursor-not-allowed"
+                        title="Auto mode — coming soon"
+                      >
+                        Auto
+                      </button>
+                    </div>
+                    {/* Environment toggle */}
                     {['light', 'medium', 'tight'].map(env => (
                       <button
                         key={env}
@@ -2411,14 +2595,128 @@ function getNiftyLevelAlerts(indices) {
                         {env}
                       </button>
                     ))}
-                    <button onClick={() => setThirdEyeOpen(o => !o)} className="ml-1 text-slate-600 hover:text-slate-400">
+                    <button onClick={() => setThirdEyeOpen(o => !o)} className="ml-0.5 text-slate-600 hover:text-slate-400">
                       {thirdEyeOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                     </button>
                   </div>
                 </div>
 
+                {thirdEyeOpen && activeTrade && (
+                  <div className={`mx-3 my-2 p-3 rounded-xl border ${activeTrade.direction === 'bull' ? 'bg-emerald-500/[0.06] border-emerald-500/20' : 'bg-rose-500/[0.06] border-rose-500/20'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider ${activeTrade.direction === 'bull' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'}`}>
+                        ACTIVE · {activeTrade.optionType}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 truncate max-w-[130px]">{activeTrade.symbol}</span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1 mb-2.5 text-center">
+                      <div>
+                        <p className="text-[9px] text-slate-600 mb-0.5">Entry</p>
+                        <p className="text-[11px] font-mono text-white">₹{activeTrade.limitPrice}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-slate-600 mb-0.5">LTP</p>
+                        <p className={`text-[11px] font-mono ${!tradeLTP ? 'text-slate-500' : tradeLTP > activeTrade.limitPrice ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {tradeLTP ? `₹${tradeLTP}` : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-slate-600 mb-0.5">P&amp;L</p>
+                        <p className={`text-[11px] font-mono ${!tradeLTP ? 'text-slate-500' : ((tradeLTP - activeTrade.limitPrice) * activeTrade.qty) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {tradeLTP ? `₹${((tradeLTP - activeTrade.limitPrice) * activeTrade.qty).toFixed(0)}` : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-slate-600 mb-0.5">SL Idx</p>
+                        <p className="text-[11px] font-mono text-rose-400">{activeTrade.slLevel ? activeTrade.slLevel.toFixed(0) : '—'}</p>
+                      </div>
+                    </div>
+                    {tradeExited ? (
+                      <div className={`text-[10px] text-center py-1.5 rounded-lg border font-mono ${tradeExited.ok ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-rose-400 bg-rose-500/10 border-rose-500/20'}`}>
+                        {tradeExited.ok ? '✓ Exit order sent' : tradeExited.error || 'Exit failed'}
+                      </div>
+                    ) : (
+                      <button
+                        onClick={exitThirdEyeTrade}
+                        disabled={tradeExiting}
+                        className="w-full py-1.5 rounded-lg text-[11px] font-bold tracking-wide transition-all bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-50"
+                      >
+                        {tradeExiting ? 'Exiting…' : 'Exit Trade (Market)'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {thirdEyeOpen && thirdEyeLive && (() => {
+                  const ln = buildNarrative(thirdEyeLive);
+                  const liveIsBull = thirdEyeLive.topSetup?.pattern?.direction === 'bull';
+                  const liveClose  = thirdEyeLive.candle?.close;
+                  const liveSl     = thirdEyeLive.topSetup?.pattern?.sl;
+                  const liveScore  = thirdEyeLive.topSetup?.score;
+
+                  // Stale signal detection: prior log was directional but raw patterns now contradict it
+                  const lastLogDir   = thirdEyeLog[0]?.topSetup?.pattern?.direction;
+                  const BULL_REVERSAL_IDS = new Set(['morning_star','hammer','bull_pin','bull_engulfing','tweezer_bottom']);
+                  const BEAR_REVERSAL_IDS = new Set(['evening_star','shooting_star','bear_pin','bear_engulfing','tweezer_top']);
+                  const liveHasBullReversal = thirdEyeLive.rawPatterns?.some(p => BULL_REVERSAL_IDS.has(p.pattern?.id));
+                  const liveHasBearReversal = thirdEyeLive.rawPatterns?.some(p => BEAR_REVERSAL_IDS.has(p.pattern?.id));
+                  const staleWarning =
+                    (lastLogDir === 'bear' && liveHasBullReversal) ? '⚠ Prior short — bounce pattern forming, hold fire' :
+                    (lastLogDir === 'bull' && liveHasBearReversal) ? '⚠ Prior long — rejection pattern forming, tighten stops' :
+                    null;
+                  return (
+                    <div className="px-3 pt-2 pb-1">
+                      <div className={`relative px-3 py-2.5 rounded-xl border ${
+                        ln?.action?.startsWith('EXIT') ? 'bg-violet-500/[0.06] border-violet-500/25' :
+                        ln?.action === 'BOS WATCH'     ? 'bg-yellow-500/[0.06] border-yellow-500/25' :
+                        liveIsBull                     ? 'bg-emerald-500/[0.05] border-emerald-500/20' :
+                        thirdEyeLive.topSetup          ? 'bg-rose-500/[0.05] border-rose-500/20' :
+                                                         'bg-white/[0.02] border-white/[0.06]'
+                      }`}>
+                        {/* LIVE pulse dot */}
+                        <div className="absolute top-2 right-2 flex items-center gap-1">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-sky-400"></span>
+                          </span>
+                          <span className="text-[9px] font-bold text-sky-400 tracking-wider">LIVE</span>
+                        </div>
+                        <div className="flex items-center gap-2 mb-1.5 pr-12">
+                          {ln && (
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider shrink-0 ${
+                              ln.action === 'LONG (Fresh)'        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
+                              ln.action === 'LONG (Cont.)'     ? 'bg-teal-500/15 text-teal-300 border-teal-500/30' :
+                              ln.action === 'LONG (Careful)'   ? 'bg-sky-500/15 text-sky-300 border-sky-500/30' :
+                              ln.action === 'SHORT (Fresh)'       ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' :
+                              ln.action === 'SHORT (Cont.)'    ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
+                              ln.action === 'SHORT (Careful)'  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
+                              ln.action?.startsWith('EXIT')    ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' :
+                              ln.action === 'BOS WATCH'        ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' :
+                                                                 'bg-slate-500/15 text-slate-400 border-slate-500/30'
+                            }`}>{ln.action ?? 'WATCH'}</span>
+                          )}
+                          {thirdEyeLive.topSetup?.pattern?.name && <span className="text-[10px] text-white font-medium truncate">{thirdEyeLive.topSetup.pattern.name}</span>}
+                          {liveScore != null && <span className="text-[9px] text-slate-500 ml-auto shrink-0">{liveScore}/10</span>}
+                        </div>
+                        <p className="text-[10px] text-slate-400 leading-snug line-clamp-2">{ln?.reason ?? 'No signal yet — monitoring price action'}</p>
+                        {staleWarning && (
+                          <p className="mt-1.5 text-[9px] text-amber-400/80 font-medium">{staleWarning}</p>
+                        )}
+                        <div className="flex items-center gap-3 mt-1.5 text-[9px] font-mono text-slate-600">
+                          <span>C {liveClose?.toFixed(0) ?? '—'}</span>
+                          {liveSl && <span className="text-rose-500/80">SL {liveSl.toFixed(0)}</span>}
+                          <span className="ml-auto">
+                            <span className="text-slate-700">{thirdEyeLive.time} candle · </span>
+                            <span>upd {thirdEyeLive.updatedAt ?? thirdEyeLive.time}</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {thirdEyeOpen && (
-                  <div className="divide-y divide-white/[0.04]">
+                  <div className="divide-y divide-white/[0.04] max-h-[560px] overflow-y-auto">
                     {thirdEyeLog.length === 0 ? (
                       <p className="px-4 py-6 text-slate-600 text-xs text-center">Waiting for next candle close…</p>
                     ) : thirdEyeLog.map((entry, i) => {
@@ -2490,18 +2788,37 @@ function getNiftyLevelAlerts(indices) {
                         );
                       }
 
+                      const isEntry  = n.type === 'entry';
+                      const isExit   = n.type === 'exit';
+                      const isCaut   = n.type === 'caution';
+                      const nLong    = n.direction === 'bull';
+                      const isGo     = n.subType === 'go';
+                      const isCont   = n.subType === 'cont';
+
+                      const isBosWatch = n.action === 'BOS WATCH';
+
                       const badgeStyle =
-                        n.type === 'entry'   ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
-                        n.type === 'exit'    ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' :
-                        n.type === 'watch'   ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
-                        n.type === 'caution' ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
-                        'bg-slate-700/30 text-slate-500 border-slate-600/20';
+                        (isEntry && isGo   && nLong)  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
+                        (isEntry && isCont && nLong)  ? 'bg-teal-500/15 text-teal-300 border-teal-500/30' :
+                        (isEntry && isGo   && !nLong) ? 'bg-rose-500/20 text-rose-400 border-rose-500/40' :
+                        (isEntry && isCont && !nLong) ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
+                        isExit                        ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' :
+                        isBosWatch                    ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' :
+                        (isCaut && nLong)             ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' :
+                        isCaut                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                        n.type === 'watch'            ? 'bg-slate-500/10 text-slate-400 border-slate-500/20' :
+                        'bg-slate-700/20 text-slate-600 border-slate-600/10';
+
                       const headlineStyle =
-                        n.type === 'entry'   ? 'text-emerald-300' :
-                        n.type === 'exit'    ? 'text-rose-300' :
-                        n.type === 'watch'   ? 'text-amber-300' :
-                        n.type === 'caution' ? 'text-orange-300' :
-                        'text-slate-400';
+                        (isEntry && isGo   && nLong)  ? 'text-emerald-300' :
+                        (isEntry && isCont && nLong)  ? 'text-teal-300' :
+                        (isEntry && isGo   && !nLong) ? 'text-rose-300' :
+                        (isEntry && isCont && !nLong) ? 'text-orange-300' :
+                        isExit                        ? 'text-violet-300' :
+                        isBosWatch                    ? 'text-yellow-300' :
+                        isCaut                        ? 'text-amber-300' :
+                        n.type === 'watch'            ? 'text-slate-400' :
+                        'text-slate-500';
                       return (
                         <div key={i} className={`px-4 py-3 ${isFirst ? 'bg-white/[0.025]' : ''}`}>
                           <div className="flex items-center justify-between mb-1.5">

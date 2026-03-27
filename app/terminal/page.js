@@ -2384,7 +2384,7 @@ export default function TerminalPage() {
 
   useEffect(() => {
     fetchMovers();
-    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchMovers(); }, 5 * 60_000);
+    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchMovers(); }, 90_000);
     return () => clearInterval(iv);
   }, [isVisible, fetchMovers]);
 

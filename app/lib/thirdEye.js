@@ -3,7 +3,7 @@
 //   1. precompute()       — runs once per scan, all expensive calculations
 //   2. detectPatterns()   — uses precomputed data, no re-scanning
 //   3. buildContext()     — assembles context object from precomputed data
-//   4. detectSetups()     — multi-condition setups (S1–S17)
+//   4. detectSetups()     — multi-condition setups (S1–S18)
 //   5. scoreSetup()       — adds context bonuses to setup base strength
 //   6. runThirdEye()      — orchestrates all layers
 
@@ -329,6 +329,19 @@ function computePowerCandles(candles, lookback = 15) {
   return result;
 }
 
+function computeBollingerBands(candles, period = 20, stdMult = 2) {
+  if (candles.length < period) return null;
+  const slice    = candles.slice(-period);
+  const mean     = slice.reduce((s, c) => s + c.close, 0) / period;
+  const variance = slice.reduce((s, c) => s + (c.close - mean) ** 2, 0) / period;
+  const std      = Math.sqrt(variance);
+  return {
+    upper:  parseFloat((mean + stdMult * std).toFixed(2)),
+    middle: parseFloat(mean.toFixed(2)),
+    lower:  parseFloat((mean - stdMult * std).toFixed(2)),
+  };
+}
+
 export function precompute(candles, vwapData, rsiValue) {
   const bosLevels = detectBOSInternal(candles);
   return {
@@ -346,6 +359,7 @@ export function precompute(candles, vwapData, rsiValue) {
     fvgs:           detectFVGs(candles),
     tradingRange:   detectTradingRange(candles),
     powerCandles:   computePowerCandles(candles),
+    bb:             computeBollingerBands(candles),
     rsi:            rsiValue ?? null,
   };
 }
@@ -510,10 +524,13 @@ export function buildContext(candles, pre) {
   // BOS context — most recently detected
   let bos = null;
   if (pre.bosLevels.length) {
-    const lastClose  = candles[candles.length - 1].close;
+    const n          = candles.length;
+    const lastClose  = candles[n - 1].close;
     const mostRecent = pre.bosLevels.reduce((a, b) => b.idx > a.idx ? b : a);
     const distPct    = parseFloat(Math.abs((lastClose - mostRecent.price) / mostRecent.price * 100).toFixed(2));
-    bos = { type: mostRecent.type, price: mostRecent.price, distPct };
+    // freshBreak: the break happened on the current (last) candle — needs next-candle confirmation
+    const freshBreak = mostRecent.breakIdx === n - 1;
+    bos = { type: mostRecent.type, price: mostRecent.price, distPct, freshBreak };
   }
 
   // Order block — most recent, check if current price is near it
@@ -914,6 +931,50 @@ export function detectSetups(candles, patterns, context, pre) {
     }
   }
 
+  // ── S18: BB Momentum Breakout ─────────────────────────────────────────────
+  // Close breaks outside Bollinger Band (20,2), same-direction candle (green/red),
+  // RSI(12) momentum aligned (>50 bull / <50 bear), body ≤ 0.5% of price (no runaway candle),
+  // vol ≥ 1.5×, close also breaks above/below last 10-candle swing high/low.
+  if (pre.bb && candles.length >= 21) {
+    const { upper, middle, lower } = pre.bb;
+    const body0     = Math.abs(c0.close - c0.open);
+    const bodyPct   = body0 / c0.close * 100;
+    const prior10H  = Math.max(...candles.slice(-11, -1).map(c => c.high));
+    const prior10L  = Math.min(...candles.slice(-11, -1).map(c => c.low));
+
+    if (
+      c0.close > upper &&
+      isBull0 &&
+      (pre.rsi == null || pre.rsi > 50) &&
+      bodyPct <= 0.5 &&
+      pre.volume.mult >= 1.5 &&
+      c0.close > prior10H
+    ) {
+      setups.push({
+        id: 's18_bb_bull', name: 'BB Momentum Breakout', direction: 'bull', strength: 4,
+        sl: middle, target: null,
+        lifecycle: { slType: 'trailing', exitCondition: 'middle_band' },
+        details: { upper, middle, bodyPct: parseFloat(bodyPct.toFixed(2)), volMult: pre.volume.mult },
+      });
+    }
+
+    if (
+      c0.close < lower &&
+      !isBull0 &&
+      (pre.rsi == null || pre.rsi < 50) &&
+      bodyPct <= 0.5 &&
+      pre.volume.mult >= 1.5 &&
+      c0.close < prior10L
+    ) {
+      setups.push({
+        id: 's18_bb_bear', name: 'BB Momentum Breakout', direction: 'bear', strength: 4,
+        sl: middle, target: null,
+        lifecycle: { slType: 'trailing', exitCondition: 'middle_band' },
+        details: { lower, middle, bodyPct: parseFloat(bodyPct.toFixed(2)), volMult: pre.volume.mult },
+      });
+    }
+  }
+
   return setups;
 }
 
@@ -974,7 +1035,7 @@ export function scoreSetup(pattern, context, environment) {
   if (context.sessionTime === 'opening') penalties -= 2;
   if (context.sessionTime === 'closing') penalties -= 1;
 
-  const total = Math.max(0, base + envBonus + trendBonus + locationBonus + volumeBonus + rsiBonus + penalties);
+  const total = Math.min(10, Math.max(0, base + envBonus + trendBonus + locationBonus + volumeBonus + rsiBonus + penalties));
   return { total, breakdown: { base, envBonus, trendBonus, locationBonus, volumeBonus, rsiBonus, penalties } };
 }
 
@@ -1000,23 +1061,27 @@ export function runThirdEye(candles, vwapData, rsiValue, environment = 'medium')
   // Layer 4: setup detection — multi-condition setups
   const setups = detectSetups(candles, rawPatterns, context, pre);
 
-  // Suppress raw patterns that are already covered by a setup (avoid duplicates)
-  const coveredIds     = new Set(setups.map(s => s.coversPattern).filter(Boolean));
+  // Suppress raw patterns already covered by a setup (coversPattern mechanism)
+  const coveredIds       = new Set(setups.map(s => s.coversPattern).filter(Boolean));
   const residualPatterns = rawPatterns.filter(p => !coveredIds.has(p.id));
 
-  // Setups take priority; raw patterns fill in when no setup covers them
-  const allSignals = [...setups, ...residualPatterns];
-
-  // Layer 5: score each signal
-  const scored = allSignals.map(p => {
+  // Layer 5: score setups only — residual raw patterns excluded from cards
+  const scored = setups.map(p => {
     const { total, breakdown } = scoreSetup(p, context, environment);
     return { pattern: p, score: total, scoreBreakdown: breakdown };
   });
 
   scored.sort((a, b) => b.score - a.score);
 
+  // Score residual patterns separately (used for narrative hints, not log cards)
+  const scoredPatterns = residualPatterns.map(p => {
+    const { total } = scoreSetup(p, context, environment);
+    return { pattern: p, score: total };
+  }).sort((a, b) => b.score - a.score);
+
   return {
     patterns:     scored,
+    rawPatterns:  scoredPatterns,   // supporting candlestick patterns (not shown as cards)
     context,
     topSetup:     scored[0] ?? null,
     watchList:    scored.filter(p => p.score >= 3 && (p.score < 6 || p.pattern.watchlistOnly)),

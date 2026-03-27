@@ -230,6 +230,17 @@ export function createChart(container, options = {}) {
       markDirty();
     },
 
+    // Update the last candle with a live LTP tick — mutates close/high/low in-place.
+    // Used for real-time price feed without a full data refetch.
+    updateTick(ltp) {
+      if (!candles.length || ltp == null) return;
+      const last = candles[candles.length - 1];
+      last.close = ltp;
+      if (ltp > last.high) last.high = ltp;
+      if (ltp < last.low)  last.low  = ltp;
+      markDirty();
+    },
+
     setShowVolume(v) {
       showVolume = !!v;
       markDirty();
