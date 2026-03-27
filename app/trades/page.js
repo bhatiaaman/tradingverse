@@ -335,6 +335,7 @@ function getNiftyLevelAlerts(indices) {
     const [tradeExiting,    setTradeExiting]    = useState(false);
     const [tradeExited,     setTradeExited]     = useState(null);   // exit result
     const [thirdEyeLive,    setThirdEyeLive]    = useState(null);   // current forming candle (updates every 30s)
+    const [thirdEyeTestMode, setThirdEyeTestMode] = useState(false); // Ctrl+Shift+T toggles test card
     const [leftTab, setLeftTab]           = useState('sectors');
     const thirdEyeEnvRef      = useRef('medium');
     const lastCandleCountRef  = useRef(0);
@@ -440,6 +441,15 @@ function getNiftyLevelAlerts(indices) {
       const id = setInterval(poll, 30000);
       return () => clearInterval(id);
     }, [activeTrade?.symbol]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Ctrl+Shift+T — toggle Third Eye test mode (injects a fake semi-auto card)
+    useEffect(() => {
+      const onKey = (e) => {
+        if (e.ctrlKey && e.shiftKey && e.key === 'T') setThirdEyeTestMode(p => !p);
+      };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Live LTP tick — update last chart candle every 5s (intraday only)
     useEffect(() => {
@@ -1080,6 +1090,14 @@ function getNiftyLevelAlerts(indices) {
     const SEMI_AUTO_IDS = ['s3_orb_bull','s3_orb_bear','s6_engulf_bull','s6_engulf_bear','s18_bb_bull','s18_bb_bear'];
 
     const placeThirdEyeOrder = async (entry) => {
+      // Test mode: simulate placement without hitting the API
+      if (entry.isTest) {
+        setThirdEyePlaced(prev => ({ ...prev, [entry.time]: { ok: true, symbol: 'NIFTY25APR22000CE [TEST]', limitPrice: 120, strike: 22000, optionType: 'CE' } }));
+        setActiveTrade({ symbol: 'NIFTY25APR22000CE [TEST]', strike: 22000, optionType: 'CE', limitPrice: 120, qty: 65, direction: 'bull', setupName: 'ORB Breakout [TEST]', slLevel: 21950, entryClose: 22020 });
+        setTradeLTP(120);
+        setTradeExited(null);
+        return;
+      }
       setThirdEyePlacing(entry.time);
       try {
         const res  = await fetch('/api/third-eye/place', {
@@ -1116,6 +1134,12 @@ function getNiftyLevelAlerts(indices) {
 
     const exitThirdEyeTrade = async () => {
       if (!activeTrade) return;
+      // Test mode: simulate exit without hitting the API
+      if (activeTrade.symbol.includes('[TEST]')) {
+        setTradeExited({ ok: true, orderId: 'TEST-EXIT-000' });
+        setActiveTrade(null);
+        return;
+      }
       setTradeExiting(true);
       try {
         const res  = await fetch('/api/third-eye/exit', {
@@ -1271,7 +1295,7 @@ function getNiftyLevelAlerts(indices) {
         return { type: 'quiet', action: 'WAIT', headline: 'Low conviction — volume dry-up', reason: `${bull ? 'Bullish' : 'Bearish'} candle ${Math.abs(chg)}% on ${c.volume.mult}× volume${patHint}. No strong participants.` };
       }
       const trendLabel = c.trend === 'uptrend' ? 'Uptrend intact' : c.trend === 'downtrend' ? 'Downtrend intact' : 'Market ranging';
-      return { type: 'quiet', action: '—', headline: `${bull ? '▲' : '▼'} ${Math.abs(chg)}% — no setup`, reason: `${trendLabel}. Vol ${c.volume.mult}×${c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : ''}${patHint}.` };
+      return { type: 'quiet', action: 'OBSERVE', headline: `${bull ? '▲' : '▼'} ${Math.abs(chg)}% — no setup`, reason: `${trendLabel}. Vol ${c.volume.mult}×${c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : ''}${patHint}.` };
     };
 
     return (
@@ -2692,6 +2716,7 @@ function getNiftyLevelAlerts(indices) {
                               ln.action === 'SHORT (Careful)'  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
                               ln.action?.startsWith('EXIT')    ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' :
                               ln.action === 'BOS WATCH'        ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' :
+                              ln.action === 'OBSERVE'          ? 'bg-slate-700/40 text-slate-500 border-slate-600/30' :
                                                                  'bg-slate-500/15 text-slate-400 border-slate-500/30'
                             }`}>{ln.action ?? 'WATCH'}</span>
                           )}
@@ -2715,11 +2740,26 @@ function getNiftyLevelAlerts(indices) {
                   );
                 })()}
 
-                {thirdEyeOpen && (
+                {thirdEyeOpen && thirdEyeTestMode && (
+                  <div className="mx-3 mb-1 px-2 py-1 rounded text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/20 font-bold tracking-wider text-center">
+                    TEST MODE · Ctrl+Shift+T to exit
+                  </div>
+                )}
+
+                {thirdEyeOpen && (() => {
+                  const FAKE_TEST_ENTRY = {
+                    time: '⚠ TEST', isTest: true,
+                    topSetup: { pattern: { id: 's3_orb_bull', name: 'ORB Breakout [TEST]', direction: 'bull', strength: 5, sl: 21950 }, score: 8 },
+                    context:  { sessionTime: 'midday', trend: 'uptrend', bos: null, vwap: { above: true, distPct: 0.2 }, volume: { mult: 1.8, context: 'high' }, rsi: 58 },
+                    candle:   { open: 22000, high: 22050, low: 21980, close: 22020 },
+                    rawPatterns: [],
+                  };
+                  const displayLog = thirdEyeTestMode ? [FAKE_TEST_ENTRY, ...thirdEyeLog] : thirdEyeLog;
+                  return (
                   <div className="divide-y divide-white/[0.04] max-h-[560px] overflow-y-auto">
-                    {thirdEyeLog.length === 0 ? (
+                    {displayLog.length === 0 ? (
                       <p className="px-4 py-6 text-slate-600 text-xs text-center">Waiting for next candle close…</p>
-                    ) : thirdEyeLog.map((entry, i) => {
+                    ) : displayLog.map((entry, i) => {
                       const n       = buildNarrative(entry);
                       const isFirst = i === 0;
 
@@ -2727,7 +2767,7 @@ function getNiftyLevelAlerts(indices) {
                       const setupId    = entry.topSetup?.pattern?.id;
                       const isActionable = (
                         isFirst &&
-                        chartSymbol === 'NIFTY' &&
+                        (entry.isTest || chartSymbol === 'NIFTY') &&
                         (entry.topSetup?.score ?? 0) >= 6 &&
                         SEMI_AUTO_IDS.includes(setupId)
                       );
@@ -2744,10 +2784,13 @@ function getNiftyLevelAlerts(indices) {
                         return (
                           <div key={i} className={`px-4 py-3 bg-white/[0.03] border-l-2 ${isBull ? 'border-emerald-500/60' : 'border-rose-500/60'}`}>
                             <div className="flex items-center justify-between mb-2">
-                              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider ${isBull ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'}`}>
-                                {isBull ? 'LONG' : 'SHORT'}
-                              </span>
-                              <span className="text-[10px] text-slate-600 font-mono">{entry.time}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider ${isBull ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'}`}>
+                                  {isBull ? 'LONG' : 'SHORT'}
+                                </span>
+                                {entry.isTest && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/30 tracking-widest">TEST</span>}
+                              </div>
+                              <span className="text-[10px] text-slate-600 font-mono">{entry.isTest ? '—' : entry.time}</span>
                             </div>
                             <p className="text-[11px] font-semibold text-white mb-1">{s.name}</p>
                             <p className="text-[10px] text-slate-500 mb-2.5">Score {entry.topSetup.score} · ATM {isBull ? 'CE' : 'PE'} · 65 qty</p>
@@ -2792,7 +2835,7 @@ function getNiftyLevelAlerts(indices) {
                       const isExit   = n.type === 'exit';
                       const isCaut   = n.type === 'caution';
                       const nLong    = n.direction === 'bull';
-                      const isGo     = n.subType === 'go';
+                      const isGo     = n.subType === 'fresh';
                       const isCont   = n.subType === 'cont';
 
                       const isBosWatch = n.action === 'BOS WATCH';
@@ -2833,7 +2876,8 @@ function getNiftyLevelAlerts(indices) {
                       );
                     })}
                   </div>
-                )}
+                  );
+                })()}
               </div>
 
             </div>

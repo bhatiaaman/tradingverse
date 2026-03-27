@@ -232,16 +232,16 @@ function checkZoneAlignment(data) {
     if (zone.type === 'RESISTANCE' && tradeBias === 'BEARISH') {
       return {
         type: 'ZONE_ALIGNMENT_CONFLICT', severity: 'warning',
-        title: `Selling into flipped support ₹${zone.price.toFixed(0)} — resistance now acts as support`,
-        detail: `Resistance ₹${zone.price.toFixed(0)} broke upward (BOS confirmed) and is retesting as support. Selling here means fighting fresh demand at the flipped level. Wait for confirmed break below this level or trade from higher resistance.`,
+        title: `Selling into prior resistance ₹${zone.price.toFixed(0)} — broke upward, now acting as support`,
+        detail: `Prior resistance ₹${zone.price.toFixed(0)} broke upward (BOS confirmed) and is retesting as support. Selling here means fighting fresh demand at this flipped level. Wait for a confirmed break below or trade from higher resistance.`,
         riskScore: 15,
       };
     }
     if (zone.type === 'SUPPORT' && tradeBias === 'BULLISH') {
       return {
         type: 'ZONE_ALIGNMENT_CONFLICT', severity: 'warning',
-        title: `Buying into flipped resistance ₹${zone.price.toFixed(0)} — support now acts as resistance`,
-        detail: `Support ₹${zone.price.toFixed(0)} broke downward (BOS confirmed) and is retesting as resistance. Buying here means fighting fresh supply at the flipped level. Wait for confirmed break above this level or trade from lower support.`,
+        title: `Buying into prior support ₹${zone.price.toFixed(0)} — broke downward, now acting as resistance`,
+        detail: `Prior support ₹${zone.price.toFixed(0)} broke downward (BOS confirmed) and is retesting as resistance. Buying here means fighting fresh supply at this flipped level. Wait for a confirmed break above or trade from lower support.`,
         riskScore: 15,
       };
     }
@@ -303,10 +303,10 @@ function checkZoneScenario(data) {
       const aligned =
         (zone.type === 'RESISTANCE' && tradeBias === 'BULLISH') ||
         (zone.type === 'SUPPORT'    && tradeBias === 'BEARISH');
-      const flipLabel = zone.type === 'RESISTANCE' ? 'flipped support' : 'flipped resistance';
+      const newRole = zone.type === 'RESISTANCE' ? 'support' : 'resistance';
       return { passed: true, title: aligned
-        ? `Break+Retest at ${zoneLabel} ₹${zone.price.toFixed(0)} — high-probability continuation`
-        : `Break+Retest at ${zoneLabel} ₹${zone.price.toFixed(0)} — zone flipped to ${flipLabel}, trade is counter-break` };
+        ? `Break+Retest — prior ${zoneLabel} ₹${zone.price.toFixed(0)} now acting as ${newRole} — high-probability continuation`
+        : `Break+Retest — prior ${zoneLabel} ₹${zone.price.toFixed(0)} flipped to ${newRole}, trade is counter-break` };
     }
     case 'REJECTION':
       return { passed: true, title: `Rejection from ${zoneLabel} ₹${zone.price.toFixed(0)} — wick confirms reversal` };

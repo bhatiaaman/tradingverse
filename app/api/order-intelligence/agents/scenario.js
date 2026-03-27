@@ -152,7 +152,9 @@ function gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structur
     } else if (zoneState === 'BREAK_RETEST') {
       const aligned = (z.type === 'RESISTANCE' && tradeBias === 'BULLISH') ||
                       (z.type === 'SUPPORT'    && tradeBias === 'BEARISH');
-      signals.push({ aligned, label: `Break+Retest at ${zLabel} — ${aligned ? 'continuation setup' : 'wrong direction'}`, weight: 3 });
+      const priorRole = z.type.charAt(0) + z.type.slice(1).toLowerCase(); // "Resistance" / "Support"
+      const newRole   = z.type === 'RESISTANCE' ? 'support' : 'resistance';
+      signals.push({ aligned, label: `Break+Retest — prior ${priorRole} ₹${z.price.toFixed(0)} now acting as ${newRole} — ${aligned ? 'continuation setup' : 'wrong direction'}`, weight: 3 });
     } else if (zoneState === 'BROKEN') {
       const aligned = (z.type === 'SUPPORT' && tradeBias === 'BEARISH') ||
                       (z.type === 'RESISTANCE' && tradeBias === 'BULLISH');
@@ -284,6 +286,10 @@ export function runScenarioAgent({ order, sentiment, stationOutput, oiData, stru
       if (mktOpp)     summary = `Selling into support — both zone and market trend oppose this trade`;
       else if (mktAligned) summary = `Selling into support — zone says buy; market trend partially supports the move`;
       else            summary = `Selling into support — zone favours buyers; wait for a confirmed break below`;
+    } else if (zoneState === 'BREAK_RETEST' && zoneType === 'RESISTANCE' && tradeBias === 'BEARISH') {
+      summary = `Selling into flipped support ₹${zone?.price?.toFixed(0) ?? '—'} — prior resistance broke up, zone now supports buyers`;
+    } else if (zoneState === 'BREAK_RETEST' && zoneType === 'SUPPORT' && tradeBias === 'BULLISH') {
+      summary = `Buying into flipped resistance ₹${zone?.price?.toFixed(0) ?? '—'} — prior support broke down, zone now resists buyers`;
     } else if (mktAligned) {
       summary = `Zone signal conflicts with your trade — market trend aligns`;
     } else if (mktOpp) {
