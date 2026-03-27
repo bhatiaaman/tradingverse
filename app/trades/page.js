@@ -340,6 +340,14 @@ function getNiftyLevelAlerts(indices) {
     const thirdEyeEnvRef      = useRef('medium');
     const lastCandleCountRef  = useRef(0);
 
+    // Restore Third Eye log from Redis on mount (survives browser refresh)
+    useEffect(() => {
+      fetch('/api/third-eye/log')
+        .then(r => r.json())
+        .then(d => { if (d.entries?.length) setThirdEyeLog(d.entries); })
+        .catch(() => {});
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Check Kite auth status
     useEffect(() => {
       fetch('/api/auth/me').then(r => r.json()).then(d => setUserRole(d.user?.role || 'user')).catch(() => {});
@@ -967,7 +975,15 @@ function getNiftyLevelAlerts(indices) {
                   candle:      { open: lastCandle.open, high: lastCandle.high, low: lastCandle.low, close: lastCandle.close },
                   rawPatterns: heResult.rawPatterns ?? [],
                 };
-                setThirdEyeLog(prev => [entry, ...prev].slice(0, 12));
+                setThirdEyeLog(prev => {
+                  const next = [entry, ...prev].slice(0, 12);
+                  // Persist to Redis so log survives browser refresh
+                  fetch('/api/third-eye/log', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ entries: next }),
+                  }).catch(() => {});
+                  return next;
+                });
               }
             } catch (heErr) {
               console.error('[Third Eye] scan error:', heErr);
