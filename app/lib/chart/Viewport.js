@@ -44,8 +44,11 @@ export class Viewport {
   get chartH()      { return this.chartBottom - this.chartTop; }
 
   // RSI sub-pane bounds (between main chart and time axis)
-  get rsiPaneTop()  { return this.height - this.TIME_AXIS_H - this.rsiPaneH; }
-  get rsiPaneBot()  { return this.height - this.TIME_AXIS_H; }
+  get rsiPaneTop()   { return this.height - this.TIME_AXIS_H - this.rsiPaneH; }
+  get rsiPaneBot()   { return this.height - this.TIME_AXIS_H; }
+
+  // Top of the time axis — always at the very bottom, below any sub-panes
+  get timeAxisTop()  { return this.height - this.TIME_AXIS_H; }
 
   // Width of one bar in pixels
   get barW() {

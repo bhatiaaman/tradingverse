@@ -30,10 +30,10 @@ export function renderCrosshair(ctx, vp, state, candles, interval) {
   ctx.lineWidth   = 1;
   ctx.setLineDash([4, 4]);
 
-  // Vertical line — always drawn
+  // Vertical line — spans full chart area + RSI sub-pane down to time axis
   ctx.beginPath();
   ctx.moveTo(x, vp.chartTop);
-  ctx.lineTo(x, vp.chartBottom);
+  ctx.lineTo(x, vp.timeAxisTop);
   ctx.stroke();
 
   // Horizontal line + price pill — skipped in syncedOnly mode
@@ -73,7 +73,7 @@ export function renderCrosshair(ctx, vp, state, candles, interval) {
     const tPillW   = 54;
     const tPillH   = 18;
     const tPillX   = x - tPillW / 2;
-    const tPillY   = vp.chartBottom + (vp.TIME_AXIS_H - tPillH) / 2;
+    const tPillY   = vp.timeAxisTop + (vp.TIME_AXIS_H - tPillH) / 2;
 
     ctx.fillStyle = '#94a3b8';
     ctx.beginPath();
