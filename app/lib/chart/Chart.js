@@ -23,9 +23,11 @@ import { renderCrosshair }   from './renderers/crosshair.js';
 import { renderMarkers }     from './renderers/markers.js';
 import { renderSMC }        from './renderers/smc.js';
 import { renderRSIPane }    from './renderers/rsi-pane.js';
+import { DARK as DARK_PALETTE, LIGHT as LIGHT_PALETTE } from './palette.js';
 
 export function createChart(container, options = {}) {
   const interval = options.interval ?? '15minute';
+  let palette    = options.theme === 'light' ? LIGHT_PALETTE : DARK_PALETTE;
 
   // ── Canvas ───────────────────────────────────────────────────────────────────
   const canvas = document.createElement('canvas');
@@ -85,16 +87,16 @@ export function createChart(container, options = {}) {
     }
 
     // Clear
-    ctx.fillStyle = '#112240';
+    ctx.fillStyle = palette.chartBg;
     ctx.fillRect(0, 0, W, H);
 
     // Recompute price scale from current viewport + data every frame
     vp.autoScale(candles);
 
     // Draw order: grid/axes → volume → SMC → zones → lines → candles → RSI pane → crosshair
-    renderAxes(ctx, vp, candles, interval);
+    renderAxes(ctx, vp, candles, interval, palette);
     if (showVolume) renderVolume(ctx, vp, candles);
-    if (smcData)   renderSMC(ctx, vp, smcData);
+    if (smcData)   renderSMC(ctx, vp, smcData, palette);
     renderZones(ctx, vp, zones, crosshair);
     for (const [, line] of lineMap) {
       renderLine(ctx, vp, line.values, line.color, line.width);
@@ -103,7 +105,7 @@ export function createChart(container, options = {}) {
     renderMarkers(ctx, vp, candles, markers);
     if (rsiPaneData && vp.rsiPaneH > 0) {
       const snapIdx = crosshair.visible ? crosshair.snapIndex : null;
-      renderRSIPane(ctx, vp, rsiPaneData.rsi, rsiPaneData.rsiMA, snapIdx, rsiPaneData.label);
+      renderRSIPane(ctx, vp, rsiPaneData.rsi, rsiPaneData.rsiMA, snapIdx, rsiPaneData.label, palette);
     }
     renderCrosshair(ctx, vp, crosshair, candles, interval);
   }
@@ -326,6 +328,11 @@ export function createChart(container, options = {}) {
 
     fitContent() {
       vp.fitContent(candles);
+      markDirty();
+    },
+
+    setTheme(t) {
+      palette = t === 'light' ? LIGHT_PALETTE : DARK_PALETTE;
       markDirty();
     },
 

@@ -4,23 +4,16 @@
 //   2. Order Block boxes— semi-transparent filled rectangles, unmitigated OBs
 //   3. BOS / CHoCH lines— horizontal segment from pivot bar to break bar + label
 
-const BULL_FVG = 'rgba(34,197,94,0.09)';
-const BEAR_FVG = 'rgba(239,68,68,0.09)';
-const BULL_FVG_BORDER = 'rgba(34,197,94,0.35)';
-const BEAR_FVG_BORDER = 'rgba(239,68,68,0.35)';
+import { DARK } from '../palette.js';
 
-const BULL_OB = 'rgba(49,121,245,0.13)';
-const BEAR_OB = 'rgba(242,54,69,0.13)';
-const BULL_OB_BORDER = 'rgba(49,121,245,0.45)';
-const BEAR_OB_BORDER = 'rgba(242,54,69,0.45)';
-
-const BULL_BOS  = '#22c55e';
-const BEAR_BOS  = '#ef4444';
+const BULL_BOS   = '#22c55e';
+const BEAR_BOS   = '#ef4444';
 const BULL_CHOCH = '#86efac';
 const BEAR_CHOCH = '#fca5a5';
 
-export function renderSMC(ctx, vp, smc) {
+export function renderSMC(ctx, vp, smc, palette) {
   if (!smc) return;
+  const P = palette ?? DARK;
   const { bosLevels = [], orderBlocks = [], fvgs = [] } = smc;
 
   ctx.save();
@@ -40,10 +33,10 @@ export function renderSMC(ctx, vp, smc) {
     const w      = xRight - xLeft;
     if (w <= 0) continue;
 
-    ctx.fillStyle   = fvg.type === 'bull' ? BULL_FVG : BEAR_FVG;
+    ctx.fillStyle   = fvg.type === 'bull' ? P.fvgFill.bull : P.fvgFill.bear;
     ctx.fillRect(xLeft, yTop, w, h);
 
-    ctx.strokeStyle = fvg.type === 'bull' ? BULL_FVG_BORDER : BEAR_FVG_BORDER;
+    ctx.strokeStyle = fvg.type === 'bull' ? P.fvgBorder.bull : P.fvgBorder.bear;
     ctx.lineWidth   = 0.75;
     ctx.setLineDash([3, 3]);
     ctx.strokeRect(xLeft, yTop, w, h);
@@ -51,7 +44,7 @@ export function renderSMC(ctx, vp, smc) {
 
     // Label — top-right of box
     ctx.font         = 'bold 9px monospace';
-    ctx.fillStyle    = fvg.type === 'bull' ? BULL_FVG_BORDER : BEAR_FVG_BORDER;
+    ctx.fillStyle    = fvg.type === 'bull' ? P.fvgBorder.bull : P.fvgBorder.bear;
     ctx.textAlign    = 'right';
     ctx.textBaseline = 'top';
     ctx.fillText('FVG', xRight - 4, yTop + 2);
@@ -69,16 +62,16 @@ export function renderSMC(ctx, vp, smc) {
     const w      = xRight - xLeft;
     if (w <= 0) continue;
 
-    ctx.fillStyle   = ob.bias === 'bull' ? BULL_OB : BEAR_OB;
+    ctx.fillStyle   = ob.bias === 'bull' ? P.obFill.bull : P.obFill.bear;
     ctx.fillRect(xLeft, yTop, w, h);
 
-    ctx.strokeStyle = ob.bias === 'bull' ? BULL_OB_BORDER : BEAR_OB_BORDER;
+    ctx.strokeStyle = ob.bias === 'bull' ? P.obBorder.bull : P.obBorder.bear;
     ctx.lineWidth   = 1;
     ctx.strokeRect(xLeft, yTop, w, h);
 
     // Label — bottom-right of box
     ctx.font         = 'bold 9px monospace';
-    ctx.fillStyle    = ob.bias === 'bull' ? BULL_OB_BORDER : BEAR_OB_BORDER;
+    ctx.fillStyle    = ob.bias === 'bull' ? P.obBorder.bull : P.obBorder.bear;
     ctx.textAlign    = 'right';
     ctx.textBaseline = 'bottom';
     ctx.fillText('OB', xRight - 4, yBot - 2);
@@ -122,7 +115,7 @@ export function renderSMC(ctx, vp, smc) {
 
     // Label background
     const tw = ctx.measureText(label).width;
-    ctx.fillStyle = 'rgba(6,11,20,0.7)';
+    ctx.fillStyle = P.bosLabelBg;
     ctx.fillRect(midX - tw / 2 - 2, y - 9, tw + 4, 9);
 
     ctx.fillStyle    = color;

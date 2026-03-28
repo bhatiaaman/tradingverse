@@ -2,6 +2,8 @@
 // Draws: grid lines, price labels (right axis), time labels (bottom axis),
 // axis borders, and the last-price pill.
 
+import { DARK } from '../palette.js';
+
 const IST_OFFSET_MS = 5.5 * 3600 * 1000;
 
 function fmtPrice(p) {
@@ -48,18 +50,19 @@ function niceStep(rawStep) {
   return nice * mag;
 }
 
-export function renderAxes(ctx, vp, candles, interval) {
+export function renderAxes(ctx, vp, candles, interval, palette) {
   const { chartLeft, chartRight, chartTop, chartBottom, chartH, chartW,
           PRICE_AXIS_W, TIME_AXIS_H, width, height, timeAxisTop } = vp;
+  const P = palette ?? DARK;
 
   ctx.save();
 
   // ── Price axis background (full height) ─────────────────────────────────────
-  ctx.fillStyle = '#0c1a2e';
+  ctx.fillStyle = P.axisBg;
   ctx.fillRect(chartRight, 0, PRICE_AXIS_W, height);
 
   // ── Time axis background — sits at the very bottom, below any sub-panes ─────
-  ctx.fillStyle = '#0c1a2e';
+  ctx.fillStyle = P.axisBg;
   ctx.fillRect(0, timeAxisTop, width, TIME_AXIS_H);
 
   // ── Price grid + labels ──────────────────────────────────────────────────────
@@ -77,7 +80,7 @@ export function renderAxes(ctx, vp, candles, interval) {
     if (y < chartTop || y > chartBottom) continue;
 
     // Grid line
-    ctx.strokeStyle = 'rgba(66,99,235,0.1)';
+    ctx.strokeStyle = P.gridLine;
     ctx.lineWidth   = 1;
     ctx.beginPath();
     ctx.moveTo(chartLeft, y);
@@ -85,12 +88,12 @@ export function renderAxes(ctx, vp, candles, interval) {
     ctx.stroke();
 
     // Price label
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = P.axisText;
     ctx.fillText(fmtPrice(p), chartRight + 6, y);
   }
 
   // ── Price axis border ────────────────────────────────────────────────────────
-  ctx.strokeStyle = 'rgba(66,99,235,0.25)';
+  ctx.strokeStyle = P.axisBorder;
   ctx.lineWidth   = 1;
   ctx.beginPath();
   ctx.moveTo(chartRight, chartTop);
@@ -157,7 +160,7 @@ export function renderAxes(ctx, vp, candles, interval) {
   for (const bi of dateBoundarySet) {
     const x = Math.round(vp.barCenterX(bi));
     if (x < chartLeft || x > chartRight) continue;
-    ctx.strokeStyle = 'rgba(148,163,184,0.15)';
+    ctx.strokeStyle = P.dateSepLine;
     ctx.lineWidth   = 1;
     ctx.setLineDash([2, 3]);
     ctx.beginPath();
@@ -178,7 +181,7 @@ export function renderAxes(ctx, vp, candles, interval) {
     if (x < chartLeft + 20 || x > chartRight - 10) continue;
 
     // Vertical grid line in main chart area
-    ctx.strokeStyle = 'rgba(66,99,235,0.08)';
+    ctx.strokeStyle = P.timegridLine;
     ctx.lineWidth   = 1; ctx.setLineDash([]);
     ctx.beginPath();
     ctx.moveTo(x, chartTop);
@@ -191,19 +194,19 @@ export function renderAxes(ctx, vp, candles, interval) {
       // Pick the actual boundary bar for the label x
       const bi = dateBoundarySet.has(i) ? i : i + 1;
       const bx = Math.round(vp.barCenterX(bi));
-      ctx.fillStyle = '#64748b';
+      ctx.fillStyle = P.axisTextDate;
       ctx.font      = 'bold 10px monospace';
       ctx.fillText(fmtDate(candles[bi].time), bx, labelMidY);
       ctx.font      = '10px monospace';
     } else {
-      ctx.fillStyle = '#94a3b8';
+      ctx.fillStyle = P.axisText;
       ctx.fillText(fmtTime(candles[i].time, interval), x, labelMidY);
     }
   }
 
   // Draw date labels for any boundaries NOT already covered by a regular tick
   ctx.font      = 'bold 10px monospace';
-  ctx.fillStyle = '#64748b';
+  ctx.fillStyle = P.axisTextDate;
   for (const bi of dateBoundarySet) {
     const x = Math.round(vp.barCenterX(bi));
     if (x < chartLeft + 24 || x > chartRight - 10) continue;
@@ -216,7 +219,7 @@ export function renderAxes(ctx, vp, candles, interval) {
   ctx.font = '10px monospace';
 
   // ── Time axis top border ──────────────────────────────────────────────────────
-  ctx.strokeStyle = 'rgba(66,99,235,0.25)';
+  ctx.strokeStyle = P.axisBorder;
   ctx.lineWidth   = 1; ctx.setLineDash([]);
   ctx.beginPath();
   ctx.moveTo(chartLeft, timeAxisTop);

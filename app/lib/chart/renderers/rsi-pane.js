@@ -2,8 +2,11 @@
 // Draws inside the chart canvas, below the main pane, above the time axis.
 // Uses the same Viewport logFrom/logTo as the candle chart — always in sync.
 
-export function renderRSIPane(ctx, vp, rsiValues, rsiMAValues, snapIndex, label) {
+import { DARK } from '../palette.js';
+
+export function renderRSIPane(ctx, vp, rsiValues, rsiMAValues, snapIndex, label, palette) {
   if (vp.rsiPaneH <= 0 || !rsiValues?.length) return;
+  const P = palette ?? DARK;
 
   const paneTop = vp.rsiPaneTop;
   const paneBot = vp.rsiPaneBot;
@@ -13,11 +16,11 @@ export function renderRSIPane(ctx, vp, rsiValues, rsiMAValues, snapIndex, label)
   const paneW   = right - left;
 
   // Background
-  ctx.fillStyle = '#070b13';
+  ctx.fillStyle = P.rsiPaneBg;
   ctx.fillRect(left, paneTop, paneW, paneH);
 
   // Top border (drag handle hint)
-  ctx.strokeStyle = '#1e3a5f';
+  ctx.strokeStyle = P.rsiPaneBorder;
   ctx.lineWidth = 1; ctx.setLineDash([]);
   ctx.beginPath(); ctx.moveTo(left, paneTop + 0.5); ctx.lineTo(right, paneTop + 0.5); ctx.stroke();
 
@@ -79,16 +82,20 @@ export function renderRSIPane(ctx, vp, rsiValues, rsiMAValues, snapIndex, label)
   ctx.restore();
 
   // ── Value label (top-left of pane) ──────────────────────────────────────────
-  const idx     = snapIndex ?? (rsiValues.length - 1);
-  const rsiVal  = rsiValues[idx];
-  const maVal   = rsiMAValues?.[idx];
+  const idx    = snapIndex ?? (rsiValues.length - 1);
+  const rsiVal = rsiValues[idx];
+  const maVal  = rsiMAValues?.[idx];
   if (rsiVal != null) {
     ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left';
+
+    const rsiText = `${label ?? 'RSI'} ${rsiVal.toFixed(1)}`;
     ctx.fillStyle = '#818cf8';
-    ctx.fillText(`${label ?? 'RSI'} ${rsiVal.toFixed(1)}`, left + 6, paneTop + 13);
+    ctx.fillText(rsiText, left + 6, paneTop + 13);
+
     if (maVal != null) {
+      const rsiW = ctx.measureText(rsiText).width;
       ctx.fillStyle = '#f59e0b';
-      ctx.fillText(`MA ${maVal.toFixed(1)}`, left + 6 + 80, paneTop + 13);
+      ctx.fillText(`MA ${maVal.toFixed(1)}`, left + 6 + rsiW + 8, paneTop + 13);
     }
   }
 }

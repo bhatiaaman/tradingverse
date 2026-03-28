@@ -4,6 +4,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 
+const RSI_MIN_H = 50;
+const RSI_MAX_H = 200;
+
 const INTERVAL_LABELS = {
   '5minute':  '5m',
   '15minute': '15m',
@@ -49,19 +52,23 @@ const OVERLAY_DEFS = [
   { key: 'showEma9W',  label: 'EMA 9 Weekly', color: EMA_COLORS.ema9W,  intradayOnly: false, dailyOnly: true  },
   { key: 'showVolume', label: 'Volume',       color: '#475569',          intradayOnly: false, dailyOnly: false },
   { key: 'showSMC',    label: 'SMC  (BOS · OB · FVG)', color: '#6366f1', intradayOnly: false, dailyOnly: false },
+  { key: 'showRSI',    label: 'RSI',          color: '#818cf8',          intradayOnly: false, dailyOnly: false, hasParams: true },
 ];
 
 const DEFAULT_SETTINGS = {
-  showVwap:   true,
-  showOrBand: true,
-  showSR:     true,
-  showEma9:   true,
-  showEma21:  true,
-  showEma50:  false,
-  showEma9D:  true,
-  showEma9W:  true,
-  showVolume: true,
-  showSMC:    true,
+  showVwap:      true,
+  showOrBand:    true,
+  showSR:        true,
+  showEma9:      true,
+  showEma21:     true,
+  showEma50:     false,
+  showEma9D:     true,
+  showEma9W:     true,
+  showVolume:    true,
+  showSMC:       true,
+  showRSI:       false,
+  rsiPeriod:     12,
+  rsiMAPeriod:   5,
 };
 
 // ── Weekly aggregation (for EMA 9 Weekly on daily chart) ──────────────────────
@@ -113,6 +120,40 @@ function computeEMA(candles, period) {
     result.push({ time: candles[i].time, value: parseFloat(ema.toFixed(2)) });
   }
   return result;
+}
+
+function computeRSI(candles, period) {
+  const out = new Array(candles.length).fill(null);
+  if (candles.length < period + 1) return out;
+  let gainSum = 0, lossSum = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = candles[i].close - candles[i - 1].close;
+    if (d >= 0) gainSum += d; else lossSum -= d;
+  }
+  let avgGain = gainSum / period;
+  let avgLoss = lossSum / period;
+  out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  for (let i = period + 1; i < candles.length; i++) {
+    const d = candles[i].close - candles[i - 1].close;
+    avgGain = (avgGain * (period - 1) + Math.max(0, d))  / period;
+    avgLoss = (avgLoss * (period - 1) + Math.max(0, -d)) / period;
+    out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  }
+  return out;
+}
+
+function computeSMAAligned(values, period) {
+  const out = new Array(values.length).fill(null);
+  let sum = 0, runStart = -1;
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] == null) { sum = 0; runStart = -1; continue; }
+    if (runStart === -1) runStart = i;
+    sum += values[i];
+    const runLen = i - runStart + 1;
+    if (runLen > period) sum -= values[i - period];
+    if (runLen >= period) out[i] = sum / period;
+  }
+  return out;
 }
 
 function isMarketHours() {
@@ -243,11 +284,17 @@ function ChartPageInner() {
   const [stationData, setStationData]     = useState(null);
   const [hoverOHLC, setHoverOHLC]         = useState(null);
   const [isMobile, setIsMobile]           = useState(false);
+  const [chartTheme, setChartTheme]       = useState(() => {
+    if (typeof window === 'undefined') return 'dark';
+    return localStorage.getItem('tv_chart_theme') || 'dark';
+  });
+  const [chartRsiH, setChartRsiH]         = useState(80);
 
   const containerRef   = useRef(null);
   const chartRef       = useRef(null);
   const settingsBtnRef = useRef(null);
   const dropdownRef    = useRef(null);
+  const chartRsiHRef   = useRef(80);
 
   // ── Fetch all data ──────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -337,7 +384,7 @@ function ChartPageInner() {
     import('@/app/lib/chart/Chart.js').then(({ createChart }) => {
       if (!containerRef.current) return; // component unmounted while awaiting import
 
-      const chart = createChart(el, { interval: chartInterval });
+      const chart = createChart(el, { interval: chartInterval, theme: chartTheme });
       chartRef.current = chart;
 
       // ── Candles ────────────────────────────────────────────────────────────
@@ -416,6 +463,19 @@ function ChartPageInner() {
 
       // ── Volume ────────────────────────────────────────────────────────────
       chart.setShowVolume(settings.showVolume);
+
+      // ── RSI sub-pane ──────────────────────────────────────────────────────
+      if (settings.showRSI && candles.length > (settings.rsiPeriod ?? 12) + 1) {
+        const period   = settings.rsiPeriod ?? 12;
+        const maPeriod = settings.rsiMAPeriod ?? 5;
+        const rsi      = computeRSI(candles, period);
+        const rsiMA    = maPeriod >= 2 ? computeSMAAligned(rsi, maPeriod) : null;
+        const lbl      = maPeriod >= 2 ? `RSI(${period},${maPeriod})` : `RSI(${period})`;
+        chart.setRSIPane(rsi, rsiMA, lbl);
+        chart.setRSIPaneHeight(chartRsiHRef.current);
+      } else {
+        chart.clearRSIPane();
+      }
     });
 
     return () => {
@@ -428,6 +488,19 @@ function ChartPageInner() {
     try { localStorage.setItem('tv_chart_settings', JSON.stringify(next)); } catch {}
     return next;
   });
+
+  const setNum = (key, val) => setSettings(s => {
+    const next = { ...s, [key]: val };
+    try { localStorage.setItem('tv_chart_settings', JSON.stringify(next)); } catch {}
+    return next;
+  });
+
+  const toggleTheme = () => {
+    const next = chartTheme === 'dark' ? 'light' : 'dark';
+    setChartTheme(next);
+    try { localStorage.setItem('tv_chart_theme', next); } catch {}
+    chartRef.current?.setTheme(next);
+  };
 
   const isIntraday = chartInterval !== 'day';
   const ltp        = candles.length > 0 ? candles[candles.length - 1].close : null;
@@ -503,6 +576,23 @@ function ChartPageInner() {
             <span className="hidden sm:inline">Reset</span>
           </button>
 
+          {/* Light/dark theme toggle */}
+          <button
+            onClick={toggleTheme}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold transition-colors text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]"
+            title={chartTheme === 'dark' ? 'Switch to light chart' : 'Switch to dark chart'}
+          >
+            {chartTheme === 'dark' ? (
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0 1a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM8 0a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 0zm0 13a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 13zm8-5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2a.5.5 0 0 1 .5.5zM3 8a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2A.5.5 0 0 1 3 8zm10.657-5.657a.5.5 0 0 1 0 .707l-1.414 1.415a.5.5 0 1 1-.707-.708l1.414-1.414a.5.5 0 0 1 .707 0zm-9.193 9.193a.5.5 0 0 1 0 .707L3.05 13.657a.5.5 0 0 1-.707-.707l1.414-1.414a.5.5 0 0 1 .707 0zm9.193 2.121a.5.5 0 0 1-.707 0l-1.414-1.414a.5.5 0 0 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .707zM4.464 4.465a.5.5 0 0 1-.707 0L2.343 3.05a.5.5 0 1 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .708z"/>
+              </svg>
+            ) : (
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M6 .278a.768.768 0 0 1 .08.858 7.208 7.208 0 0 0-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 0 1 .81.316.733.733 0 0 1-.031.893A8.349 8.349 0 0 1 8.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 0 1 6 .278z"/>
+              </svg>
+            )}
+          </button>
+
           {/* Overlays toggle */}
           <button
             ref={settingsBtnRef}
@@ -566,6 +656,33 @@ function ChartPageInner() {
           key={`${symbol}-${chartInterval}`}
           className="w-full h-full"
         />
+
+        {/* RSI pane drag handle — draggable resize strip above the RSI pane */}
+        {settings.showRSI && (
+          <div
+            className="absolute left-0 right-0 h-2 cursor-ns-resize z-20 group"
+            style={{ bottom: 28 + chartRsiH - 4 }}
+            onMouseDown={e => {
+              e.preventDefault();
+              const startY = e.clientY;
+              const startH = chartRsiHRef.current;
+              const onMove = mv => {
+                const newH = Math.max(RSI_MIN_H, Math.min(RSI_MAX_H, startH - (mv.clientY - startY)));
+                chartRsiHRef.current = newH;
+                chartRef.current?.setRSIPaneHeight(newH);
+                setChartRsiH(newH);
+              };
+              const onUp = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+              };
+              window.addEventListener('mousemove', onMove);
+              window.addEventListener('mouseup', onUp);
+            }}
+          >
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-slate-600/50 group-hover:bg-slate-400/60 transition-colors" />
+          </div>
+        )}
 
         {/* OHLCV overlay — top-left */}
         {(() => {
@@ -638,7 +755,8 @@ function ChartPageInner() {
 
         {/* VWAP badge — bottom-left */}
         {settings.showVwap && isIntraday && vwap != null && (
-          <div className="absolute bottom-4 left-3 z-10 flex items-center gap-1.5 bg-[#0a0e1a]/90 border border-amber-500/20 rounded-lg px-2.5 py-1 pointer-events-none select-none">
+          <div className="absolute left-3 z-10 flex items-center gap-1.5 bg-[#0a0e1a]/90 border border-amber-500/20 rounded-lg px-2.5 py-1 pointer-events-none select-none"
+            style={{ bottom: (settings.showRSI ? chartRsiH + 28 : 0) + 16 }}>
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
             <span className="text-[10px] text-amber-500 font-mono font-semibold">VWAP</span>
             <span className="text-[10px] text-slate-400 font-mono">₹{vwap.toFixed(1)}</span>
@@ -647,7 +765,8 @@ function ChartPageInner() {
 
         {/* Regime badge — bottom-left (above VWAP if present) */}
         {regime && (
-          <div className={`absolute ${settings.showVwap && isIntraday && vwap ? 'bottom-12' : 'bottom-4'} left-3 z-10 flex items-center gap-1.5 bg-[#0a0e1a]/90 border border-white/10 rounded-lg px-2.5 py-1.5 pointer-events-none select-none`}>
+          <div className="absolute left-3 z-10 flex items-center gap-1.5 bg-[#0a0e1a]/90 border border-white/10 rounded-lg px-2.5 py-1.5 pointer-events-none select-none"
+            style={{ bottom: (settings.showRSI ? chartRsiH + 28 : 0) + (settings.showVwap && isIntraday && vwap ? 52 : 16) }}>
             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${regime.dot}`} />
             <span className="text-xs font-semibold text-white">{regime.label}</span>
             {regimeData?.confidence && (
@@ -658,7 +777,8 @@ function ChartPageInner() {
 
         {/* Scenario badge — bottom-right */}
         {scenarioResult?.label && scenarioResult.scenario !== 'UNCLEAR' && (
-          <div className="absolute bottom-4 right-3 z-10 flex items-center gap-1 bg-[#0a0e1a]/90 border border-white/10 rounded-lg px-2.5 py-1.5 pointer-events-none select-none">
+          <div className="absolute right-3 z-10 flex items-center gap-1 bg-[#0a0e1a]/90 border border-white/10 rounded-lg px-2.5 py-1.5 pointer-events-none select-none"
+            style={{ bottom: (settings.showRSI ? chartRsiH + 28 : 0) + 16 }}>
             <span className="text-xs text-slate-400">{scenarioResult.label}</span>
             {scenarioResult.confidence && (
               <span className={`text-[10px] font-bold ml-1 ${scenarioConfCls}`}>{scenarioResult.confidence}</span>
@@ -677,18 +797,37 @@ function ChartPageInner() {
               <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-4" />
               <div className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Chart Overlays</div>
               <div className="grid grid-cols-2 gap-1">
-                {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly }) => {
+                {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams }) => {
                   const disabled = (intradayOnly && !isIntraday) || (dailyOnly && isIntraday);
                   const on       = settings[key] && !disabled;
                   return (
-                    <button key={key} onClick={() => !disabled && toggle(key)} disabled={disabled}
-                      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-colors text-left ${
-                        disabled ? 'opacity-25 cursor-not-allowed' : on ? 'bg-slate-700' : 'hover:bg-white/[0.06]'
-                      }`}
-                    >
-                      <span className="w-4 h-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: color, opacity: on ? 1 : 0.3 }} />
-                      <span className={`text-sm flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
-                    </button>
+                    <div key={key} className={`${hasParams && on ? 'col-span-2' : ''}`}>
+                      <button onClick={() => !disabled && toggle(key)} disabled={disabled}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-colors text-left w-full ${
+                          disabled ? 'opacity-25 cursor-not-allowed' : on ? 'bg-slate-700' : 'hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        <span className="w-4 h-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: color, opacity: on ? 1 : 0.3 }} />
+                        <span className={`text-sm flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
+                      </button>
+                      {hasParams && on && (
+                        <div className="flex items-center gap-3 px-3 py-1.5 text-xs text-slate-400">
+                          <label className="flex items-center gap-1.5">Period
+                            <input type="number" min={2} max={50} value={settings.rsiPeriod ?? 12}
+                              onChange={e => setNum('rsiPeriod', Math.max(2, Math.min(50, +e.target.value || 12)))}
+                              className="w-12 bg-slate-800 border border-white/10 rounded px-1.5 py-0.5 text-white text-xs text-center"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1.5">MA
+                            <input type="number" min={0} max={30} value={settings.rsiMAPeriod ?? 5}
+                              onChange={e => setNum('rsiMAPeriod', Math.max(0, Math.min(30, +e.target.value || 0)))}
+                              className="w-12 bg-slate-800 border border-white/10 rounded px-1.5 py-0.5 text-white text-xs text-center"
+                            />
+                          </label>
+                          <span className="text-slate-600 text-[10px]">(0 = off)</span>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -702,23 +841,39 @@ function ChartPageInner() {
             >
               <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-2 px-1">Chart Overlays</div>
               <div className="space-y-0.5">
-                {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly }) => {
+                {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams }) => {
                   const disabled = (intradayOnly && !isIntraday) || (dailyOnly && isIntraday);
                   const on       = settings[key] && !disabled;
                   return (
-                    <button key={key} onClick={() => !disabled && toggle(key)} disabled={disabled}
-                      className={`flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg transition-colors text-left ${
-                        disabled ? 'opacity-25 cursor-not-allowed' : 'hover:bg-white/[0.06]'
-                      }`}
-                    >
-                      <span className="flex items-center w-5 flex-shrink-0">
-                        <span className="w-full h-0.5 rounded-full block" style={{ backgroundColor: color, opacity: on ? 1 : 0.2 }} />
-                      </span>
-                      <span className={`text-xs flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
-                      <span className={`text-[10px] font-bold w-5 text-right ${on ? 'text-indigo-500' : 'text-slate-400'}`}>
-                        {on ? 'ON' : 'OFF'}
-                      </span>
-                    </button>
+                    <div key={key}>
+                      <button onClick={() => !disabled && toggle(key)} disabled={disabled}
+                        className={`flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg transition-colors text-left ${
+                          disabled ? 'opacity-25 cursor-not-allowed' : 'hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        <span className="flex items-center w-5 flex-shrink-0">
+                          <span className="w-full h-0.5 rounded-full block" style={{ backgroundColor: color, opacity: on ? 1 : 0.2 }} />
+                        </span>
+                        <span className={`text-xs flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
+                        <span className={`text-[10px] font-bold w-5 text-right ${on ? 'text-indigo-500' : 'text-slate-400'}`}>
+                          {on ? 'ON' : 'OFF'}
+                        </span>
+                      </button>
+                      {hasParams && on && (
+                        <div className="flex items-center gap-2 px-2 pb-1.5 text-[10px] text-slate-400">
+                          <span>Period</span>
+                          <input type="number" min={2} max={50} value={settings.rsiPeriod ?? 12}
+                            onChange={e => setNum('rsiPeriod', Math.max(2, Math.min(50, +e.target.value || 12)))}
+                            className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-white text-[10px] text-center"
+                          />
+                          <span>MA</span>
+                          <input type="number" min={0} max={30} value={settings.rsiMAPeriod ?? 5}
+                            onChange={e => setNum('rsiMAPeriod', Math.max(0, Math.min(30, +e.target.value || 0)))}
+                            className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-white text-[10px] text-center"
+                          />
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
