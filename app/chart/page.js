@@ -166,20 +166,28 @@ function isMarketHours() {
 
 // ── SMC computation ────────────────────────────────────────────────────────────
 // Detects BOS/CHoCH, Order Blocks, and FVGs from raw candle data.
+// Mitigation uses CLOSE prices (not wicks) — matches TradingView behaviour where
+// a zone is only "used up" when price closes through it, not on a wick touch.
 function computeSMC(candles, strength = 3) {
   const n = candles.length;
   if (n < strength * 2 + 5) return null;
 
   // ── Swing pivots ─────────────────────────────────────────────────────────
+  // Run two passes: strength=3 for structure, strength=2 for recent bars
+  // so local micro-structures (e.g. a bounce low) are also captured.
   const pivotHighs = [], pivotLows = [];
-  for (let i = strength; i < n - strength; i++) {
-    let isH = true, isL = true;
-    for (let j = 1; j <= strength; j++) {
-      if (candles[i-j].high >= candles[i].high || candles[i+j].high >= candles[i].high) isH = false;
-      if (candles[i-j].low  <= candles[i].low  || candles[i+j].low  <= candles[i].low)  isL = false;
+  const seenPH = new Set(), seenPL = new Set();
+  for (const str of [3, 2]) {
+    const cutoff = str === 2 ? Math.max(str, n - 60) : str; // str=2 only recent 60 bars
+    for (let i = Math.max(str, cutoff); i < n - str; i++) {
+      let isH = true, isL = true;
+      for (let j = 1; j <= str; j++) {
+        if (candles[i-j].high >= candles[i].high || candles[i+j].high >= candles[i].high) isH = false;
+        if (candles[i-j].low  <= candles[i].low  || candles[i+j].low  <= candles[i].low)  isL = false;
+      }
+      if (isH && !seenPH.has(i)) { seenPH.add(i); pivotHighs.push({ idx: i, price: candles[i].high }); }
+      if (isL && !seenPL.has(i)) { seenPL.add(i); pivotLows.push({ idx: i, price: candles[i].low });  }
     }
-    if (isH) pivotHighs.push({ idx: i, price: candles[i].high });
-    if (isL) pivotLows.push({ idx: i, price: candles[i].low });
   }
 
   // ── BOS / CHoCH — find first close-break of each pivot then label CHoCH/BOS ─
@@ -209,15 +217,16 @@ function computeSMC(candles, strength = 3) {
     trendState   = brk.type;
   }
 
-  // Only show breaks visible in recent history (last 120 bars)
-  const recentBreaks = allBreaks.filter(b => b.breakIdx >= n - 120);
+  // Only show breaks visible in recent history (last 150 bars)
+  const recentBreaks = allBreaks.filter(b => b.breakIdx >= n - 150);
 
   // ── Order Blocks — last opposing candle before each recent BOS/CHoCH break ──
+  // Mitigation: zone is consumed only when price CLOSES through it (not wick).
   const orderBlocks = [];
   const seenOBPrices = new Set();
-  for (const bos of allBreaks.slice(-10)) {
+  for (const bos of allBreaks.slice(-15)) {
     if (bos.breakIdx == null) continue;
-    for (let i = bos.breakIdx - 1; i >= Math.max(0, bos.breakIdx - 25); i--) {
+    for (let i = bos.breakIdx - 1; i >= Math.max(0, bos.breakIdx - 30); i--) {
       const c = candles[i];
       const isBullCandle = c.close >= c.open;
       const isMatch = (bos.type === 'bull' && !isBullCandle) || (bos.type === 'bear' && isBullCandle);
@@ -225,39 +234,40 @@ function computeSMC(candles, strength = 3) {
       const key = `${bos.type}_${c.high.toFixed(0)}_${c.low.toFixed(0)}`;
       if (seenOBPrices.has(key)) break;
       seenOBPrices.add(key);
-      // Mitigated if price has since crossed the OB zone
+      // Mitigated only when price CLOSES through the OB (wick touches don't count)
       const slice = candles.slice(bos.breakIdx);
       const mitigated = bos.type === 'bull'
-        ? slice.some(cc => cc.low  < c.low)
-        : slice.some(cc => cc.high > c.high);
+        ? slice.some(cc => cc.close < c.low)
+        : slice.some(cc => cc.close > c.high);
       if (!mitigated) orderBlocks.push({ bias: bos.type, high: c.high, low: c.low, barIdx: i });
       break;
     }
   }
 
   // ── FVGs — 3-candle imbalance, unmitigated only ──────────────────────────
+  // Mitigation: price CLOSES inside (or beyond) the gap.
   const fvgs = [];
-  const fvgStart = Math.max(0, n - 150);
+  const fvgStart = Math.max(0, n - 200);
   for (let i = fvgStart + 2; i < n - 1; i++) {
     const prev = candles[i - 2], curr = candles[i];
     if (curr.low > prev.high) {
       const sizePct = (curr.low - prev.high) / prev.high * 100;
-      if (sizePct < 0.1) continue;
-      const mitigated = candles.slice(i + 1).some(c => c.low <= prev.high);
+      if (sizePct < 0.05) continue;
+      const mitigated = candles.slice(i + 1).some(c => c.close <= curr.low);
       if (!mitigated) fvgs.push({ type: 'bull', high: curr.low, low: prev.high, startIdx: i - 1 });
     }
     if (curr.high < prev.low) {
       const sizePct = (prev.low - curr.high) / curr.high * 100;
-      if (sizePct < 0.1) continue;
-      const mitigated = candles.slice(i + 1).some(c => c.high >= prev.low);
+      if (sizePct < 0.05) continue;
+      const mitigated = candles.slice(i + 1).some(c => c.close >= curr.high);
       if (!mitigated) fvgs.push({ type: 'bear', high: prev.low, low: curr.high, startIdx: i - 1 });
     }
   }
 
   return {
     bosLevels:   recentBreaks,
-    orderBlocks: orderBlocks.slice(-6),
-    fvgs:        fvgs.slice(-6),
+    orderBlocks: orderBlocks.slice(-8),
+    fvgs:        fvgs.slice(-8),
   };
 }
 
