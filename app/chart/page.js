@@ -3,9 +3,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
+import OrderModal from '@/app/components/OrderModal';
 
 const RSI_MIN_H = 50;
 const RSI_MAX_H = 200;
+
+// Index symbols trade via options only — "+" opens a CE/PE picker instead of a stock order
+const INDEX_STRIKE_STEP = { NIFTY: 50, BANKNIFTY: 100, FINNIFTY: 50, MIDCPNIFTY: 25, SENSEX: 100 };
 
 const INTERVAL_LABELS = {
   '5minute':  '5m',
@@ -166,31 +170,26 @@ function isMarketHours() {
 
 // ── SMC computation ────────────────────────────────────────────────────────────
 // Detects BOS/CHoCH, Order Blocks, and FVGs from raw candle data.
-// Mitigation uses CLOSE prices (not wicks) — matches TradingView behaviour where
-// a zone is only "used up" when price closes through it, not on a wick touch.
-function computeSMC(candles, strength = 3) {
+// OB detection: last opposite-direction candle BEFORE the PIVOT (not the break).
+// OB mitigation: close price (wick touches don't count) — matches TradingView.
+function computeSMC(candles) {
   const n = candles.length;
-  if (n < strength * 2 + 5) return null;
+  const STR = 3; // pivot strength: 3 bars each side
+  if (n < STR * 2 + 5) return null;
 
   // ── Swing pivots ─────────────────────────────────────────────────────────
-  // Run two passes: strength=3 for structure, strength=2 for recent bars
-  // so local micro-structures (e.g. a bounce low) are also captured.
   const pivotHighs = [], pivotLows = [];
-  const seenPH = new Set(), seenPL = new Set();
-  for (const str of [3, 2]) {
-    const cutoff = str === 2 ? Math.max(str, n - 60) : str; // str=2 only recent 60 bars
-    for (let i = Math.max(str, cutoff); i < n - str; i++) {
-      let isH = true, isL = true;
-      for (let j = 1; j <= str; j++) {
-        if (candles[i-j].high >= candles[i].high || candles[i+j].high >= candles[i].high) isH = false;
-        if (candles[i-j].low  <= candles[i].low  || candles[i+j].low  <= candles[i].low)  isL = false;
-      }
-      if (isH && !seenPH.has(i)) { seenPH.add(i); pivotHighs.push({ idx: i, price: candles[i].high }); }
-      if (isL && !seenPL.has(i)) { seenPL.add(i); pivotLows.push({ idx: i, price: candles[i].low });  }
+  for (let i = STR; i < n - STR; i++) {
+    let isH = true, isL = true;
+    for (let j = 1; j <= STR; j++) {
+      if (candles[i-j].high >= candles[i].high || candles[i+j].high >= candles[i].high) isH = false;
+      if (candles[i-j].low  <= candles[i].low  || candles[i+j].low  <= candles[i].low)  isL = false;
     }
+    if (isH) pivotHighs.push({ idx: i, price: candles[i].high });
+    if (isL) pivotLows.push({ idx: i, price: candles[i].low  });
   }
 
-  // ── BOS / CHoCH — find first close-break of each pivot then label CHoCH/BOS ─
+  // ── BOS / CHoCH ──────────────────────────────────────────────────────────
   const allBreaks = [];
   for (const ph of pivotHighs) {
     for (let j = ph.idx + 1; j < n; j++) {
@@ -210,79 +209,81 @@ function computeSMC(candles, strength = 3) {
   }
   allBreaks.sort((a, b) => a.breakIdx - b.breakIdx);
 
-  // Assign CHoCH (first break after a trend flip) vs BOS (continuation)
+  // Assign CHoCH (trend flip) vs BOS (continuation)
   let trendState = null;
   for (const brk of allBreaks) {
     brk.isCHoCH = trendState !== null && trendState !== brk.type;
     trendState   = brk.type;
   }
 
-  // Only show breaks in recent history (last 80 bars keeps the chart clean)
-  const recentBreaks = allBreaks.filter(b => b.breakIdx >= n - 80);
+  // Show only the most recent 6 structural breaks (keeps chart readable)
+  const recentBreaks = allBreaks.slice(-6);
 
   const lastClose = candles[n - 1].close;
 
-  // ── Order Blocks — single-candle signal, close-price mitigation ─────────────
-  // Bias = bos.type: bull BOS → bull OB (demand/green), bear BOS → bear OB (supply/red).
-  // Mitigation: only when price CLOSES through the OB (wick touches don't count).
-  const rawOBs = [];
-  const seenOBPrices = new Set();
-  for (const bos of allBreaks.slice(-15)) {
-    if (bos.breakIdx == null) continue;
-    for (let i = bos.breakIdx - 1; i >= Math.max(0, bos.breakIdx - 30); i--) {
-      const c = candles[i];
-      const isBullCandle = c.close >= c.open;
-      const isMatch = (bos.type === 'bull' && !isBullCandle) || (bos.type === 'bear' && isBullCandle);
-      if (!isMatch) continue;
-      const key = `${bos.type}_${c.high.toFixed(0)}_${c.low.toFixed(0)}`;
-      if (seenOBPrices.has(key)) break;
-      seenOBPrices.add(key);
-      const slice = candles.slice(bos.breakIdx);
-      const mitigated = bos.type === 'bull'
+  // ── Order Blocks ─────────────────────────────────────────────────────────
+  // OB = last opposite-direction candle BEFORE the pivot that was broken.
+  // Bull BOS (broke above pivot high): demand OB = last bearish candle before the pivot high.
+  // Bear BOS (broke below pivot low):  supply OB = last bullish candle before the pivot low.
+  const rawOBs   = [];
+  const seenOBs  = new Set();
+
+  for (const bos of allBreaks.slice(-14)) {
+    const pivotI = bos.idx; // the swing pivot bar index
+    for (let i = pivotI - 1; i >= Math.max(0, pivotI - 20); i--) {
+      const c           = candles[i];
+      const isBullBar   = c.close >= c.open;
+      // Demand (bull) OB: last BEARISH bar before the swing high
+      // Supply (bear) OB: last BULLISH bar before the swing low
+      const isOpposite  = (bos.type === 'bull' && !isBullBar) || (bos.type === 'bear' && isBullBar);
+      if (!isOpposite) continue;
+
+      const key = `${bos.type}_${Math.round(c.high)}_${Math.round(c.low)}`;
+      if (seenOBs.has(key)) break;
+      seenOBs.add(key);
+
+      // Mitigation check: price closes through the OB after the BOS
+      const slice      = candles.slice(bos.breakIdx);
+      const mitigated  = bos.type === 'bull'
         ? slice.some(cc => cc.close < c.low)
         : slice.some(cc => cc.close > c.high);
+
       if (!mitigated) rawOBs.push({ bias: bos.type, high: c.high, low: c.low, barIdx: i });
       break;
     }
   }
-  // Keep only the 2 nearest bull OBs (zone bottom ≤ price) + 2 nearest bear OBs (zone top ≥ price)
-  const bullOBs = rawOBs.filter(o => o.bias === 'bull' && o.low <= lastClose)
+
+  // 2 nearest demand OBs (below price) + 2 nearest supply OBs (above price)
+  const bullOBs = rawOBs.filter(o => o.bias === 'bull' && o.low  <= lastClose)
     .sort((a, b) => b.high - a.high).slice(0, 2);
   const bearOBs = rawOBs.filter(o => o.bias === 'bear' && o.high >= lastClose)
-    .sort((a, b) => a.low - b.low).slice(0, 2);
+    .sort((a, b) => a.low  - b.low).slice(0, 2);
   const orderBlocks = [...bullOBs, ...bearOBs];
 
-  // ── FVGs — 3-candle imbalance, unmitigated only ──────────────────────────
-  // Mitigation: wick reaches the far edge of the gap.
+  // ── FVGs ─────────────────────────────────────────────────────────────────
+  // 3-candle imbalance; mitigation = wick reaches the far edge of the gap.
   const rawFVGs = [];
-  const fvgStart = Math.max(0, n - 200);
-  for (let i = fvgStart + 2; i < n - 1; i++) {
+  for (let i = 2; i < n - 1; i++) {
     const prev = candles[i - 2], curr = candles[i];
     if (curr.low > prev.high) {
-      const sizePct = (curr.low - prev.high) / prev.high * 100;
-      if (sizePct < 0.08) continue;
+      if ((curr.low - prev.high) / prev.high * 100 < 0.08) continue;
       const mitigated = candles.slice(i + 1).some(c => c.low <= prev.high);
       if (!mitigated) rawFVGs.push({ type: 'bull', high: curr.low, low: prev.high, startIdx: i - 1 });
     }
     if (curr.high < prev.low) {
-      const sizePct = (prev.low - curr.high) / curr.high * 100;
-      if (sizePct < 0.08) continue;
+      if ((prev.low - curr.high) / curr.high * 100 < 0.08) continue;
       const mitigated = candles.slice(i + 1).some(c => c.high >= prev.low);
       if (!mitigated) rawFVGs.push({ type: 'bear', high: prev.low, low: curr.high, startIdx: i - 1 });
     }
   }
-  // Keep only 2 nearest bull FVGs (low ≤ price) + 2 nearest bear FVGs (high ≥ price)
-  const bullFVGs = rawFVGs.filter(f => f.type === 'bull' && f.low <= lastClose)
+  // 2 nearest bull FVGs below price + 2 nearest bear FVGs above price
+  const bullFVGs = rawFVGs.filter(f => f.type === 'bull' && f.low  <= lastClose)
     .sort((a, b) => b.high - a.high).slice(0, 2);
   const bearFVGs = rawFVGs.filter(f => f.type === 'bear' && f.high >= lastClose)
-    .sort((a, b) => a.low - b.low).slice(0, 2);
+    .sort((a, b) => a.low  - b.low).slice(0, 2);
   const fvgs = [...bullFVGs, ...bearFVGs];
 
-  return {
-    bosLevels:   recentBreaks,
-    orderBlocks,
-    fvgs,
-  };
+  return { bosLevels: recentBreaks, orderBlocks, fvgs };
 }
 
 // ── Inner chart component (uses useSearchParams) ──────────────────────────────
@@ -295,30 +296,40 @@ function ChartPageInner() {
   const [dailyCandles, setDailyCandles]   = useState([]);
   const [loading, setLoading]             = useState(true);
   const [vwap, setVwap]                   = useState(null);
-  const [settings, setSettings]           = useState(() => {
-    if (typeof window === 'undefined') return DEFAULT_SETTINGS;
-    try {
-      const saved = JSON.parse(localStorage.getItem('tv_chart_settings') || '{}');
-      return { ...DEFAULT_SETTINGS, ...saved };
-    } catch { return DEFAULT_SETTINGS; }
-  });
+  const [settings, setSettings]           = useState(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings]   = useState(false);
   const [dropdownPos, setDropdownPos]     = useState(null);
   const [regimeData, setRegimeData]       = useState(null);
   const [stationData, setStationData]     = useState(null);
   const [hoverOHLC, setHoverOHLC]         = useState(null);
   const [isMobile, setIsMobile]           = useState(false);
-  const [chartTheme, setChartTheme]       = useState(() => {
-    if (typeof window === 'undefined') return 'dark';
-    return localStorage.getItem('tv_chart_theme') || 'dark';
-  });
+  const [chartTheme, setChartTheme]       = useState('dark');
   const [chartRsiH, setChartRsiH]         = useState(80);
+  const [lastPriceY, setLastPriceY]         = useState(null);
+  const [orderModalOpen, setOrderModalOpen] = useState(false);
+  const [indexPicker, setIndexPicker]       = useState(false);   // CE/PE picker for indices
+  const [orderOptionType, setOrderOptionType] = useState(null);  // 'CE' | 'PE' | null
 
   const containerRef   = useRef(null);
   const chartRef       = useRef(null);
   const settingsBtnRef = useRef(null);
   const dropdownRef    = useRef(null);
   const chartRsiHRef   = useRef(80);
+
+  // ── Restore persisted settings + theme after mount (avoids SSR hydration mismatch) ─
+  useEffect(() => {
+    try {
+      const savedSettings = localStorage.getItem('tv_chart_settings');
+      if (savedSettings) setSettings(s => ({ ...s, ...JSON.parse(savedSettings) }));
+    } catch {}
+    try {
+      const savedTheme = localStorage.getItem('tv_chart_theme');
+      if (savedTheme && savedTheme !== 'dark') {
+        setChartTheme(savedTheme);
+        chartRef.current?.setTheme(savedTheme);
+      }
+    } catch {}
+  }, []);
 
   // ── Fetch all data ──────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -330,9 +341,9 @@ function ChartPageInner() {
     const needDailyFetch = chartInterval !== 'day';
     try {
       const [cd, dd] = await Promise.all([
-        fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}&bust=1`).then(r => r.json()),
+        fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}${chartInterval === 'day' ? '&days=730' : ''}&bust=1`).then(r => r.json()),
         needDailyFetch
-          ? fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=day&bust=1`).then(r => r.json())
+          ? fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=day&days=730&bust=1`).then(r => r.json())
           : Promise.resolve(null),
       ]);
       const c = cd?.candles || [];
@@ -411,14 +422,15 @@ function ChartPageInner() {
       const chart = createChart(el, { interval: chartInterval, theme: chartTheme });
       chartRef.current = chart;
 
-      // ── Candles ────────────────────────────────────────────────────────────
-      chart.setCandles(candles);
-
-      // ── Crosshair → OHLCV overlay ─────────────────────────────────────────
+      // ── Callbacks — register before setCandles so they're live on first render ─
       chart.onCrosshairMove(info => {
         if (info?.bar) setHoverOHLC(info.bar);
         else           setHoverOHLC(null);
       });
+      chart.onLastPriceY(y => setLastPriceY(y));
+
+      // ── Candles ────────────────────────────────────────────────────────────
+      chart.setCandles(candles);
 
       // ── VWAP ──────────────────────────────────────────────────────────────
       if (settings.showVwap && isIntraday) {
@@ -507,6 +519,17 @@ function ChartPageInner() {
     };
   }, [candles, dailyCandles, chartInterval, stationData, settings]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fallback: if lastPriceY is still null 300ms after candles load, read it directly.
+  // Covers the edge case where the RAF fires before onLastPriceY is registered.
+  useEffect(() => {
+    if (lastPriceY !== null || !candles.length) return;
+    const t = setTimeout(() => {
+      const y = chartRef.current?.getLastPriceY?.();
+      if (y != null) setLastPriceY(y);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [candles, lastPriceY]);
+
   const toggle = key => setSettings(s => {
     const next = { ...s, [key]: !s[key] };
     try { localStorage.setItem('tv_chart_settings', JSON.stringify(next)); } catch {}
@@ -537,6 +560,11 @@ function ChartPageInner() {
   const scenarioConfCls = scenarioResult?.confidence ? (CONF_COLORS[scenarioResult.confidence] || 'text-slate-400') : 'text-slate-400';
   const anyEma = settings.showEma9 || settings.showEma21 || settings.showEma50 ||
                  (settings.showEma9D && isIntraday) || (settings.showEma9W && !isIntraday);
+
+  const isIndex  = symbol in INDEX_STRIKE_STEP;
+  const step     = INDEX_STRIKE_STEP[symbol] ?? 1;
+  const lastClose = candles.length ? candles[candles.length - 1].close : null;
+  const atmStrike = lastClose ? Math.round(lastClose / step) * step : null;
 
   return (
     <div className="h-[100dvh] flex flex-col overflow-hidden bg-[#0a0e1a] text-white">
@@ -705,6 +733,41 @@ function ChartPageInner() {
             }}
           >
             <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-slate-600/50 group-hover:bg-slate-400/60 transition-colors" />
+          </div>
+        )}
+
+        {/* Order entry button — floats beside the last-price pill */}
+        {lastPriceY !== null && candles.length > 0 && (
+          <button
+            onClick={() => {
+              if (isIndex) { setIndexPicker(v => !v); }
+              else { setOrderModalOpen(true); }
+            }}
+            style={{ top: lastPriceY - 11, right: 80 }}
+            className="absolute z-20 w-[22px] h-[22px] rounded-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 border border-indigo-400/60 shadow-lg flex items-center justify-center text-white text-sm font-bold leading-none transition-colors"
+            title={isIndex ? `Trade ${symbol} options — ATM ${atmStrike}` : `Place order — ₹${lastClose?.toFixed(2)}`}
+          >+</button>
+        )}
+
+        {/* Index CE/PE picker — appears when + is clicked on NIFTY/BANKNIFTY/etc */}
+        {indexPicker && lastPriceY !== null && atmStrike && (
+          <div
+            style={{ top: lastPriceY - 15, right: 108 }}
+            className="absolute z-30 flex items-center gap-1.5 bg-[#0f1d33] border border-white/10 rounded-lg px-2.5 py-1.5 shadow-2xl"
+          >
+            <span className="text-[11px] text-slate-400 font-mono mr-0.5">ATM {atmStrike}</span>
+            <button
+              onClick={() => { setOrderOptionType('CE'); setIndexPicker(false); setOrderModalOpen(true); }}
+              className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-emerald-700 hover:bg-emerald-600 text-white transition-colors"
+            >CE</button>
+            <button
+              onClick={() => { setOrderOptionType('PE'); setIndexPicker(false); setOrderModalOpen(true); }}
+              className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-red-700 hover:bg-red-600 text-white transition-colors"
+            >PE</button>
+            <button
+              onClick={() => setIndexPicker(false)}
+              className="ml-0.5 text-slate-500 hover:text-slate-300 text-xs leading-none"
+            >✕</button>
           </div>
         )}
 
@@ -905,6 +968,16 @@ function ChartPageInner() {
           )
         )
       )}
+    {/* Place order modal */}
+    <OrderModal
+      isOpen={orderModalOpen}
+      onClose={() => { setOrderModalOpen(false); setOrderOptionType(null); }}
+      symbol={symbol}
+      price={isIndex ? atmStrike : lastClose}
+      defaultType="BUY"
+      optionType={orderOptionType}
+      onOrderPlaced={() => { setOrderModalOpen(false); setOrderOptionType(null); }}
+    />
     </div>
   );
 }

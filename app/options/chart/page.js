@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import Nav from '../../components/Nav';
 import { createChart } from '../../lib/chart/Chart';
+import OrderModal from '../../components/OrderModal';
 
 // ── Math helpers ───────────────────────────────────────────────────────────────
 function computeVWAP(candles) {
@@ -139,10 +140,12 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
   useEffect(() => { rsiSettingsRef.current = rsiSettings; }, [rsiSettings]);
   useEffect(() => { rsiHeightRef.current   = rsiHeight;   }, [rsiHeight]);
 
-  const [info,      setInfo]      = useState(null);
-  const [err,       setErr]       = useState(null);
-  const [loading,   setLoading]   = useState(true);
-  const [hoverData, setHoverData] = useState(null);
+  const [info,          setInfo]          = useState(null);
+  const [err,           setErr]           = useState(null);
+  const [loading,       setLoading]       = useState(true);
+  const [hoverData,     setHoverData]     = useState(null);
+  const [lastPriceY,    setLastPriceY]    = useState(null);
+  const [orderModalOpen, setOrderModalOpen] = useState(false);
 
   // ── Expose imperative methods ─────────────────────────────────────────────
   useImperativeHandle(ref, () => ({
@@ -230,8 +233,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
       }
       if (chartRef.current) {
         const chart = chartRef.current;
-        chart.setCandles(candles);
-        applyRSIPane(chart, rsi, rsiMA, overlaysRef.current.rsi, rsiHeightRef.current);
+        // Register callbacks before setCandles so they're live on first render
         chart.onCrosshairMove(data => {
           if (data) {
             setHoverData(buildHoverData(data.bar, data.lineValues));
@@ -241,6 +243,9 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
             onCrosshairIndex?.(null);
           }
         });
+        chart.onLastPriceY(y => setLastPriceY(y));
+        chart.setCandles(candles);
+        applyRSIPane(chart, rsi, rsiMA, overlaysRef.current.rsi, rsiHeightRef.current);
       }
       setHoverData(defaultHoverData());
     }
@@ -348,7 +353,28 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
             onMouseDown={onRsiDragStart}
           />
         )}
+
+        {/* Order entry button — floats beside the last-price pill */}
+        {lastPriceY !== null && (
+          <button
+            onClick={() => setOrderModalOpen(true)}
+            style={{ top: lastPriceY - 11, right: 80 }}
+            className="absolute z-20 w-[22px] h-[22px] rounded-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 border border-indigo-400/60 shadow-lg flex items-center justify-center text-white text-sm font-bold leading-none transition-colors"
+            title={`Place order — strike ₹${strike}`}
+          >+</button>
+        )}
       </div>
+
+      {/* Place order modal */}
+      <OrderModal
+        isOpen={orderModalOpen}
+        onClose={() => setOrderModalOpen(false)}
+        symbol={symbol}
+        price={strike}
+        defaultType="BUY"
+        optionType={type}
+        onOrderPlaced={() => setOrderModalOpen(false)}
+      />
     </div>
   );
 });

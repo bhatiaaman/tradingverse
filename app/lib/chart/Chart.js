@@ -64,7 +64,9 @@ export function createChart(container, options = {}) {
   let   rsiPaneData = null;              // { rsi: number[], rsiMA: number[]|null, label: string }
   let   showVolume  = options.showVolume ?? true;
   let   crosshair   = { visible: false };
-  let   crosshairCb = null;
+  let   crosshairCb      = null;
+  let   lastPriceYCb     = null;
+  let   lastEmittedPriceY = undefined;
   let   dirty       = true;
   let   rafId       = null;
   let   destroyed   = false;
@@ -108,6 +110,13 @@ export function createChart(container, options = {}) {
       renderRSIPane(ctx, vp, rsiPaneData.rsi, rsiPaneData.rsiMA, snapIdx, rsiPaneData.label, palette);
     }
     renderCrosshair(ctx, vp, crosshair, candles, interval);
+
+    // Emit last-price Y for overlay button positioning — only when value changes
+    if (lastPriceYCb && candles.length) {
+      const lY   = vp.priceToY(candles[candles.length - 1].close);
+      const emit = (lY >= vp.chartTop && lY <= vp.chartBottom) ? Math.round(lY) : null;
+      if (emit !== lastEmittedPriceY) { lastEmittedPriceY = emit; lastPriceYCb(emit); }
+    }
   }
 
   function markDirty() { dirty = true; }
@@ -306,6 +315,22 @@ export function createChart(container, options = {}) {
     // Called with { bar, x, y } on hover, null when crosshair leaves chart.
     onCrosshairMove(cb) {
       crosshairCb = cb;
+    },
+
+    // Register last-price Y callback. Called with the integer pixel Y of the last-close
+    // price pill whenever it changes (null when price is scrolled out of view).
+    // Use this to position an order-entry button overlay aligned to the price axis.
+    onLastPriceY(cb) {
+      lastPriceYCb = cb;
+      markDirty(); // force a render so the callback fires immediately with current position
+    },
+
+    // Synchronously read the current last-price Y pixel (null if out of view or no candles).
+    // Use as a fallback if the callback hasn't fired yet.
+    getLastPriceY() {
+      if (!candles.length) return null;
+      const lY = vp.priceToY(candles[candles.length - 1].close);
+      return (lY >= vp.chartTop && lY <= vp.chartBottom) ? Math.round(lY) : null;
     },
 
     // Programmatically position crosshair at a bar index (synced chart — vertical line only).
