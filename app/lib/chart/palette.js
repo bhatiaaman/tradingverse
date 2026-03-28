@@ -45,9 +45,9 @@ export const LIGHT = {
   bearBos:   '#F23645',
   bullChoch: '#26a69a',
   bearChoch: '#ef5350',
-  // Zone fills — TV teal/red, more opaque on light bg
+  // Zone fills — TV teal/red, clearly visible on light bg
   fvgFill:   { bull: 'rgba(8,153,129,0.1)',    bear: 'rgba(242,54,69,0.1)'   },
-  fvgBorder: { bull: 'rgba(8,153,129,0.55)',   bear: 'rgba(242,54,69,0.55)'  },
-  obFill:    { bull: 'rgba(8,153,129,0.12)',   bear: 'rgba(242,54,69,0.12)'  },
-  obBorder:  { bull: 'rgba(8,153,129,0.65)',   bear: 'rgba(242,54,69,0.65)'  },
+  fvgBorder: { bull: 'rgba(8,153,129,0.6)',    bear: 'rgba(242,54,69,0.6)'   },
+  obFill:    { bull: 'rgba(8,153,129,0.18)',   bear: 'rgba(242,54,69,0.18)'  },
+  obBorder:  { bull: 'rgba(8,153,129,0.8)',    bear: 'rgba(242,54,69,0.8)'   },
 };

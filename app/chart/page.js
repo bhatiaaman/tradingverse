@@ -220,8 +220,10 @@ function computeSMC(candles, strength = 3) {
   // Only show breaks visible in recent history (last 150 bars)
   const recentBreaks = allBreaks.filter(b => b.breakIdx >= n - 150);
 
-  // ── Order Blocks — last opposing candle before each recent BOS/CHoCH break ──
-  // Mitigation: zone is consumed only when price CLOSES through it (not wick).
+  // ── Order Blocks — demand/supply zone before each structural break ──────────
+  // Bias = bos.type: bull BOS → bull OB (demand/green), bear BOS → bear OB (supply/red).
+  // Zone extended to span up to 3 adjacent candles for visibility.
+  // Mitigation: only when price CLOSES through the zone (wick touches don't count).
   const orderBlocks = [];
   const seenOBPrices = new Set();
   for (const bos of allBreaks.slice(-15)) {
@@ -234,40 +236,51 @@ function computeSMC(candles, strength = 3) {
       const key = `${bos.type}_${c.high.toFixed(0)}_${c.low.toFixed(0)}`;
       if (seenOBPrices.has(key)) break;
       seenOBPrices.add(key);
-      // Mitigated only when price CLOSES through the OB (wick touches don't count)
+      // Widen zone to span 1 candle on each side (demand/supply zone, not just one candle)
+      const zoneHigh = Math.max(
+        c.high,
+        i > 0          ? candles[i - 1].high : c.high,
+        i + 1 < n      ? candles[i + 1].high : c.high,
+      );
+      const zoneLow = Math.min(
+        c.low,
+        i > 0          ? candles[i - 1].low : c.low,
+        i + 1 < n      ? candles[i + 1].low : c.low,
+      );
+      // Mitigated only when price CLOSES through the zone (wick touches don't count)
       const slice = candles.slice(bos.breakIdx);
       const mitigated = bos.type === 'bull'
-        ? slice.some(cc => cc.close < c.low)
-        : slice.some(cc => cc.close > c.high);
-      if (!mitigated) orderBlocks.push({ bias: bos.type, high: c.high, low: c.low, barIdx: i });
+        ? slice.some(cc => cc.close < zoneLow)
+        : slice.some(cc => cc.close > zoneHigh);
+      if (!mitigated) orderBlocks.push({ bias: bos.type, high: zoneHigh, low: zoneLow, barIdx: i });
       break;
     }
   }
 
   // ── FVGs — 3-candle imbalance, unmitigated only ──────────────────────────
-  // Mitigation: price CLOSES inside (or beyond) the gap.
+  // Mitigation: wick enters the far edge of the gap (same as TV — gap fills on wick touch).
   const fvgs = [];
   const fvgStart = Math.max(0, n - 200);
   for (let i = fvgStart + 2; i < n - 1; i++) {
     const prev = candles[i - 2], curr = candles[i];
     if (curr.low > prev.high) {
       const sizePct = (curr.low - prev.high) / prev.high * 100;
-      if (sizePct < 0.05) continue;
-      const mitigated = candles.slice(i + 1).some(c => c.close <= curr.low);
+      if (sizePct < 0.08) continue;
+      const mitigated = candles.slice(i + 1).some(c => c.low <= prev.high);
       if (!mitigated) fvgs.push({ type: 'bull', high: curr.low, low: prev.high, startIdx: i - 1 });
     }
     if (curr.high < prev.low) {
       const sizePct = (prev.low - curr.high) / curr.high * 100;
-      if (sizePct < 0.05) continue;
-      const mitigated = candles.slice(i + 1).some(c => c.close >= curr.high);
+      if (sizePct < 0.08) continue;
+      const mitigated = candles.slice(i + 1).some(c => c.high >= prev.low);
       if (!mitigated) fvgs.push({ type: 'bear', high: prev.low, low: curr.high, startIdx: i - 1 });
     }
   }
 
   return {
     bosLevels:   recentBreaks,
-    orderBlocks: orderBlocks.slice(-8),
-    fvgs:        fvgs.slice(-8),
+    orderBlocks: orderBlocks.slice(-6),
+    fvgs:        fvgs.slice(-6),
   };
 }
 
