@@ -596,6 +596,11 @@ export default function OptionsPage() {
             Expiry Dashboard ↗
           </a>
 
+          <a href="/options/chart"
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-600/30 hover:text-indigo-300 transition-colors">
+            Options Chart ↗
+          </a>
+
           {resolvedExpiry && (
             <span className="text-xs text-slate-500">Expiry: {resolvedExpiry}</span>
           )}

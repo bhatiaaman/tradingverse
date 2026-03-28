@@ -21,6 +21,7 @@ import { renderZones }       from './renderers/zones.js';
 import { renderVolume }      from './renderers/volume.js';
 import { renderCrosshair }   from './renderers/crosshair.js';
 import { renderMarkers }     from './renderers/markers.js';
+import { renderSMC }        from './renderers/smc.js';
 
 export function createChart(container, options = {}) {
   const interval = options.interval ?? '15minute';
@@ -50,6 +51,7 @@ export function createChart(container, options = {}) {
   let   timeIndex   = new Map();          // unix timestamp → candle index
   const lineMap     = new Map();          // id → { values: number[], color, width }
   let   zones       = [];                 // [{ id, price, color, label, style }]
+  let   smcData     = null;               // { bosLevels, orderBlocks, fvgs }
   let   markers     = [];                 // [{ index, direction: 'bull'|'bear' }]
   let   showVolume  = options.showVolume ?? true;
   let   crosshair   = { visible: false };
@@ -72,9 +74,10 @@ export function createChart(container, options = {}) {
     // Recompute price scale from current viewport + data every frame
     vp.autoScale(candles);
 
-    // Draw order: grid/axes → volume → zones → lines → candles → crosshair
+    // Draw order: grid/axes → volume → SMC → zones → lines → candles → crosshair
     renderAxes(ctx, vp, candles, interval);
     if (showVolume) renderVolume(ctx, vp, candles);
+    if (smcData)   renderSMC(ctx, vp, smcData);
     renderZones(ctx, vp, zones, crosshair);
     for (const [, line] of lineMap) {
       renderLine(ctx, vp, line.values, line.color, line.width);
@@ -227,6 +230,16 @@ export function createChart(container, options = {}) {
 
     clearAllZones() {
       zones = [];
+      markDirty();
+    },
+
+    setSMC(data) {
+      smcData = data ?? null;
+      markDirty();
+    },
+
+    clearSMC() {
+      smcData = null;
       markDirty();
     },
 

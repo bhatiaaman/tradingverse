@@ -45,6 +45,7 @@ const INDEX_TOKENS = {
 
 // ── Cache TTLs by interval ────────────────────────────────────────────────────
 const CACHE_TTL = {
+  'minute':   30,
   '5minute':  60,
   '15minute': 120,
   '60minute': 300,
@@ -79,6 +80,26 @@ async function getNSETokenMap(dp) {
   return tokenMap;
 }
 
+// ── NFO token lookup (populated by /api/option-meta) ─────────────────────────
+// tradingsymbol prefix = underlying name (everything before digits), e.g. 'NIFTY', 'BANKNIFTY', 'RELIANCE'
+function extractNFOName(tradingsymbol) {
+  const m = tradingsymbol.match(/^([A-Z&]+)/);
+  return m ? m[1] : null;
+}
+
+async function getNFOToken(tradingsymbol) {
+  const name = extractNFOName(tradingsymbol);
+  if (!name) return null;
+  try {
+    const cacheKey = `${NS}:fno-ts-tokens:${name}`;
+    const res  = await fetch(`${REDIS_URL}/get/${cacheKey}`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
+    const data = await res.json();
+    if (!data.result) return null;
+    const map = JSON.parse(data.result);
+    return map[tradingsymbol] ?? null;
+  } catch { return null; }
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const symbol   = (searchParams.get('symbol') || 'NIFTY').toUpperCase();
@@ -87,7 +108,7 @@ export async function GET(request) {
 
   const bust     = searchParams.get('bust') === '1';
 
-  const validIntervals = ['5minute', '15minute', '60minute', 'day'];
+  const validIntervals = ['minute', '5minute', '15minute', '60minute', 'day'];
   if (!validIntervals.includes(interval)) {
     return NextResponse.json({ error: `Invalid interval. Use: ${validIntervals.join(', ')}` }, { status: 400 });
   }
@@ -111,6 +132,11 @@ export async function GET(request) {
       const tokenMap = await getNSETokenMap(dp);
       token = tokenMap[symbol];
     }
+    // NFO fallback — tradingsymbols like NIFTY25MAR2423000CE
+    // Token maps are cached by option-meta route under fno-ts-tokens:{name}
+    if (!token) {
+      token = await getNFOToken(symbol);
+    }
     if (!token) {
       return NextResponse.json({ error: `Token not found for symbol: ${symbol}` }, { status: 404 });
     }
@@ -125,6 +151,9 @@ export async function GET(request) {
       fromDate = getIST(-(days || 30));
     } else if (interval === '15minute') {
       fromDate = getIST(-(days || 10));
+    } else if (interval === 'minute') {
+      // 1m — options + intraday, Kite limit is 60 days; fetch last 5 days
+      fromDate = getIST(-(days || 5));
     } else {
       // 5minute — fetch enough days to cover intraday + fallback
       fromDate = getIST(-(days || 3));
@@ -135,9 +164,28 @@ export async function GET(request) {
       return NextResponse.json({ error: 'No candle data returned' }, { status: 503 });
     }
 
-    // ── Intraday session filter (5min / 15min) ───────────────────────────────
+    // ── Intraday session filter ───────────────────────────────────────────────
     let candles;
-    if (interval === '5minute') {
+    if (interval === 'minute') {
+      const sessionCandles = raw.filter(c => {
+        const ist  = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
+        const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+        return mins >= 555 && mins <= 930;
+      });
+      if (sessionCandles.length >= 5) {
+        const dates = [...new Set(sessionCandles.map(c => {
+          const ist = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
+          return ist.toISOString().slice(0, 10);
+        }))].sort();
+        const keepDates = new Set(dates.slice(-2)); // last 2 trading days
+        candles = sessionCandles.filter(c => {
+          const ist = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
+          return keepDates.has(ist.toISOString().slice(0, 10));
+        });
+      } else {
+        candles = raw.slice(-750); // ~2.5 trading days of 1m candles
+      }
+    } else if (interval === '5minute') {
       // Filter to session hours (9:15–15:30 IST) across all fetched days
       const sessionCandles = raw.filter(c => {
         const ist  = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);

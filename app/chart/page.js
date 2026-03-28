@@ -48,6 +48,7 @@ const OVERLAY_DEFS = [
   { key: 'showEma9D',  label: 'EMA 9 Daily',  color: EMA_COLORS.ema9D,  intradayOnly: true,  dailyOnly: false },
   { key: 'showEma9W',  label: 'EMA 9 Weekly', color: EMA_COLORS.ema9W,  intradayOnly: false, dailyOnly: true  },
   { key: 'showVolume', label: 'Volume',       color: '#475569',          intradayOnly: false, dailyOnly: false },
+  { key: 'showSMC',    label: 'SMC  (BOS · OB · FVG)', color: '#6366f1', intradayOnly: false, dailyOnly: false },
 ];
 
 const DEFAULT_SETTINGS = {
@@ -60,6 +61,7 @@ const DEFAULT_SETTINGS = {
   showEma9D:  true,
   showEma9W:  true,
   showVolume: true,
+  showSMC:    true,
 };
 
 // ── Weekly aggregation (for EMA 9 Weekly on daily chart) ──────────────────────
@@ -119,6 +121,103 @@ function isMarketHours() {
   if (day === 0 || day === 6) return false;
   const total = ist.getUTCHours() * 60 + ist.getUTCMinutes();
   return total >= 540 && total <= 935;
+}
+
+// ── SMC computation ────────────────────────────────────────────────────────────
+// Detects BOS/CHoCH, Order Blocks, and FVGs from raw candle data.
+function computeSMC(candles, strength = 3) {
+  const n = candles.length;
+  if (n < strength * 2 + 5) return null;
+
+  // ── Swing pivots ─────────────────────────────────────────────────────────
+  const pivotHighs = [], pivotLows = [];
+  for (let i = strength; i < n - strength; i++) {
+    let isH = true, isL = true;
+    for (let j = 1; j <= strength; j++) {
+      if (candles[i-j].high >= candles[i].high || candles[i+j].high >= candles[i].high) isH = false;
+      if (candles[i-j].low  <= candles[i].low  || candles[i+j].low  <= candles[i].low)  isL = false;
+    }
+    if (isH) pivotHighs.push({ idx: i, price: candles[i].high });
+    if (isL) pivotLows.push({ idx: i, price: candles[i].low });
+  }
+
+  // ── BOS / CHoCH — find first close-break of each pivot then label CHoCH/BOS ─
+  const allBreaks = [];
+  for (const ph of pivotHighs) {
+    for (let j = ph.idx + 1; j < n; j++) {
+      if (candles[j].close > ph.price) {
+        allBreaks.push({ type: 'bull', price: ph.price, idx: ph.idx, breakIdx: j });
+        break;
+      }
+    }
+  }
+  for (const pl of pivotLows) {
+    for (let j = pl.idx + 1; j < n; j++) {
+      if (candles[j].close < pl.price) {
+        allBreaks.push({ type: 'bear', price: pl.price, idx: pl.idx, breakIdx: j });
+        break;
+      }
+    }
+  }
+  allBreaks.sort((a, b) => a.breakIdx - b.breakIdx);
+
+  // Assign CHoCH (first break after a trend flip) vs BOS (continuation)
+  let trendState = null;
+  for (const brk of allBreaks) {
+    brk.isCHoCH = trendState !== null && trendState !== brk.type;
+    trendState   = brk.type;
+  }
+
+  // Only show breaks visible in recent history (last 120 bars)
+  const recentBreaks = allBreaks.filter(b => b.breakIdx >= n - 120);
+
+  // ── Order Blocks — last opposing candle before each recent BOS/CHoCH break ──
+  const orderBlocks = [];
+  const seenOBPrices = new Set();
+  for (const bos of allBreaks.slice(-10)) {
+    if (bos.breakIdx == null) continue;
+    for (let i = bos.breakIdx - 1; i >= Math.max(0, bos.breakIdx - 25); i--) {
+      const c = candles[i];
+      const isBullCandle = c.close >= c.open;
+      const isMatch = (bos.type === 'bull' && !isBullCandle) || (bos.type === 'bear' && isBullCandle);
+      if (!isMatch) continue;
+      const key = `${bos.type}_${c.high.toFixed(0)}_${c.low.toFixed(0)}`;
+      if (seenOBPrices.has(key)) break;
+      seenOBPrices.add(key);
+      // Mitigated if price has since crossed the OB zone
+      const slice = candles.slice(bos.breakIdx);
+      const mitigated = bos.type === 'bull'
+        ? slice.some(cc => cc.low  < c.low)
+        : slice.some(cc => cc.high > c.high);
+      if (!mitigated) orderBlocks.push({ bias: bos.type, high: c.high, low: c.low, barIdx: i });
+      break;
+    }
+  }
+
+  // ── FVGs — 3-candle imbalance, unmitigated only ──────────────────────────
+  const fvgs = [];
+  const fvgStart = Math.max(0, n - 150);
+  for (let i = fvgStart + 2; i < n - 1; i++) {
+    const prev = candles[i - 2], curr = candles[i];
+    if (curr.low > prev.high) {
+      const sizePct = (curr.low - prev.high) / prev.high * 100;
+      if (sizePct < 0.1) continue;
+      const mitigated = candles.slice(i + 1).some(c => c.low <= prev.high);
+      if (!mitigated) fvgs.push({ type: 'bull', high: curr.low, low: prev.high, startIdx: i - 1 });
+    }
+    if (curr.high < prev.low) {
+      const sizePct = (prev.low - curr.high) / curr.high * 100;
+      if (sizePct < 0.1) continue;
+      const mitigated = candles.slice(i + 1).some(c => c.high >= prev.low);
+      if (!mitigated) fvgs.push({ type: 'bear', high: prev.low, low: curr.high, startIdx: i - 1 });
+    }
+  }
+
+  return {
+    bosLevels:   recentBreaks,
+    orderBlocks: orderBlocks.slice(-6),
+    fvgs:        fvgs.slice(-6),
+  };
 }
 
 // ── Inner chart component (uses useSearchParams) ──────────────────────────────
@@ -304,6 +403,15 @@ function ChartPageInner() {
       if (settings.showEma9W && !isIntraday && dailyCandles.length >= 9) {
         const val = computeEMA(aggregateWeekly(dailyCandles), 9).at(-1)?.value;
         if (val) chart.setZone({ id: 'ema9w', price: val, color: 'rgba(251,146,60,0.85)', label: 'W·EMA9', style: 'solid', width: 2.5, inline: true });
+      }
+
+      // ── SMC overlays (BOS · OB · FVG) ────────────────────────────────────
+      if (settings.showSMC && candles.length > 10) {
+        const smc = computeSMC(candles);
+        if (smc) chart.setSMC(smc);
+        else chart.clearSMC();
+      } else {
+        chart.clearSMC();
       }
 
       // ── Volume ────────────────────────────────────────────────────────────
