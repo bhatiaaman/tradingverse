@@ -217,14 +217,15 @@ function computeSMC(candles, strength = 3) {
     trendState   = brk.type;
   }
 
-  // Only show breaks visible in recent history (last 150 bars)
-  const recentBreaks = allBreaks.filter(b => b.breakIdx >= n - 150);
+  // Only show breaks in recent history (last 80 bars keeps the chart clean)
+  const recentBreaks = allBreaks.filter(b => b.breakIdx >= n - 80);
 
-  // ── Order Blocks — demand/supply zone before each structural break ──────────
+  const lastClose = candles[n - 1].close;
+
+  // ── Order Blocks — single-candle signal, close-price mitigation ─────────────
   // Bias = bos.type: bull BOS → bull OB (demand/green), bear BOS → bear OB (supply/red).
-  // Zone extended to span up to 3 adjacent candles for visibility.
-  // Mitigation: only when price CLOSES through the zone (wick touches don't count).
-  const orderBlocks = [];
+  // Mitigation: only when price CLOSES through the OB (wick touches don't count).
+  const rawOBs = [];
   const seenOBPrices = new Set();
   for (const bos of allBreaks.slice(-15)) {
     if (bos.breakIdx == null) continue;
@@ -236,30 +237,24 @@ function computeSMC(candles, strength = 3) {
       const key = `${bos.type}_${c.high.toFixed(0)}_${c.low.toFixed(0)}`;
       if (seenOBPrices.has(key)) break;
       seenOBPrices.add(key);
-      // Widen zone to span 1 candle on each side (demand/supply zone, not just one candle)
-      const zoneHigh = Math.max(
-        c.high,
-        i > 0          ? candles[i - 1].high : c.high,
-        i + 1 < n      ? candles[i + 1].high : c.high,
-      );
-      const zoneLow = Math.min(
-        c.low,
-        i > 0          ? candles[i - 1].low : c.low,
-        i + 1 < n      ? candles[i + 1].low : c.low,
-      );
-      // Mitigated only when price CLOSES through the zone (wick touches don't count)
       const slice = candles.slice(bos.breakIdx);
       const mitigated = bos.type === 'bull'
-        ? slice.some(cc => cc.close < zoneLow)
-        : slice.some(cc => cc.close > zoneHigh);
-      if (!mitigated) orderBlocks.push({ bias: bos.type, high: zoneHigh, low: zoneLow, barIdx: i });
+        ? slice.some(cc => cc.close < c.low)
+        : slice.some(cc => cc.close > c.high);
+      if (!mitigated) rawOBs.push({ bias: bos.type, high: c.high, low: c.low, barIdx: i });
       break;
     }
   }
+  // Keep only the 2 nearest bull OBs (below price) + 2 nearest bear OBs (above price)
+  const bullOBs = rawOBs.filter(o => o.bias === 'bull' && o.high <= lastClose)
+    .sort((a, b) => b.high - a.high).slice(0, 2);
+  const bearOBs = rawOBs.filter(o => o.bias === 'bear' && o.low >= lastClose)
+    .sort((a, b) => a.low - b.low).slice(0, 2);
+  const orderBlocks = [...bullOBs, ...bearOBs];
 
   // ── FVGs — 3-candle imbalance, unmitigated only ──────────────────────────
-  // Mitigation: wick enters the far edge of the gap (same as TV — gap fills on wick touch).
-  const fvgs = [];
+  // Mitigation: wick reaches the far edge of the gap.
+  const rawFVGs = [];
   const fvgStart = Math.max(0, n - 200);
   for (let i = fvgStart + 2; i < n - 1; i++) {
     const prev = candles[i - 2], curr = candles[i];
@@ -267,20 +262,26 @@ function computeSMC(candles, strength = 3) {
       const sizePct = (curr.low - prev.high) / prev.high * 100;
       if (sizePct < 0.08) continue;
       const mitigated = candles.slice(i + 1).some(c => c.low <= prev.high);
-      if (!mitigated) fvgs.push({ type: 'bull', high: curr.low, low: prev.high, startIdx: i - 1 });
+      if (!mitigated) rawFVGs.push({ type: 'bull', high: curr.low, low: prev.high, startIdx: i - 1 });
     }
     if (curr.high < prev.low) {
       const sizePct = (prev.low - curr.high) / curr.high * 100;
       if (sizePct < 0.08) continue;
       const mitigated = candles.slice(i + 1).some(c => c.high >= prev.low);
-      if (!mitigated) fvgs.push({ type: 'bear', high: prev.low, low: curr.high, startIdx: i - 1 });
+      if (!mitigated) rawFVGs.push({ type: 'bear', high: prev.low, low: curr.high, startIdx: i - 1 });
     }
   }
+  // Keep only 2 nearest bull FVGs below price + 2 nearest bear FVGs above price
+  const bullFVGs = rawFVGs.filter(f => f.type === 'bull' && f.high <= lastClose)
+    .sort((a, b) => b.high - a.high).slice(0, 2);
+  const bearFVGs = rawFVGs.filter(f => f.type === 'bear' && f.low >= lastClose)
+    .sort((a, b) => a.low - b.low).slice(0, 2);
+  const fvgs = [...bullFVGs, ...bearFVGs];
 
   return {
     bosLevels:   recentBreaks,
-    orderBlocks: orderBlocks.slice(-6),
-    fvgs:        fvgs.slice(-6),
+    orderBlocks,
+    fvgs,
   };
 }
 
