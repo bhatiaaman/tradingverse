@@ -6,11 +6,6 @@
 
 import { DARK } from '../palette.js';
 
-const BULL_BOS   = '#22c55e';
-const BEAR_BOS   = '#ef4444';
-const BULL_CHOCH = '#86efac';
-const BEAR_CHOCH = '#fca5a5';
-
 export function renderSMC(ctx, vp, smc, palette) {
   if (!smc) return;
   const P = palette ?? DARK;
@@ -96,8 +91,8 @@ export function renderSMC(ctx, vp, smc, palette) {
     const cx2 = Math.min(vp.chartRight, x2);
 
     const color = bos.isCHoCH
-      ? (bos.type === 'bull' ? BULL_CHOCH : BEAR_CHOCH)
-      : (bos.type === 'bull' ? BULL_BOS   : BEAR_BOS);
+      ? (bos.type === 'bull' ? P.bullChoch : P.bearChoch)
+      : (bos.type === 'bull' ? P.bullBos   : P.bearBos);
 
     // Dashed line
     ctx.strokeStyle = color;
