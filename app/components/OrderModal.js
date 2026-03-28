@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { X, TrendingUp, TrendingDown, Loader2, RefreshCw, LogIn, Brain, AlertTriangle, Target, ChevronDown } from 'lucide-react';
 import { nseStrikeSteps } from '@/app/lib/nseStrikeSteps';
 
@@ -231,6 +231,103 @@ function ModalVerdictCard({ regimeData, scenarioResult, symbol, isLoading, secto
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DepthPanel — 5-level bid/ask order depth, shown in the Order tab
+// ─────────────────────────────────────────────────────────────────────────────
+function DepthPanel({ depth, loading, onRefresh }) {
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-white/8 bg-white/[0.025] px-4 py-3 flex items-center gap-2">
+        <Loader2 size={12} className="animate-spin text-slate-500" />
+        <span className="text-[11px] text-slate-500">Loading depth…</span>
+      </div>
+    );
+  }
+  if (!depth) return null;
+
+  const { buy, sell, bestBid, bestAsk, spread, spreadPct, totalBuyQty, totalSellQty, buyPct } = depth;
+
+  // Max qty across all levels for bar scaling
+  const maxQty = Math.max(1, ...buy.map(l => l?.qty ?? 0), ...sell.map(l => l?.qty ?? 0));
+
+  const fmtQty = (q) => q == null ? '—' : q >= 10000 ? `${(q / 1000).toFixed(1)}k` : q.toLocaleString('en-IN');
+  const fmtPx  = (p) => p == null ? '—' : p.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const spreadWide = spreadPct != null && spreadPct > 2;
+
+  return (
+    <div className="rounded-xl border border-white/8 bg-white/[0.025] overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Depth</span>
+          {spread != null && (
+            <span className={`text-[10px] font-semibold ${spreadWide ? 'text-amber-400' : 'text-slate-500'}`}>
+              Spread ₹{spread} ({spreadPct}%){spreadWide ? ' ⚠' : ''}
+            </span>
+          )}
+        </div>
+        <button type="button" onClick={onRefresh}
+          className="p-1 rounded hover:bg-white/5 text-slate-500 hover:text-slate-300 transition-colors">
+          <RefreshCw size={11} />
+        </button>
+      </div>
+
+      {/* Column headers */}
+      <div className="grid grid-cols-[1fr_auto_1fr] text-[9px] font-bold text-slate-600 uppercase tracking-wider px-3 py-1 border-b border-white/5">
+        <span>Bid Qty</span>
+        <span className="text-center">Price</span>
+        <span className="text-right">Ask Qty</span>
+      </div>
+
+      {/* 5 levels */}
+      {Array.from({ length: 5 }).map((_, i) => {
+        const b = buy[i];
+        const s = sell[i];
+        const bPct = b ? Math.round((b.qty / maxQty) * 100) : 0;
+        const sPct = s ? Math.round((s.qty / maxQty) * 100) : 0;
+        return (
+          <div key={i} className="grid grid-cols-[1fr_auto_1fr] items-center px-3 py-[3px] relative">
+            {/* Bid bar (left, green, grows right→left) */}
+            {b && <div className="absolute left-0 top-0 bottom-0 bg-emerald-500/10" style={{ width: `${bPct / 2}%` }} />}
+            {/* Ask bar (right, red, grows left→right) */}
+            {s && <div className="absolute right-0 top-0 bottom-0 bg-red-500/10" style={{ width: `${sPct / 2}%` }} />}
+
+            <span className="relative text-[11px] font-mono text-emerald-400 tabular-nums z-10">
+              {b ? fmtQty(b.qty) : <span className="text-slate-700">—</span>}
+            </span>
+            <span className={`relative text-[11px] font-mono tabular-nums z-10 px-2 ${
+              i === 0 ? 'text-white font-semibold' : 'text-slate-400'
+            }`}>
+              {b?.price != null ? fmtPx(b.price) : s?.price != null ? fmtPx(s.price) : '—'}
+            </span>
+            <span className="relative text-[11px] font-mono text-red-400 tabular-nums text-right z-10">
+              {s ? fmtQty(s.qty) : <span className="text-slate-700">—</span>}
+            </span>
+          </div>
+        );
+      })}
+
+      {/* Imbalance bar */}
+      <div className="px-3 pt-2 pb-2.5 border-t border-white/5 mt-0.5">
+        <div className="flex items-center justify-between text-[9px] text-slate-500 mb-1">
+          <span>Buy {fmtQty(totalBuyQty)}</span>
+          <span className={`font-bold text-[10px] ${
+            buyPct >= 60 ? 'text-emerald-400' : buyPct <= 40 ? 'text-red-400' : 'text-slate-400'
+          }`}>
+            {buyPct >= 60 ? `Buyers ${buyPct}% dominant` : buyPct <= 40 ? `Sellers ${100 - buyPct}% dominant` : 'Balanced'}
+          </span>
+          <span>Sell {fmtQty(totalSellQty)}</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-red-500/30 overflow-hidden">
+          <div className="h-full rounded-full bg-emerald-500/80 transition-all duration-500"
+            style={{ width: `${buyPct}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function OrderModal({
   isOpen,
   onClose,
@@ -268,6 +365,8 @@ export default function OrderModal({
   const [avgDownAlert, setAvgDownAlert] = useState(null); // Averaging down warning
   const [positions, setPositions] = useState([]);
   const [activeTab, setActiveTab] = useState('order');
+  const [depth, setDepth]           = useState(null);
+  const [depthLoading, setDepthLoading] = useState(false);
   const [deepIntelLoading, setDeepIntelLoading] = useState(false);
   const [deepIntelResult, setDeepIntelResult] = useState(null);
   const [regimeData, setRegimeData]   = useState(null);
@@ -405,6 +504,7 @@ export default function OrderModal({
       setActiveTab('order');
       setDeepIntelResult(null);
       setRegimeData(null);
+      setDepth(null);
       if (optionType && price) {
         setStrike(getExpectedStrike(symbol, price, optionType));
       } else {
@@ -470,6 +570,29 @@ export default function OrderModal({
       fetchRegime();
     }
   }, [isOpen, symbol, transactionType, isLoggedIn, kiteOptionSymbol]);
+
+  // ─── FETCH MARKET DEPTH ────────────────────────────────────────────────
+  const fetchDepth = useCallback(async () => {
+    if (!isLoggedIn) return;
+    // For options use the resolved kiteOptionSymbol; fall back to symbol for equity
+    const depthSymbol = optionType ? kiteOptionSymbol : symbol;
+    if (!depthSymbol) return;
+    const depthExchange = optionType ? 'NFO' : exchange;
+    setDepthLoading(true);
+    try {
+      const r = await fetch(`/api/depth?symbol=${encodeURIComponent(depthSymbol)}&exchange=${depthExchange}`);
+      if (r.ok) setDepth(await r.json());
+    } catch {}
+    finally { setDepthLoading(false); }
+  }, [isLoggedIn, symbol, optionType, kiteOptionSymbol, exchange]);
+
+  // Fetch depth when modal opens (equity) or once option symbol is resolved
+  useEffect(() => {
+    if (isOpen && isLoggedIn) {
+      if (optionType && !kiteOptionSymbol) return; // wait for option resolution
+      fetchDepth();
+    }
+  }, [isOpen, isLoggedIn, kiteOptionSymbol]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -893,6 +1016,9 @@ export default function OrderModal({
               SELL
             </button>
           </div>
+
+          {/* Market Depth */}
+          <DepthPanel depth={depth} loading={depthLoading} onRefresh={fetchDepth} />
 
           {/* Rest of form (unchanged) */}
           <div>
