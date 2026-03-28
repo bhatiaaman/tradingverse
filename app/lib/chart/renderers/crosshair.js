@@ -23,44 +23,48 @@ function fmtTime(unixSec, interval) {
 
 export function renderCrosshair(ctx, vp, state, candles, interval) {
   if (!state?.visible) return;
-  const { x, y, snapIndex } = state;
+  const { x, y, snapIndex, syncedOnly } = state;
 
   ctx.save();
   ctx.strokeStyle = 'rgba(148,163,184,0.4)';
   ctx.lineWidth   = 1;
   ctx.setLineDash([4, 4]);
 
-  // Vertical line
+  // Vertical line — always drawn
   ctx.beginPath();
   ctx.moveTo(x, vp.chartTop);
   ctx.lineTo(x, vp.chartBottom);
   ctx.stroke();
 
-  // Horizontal line
-  ctx.beginPath();
-  ctx.moveTo(vp.chartLeft, y);
-  ctx.lineTo(vp.chartRight, y);
-  ctx.stroke();
+  // Horizontal line + price pill — skipped in syncedOnly mode
+  if (!syncedOnly) {
+    ctx.beginPath();
+    ctx.moveTo(vp.chartLeft, y);
+    ctx.lineTo(vp.chartRight, y);
+    ctx.stroke();
+  }
 
   ctx.setLineDash([]);
 
-  // ── Price pill on right axis ─────────────────────────────────────────────────
-  const price  = vp.yToPrice(y);
-  const pillH  = 17;
-  const pillW  = vp.PRICE_AXIS_W - 4;
-  const pillX  = vp.chartRight + 2;
-  const pillY  = y - pillH / 2;
+  if (!syncedOnly) {
+    // ── Price pill on right axis ───────────────────────────────────────────────
+    const price  = vp.yToPrice(y);
+    const pillH  = 17;
+    const pillW  = vp.PRICE_AXIS_W - 4;
+    const pillX  = vp.chartRight + 2;
+    const pillY  = y - pillH / 2;
 
-  ctx.fillStyle = '#94a3b8';
-  ctx.beginPath();
-  ctx.roundRect(pillX, pillY, pillW, pillH, 3);
-  ctx.fill();
+    ctx.fillStyle = '#94a3b8';
+    ctx.beginPath();
+    ctx.roundRect(pillX, pillY, pillW, pillH, 3);
+    ctx.fill();
 
-  ctx.fillStyle    = '#0f172a';
-  ctx.font         = 'bold 10px monospace';
-  ctx.textAlign    = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(fmtPrice(price), pillX + pillW / 2, y);
+    ctx.fillStyle    = '#0f172a';
+    ctx.font         = 'bold 10px monospace';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(fmtPrice(price), pillX + pillW / 2, y);
+  }
 
   // ── Time pill on bottom axis ─────────────────────────────────────────────────
   if (snapIndex != null && snapIndex >= 0 && snapIndex < (candles?.length ?? 0)) {

@@ -137,7 +137,7 @@ export function createChart(container, options = {}) {
           for (const [id, line] of lineMap) {
             lineValues[id] = line.values[clamped] ?? null;
           }
-          crosshairCb({ bar: candles[clamped], x, y, lineValues });
+          crosshairCb({ bar: candles[clamped], x, y, lineValues, index: clamped });
         }
         break;
       }
@@ -145,12 +145,18 @@ export function createChart(container, options = {}) {
   });
 
   // ── Resize observer ──────────────────────────────────────────────────────────
+  // RAF-debounced so rapid resizes (drag) only trigger one canvas resize per frame.
+  let resizeRafId = null;
   const ro = new ResizeObserver(() => {
-    W = container.clientWidth  || 800;
-    H = container.clientHeight || 400;
-    vp.resize(W, H);
-    resizeCanvas();
-    markDirty();
+    if (resizeRafId !== null) return;
+    resizeRafId = requestAnimationFrame(() => {
+      resizeRafId = null;
+      W = container.clientWidth  || 800;
+      H = container.clientHeight || 400;
+      vp.resize(W, H);
+      resizeCanvas();
+      markDirty();
+    });
   });
   ro.observe(container);
 
@@ -265,6 +271,24 @@ export function createChart(container, options = {}) {
       crosshairCb = cb;
     },
 
+    // Programmatically position crosshair at a bar index (synced chart — vertical line only).
+    // Does NOT fire the crosshair callback to avoid sync loops.
+    setCrosshairAt(idx) {
+      if (idx == null || !candles.length) {
+        crosshair = { visible: false };
+        markDirty();
+        return;
+      }
+      const clamped = Math.max(0, Math.min(candles.length - 1, idx));
+      crosshair = { visible: true, x: vp.barCenterX(clamped), y: H / 2, snapIndex: clamped, syncedOnly: true };
+      markDirty();
+    },
+
+    clearCrosshair() {
+      crosshair = { visible: false };
+      markDirty();
+    },
+
     fitContent() {
       vp.fitContent(candles);
       markDirty();
@@ -280,6 +304,7 @@ export function createChart(container, options = {}) {
     destroy() {
       destroyed = true;
       cancelAnimationFrame(rafId);
+      if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
       handler.destroy();
       ro.disconnect();
       canvas.remove();
