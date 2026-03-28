@@ -579,14 +579,17 @@ export function buildContext(candles, pre) {
 // plus optional: sl, target, details, coversPattern (suppresses a raw pattern).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function detectSetups(candles, patterns, context, pre) {
+export function detectSetups(candles, patterns, context, pre, cfg = {}) {
+  const t  = (id, key, def) => cfg[id]?.thresholds?.[key] ?? def;
+  const en = (id) => cfg[id]?.enabled !== false;
+
   const setups = [];
   const n  = candles.length;
   const c0 = candles[n - 1];
 
   // ── S1: BOS + Order Block Retest ─────────────────────────────────────────
   // BOS detected, price retests the OB zone, rejection candle present.
-  if (pre.bosLevels.length && pre.orderBlocks.length) {
+  if (en('s1') && pre.bosLevels.length && pre.orderBlocks.length) {
     const recentBOS = pre.bosLevels.reduce((a, b) => b.idx > a.idx ? b : a);
     const ob        = pre.orderBlocks.find(o => o.bosType === recentBOS.type);
     if (ob) {
@@ -616,19 +619,20 @@ export function detectSetups(candles, patterns, context, pre) {
 
   // ── S3: Opening Range Breakout ────────────────────────────────────────────
   // ORB formed, body fully closes beyond ORB high or low, volume ≥ 1.8×.
-  if (pre.orb?.formed && pre.sessionTime !== 'opening' && pre.sessionTime !== 'premarket') {
+  if (en('s3') && pre.orb?.formed && pre.sessionTime !== 'opening' && pre.sessionTime !== 'premarket') {
     const bodyHigh  = Math.max(c0.open, c0.close);
     const bodyLow   = Math.min(c0.open, c0.close);
     const orbRange  = pre.orb.high - pre.orb.low;
+    const s3Vol     = t('s3', 'volMult', 1.8);
 
-    if (bodyLow > pre.orb.high && pre.volume.mult >= 1.8) {
+    if (bodyLow > pre.orb.high && pre.volume.mult >= s3Vol) {
       setups.push({
         id: 's3_orb_bull', name: 'ORB Breakout', direction: 'bull', strength: 4,
         sl: pre.orb.high * 0.999, target: pre.orb.high + orbRange,
         details: { orbHigh: pre.orb.high, orbLow: pre.orb.low, volMult: pre.volume.mult },
       });
     }
-    if (bodyHigh < pre.orb.low && pre.volume.mult >= 1.8) {
+    if (bodyHigh < pre.orb.low && pre.volume.mult >= s3Vol) {
       setups.push({
         id: 's3_orb_bear', name: 'ORB Breakdown', direction: 'bear', strength: 4,
         sl: pre.orb.low  * 1.001, target: pre.orb.low - orbRange,
@@ -643,7 +647,7 @@ export function detectSetups(candles, patterns, context, pre) {
                      (context.bos?.distPct != null && context.bos.distPct <= 0.3) ||
                      (context.orderBlock != null);
 
-  if (atKeyLevel && pre.volume.mult >= 1.4) {
+  if (en('s6') && atKeyLevel && pre.volume.mult >= t('s6', 'volMult', 1.4)) {
     const bullEngulf = patterns.find(p => p.id === 'bull_engulfing');
     const bearEngulf = patterns.find(p => p.id === 'bear_engulfing');
 
@@ -665,15 +669,17 @@ export function detectSetups(candles, patterns, context, pre) {
 
   // ── S4: Power Candle Pullback ─────────────────────────────────────────────
   // Recent power candle, price pulled back 35–65% of its range, re-entry candle forming.
-  if (pre.powerCandles.length) {
+  if (en('s4') && pre.powerCandles.length) {
     const pc      = pre.powerCandles[pre.powerCandles.length - 1]; // most recent
     const pcRange = pc.range;
     if (pcRange > 0) {
       const isBull0    = c0.close > c0.open;
       const pullback   = pc.direction === 'bull' ? pc.high - c0.close : c0.close - pc.low;
       const pullbackPct = (pullback / pcRange) * 100;
+      const s4Min = t('s4', 'pullbackMin', 35);
+      const s4Max = t('s4', 'pullbackMax', 65);
 
-      if (pullbackPct >= 35 && pullbackPct <= 65) {
+      if (pullbackPct >= s4Min && pullbackPct <= s4Max) {
         // Re-entry: candle in same direction as power candle
         const reEntry = (pc.direction === 'bull' && isBull0) || (pc.direction === 'bear' && !isBull0);
         if (reEntry) {
@@ -696,12 +702,13 @@ export function detectSetups(candles, patterns, context, pre) {
 
   // ── S5: EMA Stack Bounce ──────────────────────────────────────────────────
   // EMAs stacked in trend direction, price at EMA 21, bounce candle with body ≥ 40%.
-  if (pre.ema) {
+  if (en('s5') && pre.ema) {
     const bodyPct = (c0.high - c0.low) > 0
       ? Math.abs(c0.close - c0.open) / (c0.high - c0.low) : 0;
     const isBull0 = c0.close > c0.open;
+    const s5Body  = t('s5', 'bodyPct', 0.40);
 
-    if (pre.ema.stackedBull && pre.ema.atEma21 && isBull0 && bodyPct >= 0.40) {
+    if (pre.ema.stackedBull && pre.ema.atEma21 && isBull0 && bodyPct >= s5Body) {
       setups.push({
         id: 's5_ema_bounce_bull', name: 'EMA Stack Bounce', direction: 'bull', strength: 3,
         sl:     pre.ema.ema50 * 0.999,
@@ -709,7 +716,7 @@ export function detectSetups(candles, patterns, context, pre) {
         details: { ema21: parseFloat(pre.ema.ema21.toFixed(2)), ema50: parseFloat(pre.ema.ema50.toFixed(2)), distPct: pre.ema.distEma21Pct },
       });
     }
-    if (pre.ema.stackedBear && pre.ema.atEma21 && !isBull0 && bodyPct >= 0.40) {
+    if (pre.ema.stackedBear && pre.ema.atEma21 && !isBull0 && bodyPct >= s5Body) {
       setups.push({
         id: 's5_ema_bounce_bear', name: 'EMA Stack Bounce', direction: 'bear', strength: 3,
         sl:     pre.ema.ema50 * 1.001,
@@ -723,26 +730,28 @@ export function detectSetups(candles, patterns, context, pre) {
 
   // ── S8: Higher Low / Lower High ──────────────────────────────────────────
   // Confirmed swing structure + price bouncing at latest HL or LH.
-  if (pre.swingSequence?.type === 'uptrend') {
+  if (en('s8') && pre.swingSequence?.type === 'uptrend') {
     const { lows } = pre.swingPivots2;
+    const s8Dist = t('s8', 'distPct', 0.5);
     if (lows.length >= 2) {
       const lastLow = lows[lows.length - 1], prevLow = lows[lows.length - 2];
       if (lastLow.price > prevLow.price) {
         const distPct = Math.abs((c0.close - lastLow.price) / lastLow.price * 100);
-        if (distPct <= 0.5 && isBull0)
+        if (distPct <= s8Dist && isBull0)
           setups.push({ id: 's8_hl', name: 'Higher Low Bounce', direction: 'bull', strength: 3,
             sl: lastLow.price * 0.998, target: null,
             details: { hlPrice: lastLow.price, prevLow: prevLow.price, distPct: parseFloat(distPct.toFixed(2)) } });
       }
     }
   }
-  if (pre.swingSequence?.type === 'downtrend') {
+  if (en('s8') && pre.swingSequence?.type === 'downtrend') {
     const { highs } = pre.swingPivots2;
+    const s8Dist = t('s8', 'distPct', 0.5);
     if (highs.length >= 2) {
       const lastHigh = highs[highs.length - 1], prevHigh = highs[highs.length - 2];
       if (lastHigh.price < prevHigh.price) {
         const distPct = Math.abs((c0.close - lastHigh.price) / lastHigh.price * 100);
-        if (distPct <= 0.5 && !isBull0)
+        if (distPct <= s8Dist && !isBull0)
           setups.push({ id: 's8_lh', name: 'Lower High Rejection', direction: 'bear', strength: 3,
             sl: lastHigh.price * 1.002, target: null,
             details: { lhPrice: lastHigh.price, prevHigh: prevHigh.price, distPct: parseFloat(distPct.toFixed(2)) } });
@@ -753,10 +762,12 @@ export function detectSetups(candles, patterns, context, pre) {
   // ── S9: S/R Flip ─────────────────────────────────────────────────────────
   // BOS level that had 2+ prior touches before breaking — clean resistance-to-support flip.
   // Touch proximity tightened to 0.15% to reduce false touch counts.
-  if (pre.bosLevels.length) {
-    const recentBOS9 = pre.bosLevels.reduce((a, b) => b.idx > a.idx ? b : a);
-    const dist9      = Math.abs((c0.close - recentBOS9.price) / recentBOS9.price * 100);
-    if (dist9 <= 0.3 && recentBOS9.breakIdx !== undefined && recentBOS9.breakIdx >= 5) {
+  if (en('s9') && pre.bosLevels.length) {
+    const recentBOS9  = pre.bosLevels.reduce((a, b) => b.idx > a.idx ? b : a);
+    const dist9       = Math.abs((c0.close - recentBOS9.price) / recentBOS9.price * 100);
+    const s9Dist      = t('s9', 'distPct', 0.3);
+    const s9Touches   = t('s9', 'touchCount', 2);
+    if (dist9 <= s9Dist && recentBOS9.breakIdx !== undefined && recentBOS9.breakIdx >= 5) {
       const preBOSSlice = candles.slice(0, recentBOS9.breakIdx);
       const touchCount  = preBOSSlice.filter(c => {
         const pct = recentBOS9.type === 'bull'
@@ -764,7 +775,7 @@ export function detectSetups(candles, patterns, context, pre) {
           : Math.abs(c.low  - recentBOS9.price) / recentBOS9.price * 100;
         return pct <= 0.15;
       }).length;
-      if (touchCount >= 2)
+      if (touchCount >= s9Touches)
         setups.push({ id: 's9_sr_flip', name: 'S/R Flip Retest', direction: recentBOS9.type, strength: 4,
           sl: recentBOS9.type === 'bull' ? recentBOS9.price * 0.997 : recentBOS9.price * 1.003, target: null,
           details: { flipPrice: recentBOS9.price, touchCount, distPct: parseFloat(dist9.toFixed(2)) } });
@@ -773,53 +784,57 @@ export function detectSetups(candles, patterns, context, pre) {
 
   // ── S10: Double Bottom / Double Top ──────────────────────────────────────
   // Two swing pivots within 0.3% of each other, second touch on lower volume.
-  const sliceStart10 = Math.max(0, n - 20);
-  const { lows: sp2L, highs: sp2H } = pre.swingPivots2;
-
-  if (sp2L.length >= 2) {
-    const l1 = sp2L[sp2L.length - 2], l2 = sp2L[sp2L.length - 1];
-    const diff = Math.abs(l1.price - l2.price) / l1.price * 100;
-    if (diff <= 0.3) {
-      const vol1 = candles[sliceStart10 + l1.idx]?.volume || 0;
-      const vol2 = candles[sliceStart10 + l2.idx]?.volume || 0;
-      const volDiv = vol1 > 0 && vol2 < vol1;
-      const distDB = Math.abs((c0.close - l2.price) / l2.price * 100);
-      if (distDB <= 0.5 && isBull0 && volDiv)
-        setups.push({ id: 's10_double_bottom', name: 'Double Bottom', direction: 'bull', strength: 4,
-          sl: l2.price * 0.998, target: null, watchlistOnly: true,
-          details: { level: parseFloat(l2.price.toFixed(2)), diff: parseFloat(diff.toFixed(2)), volDiv } });
+  if (en('s10')) {
+    const sliceStart10 = Math.max(0, n - 20);
+    const { lows: sp2L, highs: sp2H } = pre.swingPivots2;
+    if (sp2L.length >= 2) {
+      const l1 = sp2L[sp2L.length - 2], l2 = sp2L[sp2L.length - 1];
+      const diff = Math.abs(l1.price - l2.price) / l1.price * 100;
+      if (diff <= 0.3) {
+        const vol1 = candles[sliceStart10 + l1.idx]?.volume || 0;
+        const vol2 = candles[sliceStart10 + l2.idx]?.volume || 0;
+        const volDiv = vol1 > 0 && vol2 < vol1;
+        const distDB = Math.abs((c0.close - l2.price) / l2.price * 100);
+        if (distDB <= 0.5 && isBull0 && volDiv)
+          setups.push({ id: 's10_double_bottom', name: 'Double Bottom', direction: 'bull', strength: 4,
+            sl: l2.price * 0.998, target: null, watchlistOnly: true,
+            details: { level: parseFloat(l2.price.toFixed(2)), diff: parseFloat(diff.toFixed(2)), volDiv } });
+      }
     }
-  }
-  if (sp2H.length >= 2) {
-    const h1 = sp2H[sp2H.length - 2], h2 = sp2H[sp2H.length - 1];
-    const diff = Math.abs(h1.price - h2.price) / h1.price * 100;
-    if (diff <= 0.3) {
-      const vol1 = candles[sliceStart10 + h1.idx]?.volume || 0;
-      const vol2 = candles[sliceStart10 + h2.idx]?.volume || 0;
-      const volDiv = vol1 > 0 && vol2 < vol1;
-      const distDT = Math.abs((c0.close - h2.price) / h2.price * 100);
-      if (distDT <= 0.5 && !isBull0 && volDiv)
-        setups.push({ id: 's10_double_top', name: 'Double Top', direction: 'bear', strength: 4,
-          sl: h2.price * 1.002, target: null, watchlistOnly: true,
-          details: { level: parseFloat(h2.price.toFixed(2)), diff: parseFloat(diff.toFixed(2)), volDiv } });
+    if (sp2H.length >= 2) {
+      const h1 = sp2H[sp2H.length - 2], h2 = sp2H[sp2H.length - 1];
+      const diff = Math.abs(h1.price - h2.price) / h1.price * 100;
+      if (diff <= 0.3) {
+        const vol1 = candles[sliceStart10 + h1.idx]?.volume || 0;
+        const vol2 = candles[sliceStart10 + h2.idx]?.volume || 0;
+        const volDiv = vol1 > 0 && vol2 < vol1;
+        const distDT = Math.abs((c0.close - h2.price) / h2.price * 100);
+        if (distDT <= 0.5 && !isBull0 && volDiv)
+          setups.push({ id: 's10_double_top', name: 'Double Top', direction: 'bear', strength: 4,
+            sl: h2.price * 1.002, target: null, watchlistOnly: true,
+            details: { level: parseFloat(h2.price.toFixed(2)), diff: parseFloat(diff.toFixed(2)), volDiv } });
+      }
     }
   }
 
   // ── S11: Inside Bar Breakout (with volume confirmation) ───────────────────
-  const ibBull = patterns.find(p => p.id === 'ib_breakout');
-  const ibBear = patterns.find(p => p.id === 'ib_breakdown');
-  if (ibBull && pre.volume.mult >= 1.5)
-    setups.push({ id: 's11_ib_bull', name: 'IB Breakout', direction: 'bull', strength: 4,
-      sl: candles[n - 2].low * 0.999, target: null, coversPattern: 'ib_breakout',
-      details: { volMult: pre.volume.mult } });
-  if (ibBear && pre.volume.mult >= 1.5)
-    setups.push({ id: 's11_ib_bear', name: 'IB Breakdown', direction: 'bear', strength: 4,
-      sl: candles[n - 2].high * 1.001, target: null, coversPattern: 'ib_breakdown',
-      details: { volMult: pre.volume.mult } });
+  if (en('s11')) {
+    const ibBull   = patterns.find(p => p.id === 'ib_breakout');
+    const ibBear   = patterns.find(p => p.id === 'ib_breakdown');
+    const s11Vol   = t('s11', 'volMult', 1.5);
+    if (ibBull && pre.volume.mult >= s11Vol)
+      setups.push({ id: 's11_ib_bull', name: 'IB Breakout', direction: 'bull', strength: 4,
+        sl: candles[n - 2].low * 0.999, target: null, coversPattern: 'ib_breakout',
+        details: { volMult: pre.volume.mult } });
+    if (ibBear && pre.volume.mult >= s11Vol)
+      setups.push({ id: 's11_ib_bear', name: 'IB Breakdown', direction: 'bear', strength: 4,
+        sl: candles[n - 2].high * 1.001, target: null, coversPattern: 'ib_breakdown',
+        details: { volMult: pre.volume.mult } });
+  }
 
   // ── S12: VWAP + Key Level Confluence ─────────────────────────────────────
   // Within 0.15% of VWAP AND within 0.2% of BOS level simultaneously.
-  if (pre.vwap?.distPct <= 0.15 && context.bos?.distPct <= 0.2) {
+  if (en('s12') && pre.vwap?.distPct <= t('s12', 'vwapDistPct', 0.15) && context.bos?.distPct <= t('s12', 'bosDistPct', 0.2)) {
     const bPct = (c0.high - c0.low) > 0 ? Math.abs(c0.close - c0.open) / (c0.high - c0.low) : 0;
     if (bPct >= 0.35)
       setups.push({ id: `s12_confluence_${isBull0 ? 'bull' : 'bear'}`, name: 'VWAP + Level Confluence',
@@ -830,7 +845,7 @@ export function detectSetups(candles, patterns, context, pre) {
 
   // ── S13: Liquidity Sweep + CHoCH ─────────────────────────────────────────
   // Prior candle swept a swing high/low; current candle confirms direction change.
-  if (candles.length >= 16) {
+  if (en('s13') && candles.length >= 16) {
     const c1    = candles[n - 2];
     const sl16  = candles.slice(-16, -1);
     const sH    = Math.max(...sl16.slice(0, -1).map(c => c.high));
@@ -848,7 +863,7 @@ export function detectSetups(candles, patterns, context, pre) {
 
   // ── S14: FVG Fill at Structure ────────────────────────────────────────────
   // Price enters an unmitigated FVG that sits near a BOS or OB zone, rejection candle present.
-  if (pre.fvgs.length) {
+  if (en('s14') && pre.fvgs.length) {
     const rejIds = ['hammer','bull_pin','shooting_star','bear_pin',
                     'bull_engulfing','bear_engulfing','doji','morning_star','evening_star'];
     for (const fvg of pre.fvgs) {
@@ -872,7 +887,7 @@ export function detectSetups(candles, patterns, context, pre) {
   // ── S15: OTE Fibonacci (62–79% retracement) ───────────────────────────────
   // BOS with impulse ≥ 2.5% (raised from 2% — tighter anchor), price retraces into
   // 62–79% zone, PA confirmation. BOS must be recent (within last 30 candles).
-  if (pre.bosLevels.length) {
+  if (en('s15') && pre.bosLevels.length) {
     const bos15 = pre.bosLevels.reduce((a, b) => b.idx > a.idx ? b : a);
     if (bos15.breakIdx !== undefined && (n - 1 - bos15.breakIdx) <= 30) {
       const iS = candles[bos15.idx], iE = candles[bos15.breakIdx];
@@ -881,7 +896,7 @@ export function detectSetups(candles, patterns, context, pre) {
         const iL = bos15.type === 'bull' ? iS.low  : iE.low;
         const iR = iH - iL;
         const movePct = iR / iL * 100;
-        if (movePct >= 2.5) {
+        if (movePct >= t('s15', 'minMovePct', 2.5)) {
           const ote62 = bos15.type === 'bull' ? iH - iR * 0.62 : iL + iR * 0.62;
           const ote79 = bos15.type === 'bull' ? iH - iR * 0.79 : iL + iR * 0.79;
           const inOTE = bos15.type === 'bull'
@@ -904,7 +919,7 @@ export function detectSetups(candles, patterns, context, pre) {
 
   // ── S16: Wyckoff Spring / Upthrust ───────────────────────────────────────
   // Price briefly breaks a defined trading range boundary then snaps back inside.
-  if (pre.tradingRange) {
+  if (en('s16') && pre.tradingRange) {
     const { high: rH, low: rL } = pre.tradingRange;
     const rng = c0.high - c0.low || 1;
     if (c0.low < rL && c0.close > rL && (c0.close - c0.low) / rng >= 0.5)
@@ -919,7 +934,7 @@ export function detectSetups(candles, patterns, context, pre) {
 
   // ── S17: Confluence Stack (4+ independent factors) ────────────────────────
   // No dominant pattern needed — multiple independent signals at same price.
-  {
+  if (en('s17')) {
     let factors = 0, stackDir = null;
     if (context.bos?.distPct <= 0.2)           { factors++; stackDir = context.bos.type; }
     if (context.orderBlock)                     { factors++; }
@@ -936,7 +951,7 @@ export function detectSetups(candles, patterns, context, pre) {
         Math.abs(c0.close - pre.tradingRange.low)  / pre.tradingRange.low  * 100 <= 0.2;
       if (atBoundary) factors++;
     }
-    if (factors >= 4 && stackDir) {
+    if (factors >= t('s17', 'minFactors', 4) && stackDir) {
       const hasConf = patterns.some(p => p.direction === stackDir || p.direction === 'neutral');
       if (hasConf)
         setups.push({ id: `s17_confluence_${stackDir}`, name: 'Confluence Stack', direction: stackDir, strength: 5,
@@ -951,9 +966,10 @@ export function detectSetups(candles, patterns, context, pre) {
   // Non-opening candles: range must be ≤ 1.5× ATR14 (no chasing runaway spikes).
   // Opening candle gets a pass on range — gap moves are inherently wide.
   // SL: if candle body ≤ 1× ATR → c0.open; if body > 1× ATR (wide/gap candle) → c0.close ± 1 ATR.
-  if (pre.bb && candles.length >= 21) {
+  if (en('s18') && pre.bb && candles.length >= 21) {
     const { upper, middle, lower } = pre.bb;
     const atr        = pre.atr14;
+    const s18Vol     = t('s18', 'volMult', 1.5);
     const candleRange = c0.high - c0.low;
     const candleBody  = Math.abs(c0.close - c0.open);
     const isOpening  = pre.sessionTime === 'opening';
@@ -972,7 +988,7 @@ export function detectSetups(candles, patterns, context, pre) {
       c0.close > upper &&
       isBull0 &&
       (pre.rsi == null || pre.rsi > 50) &&
-      pre.volume.mult >= 1.5 &&
+      pre.volume.mult >= s18Vol &&
       c0.close > prior10H &&
       passesRangeGate
     ) {
@@ -1070,7 +1086,7 @@ export function scoreSetup(pattern, context, environment) {
 // LAYER 6 — ORCHESTRATOR
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function runThirdEye(candles, vwapData, rsiValue, environment = 'medium') {
+export function runThirdEye(candles, vwapData, rsiValue, environment = 'medium', setupConfig = {}) {
   if (!candles || candles.length < 3) {
     return { patterns: [], context: null, topSetup: null, watchList: [], strongSetups: [] };
   }
@@ -1085,7 +1101,7 @@ export function runThirdEye(candles, vwapData, rsiValue, environment = 'medium')
   const context = buildContext(candles, pre);
 
   // Layer 4: setup detection — multi-condition setups
-  const setups = detectSetups(candles, rawPatterns, context, pre);
+  const setups = detectSetups(candles, rawPatterns, context, pre, setupConfig);
 
   // Suppress raw patterns already covered by a setup (coversPattern mechanism)
   const coveredIds       = new Set(setups.map(s => s.coversPattern).filter(Boolean));

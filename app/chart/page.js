@@ -131,7 +131,13 @@ function ChartPageInner() {
   const [dailyCandles, setDailyCandles]   = useState([]);
   const [loading, setLoading]             = useState(true);
   const [vwap, setVwap]                   = useState(null);
-  const [settings, setSettings]           = useState(DEFAULT_SETTINGS);
+  const [settings, setSettings]           = useState(() => {
+    if (typeof window === 'undefined') return DEFAULT_SETTINGS;
+    try {
+      const saved = JSON.parse(localStorage.getItem('tv_chart_settings') || '{}');
+      return { ...DEFAULT_SETTINGS, ...saved };
+    } catch { return DEFAULT_SETTINGS; }
+  });
   const [showSettings, setShowSettings]   = useState(false);
   const [dropdownPos, setDropdownPos]     = useState(null);
   const [regimeData, setRegimeData]       = useState(null);
@@ -309,7 +315,11 @@ function ChartPageInner() {
     };
   }, [candles, dailyCandles, chartInterval, stationData, settings]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toggle = key => setSettings(s => ({ ...s, [key]: !s[key] }));
+  const toggle = key => setSettings(s => {
+    const next = { ...s, [key]: !s[key] };
+    try { localStorage.setItem('tv_chart_settings', JSON.stringify(next)); } catch {}
+    return next;
+  });
 
   const isIntraday = chartInterval !== 'day';
   const ltp        = candles.length > 0 ? candles[candles.length - 1].close : null;
