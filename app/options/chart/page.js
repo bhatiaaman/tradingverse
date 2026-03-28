@@ -26,7 +26,7 @@ function computeEMA(candles, period) {
   return candles.map(c => { ema = c.close * k + ema * (1 - k); return { time: c.time, value: ema }; });
 }
 
-function computeRSI(candles, period = 14) {
+function computeRSI(candles, period = 12) {
   if (candles.length < period + 1) return new Array(candles.length).fill(null);
   const out = new Array(candles.length).fill(null);
   let avgGain = 0, avgLoss = 0;
@@ -61,55 +61,6 @@ function computeSMAAligned(values, period) {
   return out;
 }
 
-// ── RSI canvas draw ────────────────────────────────────────────────────────────
-function drawRSICanvas(canvas, rsiValues, rsiMAValues = null) {
-  if (!canvas) return;
-  const dpr = window.devicePixelRatio || 1;
-  const W   = canvas.clientWidth  || 400;
-  const H   = canvas.clientHeight || 72;
-  canvas.width  = W * dpr;
-  canvas.height = H * dpr;
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  ctx.fillStyle = '#060b14';
-  ctx.fillRect(0, 0, W, H);
-
-  const valid = rsiValues.map((v, i) => ({ v, i })).filter(p => p.v != null);
-  if (!valid.length) return;
-  const n  = rsiValues.length;
-  const xF = i => n > 1 ? (i / (n - 1)) * W : W / 2;
-  const yF = v => ((100 - v) / 100) * H;
-
-  ctx.fillStyle = 'rgba(239,68,68,0.05)';  ctx.fillRect(0, 0, W, yF(70));
-  ctx.fillStyle = 'rgba(34,197,94,0.05)';  ctx.fillRect(0, yF(30), W, H - yF(30));
-
-  [[70, 'rgba(239,68,68,0.22)'], [50, 'rgba(148,163,184,0.1)'], [30, 'rgba(34,197,94,0.22)']].forEach(([val, col]) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 0.75; ctx.setLineDash([3, 4]);
-    ctx.beginPath(); ctx.moveTo(0, yF(val)); ctx.lineTo(W, yF(val)); ctx.stroke();
-  });
-  ctx.setLineDash([]);
-
-  ctx.font = '9px monospace'; ctx.textAlign = 'left';
-  ctx.fillStyle = 'rgba(239,68,68,0.55)'; ctx.fillText('70', 3, yF(70) - 2);
-  ctx.fillStyle = 'rgba(34,197,94,0.55)'; ctx.fillText('30', 3, yF(30) + 9);
-
-  ctx.strokeStyle = '#818cf8'; ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  valid.forEach((p, j) => { j === 0 ? ctx.moveTo(xF(p.i), yF(p.v)) : ctx.lineTo(xF(p.i), yF(p.v)); });
-  ctx.stroke();
-
-  if (rsiMAValues) {
-    const validMA = rsiMAValues.map((v, i) => ({ v, i })).filter(p => p.v != null);
-    if (validMA.length > 1) {
-      ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1;
-      ctx.beginPath();
-      validMA.forEach((p, j) => { j === 0 ? ctx.moveTo(xF(p.i), yF(p.v)) : ctx.lineTo(xF(p.i), yF(p.v)); });
-      ctx.stroke();
-    }
-  }
-}
-
 // ── Misc helpers ───────────────────────────────────────────────────────────────
 function p2(v) { return v != null ? v.toFixed(2) : '—'; }
 function fmtVol(v) {
@@ -135,7 +86,7 @@ function SymbolCombobox({ symbols, value, onChange }) {
   const [query, setQuery] = useState(value || '');
   const [open,  setOpen]  = useState(false);
   const ref = useRef(null);
-  // symbols from option-meta are already FnO-only (from NFO CSV)
+  // All symbols from option-meta are FnO-only (parsed from NFO CSV, CE/PE only)
   const filtered = (query.length < 1 ? symbols.slice(0, 25) : symbols.filter(s => s.name.includes(query.toUpperCase()))).slice(0, 25);
 
   useEffect(() => {
@@ -170,46 +121,59 @@ function SymbolCombobox({ symbols, value, onChange }) {
 }
 
 // ── Option chart panel ─────────────────────────────────────────────────────────
+// RSI is rendered inside the chart canvas as a sub-pane — always synced with viewport.
 const OptionChartPanel = forwardRef(function OptionChartPanel(
   { symbol, strike, expiry, type, interval, overlays, rsiSettings, rsiHeight, onRsiDragStart, onCrosshairIndex },
   ref
 ) {
-  const containerRef  = useRef(null);
-  const rsiCanvasRef  = useRef(null);
-  const rsiPaneRef    = useRef(null); // for imperative setRsiHeight
-  const chartRef      = useRef(null);
-  const candlesRef    = useRef(null);
-  const linesRef      = useRef({ vwap: [], ema9: [], ema21: [], rsi: [], rsiMA: null });
-  const timeToIdxRef  = useRef(new Map());
+  const containerRef = useRef(null);
+  const chartRef     = useRef(null);
+  const candlesRef   = useRef(null);
+  const linesRef     = useRef({ vwap: [], ema9: [], ema21: [], rsi: [], rsiMA: null });
+  const timeToIdxRef = useRef(new Map());
+  // Keep refs to current prop values for use inside async load()
+  const overlaysRef    = useRef(overlays);
+  const rsiSettingsRef = useRef(rsiSettings);
+  const rsiHeightRef   = useRef(rsiHeight);
+  useEffect(() => { overlaysRef.current    = overlays;    }, [overlays]);
+  useEffect(() => { rsiSettingsRef.current = rsiSettings; }, [rsiSettings]);
+  useEffect(() => { rsiHeightRef.current   = rsiHeight;   }, [rsiHeight]);
 
   const [info,      setInfo]      = useState(null);
   const [err,       setErr]       = useState(null);
   const [loading,   setLoading]   = useState(true);
   const [hoverData, setHoverData] = useState(null);
 
-  // ── Expose imperative methods to parent ───────────────────────────────────
+  // ── Expose imperative methods ─────────────────────────────────────────────
   useImperativeHandle(ref, () => ({
-    setCrosshairAt(idx) { chartRef.current?.setCrosshairAt(idx); },
-    clearCrosshair()    { chartRef.current?.clearCrosshair();    },
-    // Direct DOM update for smooth drag (no React state)
-    setRsiHeight(h) {
-      if (rsiPaneRef.current) rsiPaneRef.current.style.height = `${h}px`;
-      if (rsiCanvasRef.current && linesRef.current.rsi?.length) {
-        drawRSICanvas(rsiCanvasRef.current, linesRef.current.rsi, linesRef.current.rsiMA);
-      }
-    },
+    setCrosshairAt(idx)  { chartRef.current?.setCrosshairAt(idx);  },
+    clearCrosshair()     { chartRef.current?.clearCrosshair();      },
+    setRSIPaneHeight(h)  { chartRef.current?.setRSIPaneHeight(h);  },
   }), []);
 
+  // Helper: build RSI label string
+  function rsiLabel() {
+    const { period, maPeriod } = rsiSettingsRef.current;
+    return maPeriod >= 2 ? `RSI(${period},${maPeriod})` : `RSI(${period})`;
+  }
+
+  // Helper: apply/clear RSI pane on the chart
+  function applyRSIPane(chart, rsi, rsiMA, show, height) {
+    if (show && rsi?.length) {
+      chart.setRSIPane(rsi, rsiMA, rsiLabel());
+      chart.setRSIPaneHeight(height);
+    } else {
+      chart.clearRSIPane();
+    }
+  }
+
   function buildHoverData(bar, lineValues) {
-    const idx = timeToIdxRef.current.get(bar.time) ?? ((candlesRef.current?.length ?? 1) - 1);
     return {
       bar,
       lines: {
         vwap:  lineValues?.vwap  ?? null,
         ema9:  lineValues?.ema9  ?? null,
         ema21: lineValues?.ema21 ?? null,
-        rsi:   linesRef.current.rsi[idx]     ?? null,
-        rsiMA: linesRef.current.rsiMA?.[idx] ?? null,
       },
     };
   }
@@ -218,15 +182,12 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
     const candles = candlesRef.current;
     if (!candles?.length) return null;
     const idx = candles.length - 1;
-    const bar = candles[idx];
     return {
-      bar,
+      bar: candles[idx],
       lines: {
-        vwap:  linesRef.current.vwap[idx]?.value   ?? null,
-        ema9:  linesRef.current.ema9[idx]?.value   ?? null,
-        ema21: linesRef.current.ema21[idx]?.value  ?? null,
-        rsi:   linesRef.current.rsi[idx]           ?? null,
-        rsiMA: linesRef.current.rsiMA?.[idx]       ?? null,
+        vwap:  linesRef.current.vwap[idx]?.value  ?? null,
+        ema9:  linesRef.current.ema9[idx]?.value  ?? null,
+        ema21: linesRef.current.ema21[idx]?.value ?? null,
       },
     };
   }
@@ -256,8 +217,9 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
       candlesRef.current = candles;
       timeToIdxRef.current = new Map(candles.map((c, i) => [c.time, i]));
 
-      const rsi   = computeRSI(candles, rsiSettings.period);
-      const rsiMA = rsiSettings.maPeriod >= 2 ? computeSMAAligned(rsi, rsiSettings.maPeriod) : null;
+      const { period, maPeriod } = rsiSettingsRef.current;
+      const rsi   = computeRSI(candles, period);
+      const rsiMA = maPeriod >= 2 ? computeSMAAligned(rsi, maPeriod) : null;
       linesRef.current = { vwap: computeVWAP(candles), ema9: computeEMA(candles, 9), ema21: computeEMA(candles, 21), rsi, rsiMA };
 
       setInfo({ ltp: candles[candles.length - 1].close, open: candles[0].open, tradingSymbol: kiteTs });
@@ -267,8 +229,10 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
         chartRef.current = createChart(containerRef.current, { interval, showVolume: true });
       }
       if (chartRef.current) {
-        chartRef.current.setCandles(candles);
-        chartRef.current.onCrosshairMove(data => {
+        const chart = chartRef.current;
+        chart.setCandles(candles);
+        applyRSIPane(chart, rsi, rsiMA, overlaysRef.current.rsi, rsiHeightRef.current);
+        chart.onCrosshairMove(data => {
           if (data) {
             setHoverData(buildHoverData(data.bar, data.lineValues));
             onCrosshairIndex?.(data.index);
@@ -291,14 +255,12 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
   // ── Recompute RSI when settings change ────────────────────────────────────
   useEffect(() => {
     if (!candlesRef.current?.length) return;
-    const rsi   = computeRSI(candlesRef.current, rsiSettings.period);
-    const rsiMA = rsiSettings.maPeriod >= 2 ? computeSMAAligned(rsi, rsiSettings.maPeriod) : null;
+    const { period, maPeriod } = rsiSettings;
+    const rsi   = computeRSI(candlesRef.current, period);
+    const rsiMA = maPeriod >= 2 ? computeSMAAligned(rsi, maPeriod) : null;
     linesRef.current.rsi   = rsi;
     linesRef.current.rsiMA = rsiMA;
-    setHoverData(prev => prev ? buildHoverData(prev.bar, { vwap: prev.lines.vwap, ema9: prev.lines.ema9, ema21: prev.lines.ema21 }) : defaultHoverData());
-    if (overlays.rsi && rsiCanvasRef.current) {
-      setTimeout(() => drawRSICanvas(rsiCanvasRef.current, rsi, rsiMA), 10);
-    }
+    if (chartRef.current) applyRSIPane(chartRef.current, rsi, rsiMA, overlays.rsi, rsiHeight);
   }, [rsiSettings.period, rsiSettings.maPeriod]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Apply / clear overlay lines ────────────────────────────────────────────
@@ -308,14 +270,20 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
     overlays.vwap  ? c.setLine('vwap',  { data: linesRef.current.vwap,  color: '#f59e0b', width: 1.5 }) : c.clearLine('vwap');
     overlays.ema9  ? c.setLine('ema9',  { data: linesRef.current.ema9,  color: '#22d3ee', width: 1.5 }) : c.clearLine('ema9');
     overlays.ema21 ? c.setLine('ema21', { data: linesRef.current.ema21, color: '#f97316', width: 1.5 }) : c.clearLine('ema21');
-    setHoverData(prev => prev ? buildHoverData(prev.bar, { vwap: prev.lines.vwap, ema9: prev.lines.ema9, ema21: prev.lines.ema21 }) : defaultHoverData());
+    setHoverData(prev => prev ? buildHoverData(prev.bar, prev.lines) : defaultHoverData());
   }, [overlays.vwap, overlays.ema9, overlays.ema21, info]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Draw RSI canvas ────────────────────────────────────────────────────────
+  // ── Toggle RSI pane on/off ────────────────────────────────────────────────
   useEffect(() => {
-    if (!overlays.rsi || !rsiCanvasRef.current || !candlesRef.current) return;
-    setTimeout(() => drawRSICanvas(rsiCanvasRef.current, linesRef.current.rsi, linesRef.current.rsiMA), 30);
-  }, [overlays.rsi, info]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!chartRef.current || !candlesRef.current) return;
+    applyRSIPane(chartRef.current, linesRef.current.rsi, linesRef.current.rsiMA, overlays.rsi, rsiHeight);
+  }, [overlays.rsi]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Sync RSI pane height when parent React state commits (post-drag) ───────
+  useEffect(() => {
+    if (!chartRef.current || !overlays.rsi) return;
+    chartRef.current.setRSIPaneHeight(rsiHeight);
+  }, [rsiHeight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const color = type === 'CE' ? '#22c55e' : '#ef4444';
   const abs   = info ? info.ltp - info.open : null;
@@ -349,8 +317,9 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
         </div>
       </div>
 
-      {/* Chart canvas */}
+      {/* Chart canvas (RSI pane is drawn inside this canvas) */}
       <div ref={containerRef} className="relative flex-1 min-h-0 w-full">
+        {/* OHLCV + line overlay */}
         {bar && (
           <div className="absolute top-2 left-2 z-10 pointer-events-none">
             <div className="bg-black/50 rounded px-2 py-1.5 flex flex-col gap-0.5">
@@ -371,32 +340,15 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
             </div>
           </div>
         )}
-      </div>
-
-      {/* RSI pane — height controlled by parent imperatively during drag */}
-      {overlays.rsi && (
-        <div ref={rsiPaneRef} className="relative border-t border-[#1e3a5f] shrink-0" style={{ height: rsiHeight }}>
-          {/* Drag handle at top — calls parent's drag handler */}
+        {/* RSI drag handle — sits exactly at the chart/RSI-pane boundary inside the canvas */}
+        {overlays.rsi && (
           <div
-            className="absolute top-0 left-0 right-0 z-20 flex items-center justify-center"
-            style={{ height: 6, cursor: 'row-resize' }}
+            className="absolute left-0 z-20 hover:bg-blue-500/15 transition-colors"
+            style={{ right: 74, bottom: 28 + rsiHeight - 3, height: 6, cursor: 'row-resize' }}
             onMouseDown={onRsiDragStart}
-          >
-            <div className="w-8 h-0.5 rounded-full bg-slate-600/60 pointer-events-none" />
-          </div>
-          <canvas ref={rsiCanvasRef} className="absolute inset-0 w-full h-full" />
-          <div className="absolute top-2 right-2 flex items-center gap-2 pointer-events-none z-10">
-            <span className="text-[11px] font-mono font-semibold" style={{ color: '#818cf8' }}>
-              RSI({rsiSettings.period}){hLines?.rsi != null ? ` ${hLines.rsi.toFixed(1)}` : ''}
-            </span>
-            {rsiSettings.maPeriod >= 2 && hLines?.rsiMA != null && (
-              <span className="text-[11px] font-mono" style={{ color: '#f59e0b' }}>
-                MA({rsiSettings.maPeriod}) {hLines.rsiMA.toFixed(1)}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
+          />
+        )}
+      </div>
     </div>
   );
 });
@@ -424,10 +376,9 @@ function OptionsChartInner() {
   const [layout,      setLayout]      = useState('vertical');
   const [singleType,  setSingleType]  = useState('CE');
   const [overlays,    setOverlays]    = useState({ vwap: false, ema9: true, ema21: true, rsi: false });
-  const [rsiSettings, setRsiSettings] = useState({ period: 14, maPeriod: 0 });
+  const [rsiSettings, setRsiSettings] = useState({ period: 12, maPeriod: 5 }); // default 12,5
   const [spotPrice,   setSpotPrice]   = useState(null);
 
-  // splitRatio / hSplitRatio are React state (committed on drag end)
   const [splitRatio,  setSplitRatio]  = useState(0.5);
   const [hSplitRatio, setHSplitRatio] = useState(0.5);
   const [rsiHeight,   setRsiHeight]   = useState(80);
@@ -439,15 +390,15 @@ function OptionsChartInner() {
   const [loadingExp,  setLoadingExp]  = useState(false);
   const [loadingStr,  setLoadingStr]  = useState(false);
 
-  const urlStrikeRef     = useRef(params.get('strike') ? Number(params.get('strike')) : null);
-  const lastLoadedRef    = useRef(null);  // prevents duplicate auto-loads
-  const chartAreaRef     = useRef(null);
-  const cePanelRef       = useRef(null);
-  const pePanelRef       = useRef(null);
-  const cePanelWrapRef   = useRef(null);  // wrapper div for vertical CE
-  const pePanelWrapRef   = useRef(null);  // wrapper div for vertical PE
-  const ceHPanelWrapRef  = useRef(null);  // wrapper div for horizontal CE
-  const peHPanelWrapRef  = useRef(null);  // wrapper div for horizontal PE
+  const urlStrikeRef    = useRef(params.get('strike') ? Number(params.get('strike')) : null);
+  const lastLoadedRef   = useRef(null);
+  const chartAreaRef    = useRef(null);
+  const cePanelRef      = useRef(null);
+  const pePanelRef      = useRef(null);
+  const cePanelWrapRef  = useRef(null);
+  const pePanelWrapRef  = useRef(null);
+  const ceHPanelWrapRef = useRef(null);
+  const peHPanelWrapRef = useRef(null);
 
   const [chartKey, setChartKey] = useState(
     params.get('symbol') && params.get('expiry') && params.get('strike')
@@ -455,7 +406,7 @@ function OptionsChartInner() {
       : null
   );
 
-  // ── Load FnO symbol list once ─────────────────────────────────────────────
+  // ── Load FnO symbol list ──────────────────────────────────────────────────
   useEffect(() => {
     fetch('/api/option-meta?action=symbols')
       .then(r => r.json())
@@ -482,7 +433,7 @@ function OptionsChartInner() {
       .finally(() => setLoadingExp(false));
   }, [symbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Load strikes + spot when symbol+expiry changes ────────────────────────
+  // ── Load strikes + spot ───────────────────────────────────────────────────
   useEffect(() => {
     if (!symbol || !expiry) return;
     setStrike(null); setStrikes([]);
@@ -505,7 +456,7 @@ function OptionsChartInner() {
     }).catch(() => {}).finally(() => setLoadingStr(false));
   }, [symbol, expiry]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Auto-load whenever all params are ready ───────────────────────────────
+  // ── Auto-load whenever params are ready ───────────────────────────────────
   useEffect(() => {
     if (!symbol || !expiry || !strike) return;
     if (loadingMeta || loadingExp || loadingStr) return;
@@ -522,18 +473,16 @@ function OptionsChartInner() {
   // ── Draggable vertical split — direct DOM during drag ─────────────────────
   function startVDividerDrag(e) {
     e.preventDefault();
-    const startY  = e.clientY;
-    const startR  = splitRatio;
-    const totalH  = chartAreaRef.current?.clientHeight || 600;
-
+    const startY = e.clientY;
+    const startR = splitRatio;
+    const totalH = chartAreaRef.current?.clientHeight || 600;
     function onMove(me) {
       const newR = Math.max(0.2, Math.min(0.8, startR + (me.clientY - startY) / totalH));
       if (cePanelWrapRef.current) cePanelWrapRef.current.style.flex = String(newR);
       if (pePanelWrapRef.current) pePanelWrapRef.current.style.flex = String(1 - newR);
     }
     function onUp(me) {
-      const newR = Math.max(0.2, Math.min(0.8, startR + (me.clientY - startY) / totalH));
-      setSplitRatio(newR);
+      setSplitRatio(Math.max(0.2, Math.min(0.8, startR + (me.clientY - startY) / totalH)));
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup',   onUp);
     }
@@ -544,18 +493,16 @@ function OptionsChartInner() {
   // ── Draggable horizontal split — direct DOM during drag ───────────────────
   function startHDividerDrag(e) {
     e.preventDefault();
-    const startX  = e.clientX;
-    const startR  = hSplitRatio;
-    const totalW  = chartAreaRef.current?.clientWidth || 1200;
-
+    const startX = e.clientX;
+    const startR = hSplitRatio;
+    const totalW = chartAreaRef.current?.clientWidth || 1200;
     function onMove(me) {
       const newR = Math.max(0.2, Math.min(0.8, startR + (me.clientX - startX) / totalW));
       if (ceHPanelWrapRef.current) ceHPanelWrapRef.current.style.flex = String(newR);
       if (peHPanelWrapRef.current) peHPanelWrapRef.current.style.flex = String(1 - newR);
     }
     function onUp(me) {
-      const newR = Math.max(0.2, Math.min(0.8, startR + (me.clientX - startX) / totalW));
-      setHSplitRatio(newR);
+      setHSplitRatio(Math.max(0.2, Math.min(0.8, startR + (me.clientX - startX) / totalW)));
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup',   onUp);
     }
@@ -563,21 +510,20 @@ function OptionsChartInner() {
     window.addEventListener('mouseup',   onUp);
   }
 
-  // ── Draggable RSI handle — direct DOM during drag, both panels sync ───────
+  // ── RSI pane drag — imperative on both panels, no React state during drag ─
   function makeRsiDragHandler(e) {
     e.preventDefault();
     e.stopPropagation();
     const startY = e.clientY;
     const startH = rsiHeight;
-
     function onMove(me) {
-      const newH = Math.max(60, Math.min(220, startH + (startY - me.clientY)));
-      cePanelRef.current?.setRsiHeight(newH);
-      pePanelRef.current?.setRsiHeight(newH);
+      const newH = Math.max(40, Math.min(240, startH + (startY - me.clientY)));
+      cePanelRef.current?.setRSIPaneHeight(newH);
+      pePanelRef.current?.setRSIPaneHeight(newH);
     }
     function onUp(me) {
-      const newH = Math.max(60, Math.min(220, startH + (startY - me.clientY)));
-      setRsiHeight(newH); // commit to React state
+      const newH = Math.max(40, Math.min(240, startH + (startY - me.clientY)));
+      setRsiHeight(newH);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup',   onUp);
     }
@@ -587,7 +533,7 @@ function OptionsChartInner() {
 
   const expiryObj = expiries.find(e => e.date === expiry);
 
-  const rsiLabel = overlays.rsi && rsiSettings.maPeriod >= 2
+  const rsiLabel = rsiSettings.maPeriod >= 2
     ? `RSI(${rsiSettings.period},${rsiSettings.maPeriod})`
     : `RSI(${rsiSettings.period})`;
 
@@ -648,24 +594,19 @@ function OptionsChartInner() {
           <div ref={ceHPanelWrapRef} style={{ flex: hSplitRatio, minWidth: 0, minHeight: 0 }}>
             <OptionChartPanel
               key={ceKey} ref={cePanelRef} {...panelProps} type="CE"
-              onCrosshairIndex={idx => idx != null
-                ? pePanelRef.current?.setCrosshairAt(idx)
-                : pePanelRef.current?.clearCrosshair()}
+              onCrosshairIndex={idx => idx != null ? pePanelRef.current?.setCrosshairAt(idx) : pePanelRef.current?.clearCrosshair()}
             />
           </div>
           <div
             className="w-1.5 shrink-0 bg-[#1e3a5f] hover:bg-blue-500/50 transition-colors flex items-center justify-center"
             style={{ cursor: 'col-resize' }}
-            onMouseDown={startHDividerDrag}
-          >
+            onMouseDown={startHDividerDrag}>
             <div className="h-8 w-0.5 rounded-full bg-slate-500/40 pointer-events-none" />
           </div>
           <div ref={peHPanelWrapRef} style={{ flex: 1 - hSplitRatio, minWidth: 0, minHeight: 0 }}>
             <OptionChartPanel
               key={peKey} ref={pePanelRef} {...panelProps} type="PE"
-              onCrosshairIndex={idx => idx != null
-                ? cePanelRef.current?.setCrosshairAt(idx)
-                : cePanelRef.current?.clearCrosshair()}
+              onCrosshairIndex={idx => idx != null ? cePanelRef.current?.setCrosshairAt(idx) : cePanelRef.current?.clearCrosshair()}
             />
           </div>
         </div>
@@ -678,24 +619,19 @@ function OptionsChartInner() {
         <div ref={cePanelWrapRef} style={{ flex: splitRatio, minHeight: 0 }}>
           <OptionChartPanel
             key={ceKey} ref={cePanelRef} {...panelProps} type="CE"
-            onCrosshairIndex={idx => idx != null
-              ? pePanelRef.current?.setCrosshairAt(idx)
-              : pePanelRef.current?.clearCrosshair()}
+            onCrosshairIndex={idx => idx != null ? pePanelRef.current?.setCrosshairAt(idx) : pePanelRef.current?.clearCrosshair()}
           />
         </div>
         <div
           className="h-1.5 shrink-0 bg-[#1e3a5f] hover:bg-blue-500/50 transition-colors flex items-center justify-center"
           style={{ cursor: 'row-resize' }}
-          onMouseDown={startVDividerDrag}
-        >
+          onMouseDown={startVDividerDrag}>
           <div className="w-8 h-0.5 rounded-full bg-slate-500/40 pointer-events-none" />
         </div>
         <div ref={pePanelWrapRef} style={{ flex: 1 - splitRatio, minHeight: 0 }}>
           <OptionChartPanel
             key={peKey} ref={pePanelRef} {...panelProps} type="PE"
-            onCrosshairIndex={idx => idx != null
-              ? cePanelRef.current?.setCrosshairAt(idx)
-              : cePanelRef.current?.clearCrosshair()}
+            onCrosshairIndex={idx => idx != null ? cePanelRef.current?.setCrosshairAt(idx) : cePanelRef.current?.clearCrosshair()}
           />
         </div>
       </div>
@@ -752,7 +688,7 @@ function OptionsChartInner() {
             </div>
           </div>
 
-          {/* Spot price badge */}
+          {/* Spot price */}
           {spotPrice != null && (
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-slate-500 uppercase tracking-wider">Spot</label>
@@ -762,7 +698,7 @@ function OptionsChartInner() {
             </div>
           )}
 
-          {/* Expiry type badge */}
+          {/* Expiry badge */}
           {expiryObj && (
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-transparent select-none">·</label>
@@ -774,7 +710,7 @@ function OptionsChartInner() {
 
           <div className="flex-1 min-w-0" />
 
-          {/* Overlay toggles */}
+          {/* Overlays */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] text-slate-500 uppercase tracking-wider">Overlays</label>
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -808,7 +744,7 @@ function OptionsChartInner() {
             </div>
           </div>
 
-          {/* Layout toggle */}
+          {/* Layout */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] text-slate-500 uppercase tracking-wider">Layout</label>
             <div className="flex rounded-lg overflow-hidden border border-[#1e3a5f]">

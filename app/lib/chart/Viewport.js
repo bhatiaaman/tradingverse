@@ -10,6 +10,7 @@ export class Viewport {
     this.TIME_AXIS_H  = 28;
     this.PAD_TOP      = 10;
     this.PAD_LEFT     = 0;
+    this.rsiPaneH     = 0; // height of RSI sub-pane; 0 = hidden
 
     this.width  = width;
     this.height = height;
@@ -34,13 +35,17 @@ export class Viewport {
     this.height = h;
   }
 
-  // ── Chart drawing area (excludes axes) ──────────────────────────────────────
+  // ── Chart drawing area (excludes axes + RSI sub-pane) ───────────────────────
   get chartLeft()   { return this.PAD_LEFT; }
   get chartRight()  { return this.width - this.PRICE_AXIS_W; }
   get chartTop()    { return this.PAD_TOP; }
-  get chartBottom() { return this.height - this.TIME_AXIS_H; }
+  get chartBottom() { return this.height - this.TIME_AXIS_H - this.rsiPaneH; }
   get chartW()      { return this.chartRight - this.chartLeft; }
   get chartH()      { return this.chartBottom - this.chartTop; }
+
+  // RSI sub-pane bounds (between main chart and time axis)
+  get rsiPaneTop()  { return this.height - this.TIME_AXIS_H - this.rsiPaneH; }
+  get rsiPaneBot()  { return this.height - this.TIME_AXIS_H; }
 
   // Width of one bar in pixels
   get barW() {

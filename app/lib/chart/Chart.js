@@ -22,6 +22,7 @@ import { renderVolume }      from './renderers/volume.js';
 import { renderCrosshair }   from './renderers/crosshair.js';
 import { renderMarkers }     from './renderers/markers.js';
 import { renderSMC }        from './renderers/smc.js';
+import { renderRSIPane }    from './renderers/rsi-pane.js';
 
 export function createChart(container, options = {}) {
   const interval = options.interval ?? '15minute';
@@ -35,6 +36,11 @@ export function createChart(container, options = {}) {
   const dpr = window.devicePixelRatio || 1;
   let W = container.clientWidth  || 800;
   let H = container.clientHeight || 400;
+
+  // pendingW/H: set by ResizeObserver; applied atomically inside the render loop
+  // so canvas clear + redraw happen in the same RAF tick (no one-frame flash).
+  let pendingW = null;
+  let pendingH = null;
 
   function resizeCanvas() {
     canvas.width  = W * dpr;
@@ -53,6 +59,7 @@ export function createChart(container, options = {}) {
   let   zones       = [];                 // [{ id, price, color, label, style }]
   let   smcData     = null;               // { bosLevels, orderBlocks, fvgs }
   let   markers     = [];                 // [{ index, direction: 'bull'|'bear' }]
+  let   rsiPaneData = null;              // { rsi: number[], rsiMA: number[]|null, label: string }
   let   showVolume  = options.showVolume ?? true;
   let   crosshair   = { visible: false };
   let   crosshairCb = null;
@@ -67,6 +74,16 @@ export function createChart(container, options = {}) {
     if (!dirty) return;
     dirty = false;
 
+    // Apply pending resize atomically — canvas clear + full redraw in the same tick.
+    // This prevents the one-frame blank-canvas flash that would occur if resizeCanvas()
+    // ran in a separate RAF callback (old ResizeObserver approach).
+    if (pendingW !== null) {
+      W = pendingW; H = pendingH;
+      pendingW = null; pendingH = null;
+      vp.resize(W, H);
+      resizeCanvas();
+    }
+
     // Clear
     ctx.fillStyle = '#112240';
     ctx.fillRect(0, 0, W, H);
@@ -74,7 +91,7 @@ export function createChart(container, options = {}) {
     // Recompute price scale from current viewport + data every frame
     vp.autoScale(candles);
 
-    // Draw order: grid/axes → volume → SMC → zones → lines → candles → crosshair
+    // Draw order: grid/axes → volume → SMC → zones → lines → candles → RSI pane → crosshair
     renderAxes(ctx, vp, candles, interval);
     if (showVolume) renderVolume(ctx, vp, candles);
     if (smcData)   renderSMC(ctx, vp, smcData);
@@ -84,6 +101,10 @@ export function createChart(container, options = {}) {
     }
     renderCandles(ctx, vp, candles);
     renderMarkers(ctx, vp, candles, markers);
+    if (rsiPaneData && vp.rsiPaneH > 0) {
+      const snapIdx = crosshair.visible ? crosshair.snapIndex : null;
+      renderRSIPane(ctx, vp, rsiPaneData.rsi, rsiPaneData.rsiMA, snapIdx, rsiPaneData.label);
+    }
     renderCrosshair(ctx, vp, crosshair, candles, interval);
   }
 
@@ -145,18 +166,12 @@ export function createChart(container, options = {}) {
   });
 
   // ── Resize observer ──────────────────────────────────────────────────────────
-  // RAF-debounced so rapid resizes (drag) only trigger one canvas resize per frame.
-  let resizeRafId = null;
+  // Just captures the new dimensions; actual resize happens inside render() so the
+  // canvas clear and redraw are atomic within one RAF tick (no flash).
   const ro = new ResizeObserver(() => {
-    if (resizeRafId !== null) return;
-    resizeRafId = requestAnimationFrame(() => {
-      resizeRafId = null;
-      W = container.clientWidth  || 800;
-      H = container.clientHeight || 400;
-      vp.resize(W, H);
-      resizeCanvas();
-      markDirty();
-    });
+    pendingW = container.clientWidth  || 800;
+    pendingH = container.clientHeight || 400;
+    markDirty();
   });
   ro.observe(container);
 
@@ -249,6 +264,26 @@ export function createChart(container, options = {}) {
       markDirty();
     },
 
+    // ── RSI sub-pane ────────────────────────────────────────────────────────────
+    // rsi: number[] aligned to candles (nulls allowed); rsiMA: number[]|null; label: e.g. 'RSI(12)'
+    setRSIPane(rsi, rsiMA = null, label = 'RSI') {
+      rsiPaneData = { rsi: rsi ?? [], rsiMA: rsiMA ?? null, label };
+      markDirty();
+    },
+
+    clearRSIPane() {
+      rsiPaneData = null;
+      vp.rsiPaneH = 0;
+      markDirty();
+    },
+
+    // Adjusts the RSI sub-pane height (0 = hidden). No canvas resize — just recalculates
+    // chartBottom via the Viewport getter, so the chart area shrinks/grows automatically.
+    setRSIPaneHeight(h) {
+      vp.rsiPaneH = Math.max(0, h | 0);
+      markDirty();
+    },
+
     // Update the last candle with a live LTP tick — mutates close/high/low in-place.
     // Used for real-time price feed without a full data refetch.
     updateTick(ltp) {
@@ -304,7 +339,6 @@ export function createChart(container, options = {}) {
     destroy() {
       destroyed = true;
       cancelAnimationFrame(rafId);
-      if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
       handler.destroy();
       ro.disconnect();
       canvas.remove();
