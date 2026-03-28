@@ -245,10 +245,10 @@ function computeSMC(candles, strength = 3) {
       break;
     }
   }
-  // Keep only the 2 nearest bull OBs (below price) + 2 nearest bear OBs (above price)
-  const bullOBs = rawOBs.filter(o => o.bias === 'bull' && o.high <= lastClose)
+  // Keep only the 2 nearest bull OBs (zone bottom ≤ price) + 2 nearest bear OBs (zone top ≥ price)
+  const bullOBs = rawOBs.filter(o => o.bias === 'bull' && o.low <= lastClose)
     .sort((a, b) => b.high - a.high).slice(0, 2);
-  const bearOBs = rawOBs.filter(o => o.bias === 'bear' && o.low >= lastClose)
+  const bearOBs = rawOBs.filter(o => o.bias === 'bear' && o.high >= lastClose)
     .sort((a, b) => a.low - b.low).slice(0, 2);
   const orderBlocks = [...bullOBs, ...bearOBs];
 
@@ -271,10 +271,10 @@ function computeSMC(candles, strength = 3) {
       if (!mitigated) rawFVGs.push({ type: 'bear', high: prev.low, low: curr.high, startIdx: i - 1 });
     }
   }
-  // Keep only 2 nearest bull FVGs below price + 2 nearest bear FVGs above price
-  const bullFVGs = rawFVGs.filter(f => f.type === 'bull' && f.high <= lastClose)
+  // Keep only 2 nearest bull FVGs (low ≤ price) + 2 nearest bear FVGs (high ≥ price)
+  const bullFVGs = rawFVGs.filter(f => f.type === 'bull' && f.low <= lastClose)
     .sort((a, b) => b.high - a.high).slice(0, 2);
-  const bearFVGs = rawFVGs.filter(f => f.type === 'bear' && f.low >= lastClose)
+  const bearFVGs = rawFVGs.filter(f => f.type === 'bear' && f.high >= lastClose)
     .sort((a, b) => a.low - b.low).slice(0, 2);
   const fvgs = [...bullFVGs, ...bearFVGs];
 
