@@ -232,9 +232,77 @@ function ModalVerdictCard({ regimeData, scenarioResult, symbol, isLoading, secto
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// interpretDepth — pure JS rules that turn depth numbers into trade insights
+// Returns array of { level: 'warn'|'caution'|'good'|'info', text }
+// ─────────────────────────────────────────────────────────────────────────────
+function interpretDepth(depth, transactionType, orderType) {
+  if (!depth) return [];
+  const { buy, sell, bestBid, bestAsk, spread, spreadPct, totalBuyQty, totalSellQty, buyPct } = depth;
+  const insights = [];
+  const isBuy  = transactionType === 'BUY';
+  const isLimit = orderType === 'LIMIT' || orderType === 'SL';
+
+  // ── 1. Spread assessment ────────────────────────────────────────────────────
+  if (spreadPct != null) {
+    if (spreadPct <= 0.3) {
+      insights.push({ level: 'good', text: `Tight spread (${spreadPct}%) — liquid market, market order is fine.` });
+    } else if (spreadPct <= 1) {
+      insights.push({ level: 'info', text: `Moderate spread (${spreadPct}%) — limit order preferred to save ₹${spread} per unit.` });
+    } else if (spreadPct <= 2) {
+      insights.push({ level: 'caution', text: `Wide spread (${spreadPct}%) — use a limit order, market order costs ₹${spread} extra per unit.` });
+    } else {
+      insights.push({ level: 'warn', text: `Very wide spread (${spreadPct}%) — avoid market orders. ₹${spread} per unit lost to spread alone.` });
+    }
+  }
+
+  // ── 2. Pressure vs trade direction ─────────────────────────────────────────
+  if (buyPct != null && totalBuyQty + totalSellQty > 0) {
+    const sellPct = 100 - buyPct;
+    if (isBuy && buyPct >= 65)  insights.push({ level: 'good',    text: `Depth supports your BUY — buyers ${buyPct}% of visible depth.` });
+    if (isBuy && sellPct >= 65) insights.push({ level: 'caution', text: `Sellers dominate depth (${sellPct}%) — depth works against your BUY, price may face resistance.` });
+    if (!isBuy && sellPct >= 65) insights.push({ level: 'good',   text: `Depth supports your SELL — sellers ${sellPct}% of visible depth.` });
+    if (!isBuy && buyPct >= 65)  insights.push({ level: 'caution', text: `Strong buy-side depth (${buyPct}%) — buyers may absorb your SELL, exit may be harder.` });
+  }
+
+  // ── 3. Price wall detection ─────────────────────────────────────────────────
+  // A wall = single level with > 3× the average qty of the other levels
+  const detectWall = (levels, side) => {
+    const valid = levels.filter(l => l?.qty > 0);
+    if (valid.length < 2) return null;
+    const avg = valid.reduce((s, l) => s + l.qty, 0) / valid.length;
+    const wall = valid.find(l => l.qty >= avg * 3);
+    return wall ? { price: wall.price, qty: wall.qty, side } : null;
+  };
+  const sellWall = detectWall(sell, 'sell');
+  const buyWall  = detectWall(buy,  'buy');
+
+  const fmtQty = (q) => q >= 10000 ? `${(q / 1000).toFixed(1)}k` : q.toLocaleString('en-IN');
+  const fmtPx  = (p) => `₹${p.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  if (sellWall) {
+    const msg = `Sell wall at ${fmtPx(sellWall.price)} (${fmtQty(sellWall.qty)} qty) — heavy resistance overhead, may cap upside.`;
+    insights.push({ level: isBuy ? 'caution' : 'good', text: msg });
+  }
+  if (buyWall) {
+    const msg = `Buy wall at ${fmtPx(buyWall.price)} (${fmtQty(buyWall.qty)} qty) — strong support below, downside limited near this level.`;
+    insights.push({ level: isBuy ? 'good' : 'caution', text: msg });
+  }
+
+  // ── 4. Limit price suggestion ───────────────────────────────────────────────
+  if (isLimit) {
+    if (isBuy && bestAsk != null)
+      insights.push({ level: 'info', text: `Best ask ${fmtPx(bestAsk)} — set limit at or above this for near-instant fill.` });
+    if (!isBuy && bestBid != null)
+      insights.push({ level: 'info', text: `Best bid ${fmtPx(bestBid)} — set limit at or below this for near-instant fill.` });
+  }
+
+  return insights;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DepthPanel — 5-level bid/ask order depth, shown in the Order tab
 // ─────────────────────────────────────────────────────────────────────────────
-function DepthPanel({ depth, loading, onRefresh }) {
+function DepthPanel({ depth, loading, onRefresh, transactionType, orderType }) {
   if (loading) {
     return (
       <div className="rounded-xl border border-white/8 bg-white/[0.025] px-4 py-3 flex items-center gap-2">
@@ -324,6 +392,31 @@ function DepthPanel({ depth, loading, onRefresh }) {
             style={{ width: `${buyPct}%` }} />
         </div>
       </div>
+
+      {/* Interpreted insights */}
+      {(() => {
+        const insights = interpretDepth(depth, transactionType, orderType);
+        if (!insights.length) return null;
+        const cfg = {
+          good:    { bg: 'bg-emerald-500/10', border: 'border-emerald-500/25', text: 'text-emerald-400', dot: 'bg-emerald-400' },
+          caution: { bg: 'bg-amber-500/10',   border: 'border-amber-500/25',   text: 'text-amber-400',   dot: 'bg-amber-400'   },
+          warn:    { bg: 'bg-red-500/10',      border: 'border-red-500/25',     text: 'text-red-400',     dot: 'bg-red-400'     },
+          info:    { bg: 'bg-slate-500/10',    border: 'border-slate-500/25',   text: 'text-slate-400',   dot: 'bg-slate-500'   },
+        };
+        return (
+          <div className="border-t border-white/5 px-3 py-2 space-y-1.5">
+            {insights.map((ins, i) => {
+              const c = cfg[ins.level] ?? cfg.info;
+              return (
+                <div key={i} className={`flex items-start gap-2 rounded-lg px-2.5 py-2 border ${c.bg} ${c.border}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0 ${c.dot}`} />
+                  <span className={`text-[10px] leading-snug ${c.text}`}>{ins.text}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1018,7 +1111,8 @@ export default function OrderModal({
           </div>
 
           {/* Market Depth */}
-          <DepthPanel depth={depth} loading={depthLoading} onRefresh={fetchDepth} />
+          <DepthPanel depth={depth} loading={depthLoading} onRefresh={fetchDepth}
+            transactionType={transactionType} orderType={orderType} />
 
           {/* Rest of form (unchanged) */}
           <div>
