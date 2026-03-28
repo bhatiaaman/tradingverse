@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import { getVIXInsight } from '@/app/lib/vix-messaging';
 import { Brain, ChevronDown, ChevronUp, RefreshCw, Zap, AlertTriangle, Info, CheckCircle, XCircle } from 'lucide-react';
 
 // ─── Level config ────────────────────────────────────────────────────────────
@@ -498,18 +499,12 @@ function runPassiveChecks({ symbol, tradingsymbol, instrumentType, transactionTy
     }
   }
 
-  // VIX
-  if (vix) {
-    const v = parseFloat(vix);
-    if (v > 25) {
-      riskScore += 20;
-      insights.push({ id: 'vix', level: 'warning', icon: '🌊',
-        title: `VIX ${v.toFixed(1)} — High volatility`, detail: 'Options expensive. Premium decay risk elevated.' });
-    } else if (v > 18) {
-      riskScore += 8;
-      insights.push({ id: 'vix', level: 'caution', icon: '🌊',
-        title: `VIX ${v.toFixed(1)} — Elevated`, detail: 'Above-normal volatility. Widen your stop-loss.' });
-    }
+  // VIX — delegates to app/lib/vix-messaging.js (edit there to change messages)
+  const vixInsight = getVIXInsight(parseFloat(vix), instrumentType, transactionType);
+  if (vixInsight) {
+    riskScore += vixInsight.riskScore;
+    insights.push({ id: 'vix', level: vixInsight.severity, icon: '🌊',
+      title: vixInsight.title, detail: vixInsight.detail });
   }
 
   riskScore = Math.min(100, riskScore);

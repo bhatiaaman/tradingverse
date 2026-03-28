@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePageVisibility } from '@/app/hooks/usePageVisibility';
 import { useTheme } from '@/lib/theme-context';
 import { playOrderExecuted } from '@/app/lib/sounds';
+import { getVIXInsight } from '@/app/lib/vix-messaging';
 import {
   Search, X, RefreshCw, Brain, Loader2, ChevronDown, ChevronRight,
   CheckCircle, XCircle, Clock, AlertTriangle, ShieldCheck,
@@ -2769,11 +2770,9 @@ export default function TerminalPage() {
       }
     }
 
-    // 3. VIX elevated (soft warning)
-    const vixVal = parseFloat(indices?.vix);
-    if (vixVal > 20) {
-      tier2.push({ msg: `VIX ${vixVal.toFixed(1)} — High volatility, consider reducing quantity` });
-    }
+    // 3. VIX — delegates to app/lib/vix-messaging.js (edit there to change messages)
+    const vixInsight = getVIXInsight(parseFloat(indices?.vix), instrumentType, transactionType);
+    if (vixInsight) tier2.push({ msg: vixInsight.title });
 
     const hasBehavioralDanger = intel.result?.behavioral?.verdict === 'danger';
     if (tier1.length > 0 || tier2.length > 0 || hasBehavioralDanger) {

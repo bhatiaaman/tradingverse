@@ -1,6 +1,7 @@
 // Copyright (c) 2025 Amandeep Bhatia — TradePreflight
 // Licensed under Apache 2.0 — https://github.com/amanbhatia/tradepreflight
-import { getSector } from '../lib/sector-map.js';
+import { getSector }      from '../lib/sector-map.js';
+import { getVIXInsight } from '@/app/lib/vix-messaging.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Direction helper
@@ -99,32 +100,15 @@ function checkPositionCount(data) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BEHAVIOR 4: High VIX (India VIX) — calibrated for Indian markets
-// India VIX normal range: 10–18. Elevated: 20–28. Extreme: > 28.
+// BEHAVIOR 4: VIX-aware tactical guidance
+// All band/instrument logic lives in app/lib/vix-messaging.js — edit there.
 // ─────────────────────────────────────────────────────────────────────────────
-function checkHighVIX(data) {
-  const vix = data.vix;
-  if (vix == null || isNaN(vix)) return null;
 
-  if (vix > 28) {
-    return {
-      type: 'HIGH_VIX',
-      severity: 'warning',
-      title: `Extreme volatility — VIX ${vix.toFixed(1)}`,
-      detail: `India VIX above 28 signals extreme fear/uncertainty. Options premiums are very expensive and gaps are likely. Reduce size significantly.`,
-      riskScore: 18,
-    };
-  }
-  if (vix > 20) {
-    return {
-      type: 'ELEVATED_VIX',
-      severity: 'caution',
-      title: `Elevated volatility — VIX ${vix.toFixed(1)}`,
-      detail: `India VIX above 20 — premium is elevated above normal range (10–18). Factor in wider stop-loss and consider smaller size.`,
-      riskScore: 8,
-    };
-  }
-  return null;
+function checkVIX(data) {
+  const { instrumentType = 'EQ', transactionType = 'BUY' } = data.order ?? {};
+  const insight = getVIXInsight(data.vix, instrumentType, transactionType);
+  if (!insight) return null;
+  return { type: 'VIX_SIGNAL', severity: insight.severity, title: insight.title, detail: insight.detail, riskScore: insight.riskScore };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,7 +171,7 @@ const BEHAVIORS = [
   [checkAddingToLoser,  'No loser averaging'],
   [checkAgainstTrend,   'Trade aligned with trend'],
   [checkPositionCount,  'Position count OK'],
-  [checkHighVIX,        'VIX within normal range'],
+  [checkVIX,            'VIX within normal range'],
   [checkDuplicateOrder, 'No duplicate open order'],
   [checkSectorExposure, 'Sector exposure is diversified'],
 ];

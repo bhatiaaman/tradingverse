@@ -2,6 +2,19 @@ import { NextResponse } from 'next/server';
 import { getBroker } from '@/app/lib/providers';
 import { orderLimiter, checkLimit } from '@/app/lib/rate-limit';
 import { requireOwner, requireSession, unauthorized, forbidden } from '@/app/lib/session';
+import { redis } from '@/app/lib/redis';
+
+const ORDER_LOG_KEY = 'tradingverse:order_log';
+const ORDER_LOG_MAX = 200;
+
+async function logOrder(entry) {
+  try {
+    await redis.rpush(ORDER_LOG_KEY, JSON.stringify(entry));
+    await redis.ltrim(ORDER_LOG_KEY, -ORDER_LOG_MAX, -1);
+  } catch (e) {
+    console.error('order log write failed:', e);
+  }
+}
 
 export async function POST(request) {
   const session = await requireSession();
@@ -22,8 +35,9 @@ export async function POST(request) {
     );
   }
 
+  let body;
   try {
-    const body = await request.json();
+    body = await request.json();
     const {
       tradingsymbol,
       exchange = 'NSE',
@@ -93,6 +107,20 @@ export async function POST(request) {
 
     const orderResponse = await broker.placeOrder(variety, orderParams);
 
+    await logOrder({
+      ts: Date.now(),
+      status: 'success',
+      order_id: orderResponse.order_id,
+      symbol: orderParams.tradingsymbol,
+      exchange: orderParams.exchange,
+      transaction_type: orderParams.transaction_type,
+      order_type: orderParams.order_type,
+      product: orderParams.product,
+      quantity: orderParams.quantity,
+      price: orderParams.price ?? null,
+      trigger_price: orderParams.trigger_price ?? null,
+    });
+
     return NextResponse.json({
       success: true,
       order_id: orderResponse.order_id,
@@ -116,6 +144,21 @@ export async function POST(request) {
       errorMessage = 'Invalid quantity. Please check lot size requirements.';
       statusCode = 400;
     }
+
+    await logOrder({
+      ts: Date.now(),
+      status: 'failed',
+      order_id: null,
+      symbol: body?.tradingsymbol?.toUpperCase() ?? '?',
+      exchange: body?.exchange?.toUpperCase() ?? '?',
+      transaction_type: body?.transaction_type?.toUpperCase() ?? '?',
+      order_type: body?.order_type?.toUpperCase() ?? '?',
+      product: body?.product?.toUpperCase() ?? '?',
+      quantity: body?.quantity ?? null,
+      price: body?.price ?? null,
+      trigger_price: body?.trigger_price ?? null,
+      error: errorMessage,
+    });
 
     return NextResponse.json({ error: errorMessage }, { status: statusCode });
   }

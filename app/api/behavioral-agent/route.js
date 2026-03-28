@@ -3,6 +3,7 @@ import { getDataProvider } from '@/app/lib/providers';
 import { detectStations } from './lib/station-detector.js';
 import { requireSession, unauthorized } from '@/app/lib/session';
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit';
+import { getVIXInsight } from '@/app/lib/vix-messaging';
 
 // ─────────────────────────────────────────────
 // HELPERS
@@ -418,22 +419,12 @@ export async function POST(request) {
       }
     }
 
-    // ── CHECK 5: VIX / Volatility ───────────────────
-    if (vix) {
-      const vixNum = parseFloat(vix);
-      if (vixNum > 25) {
-        riskScore += 20;
-        insights.push({ id: 'high_vix', level: 'warning',
-          title: `High volatility — VIX ${vixNum.toFixed(1)}`,
-          detail: `VIX above 25 means options are expensive. Premium decay risk is elevated. Use tighter stops.`,
-          icon: '🌊' });
-      } else if (vixNum > 18) {
-        riskScore += 10;
-        insights.push({ id: 'elevated_vix', level: 'caution',
-          title: `Elevated volatility — VIX ${vixNum.toFixed(1)}`,
-          detail: `VIX above 18 — options premium is above normal. Factor in wider stop-loss.`,
-          icon: '🌊' });
-      }
+    // ── CHECK 5: VIX — delegates to app/lib/vix-messaging.js (edit there) ──────
+    const vixInsight = getVIXInsight(parseFloat(vix), instrumentType, transactionType);
+    if (vixInsight) {
+      riskScore += vixInsight.riskScore;
+      insights.push({ id: 'vix', level: vixInsight.severity, icon: '🌊',
+        title: vixInsight.title, detail: vixInsight.detail });
     }
 
     // ── CHECK 6: Sector trend conflict ──────────────
