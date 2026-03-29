@@ -18,11 +18,11 @@ export const DARK = {
   bearBos:   '#ef4444',
   bullChoch: '#86efac',
   bearChoch: '#fca5a5',
-  // Zone fills — FVG and Order Block
-  fvgFill:   { bull: 'rgba(34,197,94,0.09)',   bear: 'rgba(239,68,68,0.09)'  },
-  fvgBorder: { bull: 'rgba(34,197,94,0.35)',   bear: 'rgba(239,68,68,0.35)' },
-  obFill:    { bull: 'rgba(49,121,245,0.13)',  bear: 'rgba(242,54,69,0.13)' },
-  obBorder:  { bull: 'rgba(49,121,245,0.45)',  bear: 'rgba(242,54,69,0.45)' },
+  // Zone fills — TV-style: blue for bull, red for bear (matches TradingView dark theme)
+  fvgFill:   { bull: 'rgba(41,98,255,0.08)',   bear: 'rgba(242,54,69,0.08)'  },
+  fvgBorder: { bull: 'rgba(41,98,255,0.35)',   bear: 'rgba(242,54,69,0.35)' },
+  obFill:    { bull: 'rgba(41,98,255,0.15)',   bear: 'rgba(242,54,69,0.15)' },
+  obBorder:  { bull: 'rgba(41,98,255,0.55)',   bear: 'rgba(242,54,69,0.55)' },
 };
 
 // LIGHT uses TradingView's signature SMC palette:

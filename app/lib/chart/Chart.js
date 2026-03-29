@@ -64,7 +64,8 @@ export function createChart(container, options = {}) {
   let   cprData     = null;               // { tc, p, bc, r1, r2, s1, s2 }
   let   markers     = [];                 // [{ index, direction: 'bull'|'bear' }]
   let   rsiPaneData = null;              // { rsi: number[], rsiMA: number[]|null, label: string }
-  let   showVolume  = options.showVolume ?? true;
+  let   showVolume    = options.showVolume ?? true;
+  let   candleColors  = { bull: '#22c55e', bear: '#ef4444' };
   let   crosshair   = { visible: false };
   let   crosshairCb      = null;
   let   lastPriceYCb     = null;
@@ -106,7 +107,7 @@ export function createChart(container, options = {}) {
     for (const [, line] of lineMap) {
       renderLine(ctx, vp, line.values, line.color, line.width);
     }
-    renderCandles(ctx, vp, candles);
+    renderCandles(ctx, vp, candles, candleColors);
     renderMarkers(ctx, vp, candles, markers);
     if (rsiPaneData && vp.rsiPaneH > 0) {
       const snapIdx = crosshair.visible ? crosshair.snapIndex : null;
@@ -316,6 +317,11 @@ export function createChart(container, options = {}) {
       last.close = ltp;
       if (ltp > last.high) last.high = ltp;
       if (ltp < last.low)  last.low  = ltp;
+      markDirty();
+    },
+
+    setCandleColors({ bull, bear } = {}) {
+      candleColors = { bull: bull || '#22c55e', bear: bear || '#ef4444' };
       markDirty();
     },
 

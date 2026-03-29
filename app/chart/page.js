@@ -73,6 +73,8 @@ const DEFAULT_SETTINGS = {
   showSMC:       true,
   showCPR:       false,
   showRSI:       false,
+  bullColor:     '#22c55e',
+  bearColor:     '#ef4444',
   rsiPeriod:     12,
   rsiMAPeriod:   5,
 };
@@ -293,8 +295,8 @@ function computeSMC(candles) {
     trendState   = brk.type;
   }
 
-  // Show only the most recent 6 structural breaks (keeps chart readable)
-  const recentBreaks = allBreaks.slice(-6);
+  // Show only the most recent 4 structural breaks (keeps chart readable)
+  const recentBreaks = allBreaks.slice(-4);
 
   const lastClose = candles[n - 1].close;
 
@@ -330,11 +332,11 @@ function computeSMC(candles) {
     }
   }
 
-  // 2 nearest demand OBs (below price) + 2 nearest supply OBs (above price)
+  // 1 nearest demand OB (below price) + 1 nearest supply OB (above price)
   const bullOBs = rawOBs.filter(o => o.bias === 'bull' && o.low  <= lastClose)
-    .sort((a, b) => b.high - a.high).slice(0, 2);
+    .sort((a, b) => b.high - a.high).slice(0, 1);
   const bearOBs = rawOBs.filter(o => o.bias === 'bear' && o.high >= lastClose)
-    .sort((a, b) => a.low  - b.low).slice(0, 2);
+    .sort((a, b) => a.low  - b.low).slice(0, 1);
   const orderBlocks = [...bullOBs, ...bearOBs];
 
   // ── FVGs ─────────────────────────────────────────────────────────────────
@@ -343,21 +345,21 @@ function computeSMC(candles) {
   for (let i = 2; i < n - 1; i++) {
     const prev = candles[i - 2], curr = candles[i];
     if (curr.low > prev.high) {
-      if ((curr.low - prev.high) / prev.high * 100 < 0.08) continue;
+      if ((curr.low - prev.high) / prev.high * 100 < 0.20) continue;
       const mitigated = candles.slice(i + 1).some(c => c.low <= prev.high);
       if (!mitigated) rawFVGs.push({ type: 'bull', high: curr.low, low: prev.high, startIdx: i - 1 });
     }
     if (curr.high < prev.low) {
-      if ((prev.low - curr.high) / curr.high * 100 < 0.08) continue;
+      if ((prev.low - curr.high) / curr.high * 100 < 0.20) continue;
       const mitigated = candles.slice(i + 1).some(c => c.high >= prev.low);
       if (!mitigated) rawFVGs.push({ type: 'bear', high: prev.low, low: curr.high, startIdx: i - 1 });
     }
   }
-  // 2 nearest bull FVGs below price + 2 nearest bear FVGs above price
+  // 1 nearest bull FVG below price + 1 nearest bear FVG above price
   const bullFVGs = rawFVGs.filter(f => f.type === 'bull' && f.low  <= lastClose)
-    .sort((a, b) => b.high - a.high).slice(0, 2);
+    .sort((a, b) => b.high - a.high).slice(0, 1);
   const bearFVGs = rawFVGs.filter(f => f.type === 'bear' && f.high >= lastClose)
-    .sort((a, b) => a.low  - b.low).slice(0, 2);
+    .sort((a, b) => a.low  - b.low).slice(0, 1);
   const fvgs = [...bullFVGs, ...bearFVGs];
 
   return { bosLevels: recentBreaks, orderBlocks, fvgs };
@@ -582,6 +584,9 @@ function ChartPageInner() {
         chart.clearCPR();
       }
 
+      // ── Candle colors ─────────────────────────────────────────────────────
+      chart.setCandleColors({ bull: settings.bullColor, bear: settings.bearColor });
+
       // ── Volume ────────────────────────────────────────────────────────────
       chart.setShowVolume(settings.showVolume);
 
@@ -622,6 +627,12 @@ function ChartPageInner() {
   });
 
   const setNum = (key, val) => setSettings(s => {
+    const next = { ...s, [key]: val };
+    try { localStorage.setItem('tv_chart_settings', JSON.stringify(next)); } catch {}
+    return next;
+  });
+
+  const setSetting = (key, val) => setSettings(s => {
     const next = { ...s, [key]: val };
     try { localStorage.setItem('tv_chart_settings', JSON.stringify(next)); } catch {}
     return next;
@@ -968,6 +979,22 @@ function ChartPageInner() {
             <div className="relative bg-[#111827] border-t border-white/[0.12] rounded-t-2xl shadow-2xl p-4 pb-8">
               <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-4" />
               <div className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Chart Overlays</div>
+              <div className="flex items-center gap-4 px-1 mb-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="color" value={settings.bullColor ?? '#22c55e'}
+                    onChange={e => setSetting('bullColor', e.target.value)}
+                    className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent p-0"
+                  />
+                  <span className="text-sm text-slate-400">Bull candle</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="color" value={settings.bearColor ?? '#ef4444'}
+                    onChange={e => setSetting('bearColor', e.target.value)}
+                    className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent p-0"
+                  />
+                  <span className="text-sm text-slate-400">Bear candle</span>
+                </label>
+              </div>
               <div className="grid grid-cols-2 gap-1">
                 {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams }) => {
                   const disabled = (intradayOnly && !isIntraday) || (dailyOnly && isIntraday);
@@ -1048,6 +1075,27 @@ function ChartPageInner() {
                     </div>
                   );
                 })}
+              </div>
+              <div className="border-t border-white/[0.08] mt-2 pt-2">
+                <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5 px-1">Candle Colors</div>
+                <div className="flex items-center gap-3 px-2">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="color" value={settings.bullColor ?? '#22c55e'}
+                      onChange={e => setSetting('bullColor', e.target.value)}
+                      className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent p-0"
+                    />
+                    <span className="text-[10px] text-slate-400">Bull</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="color" value={settings.bearColor ?? '#ef4444'}
+                      onChange={e => setSetting('bearColor', e.target.value)}
+                      className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent p-0"
+                    />
+                    <span className="text-[10px] text-slate-400">Bear</span>
+                  </label>
+                  <button onClick={() => { setSetting('bullColor', '#22c55e'); setSetting('bearColor', '#ef4444'); }}
+                    className="text-[10px] text-slate-500 hover:text-slate-300 ml-auto">reset</button>
+                </div>
               </div>
             </div>
           )

@@ -1,25 +1,21 @@
 // ─── Candle Renderer ──────────────────────────────────────────────────────────
 // Draws candlestick bars onto the chart area.
 
-const UP_COLOR   = '#10b981';
-const DOWN_COLOR = '#ef4444';
-
-export function renderCandles(ctx, vp, candles) {
+export function renderCandles(ctx, vp, candles, colors = {}) {
   if (!candles?.length) return;
+
+  const UP_COLOR   = colors.bull || '#22c55e';
+  const DOWN_COLOR = colors.bear || '#ef4444';
 
   const from = Math.max(0, Math.floor(vp.logFrom));
   const to   = Math.min(candles.length - 1, Math.ceil(vp.logTo));
   const bw   = vp.barW;
 
-  // Minimum body height so 1-tick candles are still visible
   const MIN_BODY = 1;
-
-  // Body width: 70% of bar, minimum 1px
   const bodyW    = Math.max(1, bw * 0.7);
   const halfBody = bodyW / 2;
 
   ctx.save();
-  // Clip to chart area only
   ctx.beginPath();
   ctx.rect(vp.chartLeft, vp.chartTop, vp.chartW, vp.chartH);
   ctx.clip();
