@@ -116,27 +116,25 @@ export default function IntelligencePill({ intelligence, bottomOffset = 16 }) {
   const regimeKey   = regime?.regime;
   const regimeStyle = regimeKey && regimeKey !== 'INITIALIZING'
     ? (REGIME_STYLE[regimeKey] ?? { text: 'text-slate-400', dot: 'bg-slate-400', label: regimeKey })
-    : null;
+    : { text: 'text-slate-500', dot: 'bg-slate-600', label: 'No Regime' };
 
   const zone = getZoneContext(agents?.station);
 
   return (
-    <div className="absolute left-3 z-20 select-none" style={{ bottom: bottomOffset }}>
+    <div className="absolute left-14 z-20 select-none" style={{ bottom: bottomOffset }}>
 
       {/* ── Expanded card ──────────────────────────────────────────────── */}
       {expanded && (
         <div className="mb-1.5 w-64 bg-[#0a0e1a]/95 border border-white/[0.10] rounded-xl shadow-2xl p-3 backdrop-blur-sm">
 
           {/* Regime */}
-          {regimeStyle && (
-            <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/[0.06]">
-              <span className="text-[10px] text-slate-500 uppercase tracking-wider">Regime</span>
-              <span className={`text-[10px] font-semibold ml-auto ${regimeStyle.text}`}>{regimeStyle.label}</span>
-              {regime.confidence && (
-                <span className={`text-[10px] font-bold ${CONF_COLOR[regime.confidence] ?? 'text-slate-400'}`}>{regime.confidence}</span>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/[0.06]">
+            <span className="text-[10px] text-slate-500 uppercase tracking-wider">Regime</span>
+            <span className={`text-[10px] font-semibold ml-auto ${regimeStyle.text}`}>{regimeStyle.label}</span>
+            {regime?.confidence && (
+              <span className={`text-[10px] font-bold ${CONF_COLOR[regime.confidence] ?? 'text-slate-400'}`}>{regime.confidence}</span>
+            )}
+          </div>
 
           {/* Zone structure */}
           <div className="mb-2 pb-2 border-b border-white/[0.06]">
