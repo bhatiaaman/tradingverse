@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
-import OrderModal from '@/app/components/OrderModal';
+import OrderModal         from '@/app/components/OrderModal';
+import IntelligencePill   from '@/app/components/IntelligencePill';
 
 const RSI_MIN_H = 50;
 const RSI_MAX_H = 200;
@@ -378,8 +379,7 @@ function ChartPageInner() {
   const [settings, setSettings]           = useState(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings]   = useState(false);
   const [dropdownPos, setDropdownPos]     = useState(null);
-  const [regimeData, setRegimeData]       = useState(null);
-  const [stationData, setStationData]     = useState(null);
+  const [intelligence, setIntelligence]   = useState(null);
   const [hoverOHLC, setHoverOHLC]         = useState(null);
   const [isMobile, setIsMobile]           = useState(false);
   const [chartTheme, setChartTheme]       = useState('dark');
@@ -435,22 +435,12 @@ function ChartPageInner() {
       setDailyCandles(needDailyFetch ? (dd?.candles || []) : c);
     } catch { /* leave candles empty */ }
 
-    const [regimeRes, stationRes] = await Promise.allSettled([
-      fetch('/api/market-regime', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: indexRef, type: 'intraday' }),
-      }).then(r => r.json()),
-      fetch('/api/order-intelligence', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, exchange: 'NSE', instrumentType: 'EQ',
-          transactionType: 'BUY', spotPrice, productType: 'MIS', includeStation: true }),
-      }).then(r => r.json()),
-    ]);
-
-    if (regimeRes.status === 'fulfilled')  setRegimeData(regimeRes.value);
-    if (stationRes.status === 'fulfilled') setStationData(stationRes.value);
+    try {
+      const intelRes = await fetch(
+        `/api/intelligence?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}`
+      );
+      if (intelRes.ok) setIntelligence(await intelRes.json());
+    } catch { /* non-fatal */ }
     setLoading(false);
   }, [symbol, chartInterval]);
 
@@ -464,11 +454,24 @@ function ChartPageInner() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  // Auto-refresh every 60s during market hours
+  // Auto-refresh candles every 60s during market hours
   useEffect(() => {
     const id = setInterval(() => { if (isMarketHours()) fetchAll(); }, 60000);
     return () => clearInterval(id);
   }, [fetchAll]);
+
+  // Auto-refresh intelligence every 3 min during market hours (independent of candles)
+  useEffect(() => {
+    const refreshIntel = async () => {
+      if (!isMarketHours() || !symbol) return;
+      try {
+        const res = await fetch(`/api/intelligence?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}`);
+        if (res.ok) setIntelligence(await res.json());
+      } catch { /* non-fatal */ }
+    };
+    const id = setInterval(refreshIntel, 3 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [symbol, chartInterval]);
 
   // Click outside dropdown → close
   useEffect(() => {
@@ -539,7 +542,7 @@ function ChartPageInner() {
 
       // ── S/R zones from Station agent ──────────────────────────────────────
       if (settings.showSR) {
-        const stations = stationData?.station?.allStations;
+        const stations = intelligence?.agents?.station?.allStations;
         chart.clearZonesWithPrefix('sr_');
         if (stations?.length) {
           const ltp    = candles[candles.length - 1]?.close || 0;
@@ -658,7 +661,7 @@ function ChartPageInner() {
       if (defaultBars) chart.fitRecent(defaultBars);
       applyOverlays(chart);
     });
-  }, [candles, dailyCandles, chartInterval, chartTheme, stationData, settings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candles, dailyCandles, chartInterval, chartTheme, intelligence, settings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Destroy chart only on unmount — NOT on every effect re-run.
   // Putting destroy() in the main effect cleanup was the root cause of viewport resets:
@@ -710,10 +713,11 @@ function ChartPageInner() {
   const open0      = candles.length > 0 ? candles[0].open : null;
   const changePct  = ltp != null && open0 ? ((ltp - open0) / open0) * 100 : null;
   const isUp       = changePct != null ? changePct >= 0 : null;
+  // Derive regime + scenario from central intelligence
+  const regimeData      = intelligence?.regime ?? null;
+  const stationData     = intelligence ? { scenario: intelligence.scenario, station: intelligence.agents?.station } : null;
   const regime          = regimeData?.regime ? (REGIME_BADGE[regimeData.regime] || REGIME_BADGE.INITIALIZING) : null;
   const confColor       = regimeData?.confidence ? (CONF_COLORS[regimeData.confidence] || 'text-slate-400') : 'text-slate-400';
-  const scenarioResult  = stationData?.scenario || null;
-  const scenarioConfCls = scenarioResult?.confidence ? (CONF_COLORS[scenarioResult.confidence] || 'text-slate-400') : 'text-slate-400';
   const anyEma = settings.showEma9 || settings.showEma21 || settings.showEma50 ||
                  (settings.showEma9D && isIntraday) || (settings.showEma9W && !isIntraday);
 
@@ -1030,28 +1034,12 @@ function ChartPageInner() {
           </div>
         )}
 
-        {/* Regime badge — bottom-left (above VWAP if present) */}
-        {regime && (
-          <div className="absolute left-3 z-10 flex items-center gap-1.5 bg-[#0a0e1a]/90 border border-white/10 rounded-lg px-2.5 py-1.5 pointer-events-none select-none"
-            style={{ bottom: (settings.showRSI ? chartRsiH + 28 : 0) + (settings.showVwap && isIntraday && vwap ? 52 : 16) }}>
-            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${regime.dot}`} />
-            <span className="text-xs font-semibold text-white">{regime.label}</span>
-            {regimeData?.confidence && (
-              <span className={`text-[10px] font-bold ${confColor}`}>{regimeData.confidence}</span>
-            )}
-          </div>
-        )}
+        {/* Intelligence pill — bottom-left, expandable */}
+        <IntelligencePill
+          intelligence={intelligence}
+          bottomOffset={(settings.showRSI ? chartRsiH + 28 : 0) + 16}
+        />
 
-        {/* Scenario badge — bottom-right */}
-        {scenarioResult?.label && scenarioResult.scenario !== 'UNCLEAR' && (
-          <div className="absolute right-3 z-10 flex items-center gap-1 bg-[#0a0e1a]/90 border border-white/10 rounded-lg px-2.5 py-1.5 pointer-events-none select-none"
-            style={{ bottom: (settings.showRSI ? chartRsiH + 28 : 0) + 16 }}>
-            <span className="text-xs text-slate-400">{scenarioResult.label}</span>
-            {scenarioResult.confidence && (
-              <span className={`text-[10px] font-bold ml-1 ${scenarioConfCls}`}>{scenarioResult.confidence}</span>
-            )}
-          </div>
-        )}
 
       </div>{/* end chart area */}
 
@@ -1195,6 +1183,7 @@ function ChartPageInner() {
       defaultType="BUY"
       optionType={orderOptionType}
       onOrderPlaced={() => { setOrderModalOpen(false); setOrderOptionType(null); }}
+      intelligence={intelligence}
     />
     </div>
   );

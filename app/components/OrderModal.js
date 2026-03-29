@@ -429,7 +429,8 @@ export default function OrderModal({
   defaultType = 'BUY',
   optionType = null,
   optionSymbol = null,
-  onOrderPlaced
+  onOrderPlaced,
+  intelligence = null,
 }) {
   const [transactionType, setTransactionType] = useState(defaultType);
   const [quantity, setQuantity] = useState(1);
@@ -659,10 +660,28 @@ export default function OrderModal({
   // Trigger deep analysis + regime when modal opens or transaction type changes
   useEffect(() => {
     if (isOpen && symbol && transactionType && isLoggedIn) {
-      fetchDeepIntel();
-      fetchRegime();
+      const isFresh = intelligence?.computedAt && (Date.now() - intelligence.computedAt < 180_000);
+      if (isFresh) {
+        setDeepIntelResult({
+          behavioral: intelligence.agents?.behavioral,
+          structure:  intelligence.agents?.structure,
+          pattern:    intelligence.agents?.pattern,
+          station:    intelligence.agents?.station,
+          oi:         intelligence.agents?.oi,
+          scenario:   intelligence.scenario,
+          positions:  intelligence.positions,
+          orders:     intelligence.orders,
+          sentiment:  intelligence.sentiment,
+          sector:     intelligence.sector,
+          vix:        intelligence.vix,
+        });
+        setRegimeData({ NIFTY: intelligence.regime, BANKNIFTY: null });
+      } else {
+        fetchDeepIntel();
+        fetchRegime();
+      }
     }
-  }, [isOpen, symbol, transactionType, isLoggedIn, kiteOptionSymbol]);
+  }, [isOpen, symbol, transactionType, isLoggedIn, kiteOptionSymbol, intelligence]);
 
   // ─── FETCH MARKET DEPTH ────────────────────────────────────────────────
   const fetchDepth = useCallback(async () => {

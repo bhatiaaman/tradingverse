@@ -15,44 +15,85 @@ export function renderRSIPane(ctx, vp, rsiValues, rsiMAValues, snapIndex, label,
   const right   = vp.chartRight;
   const paneW   = right - left;
 
+  const yF = v => paneBot - (v / 100) * paneH;
+
   // Background
   ctx.fillStyle = P.rsiPaneBg;
   ctx.fillRect(left, paneTop, paneW, paneH);
 
-  // Top border (drag handle hint)
+  // Top border
   ctx.strokeStyle = P.rsiPaneBorder;
   ctx.lineWidth = 1; ctx.setLineDash([]);
   ctx.beginPath(); ctx.moveTo(left, paneTop + 0.5); ctx.lineTo(right, paneTop + 0.5); ctx.stroke();
 
-  const yF = v => paneBot - (v / 100) * paneH;
-
-  // Zone fills
-  ctx.fillStyle = 'rgba(239,68,68,0.04)';
+  // Flat zone backgrounds (very subtle)
+  ctx.fillStyle = 'rgba(239,68,68,0.03)';
   ctx.fillRect(left, paneTop, paneW, yF(70) - paneTop);
-  ctx.fillStyle = 'rgba(34,197,94,0.04)';
+  ctx.fillStyle = 'rgba(34,197,94,0.03)';
   ctx.fillRect(left, yF(30), paneW, paneBot - yF(30));
 
-  // Grid lines
-  [[70, 'rgba(239,68,68,0.22)'], [50, 'rgba(148,163,184,0.1)'], [30, 'rgba(34,197,94,0.22)']].forEach(([val, col]) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 0.75; ctx.setLineDash([3, 4]);
+  // Grid lines: 70, 50, 30
+  // 70 + 30: dashed coloured
+  [[70, 'rgba(239,68,68,0.30)'], [30, 'rgba(34,197,94,0.30)']].forEach(([val, col]) => {
+    ctx.strokeStyle = col; ctx.lineWidth = 0.75; ctx.setLineDash([4, 5]);
     ctx.beginPath(); ctx.moveTo(left, yF(val)); ctx.lineTo(right, yF(val)); ctx.stroke();
   });
-  ctx.setLineDash([]);
+  // 50: solid, always visible
+  ctx.strokeStyle = 'rgba(148,163,184,0.45)'; ctx.lineWidth = 1; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(left, yF(50)); ctx.lineTo(right, yF(50)); ctx.stroke();
 
-  // Level labels (left side)
-  ctx.font = '9px monospace'; ctx.textAlign = 'left';
-  ctx.fillStyle = 'rgba(239,68,68,0.5)'; ctx.fillText('70', left + 4, yF(70) - 2);
-  ctx.fillStyle = 'rgba(148,163,184,0.4)'; ctx.fillText('50', left + 4, yF(50) + 4);
-  ctx.fillStyle = 'rgba(34,197,94,0.5)'; ctx.fillText('30', left + 4, yF(30) + 9);
+  // Level labels — right side of pane (TV style)
+  ctx.font = '9px monospace'; ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(239,68,68,0.55)';  ctx.fillText('70', right - 4, yF(70) - 2);
+  ctx.fillStyle = 'rgba(148,163,184,0.40)'; ctx.fillText('50', right - 4, yF(50) + 4);
+  ctx.fillStyle = 'rgba(34,197,94,0.55)';  ctx.fillText('30', right - 4, yF(30) + 9);
 
-  // Clip to pane
+  // Clip to pane for RSI lines + dynamic fills
   ctx.save();
   ctx.beginPath(); ctx.rect(left, paneTop, paneW, paneH); ctx.clip();
 
   const fromIdx = Math.max(0, Math.floor(vp.logFrom));
   const toIdx   = Math.min(rsiValues.length - 1, Math.ceil(vp.logTo));
 
-  // RSI line
+  // ── Dynamic fill: overbought (RSI > 70) red, oversold (RSI < 30) green ──────
+  // We build two separate filled paths tracing the RSI curve in those zones.
+  const drawDynamicFill = (threshold, above, fillColor) => {
+    const baseY = yF(threshold);
+    ctx.beginPath();
+    let inZone = false;
+    for (let i = fromIdx; i <= toIdx; i++) {
+      const v = rsiValues[i];
+      if (v == null) { if (inZone) { ctx.lineTo(vp.barCenterX(i - 1), baseY); ctx.closePath(); ctx.fill(); ctx.beginPath(); inZone = false; } continue; }
+      const inThisZone = above ? v > threshold : v < threshold;
+      const x = vp.barCenterX(i);
+      const y = yF(v);
+      if (inThisZone && !inZone) {
+        // Start a new fill segment from the baseline
+        ctx.moveTo(x, baseY);
+        ctx.lineTo(x, y);
+        inZone = true;
+      } else if (inThisZone) {
+        ctx.lineTo(x, y);
+      } else if (inZone) {
+        // Close back to baseline
+        ctx.lineTo(x, baseY);
+        ctx.closePath(); ctx.fill(); ctx.beginPath();
+        inZone = false;
+      }
+    }
+    if (inZone) {
+      const lastX = vp.barCenterX(toIdx);
+      ctx.lineTo(lastX, baseY);
+      ctx.closePath(); ctx.fill();
+    }
+  };
+
+  ctx.fillStyle = 'rgba(239,68,68,0.18)';
+  drawDynamicFill(70, true, 'rgba(239,68,68,0.18)');
+  ctx.fillStyle = 'rgba(34,197,94,0.18)';
+  drawDynamicFill(30, false, 'rgba(34,197,94,0.18)');
+
+  // ── RSI line ─────────────────────────────────────────────────────────────────
   ctx.strokeStyle = '#818cf8'; ctx.lineWidth = 1.5;
   ctx.beginPath();
   let moved = false;
@@ -65,7 +106,7 @@ export function renderRSIPane(ctx, vp, rsiValues, rsiMAValues, snapIndex, label,
   }
   ctx.stroke();
 
-  // RSI MA line
+  // ── RSI MA line ───────────────────────────────────────────────────────────────
   if (rsiMAValues) {
     ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1; moved = false;
     ctx.beginPath();
@@ -81,21 +122,19 @@ export function renderRSIPane(ctx, vp, rsiValues, rsiMAValues, snapIndex, label,
 
   ctx.restore();
 
-  // ── Value label (top-left of pane) ──────────────────────────────────────────
+  // ── Value label (top-left of pane, TV style) ─────────────────────────────────
   const idx    = snapIndex ?? (rsiValues.length - 1);
   const rsiVal = rsiValues[idx];
   const maVal  = rsiMAValues?.[idx];
   if (rsiVal != null) {
     ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left';
-
     const rsiText = `${label ?? 'RSI'} ${rsiVal.toFixed(1)}`;
     ctx.fillStyle = '#818cf8';
     ctx.fillText(rsiText, left + 6, paneTop + 13);
-
     if (maVal != null) {
       const rsiW = ctx.measureText(rsiText).width;
       ctx.fillStyle = '#f59e0b';
-      ctx.fillText(`MA ${maVal.toFixed(1)}`, left + 6 + rsiW + 8, paneTop + 13);
+      ctx.fillText(maVal.toFixed(1), left + 6 + rsiW + 6, paneTop + 13);
     }
   }
 }
