@@ -226,6 +226,13 @@ export function createChart(container, options = {}) {
         vp.logFrom += delta;
         vp.logTo   += delta;
       }
+      // Guard: if viewport is completely outside the new data (e.g. after an interval
+      // switch where recreation used old-TF candles), reset to a sensible window.
+      if (vp.logFrom >= candles.length || vp.logTo <= 0) {
+        const defaultBars = { '1minute': 390, '5minute': 234, '15minute': 104, '60minute': 150 }[interval];
+        if (defaultBars) vp.fitRecent(candles, defaultBars);
+        else             vp.fitContent(candles);
+      }
       markDirty();
     },
 
