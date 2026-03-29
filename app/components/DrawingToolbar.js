@@ -3,7 +3,7 @@
 // Left-side collapsible toolbar for chart drawing tools.
 // Toggle tab is always visible; clicking it slides out the tool panel.
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 // ── SVG Icons (inline, no dependency) ────────────────────────────────────────
 const CursorIcon = () => (
@@ -59,13 +59,25 @@ const TOOL_GROUPS = [
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function DrawingToolbar({ activeTool, onToolSelect, selectedDrawingId, onDeleteSelected, onClearAll }) {
   const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  // Close panel on click outside
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
 
   const handleToolClick = (id) => {
-    onToolSelect(activeTool === id ? null : id); // toggle off if already active
+    onToolSelect(activeTool === id ? null : id);
+    setOpen(false); // close panel after selecting a tool
   };
 
   return (
-    <div className="absolute left-0 top-1/2 -translate-y-1/2 z-20 flex items-stretch select-none">
+    <div ref={wrapRef} className="absolute left-0 top-1/2 -translate-y-1/2 z-20 flex items-stretch select-none">
 
       {/* ── Slide-out panel ─────────────────────────────────────────────────── */}
       {open && (
@@ -73,7 +85,7 @@ export default function DrawingToolbar({ activeTool, onToolSelect, selectedDrawi
 
           {/* Cursor / select (deactivate tool) */}
           <button
-            onClick={() => onToolSelect(null)}
+            onClick={() => { onToolSelect(null); setOpen(false); }}
             className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] font-medium transition-colors ${
               activeTool === null
                 ? 'text-indigo-400 bg-indigo-500/10'
