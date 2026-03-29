@@ -95,9 +95,10 @@ export class EventHandler {
     }
 
     // ── Normal pan ────────────────────────────────────────────────────────────
-    this._drag.active = true;
-    this._drag.lastX  = x;
-    this._drag.lastY  = y;
+    this._drag.active  = true;
+    this._drag.lastX   = x;
+    this._drag.lastY   = y;
+    this._clickStart   = { x, y }; // track for click-without-drag detection
     this._canvas.style.cursor = 'grabbing';
   }
 
@@ -113,11 +114,17 @@ export class EventHandler {
     if (dy !== 0) this._emit('panY', { dy });
   }
 
-  // ── Mouse up — end drag ──────────────────────────────────────────────────────
-  _onMouseUp() {
+  // ── Mouse up — end drag; emit 'click' if mouse barely moved ─────────────────
+  _onMouseUp(e) {
     if (!this._drag.active) return;
     this._drag.active = false;
     this._canvas.style.cursor = 'crosshair';
+    if (this._clickStart) {
+      const { x, y } = this._cssXY(e);
+      const dist = Math.hypot(x - this._clickStart.x, y - this._clickStart.y);
+      if (dist < 6) this._emit('click', this._clickStart);
+      this._clickStart = null;
+    }
   }
 
   // ── Mouse move on canvas — crosshair + drawing preview ──────────────────────

@@ -66,9 +66,11 @@ export function createChart(container, options = {}) {
   let   markers     = [];                 // [{ index, direction: 'bull'|'bear' }]
   let   rsiPaneData = null;              // { rsi: number[], rsiMA: number[]|null, label: string }
   let   showVolume    = options.showVolume ?? true;
-  let   drawings      = [];              // [{ id, type, p1, p2, color, width }]
+  let   drawings         = [];           // [{ id, type, p1, p2, color, width }]
   let   drawingInProgress = null;        // preview drawing while placing second point
-  let   drawingCb     = null;            // onDrawingComplete callback
+  let   drawingCb        = null;         // onDrawingComplete callback
+  let   selectedDrawingId = null;        // currently selected drawing id
+  let   drawingSelectCb  = null;         // onDrawingSelect callback
   let   candleColors  = { bull: '#22c55e', bear: '#ef4444' };
   let   crosshair   = { visible: false };
   let   crosshairCb      = null;
@@ -116,7 +118,7 @@ export function createChart(container, options = {}) {
     renderCandles(ctx, vp, candles, candleColors);
     renderMarkers(ctx, vp, candles, markers);
     if (drawings.length || drawingInProgress) {
-      const resolved = drawings.map(d => _resolveDrawing(d));
+      const resolved = drawings.map(d => ({ ..._resolveDrawing(d), selected: d.id === selectedDrawingId }));
       renderDrawings(ctx, vp, resolved, drawingInProgress ? _resolveDrawing(drawingInProgress) : null);
     }
     if (rsiPaneData && vp.rsiPaneH > 0) {
@@ -204,6 +206,22 @@ export function createChart(container, options = {}) {
       case 'drawing-cancel': {
         drawingInProgress = null;
         markDirty();
+        break;
+      }
+
+      case 'click': {
+        // Hit-test drawings to select/deselect — only in cursor mode (no active tool)
+        const { x, y } = data;
+        const HIT_PX = 8;
+        let hit = null;
+        for (let i = drawings.length - 1; i >= 0; i--) {
+          if (_hitTest(drawings[i], x, y, HIT_PX)) { hit = drawings[i].id; break; }
+        }
+        if (hit !== selectedDrawingId) {
+          selectedDrawingId = hit;
+          drawingSelectCb?.(selectedDrawingId);
+          markDirty();
+        }
         break;
       }
 
@@ -485,6 +503,7 @@ export function createChart(container, options = {}) {
     setDrawings(data) {
       drawings = Array.isArray(data) ? data : [];
       drawingInProgress = null;
+      selectedDrawingId = null;
       markDirty();
     },
 
@@ -492,17 +511,31 @@ export function createChart(container, options = {}) {
 
     deleteDrawing(id) {
       drawings = drawings.filter(d => d.id !== id);
+      if (selectedDrawingId === id) { selectedDrawingId = null; drawingSelectCb?.(null); }
+      drawingCb?.(null, drawings);
       markDirty();
     },
 
     clearDrawings() {
       drawings = [];
       drawingInProgress = null;
+      selectedDrawingId = null;
+      drawingSelectCb?.(null);
+      drawingCb?.(null, []);
       markDirty();
     },
 
-    // Called with (newDrawing, allDrawings) after each placement.
+    deselectDrawing() {
+      selectedDrawingId = null;
+      drawingSelectCb?.(null);
+      markDirty();
+    },
+
+    // Called with (newDrawing|null, allDrawings) after placement or deletion.
     onDrawingComplete(cb) { drawingCb = cb; },
+
+    // Called with (selectedId | null) when selection changes.
+    onDrawingSelect(cb) { drawingSelectCb = cb; },
 
     destroy() {
       destroyed = true;
@@ -525,6 +558,54 @@ export function createChart(container, options = {}) {
       if (i != null) out[i] = pt.value;
     }
     return out;
+  }
+
+  // Point-to-segment distance
+  function _distToSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return Math.hypot(px - x1, py - y1);
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+  }
+
+  // Extend ray from (x1,y1) through (x2,y2) to chart boundary
+  function _extendRay(x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) return { ex: x2, ey: y2 };
+    let t = Infinity;
+    if (dx > 0.001)  t = Math.min(t, (vp.chartRight  - x1) / dx);
+    if (dx < -0.001) t = Math.min(t, (vp.chartLeft   - x1) / dx);
+    if (dy > 0.001)  t = Math.min(t, (vp.chartBottom - y1) / dy);
+    if (dy < -0.001) t = Math.min(t, (vp.chartTop    - y1) / dy);
+    return isFinite(t) ? { ex: x1 + dx * t, ey: y1 + dy * t } : { ex: x2, ey: y2 };
+  }
+
+  // Hit-test a drawing against a canvas click point (CSS px). Returns true if within threshold.
+  function _hitTest(d, cx, cy, threshold) {
+    if (!d.p1) return false;
+    const r = _resolveDrawing(d);
+    const { p1, p2 } = r;
+    switch (d.type) {
+      case 'horizontal_line':
+        return Math.abs(cy - vp.priceToY(p1.price)) <= threshold;
+      case 'vertical_line':
+        return Math.abs(cx - vp.barCenterX(p1.barIndex)) <= threshold;
+      case 'trend_line': {
+        if (!p2) return false;
+        const x1 = vp.barCenterX(p1.barIndex), y1 = vp.priceToY(p1.price);
+        const x2 = vp.barCenterX(p2.barIndex), y2 = vp.priceToY(p2.price);
+        return _distToSegment(cx, cy, x1, y1, x2, y2) <= threshold;
+      }
+      case 'ray': {
+        if (!p2) return false;
+        const x1 = vp.barCenterX(p1.barIndex), y1 = vp.priceToY(p1.price);
+        const x2 = vp.barCenterX(p2.barIndex), y2 = vp.priceToY(p2.price);
+        const { ex, ey } = _extendRay(x1, y1, x2, y2);
+        return _distToSegment(cx, cy, x1, y1, ex, ey) <= threshold;
+      }
+    }
+    return false;
   }
 
   // Convert canvas (CSS px) coordinates to a drawing point { barIndex, time, price }.

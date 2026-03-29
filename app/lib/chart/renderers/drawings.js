@@ -68,13 +68,15 @@ function drawingPath(ctx, vp, d) {
 }
 
 function renderOne(ctx, vp, d) {
-  const color = d.color ?? '#3b82f6';
-  const alpha = d.preview ? 0.65 : 1;
+  const selected = !!d.selected;
+  const color    = selected ? '#93c5fd' : (d.color ?? '#3b82f6'); // brighter blue when selected
+  const alpha    = d.preview ? 0.65 : 1;
+  const lw       = (d.width ?? 1.5) + (selected ? 0.5 : 0);
 
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.strokeStyle = color;
-  ctx.lineWidth   = d.width ?? 1.5;
+  ctx.lineWidth   = lw;
   ctx.setLineDash([]);
 
   // Clip to chart area so lines don't bleed into axes
@@ -90,14 +92,25 @@ function renderOne(ctx, vp, d) {
   // Anchor dots for trend_line and ray
   if (typeof result === 'object' && result.x1 != null) {
     const { x1, y1 } = result;
-    ctx.beginPath();
+    const r = selected ? 5 : 3.5;
     ctx.fillStyle = color;
-    ctx.arc(x1, y1, 3.5, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(x1, y1, r, 0, Math.PI * 2); ctx.fill();
     if (d.type === 'trend_line' && result.x2 != null) {
-      ctx.beginPath();
-      ctx.arc(result.x2, result.y2, 3.5, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(result.x2, result.y2, r, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Selection handles for horizontal/vertical lines (small squares at midpoint)
+  if (selected) {
+    ctx.fillStyle = color;
+    if (d.type === 'horizontal_line') {
+      const y  = vp.priceToY(d.p1.price);
+      const mx = (vp.chartLeft + vp.chartRight) / 2;
+      ctx.fillRect(mx - 4, y - 4, 8, 8);
+    } else if (d.type === 'vertical_line') {
+      const x  = vp.barCenterX(d.p1.barIndex);
+      const my = (vp.chartTop + vp.chartBottom) / 2;
+      ctx.fillRect(x - 4, my - 4, 8, 8);
     }
   }
 
@@ -107,9 +120,9 @@ function renderOne(ctx, vp, d) {
     ctx.restore();
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.fillStyle  = color;
-    ctx.font       = '10px -apple-system,BlinkMacSystemFont,sans-serif';
-    ctx.textAlign  = 'left';
+    ctx.fillStyle   = color;
+    ctx.font        = '10px -apple-system,BlinkMacSystemFont,sans-serif';
+    ctx.textAlign   = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(d.p1.price.toFixed(2), vp.chartRight + 5, y);
   }

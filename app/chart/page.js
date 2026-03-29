@@ -392,6 +392,7 @@ function ChartPageInner() {
   const [indexPicker, setIndexPicker]       = useState(false);   // CE/PE picker for indices
   const [orderOptionType, setOrderOptionType] = useState(null);  // 'CE' | 'PE' | null
   const [activeTool, setActiveTool]         = useState(null);    // drawing tool id or null
+  const [selectedDrawingId, setSelectedDrawingId] = useState(null);
 
   const containerRef   = useRef(null);
   const chartRef       = useRef(null);
@@ -454,18 +455,27 @@ function ChartPageInner() {
     chartRef.current?.setActiveTool(activeTool ?? null);
   }, [activeTool]);
 
-  // Escape key: cancel in-progress drawing first, then deselect tool
+  // Keyboard: Escape cancels/deselects tool; Delete/Backspace removes selected drawing
   useEffect(() => {
     const handler = (e) => {
-      if (e.key !== 'Escape') return;
-      if (activeTool) {
+      if (e.key === 'Escape' && activeTool) {
         chartRef.current?.cancelDrawing();
         setActiveTool(null);
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedDrawingId) {
+        // Don't intercept Backspace in text inputs
+        if (['INPUT', 'TEXTAREA'].includes(e.target?.tagName)) return;
+        chartRef.current?.deleteDrawing(selectedDrawingId);
+        setSelectedDrawingId(null);
+        try {
+          const all = chartRef.current?.getDrawings() ?? [];
+          localStorage.setItem(drawingKey(symbol, chartInterval), JSON.stringify(all));
+        } catch {}
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [activeTool]);
+  }, [activeTool, selectedDrawingId, symbol, chartInterval]);
 
   // Detect mobile
   useEffect(() => {
@@ -689,10 +699,13 @@ function ChartPageInner() {
         if (saved) chart.setDrawings(JSON.parse(saved));
       } catch {}
 
-      // Persist drawings on each placement
+      // Persist drawings on each placement or deletion
       chart.onDrawingComplete((_, all) => {
         try { localStorage.setItem(drawingKey(symbol, chartInterval), JSON.stringify(all)); } catch {}
       });
+
+      // Sync selection to React state
+      chart.onDrawingSelect((id) => setSelectedDrawingId(id ?? null));
 
       // Re-apply active tool after recreation
       if (activeTool) chart.setActiveTool(activeTool);
@@ -911,7 +924,25 @@ function ChartPageInner() {
         />
 
         {/* Drawing toolbar — left edge, vertically centered */}
-        <DrawingToolbar activeTool={activeTool} onToolSelect={setActiveTool} />
+        <DrawingToolbar
+          activeTool={activeTool}
+          onToolSelect={setActiveTool}
+          selectedDrawingId={selectedDrawingId}
+          onDeleteSelected={() => {
+            if (!selectedDrawingId) return;
+            chartRef.current?.deleteDrawing(selectedDrawingId);
+            setSelectedDrawingId(null);
+            try {
+              const all = chartRef.current?.getDrawings() ?? [];
+              localStorage.setItem(drawingKey(symbol, chartInterval), JSON.stringify(all));
+            } catch {}
+          }}
+          onClearAll={() => {
+            chartRef.current?.clearDrawings();
+            setSelectedDrawingId(null);
+            try { localStorage.removeItem(drawingKey(symbol, chartInterval)); } catch {}
+          }}
+        />
 
         {/* RSI pane drag handle — draggable resize strip above the RSI pane */}
         {settings.showRSI && (
