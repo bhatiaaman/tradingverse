@@ -22,6 +22,7 @@ import { renderVolume }      from './renderers/volume.js';
 import { renderCrosshair }   from './renderers/crosshair.js';
 import { renderMarkers }     from './renderers/markers.js';
 import { renderSMC }        from './renderers/smc.js';
+import { renderCPR }        from './renderers/cpr.js';
 import { renderRSIPane }    from './renderers/rsi-pane.js';
 import { DARK as DARK_PALETTE, LIGHT as LIGHT_PALETTE } from './palette.js';
 
@@ -60,6 +61,7 @@ export function createChart(container, options = {}) {
   const lineMap     = new Map();          // id → { values: number[], color, width }
   let   zones       = [];                 // [{ id, price, color, label, style }]
   let   smcData     = null;               // { bosLevels, orderBlocks, fvgs }
+  let   cprData     = null;               // { tc, p, bc, r1, r2, s1, s2 }
   let   markers     = [];                 // [{ index, direction: 'bull'|'bear' }]
   let   rsiPaneData = null;              // { rsi: number[], rsiMA: number[]|null, label: string }
   let   showVolume  = options.showVolume ?? true;
@@ -95,10 +97,11 @@ export function createChart(container, options = {}) {
     // Recompute price scale from current viewport + data every frame
     vp.autoScale(candles);
 
-    // Draw order: grid/axes → volume → SMC → zones → lines → candles → RSI pane → crosshair
+    // Draw order: grid/axes → volume → SMC → CPR → zones → lines → candles → RSI pane → crosshair
     renderAxes(ctx, vp, candles, interval, palette);
     if (showVolume) renderVolume(ctx, vp, candles);
     if (smcData)   renderSMC(ctx, vp, smcData, palette);
+    if (cprData)   renderCPR(ctx, vp, cprData, crosshair);
     renderZones(ctx, vp, zones, crosshair);
     for (const [, line] of lineMap) {
       renderLine(ctx, vp, line.values, line.color, line.width);
@@ -272,6 +275,16 @@ export function createChart(container, options = {}) {
 
     clearSMC() {
       smcData = null;
+      markDirty();
+    },
+
+    setCPR(data) {
+      cprData = data ?? null;
+      markDirty();
+    },
+
+    clearCPR() {
+      cprData = null;
       markDirty();
     },
 

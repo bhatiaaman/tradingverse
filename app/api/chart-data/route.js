@@ -150,13 +150,13 @@ export async function GET(request) {
     } else if (interval === '60minute') {
       fromDate = getIST(-(days || 30));
     } else if (interval === '15minute') {
-      fromDate = getIST(-(days || 10));
+      fromDate = getIST(-(days || 45));
     } else if (interval === 'minute') {
-      // 1m — options + intraday, Kite limit is 60 days; fetch last 5 days
-      fromDate = getIST(-(days || 5));
+      // 1m — Kite limit is 60 days; keep last 5 trading days
+      fromDate = getIST(-(days || 7));
     } else {
-      // 5minute — fetch enough days to cover intraday + fallback
-      fromDate = getIST(-(days || 3));
+      // 5minute
+      fromDate = getIST(-(days || 30));
     }
 
     const raw = await dp.getHistoricalData(token, interval, fmtDate(fromDate), fmtDate(toDate));
@@ -166,66 +166,53 @@ export async function GET(request) {
 
     // ── Intraday session filter ───────────────────────────────────────────────
     let candles;
-    if (interval === 'minute') {
-      const sessionCandles = raw.filter(c => {
+    // Session filter helper — keeps only 9:15–15:30 IST bars
+    function sessionFilter(arr) {
+      return arr.filter(c => {
         const ist  = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
         const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
         return mins >= 555 && mins <= 930;
       });
-      if (sessionCandles.length >= 5) {
-        const dates = [...new Set(sessionCandles.map(c => {
-          const ist = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
-          return ist.toISOString().slice(0, 10);
-        }))].sort();
-        const keepDates = new Set(dates.slice(-2)); // last 2 trading days
-        candles = sessionCandles.filter(c => {
+    }
+    function tradingDates(arr) {
+      return [...new Set(arr.map(c => {
+        const ist = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
+        return ist.toISOString().slice(0, 10);
+      }))].sort();
+    }
+
+    if (interval === 'minute') {
+      const sess = sessionFilter(raw);
+      if (sess.length >= 5) {
+        const keepDates = new Set(tradingDates(sess).slice(-5)); // last 5 trading days
+        candles = sess.filter(c => {
           const ist = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
           return keepDates.has(ist.toISOString().slice(0, 10));
         });
       } else {
-        candles = raw.slice(-750); // ~2.5 trading days of 1m candles
+        candles = raw.slice(-1875); // ~5 trading days of 1m candles
       }
     } else if (interval === '5minute') {
-      // Filter to session hours (9:15–15:30 IST) across all fetched days
-      const sessionCandles = raw.filter(c => {
-        const ist  = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
-        const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-        return mins >= 555 && mins <= 930;
-      });
-
-      if (sessionCandles.length >= 5) {
-        // Keep last 2 trading sessions (yesterday + today) for context
-        const dates = [...new Set(sessionCandles.map(c => {
-          const ist = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
-          return ist.toISOString().slice(0, 10);
-        }))].sort();
-        const keepDates = new Set(dates.slice(-2));
-        candles = sessionCandles.filter(c => {
+      const sess = sessionFilter(raw);
+      if (sess.length >= 5) {
+        const keepDates = new Set(tradingDates(sess).slice(-20)); // last 20 trading days
+        candles = sess.filter(c => {
           const ist = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
           return keepDates.has(ist.toISOString().slice(0, 10));
         });
       } else {
-        // Weekend / holiday — return last 78 candles
-        candles = raw.slice(-78);
+        candles = raw.slice(-1560); // ~20 trading days of 5m candles
       }
     } else if (interval === '15minute') {
-      const sessionCandles = raw.filter(c => {
-        const ist  = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
-        const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-        return mins >= 555 && mins <= 930;
-      });
-      if (sessionCandles.length >= 5) {
-        const dates = [...new Set(sessionCandles.map(c => {
-          const ist = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
-          return ist.toISOString().slice(0, 10);
-        }))].sort();
-        const keepDates = new Set(dates.slice(-5));
-        candles = sessionCandles.filter(c => {
+      const sess = sessionFilter(raw);
+      if (sess.length >= 5) {
+        const keepDates = new Set(tradingDates(sess).slice(-30)); // last 30 trading days
+        candles = sess.filter(c => {
           const ist = new Date(new Date(c.date).getTime() + IST_OFFSET_MS);
           return keepDates.has(ist.toISOString().slice(0, 10));
         });
       } else {
-        candles = raw.slice(-130);
+        candles = raw.slice(-780); // ~30 trading days of 15m candles
       }
     } else {
       candles = raw;

@@ -56,6 +56,7 @@ const OVERLAY_DEFS = [
   { key: 'showEma9W',  label: 'EMA 9 Weekly', color: EMA_COLORS.ema9W,  intradayOnly: false, dailyOnly: true  },
   { key: 'showVolume', label: 'Volume',       color: '#475569',          intradayOnly: false, dailyOnly: false },
   { key: 'showSMC',    label: 'SMC  (BOS · OB · FVG)', color: '#6366f1', intradayOnly: false, dailyOnly: false },
+  { key: 'showCPR',    label: 'CPR  (TC · P · BC)',    color: '#6366f1', intradayOnly: false, dailyOnly: false },
   { key: 'showRSI',    label: 'RSI',          color: '#818cf8',          intradayOnly: false, dailyOnly: false, hasParams: true },
 ];
 
@@ -70,6 +71,7 @@ const DEFAULT_SETTINGS = {
   showEma9W:     true,
   showVolume:    true,
   showSMC:       true,
+  showCPR:       false,
   showRSI:       false,
   rsiPeriod:     12,
   rsiMAPeriod:   5,
@@ -93,6 +95,81 @@ function aggregateWeekly(dailyCandles) {
     }
   }
   return Object.values(weeks).sort((a, b) => a.time - b.time);
+}
+
+// ── CPR — per-day segments, each computed from the prior day's HLC ────────────
+// Returns an array of segment objects (one per trading day visible in `candles`):
+//   { startIdx, endIdx, tc, p, bc, r1, r2, s1, s2, widthPct, widthClass }
+// This mirrors TradingView's `line.new(bar_index, …)` per-day approach.
+// For daily charts: one segment per week (from prior week's HLC).
+const IST_OFFSET_CPR = 5.5 * 3600; // seconds
+
+function dateIST(unixSec) {
+  return new Date((unixSec + IST_OFFSET_CPR) * 1000).toISOString().slice(0, 10);
+}
+
+function _cprLevels(H, L, C) {
+  const P  = (H + L + C) / 3;
+  const BC = (H + L) / 2;
+  const TC = 2 * P - BC;
+  const widthPct  = P > 0 ? ((TC - BC) / P) * 100 : 0;
+  const widthClass = widthPct < 0.15 ? 'narrow' : widthPct > 0.35 ? 'wide' : 'normal';
+  return { tc: TC, p: P, bc: BC, r1: 2*P-L, r2: P+(H-L), s1: 2*P-H, s2: P-(H-L), widthPct, widthClass };
+}
+
+function computeCPR(candles, dailyCandles, chartInterval) {
+  if (!candles?.length || !dailyCandles?.length) return [];
+
+  if (chartInterval === 'day') {
+    // Daily chart: one CPR segment per week, derived from the prior week
+    const weeklies = aggregateWeekly(dailyCandles);
+    if (weeklies.length < 2) return [];
+    const weeklyDates = weeklies.map(w => dateIST(w.time));
+    const segments = [];
+    let startIdx = 0;
+    for (let i = 0; i < candles.length; i++) {
+      const d = dateIST(candles[i].time);
+      // Find which weekly bucket this candle falls in
+      const wIdx = weeklyDates.findLastIndex(wd => wd <= d);
+      const isLast = i === candles.length - 1;
+      const nextD = isLast ? null : dateIST(candles[i + 1].time);
+      const nextWIdx = nextD ? weeklyDates.findLastIndex(wd => wd <= nextD) : -1;
+      if (isLast || nextWIdx !== wIdx) {
+        // End of this week's segment — derive CPR from prior week
+        if (wIdx > 0) {
+          const prev = weeklies[wIdx - 1];
+          segments.push({ startIdx, endIdx: i, ...(_cprLevels(prev.high, prev.low, prev.close)) });
+        }
+        startIdx = i + 1;
+      }
+    }
+    return segments;
+  }
+
+  // Intraday: group candles by IST date, each day gets CPR from prior daily candle
+  const segments = [];
+  let dayStart = 0;
+  let currentDate = dateIST(candles[0].time);
+
+  for (let i = 1; i <= candles.length; i++) {
+    const isLast = i === candles.length;
+    const d = isLast ? null : dateIST(candles[i].time);
+
+    if (isLast || d !== currentDate) {
+      // Find the daily candle strictly before currentDate
+      let prevIdx = -1;
+      for (let j = dailyCandles.length - 1; j >= 0; j--) {
+        if (dateIST(dailyCandles[j].time) < currentDate) { prevIdx = j; break; }
+      }
+      if (prevIdx >= 0) {
+        const prev = dailyCandles[prevIdx];
+        segments.push({ startIdx: dayStart, endIdx: i - 1, ...(_cprLevels(prev.high, prev.low, prev.close)) });
+      }
+      currentDate = d;
+      dayStart = i;
+    }
+  }
+  return segments;
 }
 
 function fmtVol(v) {
@@ -495,6 +572,14 @@ function ChartPageInner() {
         else chart.clearSMC();
       } else {
         chart.clearSMC();
+      }
+
+      // ── CPR (Central Pivot Range) — per-day segments ─────────────────────
+      if (settings.showCPR) {
+        const segs = computeCPR(candles, dailyCandles, chartInterval);
+        chart.setCPR(segs.length ? segs : null);
+      } else {
+        chart.clearCPR();
       }
 
       // ── Volume ────────────────────────────────────────────────────────────
