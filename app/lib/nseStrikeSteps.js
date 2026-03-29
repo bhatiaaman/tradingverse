@@ -138,7 +138,7 @@ export const nseStrikeSteps = {
   "NHPC": 1,
   "NIFTY":50,
   "NMDC": 1,
-  "NTPC": 2,
+  "NTPC": 5,
   "NUVAMA": 20,
   "NYKAA": 2,
   "OBEROIRLTY": 20,

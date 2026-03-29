@@ -64,18 +64,78 @@ function buildKiteOptionSymbol(symbol, strike, optionType, expiry) {
 
 // Get strike step based on symbol - using pre-loaded NSE data
 function getStrikeStep(symbol, price) {
-  // First check our NSE strike steps data (from CSV)
-  if (nseStrikeSteps[symbol]) {
-    return nseStrikeSteps[symbol];
-  }
-  
-  // Fallback for indices or unknown symbols - price-based heuristic
+  if (nseStrikeSteps[symbol]) return nseStrikeSteps[symbol];
+  // Price-based heuristic for unknown / index symbols
   const p = Number(price) || 0;
   if (p >= 5000) return 50;
   if (p >= 1000) return 20;
   if (p >= 500) return 10;
   if (p >= 100) return 5;
   return 2.5;
+}
+
+// Fetch NFO instruments for a given underlying and extract valid strikes for the expiry.
+// Returns sorted array of strikes, or null on failure.
+// Cached in Redis under fno-ts-tokens:{name} (same key as chart-data uses).
+const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const NS          = process.env.REDIS_NAMESPACE || 'default';
+
+async function getValidStrikes(symbol, expiry, optionType, dp) {
+  try {
+    // Try Redis cache first (populated by chart-data or previous calls)
+    const cacheKey = `${NS}:fno-ts-tokens:${symbol}`;
+    const res  = await fetch(`${REDIS_URL}/get/${cacheKey}`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
+    const data = await res.json();
+    let tokenMap = data.result ? JSON.parse(data.result) : null;
+
+    if (!tokenMap) {
+      // Not cached — fetch NFO instruments CSV
+      const csvText = await dp.getInstrumentsCSV('NFO');
+      if (!csvText || typeof csvText !== 'string') return null;
+      const lines = csvText.trim().split('\n');
+      tokenMap = {};
+      for (let i = 1; i < lines.length; i++) {
+        const cols  = lines[i].split(',');
+        const token = parseInt(cols[0]);
+        const sym   = cols[2]?.replace(/"/g, '').trim();
+        const name  = sym?.match(/^([A-Z&]+)/)?.[1];
+        if (name === symbol && sym && token) tokenMap[sym] = token;
+      }
+      // Cache for 1h
+      const enc = encodeURIComponent(JSON.stringify(tokenMap));
+      await fetch(`${REDIS_URL}/set/${cacheKey}/${enc}?ex=3600`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
+    }
+
+    // Extract strikes matching expiry + optionType from token map keys
+    // Kite format: NTPC26MAR380CE — extract expiry date from symbol name
+    const suffix = optionType; // CE or PE
+    const strikes = [];
+    for (const sym of Object.keys(tokenMap)) {
+      if (!sym.endsWith(suffix)) continue;
+      // Parse strike number: remove underlying prefix + expiry part (YYMMM or YYMMDD) + suffix
+      const m = sym.match(/^[A-Z&]+(\d{2})([A-Z]{3})(\d+)(CE|PE)$/);
+      if (!m) continue;
+      const symYY = m[1], symMMM = m[2], strike = parseInt(m[3]);
+      // Check expiry matches: compare YY+MMM with our expiry
+      const expYY  = String(expiry.getFullYear()).slice(-2);
+      const expMMM = expiry.toLocaleString('en-US', { month: 'short' }).toUpperCase();
+      if (symYY === expYY && symMMM === expMMM && !isNaN(strike)) {
+        strikes.push(strike);
+      }
+    }
+    return strikes.length ? strikes.sort((a, b) => a - b) : null;
+  } catch { return null; }
+}
+
+// Find nearest valid strike from a sorted list of strikes
+function nearestStrike(strikes, target) {
+  let best = strikes[0], bestDist = Math.abs(strikes[0] - target);
+  for (const s of strikes) {
+    const d = Math.abs(s - target);
+    if (d < bestDist) { best = s; bestDist = d; }
+  }
+  return best;
 }
 
 export async function GET(request) {
@@ -95,13 +155,7 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Kite not authenticated' }, { status: 401 });
     }
     
-    // Calculate ATM strike
-    const step = getStrikeStep(symbol, price);
-    const atmStrike = optionType === 'CE' 
-      ? Math.ceil(price / step) * step 
-      : Math.floor(price / step) * step;
-    
-    // Get expiry for Kite and TradingView
+    // Get expiry first — needed for NFO strike validation
     const now = new Date();
     let expiry, kiteSymbol, tvExpiryDate;
     if (symbol.toUpperCase() === 'NIFTY') {
@@ -109,7 +163,6 @@ export async function GET(request) {
         expiry = getLastTuesdayOfMonth(now);
         tvExpiryDate = expiry;
       } else {
-        // default to weekly
         expiry = getLastTuesdayOfWeek(now);
         tvExpiryDate = expiry;
       }
@@ -117,6 +170,19 @@ export async function GET(request) {
       expiry = getNextExpiry(symbol, now);
       tvExpiryDate = getLastTuesdayOfMonth(now);
     }
+
+    // Calculate ATM strike — then validate against real NFO strikes to avoid invalid strikes
+    const step = getStrikeStep(symbol, price);
+    let atmStrike = optionType === 'CE'
+      ? Math.ceil(price / step) * step
+      : Math.floor(price / step) * step;
+
+    // For non-index stocks, snap to nearest real strike from NFO instruments
+    if (!INDICES.includes(symbol.toUpperCase())) {
+      const validStrikes = await getValidStrikes(symbol, expiry, optionType, dp);
+      if (validStrikes?.length) atmStrike = nearestStrike(validStrikes, price);
+    }
+
     kiteSymbol = buildKiteOptionSymbol(symbol, atmStrike, optionType, expiry);
 
     // Get LTP for the option
