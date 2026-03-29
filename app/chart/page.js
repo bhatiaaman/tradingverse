@@ -896,7 +896,7 @@ function ChartPageInner() {
         {!atRightEdge && (
           <button
             onClick={() => chartRef.current?.scrollToEnd()}
-            className="absolute z-20 bottom-9 right-20 flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#1e293b] hover:bg-[#334155] border border-white/[0.12] shadow-lg text-slate-300 text-[11px] font-semibold transition-colors"
+            className="absolute z-20 bottom-20 right-20 flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#1e293b] hover:bg-[#334155] border border-white/[0.12] shadow-lg text-slate-300 text-[11px] font-semibold transition-colors"
             title="Scroll to latest bar"
           >
             <svg width="13" height="11" viewBox="0 0 13 11" fill="currentColor">
