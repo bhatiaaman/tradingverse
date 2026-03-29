@@ -123,6 +123,16 @@ export class Viewport {
     this.autoScale(candles);
   }
 
+  // ── Fit only the last n bars — used for initial load of intraday charts ──────
+  fitRecent(candles, n) {
+    if (!candles?.length) return;
+    this.logTo      = candles.length;
+    this.logFrom    = Math.max(0, candles.length - n);
+    this.priceShift = 0;
+    this.priceZoom  = 1.0;
+    this.autoScale(candles);
+  }
+
   // ── Pan / zoom operations (called by EventHandler) ───────────────────────────
 
   // Horizontal pan: dx > 0 = mouse moved right = chart moves right = older bars

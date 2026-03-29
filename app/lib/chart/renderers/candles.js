@@ -1,11 +1,25 @@
 // ─── Candle Renderer ──────────────────────────────────────────────────────────
 // Draws candlestick bars onto the chart area.
 
+// Returns a border color that always contrasts with the fill:
+//   light colors (e.g. white, yellow) → dark border
+//   dark colors  (e.g. black)         → light border
+//   mid-range colors                  → same as fill (subtle outline)
+function borderFor(hex) {
+  if (!hex || hex[0] !== '#') return hex;
+  const n = parseInt(hex.slice(1), 16);
+  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  if (lum > 0.72) return 'rgba(0,0,0,0.70)';   // white/light → black border
+  if (lum < 0.12) return 'rgba(255,255,255,0.45)'; // black/near-black → light border
+  return hex;                                    // everything else: same colour
+}
+
 export function renderCandles(ctx, vp, candles, colors = {}) {
   if (!candles?.length) return;
 
   const UP_COLOR   = colors.bull || '#22c55e';
   const DOWN_COLOR = colors.bear || '#ef4444';
+  const UP_BORDER  = borderFor(UP_COLOR);
 
   const from = Math.max(0, Math.floor(vp.logFrom));
   const to   = Math.min(candles.length - 1, Math.ceil(vp.logTo));
@@ -39,14 +53,21 @@ export function renderCandles(ctx, vp, candles, colors = {}) {
     ctx.strokeStyle = color;
     ctx.lineWidth   = 1;
 
-    // Wick — single vertical line through centre
+    // Wick
     ctx.beginPath();
     ctx.moveTo(cx, highY);
     ctx.lineTo(cx, lowY);
     ctx.stroke();
 
-    // Body — filled rectangle
-    ctx.fillRect(cx - halfBody, bodyTop, bodyW, bodyH);
+    // Body — bull: fill + contrasting border (so white candles stay visible on any bg)
+    //        bear: solid fill, no border
+    if (isUp) {
+      ctx.fillRect(cx - halfBody, bodyTop, bodyW, bodyH);
+      ctx.strokeStyle = UP_BORDER;
+      ctx.strokeRect(cx - halfBody, bodyTop, bodyW, bodyH);
+    } else {
+      ctx.fillRect(cx - halfBody, bodyTop, bodyW, bodyH);
+    }
   }
 
   ctx.restore();

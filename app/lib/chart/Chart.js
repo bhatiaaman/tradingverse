@@ -269,6 +269,11 @@ export function createChart(container, options = {}) {
       markDirty();
     },
 
+    clearZonesWithPrefix(prefix) {
+      zones = zones.filter(z => !z.id.startsWith(prefix));
+      markDirty();
+    },
+
     setSMC(data) {
       smcData = data ?? null;
       markDirty();
@@ -372,6 +377,11 @@ export function createChart(container, options = {}) {
 
     fitContent() {
       vp.fitContent(candles);
+      markDirty();
+    },
+
+    fitRecent(n) {
+      vp.fitRecent(candles, n);
       markDirty();
     },
 

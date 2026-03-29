@@ -394,6 +394,9 @@ function ChartPageInner() {
   const settingsBtnRef = useRef(null);
   const dropdownRef    = useRef(null);
   const chartRsiHRef   = useRef(80);
+  // Tracks which candles/interval/theme the current chart was created with.
+  // If these haven't changed, only overlays need updating — no destroy/recreate.
+  const chartCreatedForRef = useRef({ candles: null, interval: null, theme: null });
 
   // ── Restore persisted settings + theme after mount (avoids SSR hydration mismatch) ─
   useEffect(() => {
@@ -486,55 +489,57 @@ function ChartPageInner() {
     setShowSettings(true);
   };
 
-  // ── Build / rebuild chart whenever data or settings change ─────────────────
+  // ── Build / rebuild chart, or just update overlays if data hasn't changed ────
+  // Key invariant: chart is destroyed+recreated (resetting viewport) ONLY when
+  // candles, chartInterval, or chartTheme change. Toggling overlays in settings
+  // skips recreation and just updates lines/zones on the existing chart instance,
+  // so the user's zoom/pan state is fully preserved.
   useEffect(() => {
     if (!containerRef.current || candles.length === 0) return;
 
-    const el = containerRef.current;
-    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
-
+    const el         = containerRef.current;
     const isIntraday = chartInterval !== 'day';
+    const cf         = chartCreatedForRef.current;
+    // Only recreate (which resets viewport) when interval or theme changes, or on first load.
+    // Candle data refreshes (new reference on auto-refresh) are handled via updateCandles
+    // below — which preserves zoom/pan, unlike setCandles which calls fitContent.
+    const needsRecreation = !chartRef.current
+      || cf.interval  !== chartInterval
+      || cf.theme     !== chartTheme;
 
-    import('@/app/lib/chart/Chart.js').then(({ createChart }) => {
-      if (!containerRef.current) return; // component unmounted while awaiting import
-
-      const chart = createChart(el, { interval: chartInterval, theme: chartTheme });
-      chartRef.current = chart;
-
-      // ── Callbacks — register before setCandles so they're live on first render ─
-      chart.onCrosshairMove(info => {
-        if (info?.bar) setHoverOHLC(info.bar);
-        else           setHoverOHLC(null);
-      });
-      chart.onLastPriceY(y => setLastPriceY(y));
-
-      // ── Candles ────────────────────────────────────────────────────────────
-      chart.setCandles(candles);
+    const applyOverlays = (chart) => {
 
       // ── VWAP ──────────────────────────────────────────────────────────────
       if (settings.showVwap && isIntraday) {
-        const todayIST   = new Date(Date.now() + IST_OFFSET_S * 1000).toISOString().slice(0, 10);
-        const todayCdls  = candles.filter(c => new Date((c.time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10) === todayIST);
-        const vwapData   = computeVWAP(todayCdls.length ? todayCdls : candles);
+        // Use last trading session in candles (not "today" — market may be closed)
+        const lastDate  = new Date((candles[candles.length - 1].time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10);
+        const sessCdls  = candles.filter(c => new Date((c.time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10) === lastDate);
+        const vwapData  = computeVWAP(sessCdls.length ? sessCdls : candles.slice(-1));
         chart.setLine('vwap', { data: vwapData, color: '#f59e0b', width: 2 });
         const last = vwapData[vwapData.length - 1]?.value;
         setVwap(last ?? null);
       } else {
+        chart.clearLine('vwap');
         setVwap(null);
       }
 
       // ── OR Band ───────────────────────────────────────────────────────────
       if (settings.showOrBand && isIntraday && candles.length >= 1) {
-        const todayIST = new Date(Date.now() + IST_OFFSET_S * 1000).toISOString().slice(0, 10);
-        const dayStart = candles.findIndex(c => new Date((c.time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10) === todayIST);
+        // Use last trading session's first bar
+        const lastDate = new Date((candles[candles.length - 1].time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10);
+        const dayStart = candles.findIndex(c => new Date((c.time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10) === lastDate);
         const orC = candles[dayStart >= 0 ? dayStart : 0];
         chart.setZone({ id: 'or_high', price: orC.high, color: 'rgba(96,165,250,0.8)',  label: 'OR H', style: 'dashed', inline: true });
         chart.setZone({ id: 'or_low',  price: orC.low,  color: 'rgba(96,165,250,0.8)',  label: 'OR L', style: 'dashed', inline: true });
+      } else {
+        chart.clearZone('or_high');
+        chart.clearZone('or_low');
       }
 
       // ── S/R zones from Station agent ──────────────────────────────────────
       if (settings.showSR) {
         const stations = stationData?.station?.allStations;
+        chart.clearZonesWithPrefix('sr_');
         if (stations?.length) {
           const ltp    = candles[candles.length - 1]?.close || 0;
           const dist   = s => Math.abs(s.price - ltp);
@@ -548,23 +553,32 @@ function ChartPageInner() {
             color: broken(r) ? 'rgba(252,165,165,0.55)' : 'rgba(248,113,113,0.85)',
             label: `R${r.quality >= 7 ? '★' : ''}`, style: 'dashed', inline: true });
         }
+      } else {
+        chart.clearZonesWithPrefix('sr_');
       }
 
       // ── EMA lines ─────────────────────────────────────────────────────────
       if (settings.showEma9)  chart.setLine('ema9',  { data: computeEMA(candles, 9),  color: EMA_COLORS.ema9,  width: 2 });
+      else                    chart.clearLine('ema9');
       if (settings.showEma21) chart.setLine('ema21', { data: computeEMA(candles, 21), color: EMA_COLORS.ema21, width: 2 });
+      else                    chart.clearLine('ema21');
       if (settings.showEma50) chart.setLine('ema50', { data: computeEMA(candles, 50), color: EMA_COLORS.ema50, width: 2 });
+      else                    chart.clearLine('ema50');
 
       // ── EMA 9 Daily — flat zone line on intraday ──────────────────────────
       if (settings.showEma9D && isIntraday && dailyCandles.length >= 9) {
         const val = computeEMA(dailyCandles, 9).at(-1)?.value;
         if (val) chart.setZone({ id: 'ema9d', price: val, color: 'rgba(232,121,249,0.85)', label: 'D·EMA9', style: 'solid', width: 2.5, inline: true });
+      } else {
+        chart.clearZone('ema9d');
       }
 
       // ── EMA 9 Weekly — flat zone line on daily chart ──────────────────────
       if (settings.showEma9W && !isIntraday && dailyCandles.length >= 9) {
         const val = computeEMA(aggregateWeekly(dailyCandles), 9).at(-1)?.value;
         if (val) chart.setZone({ id: 'ema9w', price: val, color: 'rgba(251,146,60,0.85)', label: 'W·EMA9', style: 'solid', width: 2.5, inline: true });
+      } else {
+        chart.clearZone('ema9w');
       }
 
       // ── SMC overlays (BOS · OB · FVG) ────────────────────────────────────
@@ -602,12 +616,56 @@ function ChartPageInner() {
       } else {
         chart.clearRSIPane();
       }
-    });
+    }; // end applyOverlays
 
+    if (!needsRecreation) {
+      // Candles refreshed (new reference) — slide viewport if at right edge, else stay put
+      if (cf.candles !== candles) {
+        chartRef.current.updateCandles(candles);
+        chartCreatedForRef.current = { ...cf, candles };
+      }
+      // Settings or overlay toggle — just re-apply without touching viewport
+      applyOverlays(chartRef.current);
+      return;
+    }
+
+    // Full recreation — new candles, interval, or theme
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+
+    import('@/app/lib/chart/Chart.js').then(({ createChart }) => {
+      if (!containerRef.current) return;
+
+      const chart = createChart(el, { interval: chartInterval, theme: chartTheme });
+      chartRef.current = chart;
+      chartCreatedForRef.current = { candles, interval: chartInterval, theme: chartTheme };
+
+      chart.onCrosshairMove(info => {
+        if (info?.bar) setHoverOHLC(info.bar);
+        else           setHoverOHLC(null);
+      });
+      chart.onLastPriceY(y => setLastPriceY(y));
+
+      chart.setCandles(candles); // fitContent called inside — shows all bars
+      // Zoom to a sensible default window: show last 2-3 trading days for intraday
+      const defaultBars = {
+        '1minute':  390,   // ~1 trading day
+        '5minute':  234,   // ~3 trading days  (78 bars/day × 3)
+        '15minute': 104,   // ~4 trading days  (26 bars/day × 4)
+        '60minute': 150,   // ~6 weeks
+      }[chartInterval];
+      if (defaultBars) chart.fitRecent(defaultBars);
+      applyOverlays(chart);
+    });
+  }, [candles, dailyCandles, chartInterval, chartTheme, stationData, settings]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Destroy chart only on unmount — NOT on every effect re-run.
+  // Putting destroy() in the main effect cleanup was the root cause of viewport resets:
+  // React runs cleanup before each re-run, destroying the chart so needsRecreation=true.
+  useEffect(() => {
     return () => {
       if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
     };
-  }, [candles, dailyCandles, chartInterval, stationData, settings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Fallback: if lastPriceY is still null 300ms after candles load, read it directly.
   // Covers the edge case where the RAF fires before onLastPriceY is registered.
@@ -872,31 +930,36 @@ function ChartPageInner() {
           const bar    = hoverOHLC || (candles.length > 0 ? candles[candles.length - 1] : null);
           const chgPct = bar ? ((bar.close - bar.open) / bar.open * 100) : null;
           const barUp  = bar ? bar.close >= bar.open : null;
+          const isLight  = chartTheme === 'light';
+          const valClr   = isLight ? 'text-slate-900' : 'text-white';
+          const lblClr   = isLight ? 'text-slate-500' : 'text-slate-400';
+          const bullClr  = isLight ? 'text-emerald-700' : 'text-emerald-400';
+          const bearClr  = isLight ? 'text-red-600'     : 'text-red-400';
           return (
             <div className="absolute top-2 left-2 z-10 pointer-events-none select-none">
-              <div className="text-[10px] text-slate-600 font-mono">
+              <div className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-600'}`}>
                 {symbol} · {INTERVAL_LABELS[chartInterval] ?? chartInterval}
               </div>
               {bar && (
                 <>
                   <div className="hidden sm:flex items-center gap-2 mt-0.5 text-[11px] font-mono">
-                    <span className="text-slate-400">O <span className="text-white">{bar.open.toFixed(2)}</span></span>
-                    <span className="text-slate-400">H <span className="text-emerald-400">{bar.high.toFixed(2)}</span></span>
-                    <span className="text-slate-400">L <span className="text-red-400">{bar.low.toFixed(2)}</span></span>
-                    <span className="text-slate-400">C <span className={barUp ? 'text-emerald-400' : 'text-red-400'}>{bar.close.toFixed(2)}</span></span>
-                    {chgPct != null && <span className={barUp ? 'text-emerald-400' : 'text-red-400'}>{barUp ? '+' : ''}{chgPct.toFixed(2)}%</span>}
-                    {bar.volume != null && <span className="text-slate-400">V <span className="text-white">{fmtVol(bar.volume)}</span></span>}
+                    <span className={lblClr}>O <span className={valClr}>{bar.open.toFixed(2)}</span></span>
+                    <span className={lblClr}>H <span className={bullClr}>{bar.high.toFixed(2)}</span></span>
+                    <span className={lblClr}>L <span className={bearClr}>{bar.low.toFixed(2)}</span></span>
+                    <span className={lblClr}>C <span className={barUp ? bullClr : bearClr}>{bar.close.toFixed(2)}</span></span>
+                    {chgPct != null && <span className={barUp ? bullClr : bearClr}>{barUp ? '+' : ''}{chgPct.toFixed(2)}%</span>}
+                    {bar.volume != null && <span className={lblClr}>V <span className={valClr}>{fmtVol(bar.volume)}</span></span>}
                   </div>
                   <div className="sm:hidden mt-0.5 font-mono space-y-0.5">
                     <div className="flex items-center gap-1.5 text-[12px]">
-                      <span className={`font-semibold ${barUp ? 'text-emerald-400' : 'text-red-400'}`}>{bar.close.toFixed(2)}</span>
-                      {chgPct != null && <span className={`text-[10px] ${barUp ? 'text-emerald-400' : 'text-red-400'}`}>{barUp ? '+' : ''}{chgPct.toFixed(2)}%</span>}
+                      <span className={`font-semibold ${barUp ? bullClr : bearClr}`}>{bar.close.toFixed(2)}</span>
+                      {chgPct != null && <span className={`text-[10px] ${barUp ? bullClr : bearClr}`}>{barUp ? '+' : ''}{chgPct.toFixed(2)}%</span>}
                     </div>
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-                      <span>O <span className="text-white">{bar.open.toFixed(1)}</span></span>
-                      <span>H <span className="text-emerald-400">{bar.high.toFixed(1)}</span></span>
-                      <span>L <span className="text-red-400">{bar.low.toFixed(1)}</span></span>
-                      {bar.volume != null && <span>V <span className="text-white">{fmtVol(bar.volume)}</span></span>}
+                    <div className={`flex items-center gap-1.5 text-[10px] ${lblClr}`}>
+                      <span>O <span className={valClr}>{bar.open.toFixed(1)}</span></span>
+                      <span>H <span className={bullClr}>{bar.high.toFixed(1)}</span></span>
+                      <span>L <span className={bearClr}>{bar.low.toFixed(1)}</span></span>
+                      {bar.volume != null && <span>V <span className={valClr}>{fmtVol(bar.volume)}</span></span>}
                     </div>
                   </div>
                 </>
@@ -979,22 +1042,26 @@ function ChartPageInner() {
             <div className="relative bg-[#111827] border-t border-white/[0.12] rounded-t-2xl shadow-2xl p-4 pb-8">
               <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-4" />
               <div className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Chart Overlays</div>
-              <div className="flex items-center gap-4 px-1 mb-3">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="color" value={settings.bullColor ?? '#22c55e'}
-                    onChange={e => setSetting('bullColor', e.target.value)}
-                    className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent p-0"
-                  />
-                  <span className="text-sm text-slate-400">Bull candle</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="color" value={settings.bearColor ?? '#ef4444'}
-                    onChange={e => setSetting('bearColor', e.target.value)}
-                    className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent p-0"
-                  />
-                  <span className="text-sm text-slate-400">Bear candle</span>
-                </label>
-              </div>
+              {[
+                { key: 'bullColor', label: 'Bull candle', def: '#22c55e' },
+                { key: 'bearColor', label: 'Bear candle', def: '#ef4444' },
+              ].map(({ key, label, def }) => (
+                <div key={key} className="px-1 mb-3">
+                  <div className="text-xs text-slate-500 mb-1.5">{label}</div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {['#22c55e','#26a69a','#ffffff','#3b82f6','#f59e0b','#ef4444','#f97316','#000000'].map(c => (
+                      <button key={c} onClick={() => setSetting(key, c)}
+                        style={{ backgroundColor: c, width: 22, height: 22, borderRadius: 4,
+                          boxShadow: (settings[key] ?? def) === c ? '0 0 0 2px #fff' : '0 0 0 1px rgba(255,255,255,0.15)' }}
+                      />
+                    ))}
+                    <label className="relative cursor-pointer flex items-center justify-center w-[22px] h-[22px] rounded text-slate-400 text-sm font-bold"
+                      style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.15)' }}>
+                      +<input type="color" value={settings[key] ?? def} onChange={e => setSetting(key, e.target.value)} className="absolute opacity-0 w-0 h-0" />
+                    </label>
+                  </div>
+                </div>
+              ))}
               <div className="grid grid-cols-2 gap-1">
                 {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams }) => {
                   const disabled = (intradayOnly && !isIntraday) || (dailyOnly && isIntraday);
@@ -1076,26 +1143,23 @@ function ChartPageInner() {
                   );
                 })}
               </div>
-              <div className="border-t border-white/[0.08] mt-2 pt-2">
-                <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5 px-1">Candle Colors</div>
-                <div className="flex items-center gap-3 px-2">
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input type="color" value={settings.bullColor ?? '#22c55e'}
-                      onChange={e => setSetting('bullColor', e.target.value)}
-                      className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent p-0"
-                    />
-                    <span className="text-[10px] text-slate-400">Bull</span>
-                  </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input type="color" value={settings.bearColor ?? '#ef4444'}
-                      onChange={e => setSetting('bearColor', e.target.value)}
-                      className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent p-0"
-                    />
-                    <span className="text-[10px] text-slate-400">Bear</span>
-                  </label>
-                  <button onClick={() => { setSetting('bullColor', '#22c55e'); setSetting('bearColor', '#ef4444'); }}
-                    className="text-[10px] text-slate-500 hover:text-slate-300 ml-auto">reset</button>
-                </div>
+              <div className="border-t border-white/[0.08] mt-2 pt-2 px-1">
+                <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">Candle Colors</div>
+                {[['Bull', 'bullColor', '#22c55e'], ['Bear', 'bearColor', '#ef4444']].map(([lbl, key, def]) => (
+                  <div key={key} className="flex items-center gap-1.5 mb-1.5">
+                    <span className="text-[10px] text-slate-500 w-6">{lbl}</span>
+                    {['#22c55e','#26a69a','#ffffff','#3b82f6','#f59e0b','#ef4444','#f97316','#000000'].map(c => (
+                      <button key={c} onClick={() => setSetting(key, c)}
+                        className="w-4 h-4 rounded-full flex-shrink-0 ring-offset-[#111827] transition-all"
+                        style={{ backgroundColor: c, border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : c === '#000000' ? '1px solid rgba(255,255,255,0.15)' : 'none',
+                          outline: settings[key] === c ? '2px solid #6366f1' : 'none', outlineOffset: '1px' }}
+                      />
+                    ))}
+                    <label className="w-4 h-4 rounded-full cursor-pointer flex-shrink-0 flex items-center justify-center bg-white/10 text-[8px] text-slate-400 hover:bg-white/20">
+                      +<input type="color" value={settings[key] ?? def} onChange={e => setSetting(key, e.target.value)} className="absolute opacity-0 w-0 h-0" />
+                    </label>
+                  </div>
+                ))}
               </div>
             </div>
           )

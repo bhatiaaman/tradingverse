@@ -9,16 +9,21 @@ function fmtPrice(p) {
   return p.toFixed(2);
 }
 
+const DAYS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
 function fmtTime(unixSec, interval) {
-  const d = new Date(unixSec * 1000 + IST_OFFSET_MS);
+  const d  = new Date(unixSec * 1000 + IST_OFFSET_MS);
+  const dy = DAYS[d.getUTCDay()];
+  const dd = d.getUTCDate();
+  const mo = MONTHS[d.getUTCMonth()];
+  const yy = String(d.getUTCFullYear()).slice(2);
   if (interval === 'day' || interval === 'week') {
-    const dd = d.getUTCDate().toString().padStart(2, '0');
-    const mo = d.toLocaleString('en-IN', { month: 'short', timeZone: 'UTC' });
-    return `${dd} ${mo}`;
+    return `${dy}, ${dd} ${mo} '${yy}`;
   }
   const h = d.getUTCHours().toString().padStart(2, '0');
   const m = d.getUTCMinutes().toString().padStart(2, '0');
-  return `${h}:${m}`;
+  return `${dy}, ${dd} ${mo} '${yy}, ${h}:${m}`;
 }
 
 export function renderCrosshair(ctx, vp, state, candles, interval) {
@@ -70,7 +75,8 @@ export function renderCrosshair(ctx, vp, state, candles, interval) {
   if (snapIndex != null && snapIndex >= 0 && snapIndex < (candles?.length ?? 0)) {
     const bar      = candles[snapIndex];
     const timeStr  = fmtTime(bar.time, interval);
-    const tPillW   = 54;
+    ctx.font         = 'bold 10px monospace';
+    const tPillW   = ctx.measureText(timeStr).width + 16; // dynamic width
     const tPillH   = 18;
     const tPillX   = x - tPillW / 2;
     const tPillY   = vp.timeAxisTop + (vp.TIME_AXIS_H - tPillH) / 2;
@@ -81,7 +87,6 @@ export function renderCrosshair(ctx, vp, state, candles, interval) {
     ctx.fill();
 
     ctx.fillStyle    = '#0f172a';
-    ctx.font         = 'bold 10px monospace';
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(timeStr, x, tPillY + tPillH / 2);
