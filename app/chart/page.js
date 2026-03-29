@@ -773,7 +773,11 @@ function ChartPageInner() {
 
           {/* Reset view */}
           <button
-            onClick={() => chartRef.current?.fitContent()}
+            onClick={() => {
+              const defaultBars = { '1minute': 390, '5minute': 234, '15minute': 104, '60minute': 150 }[chartInterval];
+              if (defaultBars) chartRef.current?.fitRecent(defaultBars);
+              else chartRef.current?.fitContent();
+            }}
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold transition-colors text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]"
             title="Reset view (or double-click chart)"
           >

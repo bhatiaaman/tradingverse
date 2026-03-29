@@ -157,10 +157,13 @@ export function createChart(container, options = {}) {
         markDirty();
         break;
 
-      case 'reset':
-        vp.fitContent(candles);
+      case 'reset': {
+        const defaultBars = { '1minute': 390, '5minute': 234, '15minute': 104, '60minute': 150 }[interval];
+        if (defaultBars) vp.fitRecent(candles, defaultBars);
+        else             vp.fitContent(candles);
         markDirty();
         break;
+      }
 
       case 'crosshair': {
         if (!data) {
