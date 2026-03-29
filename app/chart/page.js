@@ -385,6 +385,7 @@ function ChartPageInner() {
   const [chartTheme, setChartTheme]       = useState('dark');
   const [chartRsiH, setChartRsiH]         = useState(80);
   const [lastPriceY, setLastPriceY]         = useState(null);
+  const [atRightEdge, setAtRightEdge]       = useState(true);
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [indexPicker, setIndexPicker]       = useState(false);   // CE/PE picker for indices
   const [orderOptionType, setOrderOptionType] = useState(null);  // 'CE' | 'PE' | null
@@ -644,6 +645,7 @@ function ChartPageInner() {
         else           setHoverOHLC(null);
       });
       chart.onLastPriceY(y => setLastPriceY(y));
+      chart.onViewportChange(({ atEnd }) => setAtRightEdge(atEnd));
 
       chart.setCandles(candles); // fitContent called inside — shows all bars
       // Zoom to a sensible default window: show last 2-3 trading days for intraday
@@ -888,6 +890,21 @@ function ChartPageInner() {
           >
             <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-slate-600/50 group-hover:bg-slate-400/60 transition-colors" />
           </div>
+        )}
+
+        {/* Scroll-to-latest button — TV-style ►► appears when scrolled away from right edge */}
+        {!atRightEdge && (
+          <button
+            onClick={() => chartRef.current?.scrollToEnd()}
+            className="absolute z-20 bottom-9 right-20 flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#1e293b] hover:bg-[#334155] border border-white/[0.12] shadow-lg text-slate-300 text-[11px] font-semibold transition-colors"
+            title="Scroll to latest bar"
+          >
+            <svg width="13" height="11" viewBox="0 0 13 11" fill="currentColor">
+              <path d="M0 1.5 L4.5 5.5 L0 9.5 L0 1.5Z"/>
+              <path d="M5 1.5 L9.5 5.5 L5 9.5 L5 1.5Z"/>
+              <rect x="10.5" y="1.5" width="2" height="8" rx="1"/>
+            </svg>
+          </button>
         )}
 
         {/* Order entry button — floats beside the last-price pill */}

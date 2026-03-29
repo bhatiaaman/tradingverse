@@ -70,6 +70,8 @@ export function createChart(container, options = {}) {
   let   crosshairCb      = null;
   let   lastPriceYCb     = null;
   let   lastEmittedPriceY = undefined;
+  let   viewportCb       = null;
+  let   lastEmittedAtEnd  = undefined;
   let   dirty       = true;
   let   rafId       = null;
   let   destroyed   = false;
@@ -120,6 +122,12 @@ export function createChart(container, options = {}) {
       const lY   = vp.priceToY(candles[candles.length - 1].close);
       const emit = (lY >= vp.chartTop && lY <= vp.chartBottom) ? Math.round(lY) : null;
       if (emit !== lastEmittedPriceY) { lastEmittedPriceY = emit; lastPriceYCb(emit); }
+    }
+
+    // Emit whether viewport is at the right (latest) edge — for scroll-to-end button
+    if (viewportCb && candles.length) {
+      const atEnd = vp.logTo >= candles.length - 2;
+      if (atEnd !== lastEmittedAtEnd) { lastEmittedAtEnd = atEnd; viewportCb({ atEnd }); }
     }
   }
 
@@ -390,6 +398,18 @@ export function createChart(container, options = {}) {
     fitRecent(n) {
       vp.fitRecent(candles, n);
       markDirty();
+    },
+
+    // Scroll to the latest bars preserving current zoom level (like TV's ►► button)
+    scrollToEnd() {
+      const len = vp.logTo - vp.logFrom;
+      vp.logTo   = candles.length;
+      vp.logFrom = candles.length - len;
+      markDirty();
+    },
+
+    onViewportChange(cb) {
+      viewportCb = cb;
     },
 
     setTheme(t) {
