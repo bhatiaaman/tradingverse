@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import OrderModal         from '@/app/components/OrderModal';
 import IntelligencePill   from '@/app/components/IntelligencePill';
+import SymbolSearch        from '@/app/components/SymbolSearch';
 
 const RSI_MIN_H = 50;
 const RSI_MAX_H = 200;
@@ -382,10 +383,7 @@ function ChartPageInner() {
   const [intelligence, setIntelligence]   = useState(null);
   const [hoverOHLC, setHoverOHLC]         = useState(null);
   const [isMobile, setIsMobile]           = useState(false);
-  const [chartTheme, setChartTheme]       = useState(() => {
-    if (typeof window === 'undefined') return 'dark';
-    return localStorage.getItem('tv_chart_theme') || 'dark';
-  });
+  const [chartTheme, setChartTheme]       = useState('dark');
   const [chartRsiH, setChartRsiH]         = useState(80);
   const [lastPriceY, setLastPriceY]         = useState(null);
   const [atRightEdge, setAtRightEdge]       = useState(true);
@@ -407,6 +405,10 @@ function ChartPageInner() {
     try {
       const savedSettings = localStorage.getItem('tv_chart_settings');
       if (savedSettings) setSettings(s => ({ ...s, ...JSON.parse(savedSettings) }));
+    } catch {}
+    try {
+      const saved = localStorage.getItem('tv_chart_theme');
+      if (saved && saved !== 'dark') setChartTheme(saved);
     } catch {}
   }, []);
 
@@ -500,10 +502,12 @@ function ChartPageInner() {
     const el         = containerRef.current;
     const isIntraday = chartInterval !== 'day';
     const cf         = chartCreatedForRef.current;
-    // Only recreate (which resets viewport) when interval or theme changes, or on first load.
+    // Only recreate (which resets viewport) when interval, theme, or container changes, or on first load.
     // Candle data refreshes (new reference on auto-refresh) are handled via updateCandles
     // below — which preserves zoom/pan, unlike setCandles which calls fitContent.
+    // cf.el tracks the DOM node — if the container remounted (symbol change via key=), chart must be recreated.
     const needsRecreation = !chartRef.current
+      || cf.el        !== el
       || cf.interval  !== chartInterval
       || cf.theme     !== chartTheme;
 
@@ -637,7 +641,7 @@ function ChartPageInner() {
 
       const chart = createChart(el, { interval: chartInterval, theme: chartTheme });
       chartRef.current = chart;
-      chartCreatedForRef.current = { candles, interval: chartInterval, theme: chartTheme };
+      chartCreatedForRef.current = { el, candles, interval: chartInterval, theme: chartTheme };
 
       chart.onCrosshairMove(info => {
         if (info?.bar) setHoverOHLC(info.bar);
@@ -741,7 +745,7 @@ function ChartPageInner() {
           </a>
 
           <span className="w-px h-4 bg-white/10" />
-          <span className="text-white font-bold text-sm tracking-wide">{symbol}</span>
+          <SymbolSearch symbol={symbol} />
 
           {ltp != null && (
             <>
