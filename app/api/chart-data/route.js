@@ -100,6 +100,38 @@ async function getNFOToken(tradingsymbol) {
   } catch { return null; }
 }
 
+// Direct NFO CSV lookup — used when option-meta cache isn't populated for this underlying.
+// Fetches NFO instruments, filters by underlying name, caches per-underlying for 1h.
+async function getNFOTokenDirect(tradingsymbol, dp) {
+  const name = extractNFOName(tradingsymbol);
+  if (!name) return null;
+  try {
+    const cacheKey = `${NS}:fno-ts-tokens:${name}`;
+    // Check Redis again (might have been populated by now)
+    const cached = await redisGet(cacheKey);
+    if (cached) return cached[tradingsymbol] ?? null;
+
+    const csvText = await dp.getInstrumentsCSV('NFO');
+    if (!csvText || typeof csvText !== 'string') return null;
+
+    const lines = csvText.trim().split('\n');
+    const tokenMap = {};
+    for (let i = 1; i < lines.length; i++) {
+      const cols  = lines[i].split(',');
+      const token = parseInt(cols[0]);
+      const sym   = cols[2]?.replace(/"/g, '').trim();
+      if (sym && token && extractNFOName(sym) === name) {
+        tokenMap[sym] = token;
+      }
+    }
+
+    if (Object.keys(tokenMap).length) {
+      await redisSet(cacheKey, tokenMap, 3600); // cache 1h
+    }
+    return tokenMap[tradingsymbol] ?? null;
+  } catch { return null; }
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const symbol   = (searchParams.get('symbol') || 'NIFTY').toUpperCase();
@@ -136,6 +168,10 @@ export async function GET(request) {
     // Token maps are cached by option-meta route under fno-ts-tokens:{name}
     if (!token) {
       token = await getNFOToken(symbol);
+    }
+    // Last resort: fetch NFO instruments CSV directly (option-meta not yet cached for this underlying)
+    if (!token) {
+      token = await getNFOTokenDirect(symbol, dp);
     }
     if (!token) {
       return NextResponse.json({ error: `Token not found for symbol: ${symbol}` }, { status: 404 });
