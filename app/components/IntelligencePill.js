@@ -4,7 +4,7 @@
 // Collapsed: ● Regime  |  ● Zone context
 // Expanded:  Regime · Zone · Market environment (VIX, sentiment, OI)
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const REGIME_STYLE = {
   TREND_DAY_UP:     { text: 'text-emerald-400', dot: 'bg-emerald-400', label: 'Trend Up'      },
@@ -84,6 +84,16 @@ const VOL_COLOR = {
 
 export default function IntelligencePill({ intelligence, bottomOffset = 16 }) {
   const [expanded, setExpanded] = useState(false);
+  const pillRef = useRef(null);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const handler = (e) => {
+      if (pillRef.current && !pillRef.current.contains(e.target)) setExpanded(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [expanded]);
 
   if (!intelligence) return null;
 
@@ -108,7 +118,7 @@ export default function IntelligencePill({ intelligence, bottomOffset = 16 }) {
   const oi = agents?.oi;
 
   return (
-    <div className="absolute left-14 z-20 select-none" style={{ bottom: bottomOffset }}>
+    <div ref={pillRef} className="absolute left-14 z-20 select-none" style={{ bottom: bottomOffset }}>
 
       {/* ── Expanded card ──────────────────────────────────────────────── */}
       {expanded && (
