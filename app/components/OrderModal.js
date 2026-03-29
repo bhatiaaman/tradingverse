@@ -886,11 +886,11 @@ export default function OrderModal({
               </button>
             )}
             <a
-              href={`/chart?symbol=${encodeURIComponent(symbol)}`}
+              href={`/chart?symbol=${encodeURIComponent(optionType ? (kiteOptionSymbol || optionSymbol || symbol) : symbol)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
-              title={`Open ${symbol} chart`}
+              title={`Open ${optionType ? (kiteOptionSymbol || optionSymbol || symbol) : symbol} chart`}
             >
               <BarChart2 className="w-4 h-4 text-slate-400" />
             </a>
