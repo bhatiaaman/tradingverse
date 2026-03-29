@@ -10,6 +10,7 @@ import { runPatternAgent }       from '@/app/api/order-intelligence/agents/patte
 import { runStationAgent }       from '@/app/api/order-intelligence/agents/station.js';
 import { runOIAgent }            from '@/app/api/order-intelligence/agents/oi.js';
 import { runScenarioAgent }      from '@/app/api/order-intelligence/agents/scenario.js';
+import { detectPatterns, analyzeVolume } from '@/app/api/order-intelligence/agents/pattern.js';
 import { resolveToken }          from '@/app/api/order-intelligence/lib/resolve-token.js';
 import { getDataProvider }       from '@/app/lib/providers';
 
@@ -314,6 +315,13 @@ export async function getIntelligence(symbol, { base, interval = '15minute' } = 
     .filter(Boolean)
     .reduce((sum, a) => sum + (a.riskScore ?? 0), 0);
 
+  // 6. Raw price action — direction-agnostic, for chart pill display
+  const pa15m = pd?.candles15m?.length ? pd.candles15m : null;
+  const priceAction = pa15m ? {
+    patterns:     detectPatterns(pa15m),
+    volumeSignal: analyzeVolume(pa15m),
+  } : null;
+
   return {
     symbol:      sym,
     interval,
@@ -322,6 +330,7 @@ export async function getIntelligence(symbol, { base, interval = '15minute' } = 
     scenario,
     riskScore,
     agents: { behavioral, structure, pattern, station, oi },
+    priceAction,
     // Raw context — needed by OrderModal verdict card and terminal page
     positions:  bd?.positions  ?? { all: [], count: 0, sameSymbol: null },
     orders:     bd?.orders     ?? { open: [], openCount: 0 },

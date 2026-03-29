@@ -41,7 +41,7 @@ function calcATR(candles, period = 14) {
 // Candlestick pattern detector — copied from behavioral-agent/route.js
 // Returns array of { name, candles, direction, meaning, strength }
 // ─────────────────────────────────────────────────────────────────────────────
-function detectPatterns(candles) {
+export function detectPatterns(candles) {
   if (!candles || candles.length < 3) return [];
   const patterns = [];
   const last3 = candles.slice(-3);
@@ -137,7 +137,7 @@ function detectPatterns(candles) {
 // Volume analyser — copied from behavioral-agent/route.js
 // Returns { signal, detail, actionable }
 // ─────────────────────────────────────────────────────────────────────────────
-function analyzeVolume(candles) {
+export function analyzeVolume(candles) {
   if (!candles || candles.length < 6) return null;
   const recent     = candles.slice(-5);
   const avgVol     = candles.slice(-20, -5).reduce((s, c) => s + c.volume, 0) / 15;

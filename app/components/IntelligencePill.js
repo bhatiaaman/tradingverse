@@ -70,12 +70,24 @@ function Row({ label, children }) {
   );
 }
 
+const PATTERN_DIR = {
+  bullish: { icon: '↑', color: 'text-emerald-400' },
+  bearish: { icon: '↓', color: 'text-red-400'     },
+  neutral: { icon: '–', color: 'text-slate-400'   },
+};
+const VOL_COLOR = {
+  bullish: 'text-emerald-400', bearish: 'text-red-400',
+  absorption: 'text-amber-400', divergence: 'text-amber-400',
+  fakeout: 'text-amber-400', churn: 'text-amber-400',
+  weak_bullish: 'text-slate-400', weak_bearish: 'text-slate-400', neutral: 'text-slate-500',
+};
+
 export default function IntelligencePill({ intelligence, bottomOffset = 16 }) {
   const [expanded, setExpanded] = useState(false);
 
   if (!intelligence) return null;
 
-  const { agents, regime, sentiment, vix: rawVix, sector, niftyContext } = intelligence;
+  const { agents, regime, sentiment, vix: rawVix, sector, niftyContext, priceAction } = intelligence;
 
   const regimeKey   = regime?.regime;
   const regimeStyle = regimeKey && regimeKey !== 'INITIALIZING'
@@ -121,6 +133,33 @@ export default function IntelligencePill({ intelligence, bottomOffset = 16 }) {
             {zone.desc && <p className="text-[10px] text-slate-400 pl-3 leading-relaxed">{zone.desc}</p>}
           </div>
 
+          {/* Price action — direction-agnostic patterns on 15m candles */}
+          {priceAction && (priceAction.patterns?.length > 0 || priceAction.volumeSignal) && (
+            <div className="mb-2 pb-2 border-b border-white/[0.06]">
+              <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-1.5">Price Action · 15m</p>
+              {priceAction.patterns.slice(0, 2).map((p, i) => {
+                const d = PATTERN_DIR[p.direction] ?? PATTERN_DIR.neutral;
+                return (
+                  <div key={i} className="flex items-start gap-1.5 py-0.5">
+                    <span className={`text-[10px] font-bold flex-shrink-0 ${d.color}`}>{d.icon}</span>
+                    <div className="min-w-0">
+                      <span className={`text-[10px] font-semibold ${d.color}`}>{p.name}</span>
+                      <p className="text-[10px] text-slate-500 leading-snug">{p.meaning}</p>
+                    </div>
+                  </div>
+                );
+              })}
+              {priceAction.volumeSignal && priceAction.volumeSignal.signal !== 'neutral' && (
+                <div className="flex items-start gap-1.5 py-0.5">
+                  <span className="text-[10px] font-bold flex-shrink-0 text-sky-400">V</span>
+                  <p className={`text-[10px] ${VOL_COLOR[priceAction.volumeSignal.signal] ?? 'text-slate-400'}`}>
+                    {priceAction.volumeSignal.detail}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Market environment — direction-agnostic */}
           <div className="mb-1 pb-1">
             <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-1.5">Market Environment</p>
@@ -133,7 +172,7 @@ export default function IntelligencePill({ intelligence, bottomOffset = 16 }) {
             )}
 
             {intradayBias && (
-              <Row label="Intraday bias">
+              <Row label="Nifty bias">
                 <span className={biasCls}>{intradayBias}</span>
               </Row>
             )}
@@ -158,7 +197,7 @@ export default function IntelligencePill({ intelligence, bottomOffset = 16 }) {
             {oi?.maxPain != null && (
               <Row label="Max pain"><span className="text-slate-300">₹{oi.maxPain.toLocaleString()}</span></Row>
             )}
-            {oi?.marketActivity?.activity && oi.marketActivity.activity !== 'Initializing' && (
+            {oi?.marketActivity?.activity && !['Initializing', 'initializing'].includes(oi.marketActivity.activity) && (
               <Row label="OI activity"><span className="text-slate-300">{oi.marketActivity.activity}</span></Row>
             )}
           </div>
