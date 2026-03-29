@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, TrendingUp, TrendingDown, Loader2, RefreshCw, LogIn, Brain, AlertTriangle, Target, ChevronDown } from 'lucide-react';
+import { X, TrendingUp, TrendingDown, Loader2, RefreshCw, LogIn, Brain, AlertTriangle, Target, ChevronDown, BarChart2 } from 'lucide-react';
 import { nseStrikeSteps } from '@/app/lib/nseStrikeSteps';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -885,6 +885,15 @@ export default function OrderModal({
                 <RefreshCw className={`w-4 h-4 text-slate-400 ${fetchingLtp ? 'animate-spin' : ''}`} />
               </button>
             )}
+            <a
+              href={`/chart?symbol=${encodeURIComponent(symbol)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+              title={`Open ${symbol} chart`}
+            >
+              <BarChart2 className="w-4 h-4 text-slate-400" />
+            </a>
             <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-lg transition-colors">
               <X className="w-5 h-5 text-slate-400" />
             </button>
