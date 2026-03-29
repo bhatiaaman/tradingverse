@@ -382,7 +382,10 @@ function ChartPageInner() {
   const [intelligence, setIntelligence]   = useState(null);
   const [hoverOHLC, setHoverOHLC]         = useState(null);
   const [isMobile, setIsMobile]           = useState(false);
-  const [chartTheme, setChartTheme]       = useState('dark');
+  const [chartTheme, setChartTheme]       = useState(() => {
+    if (typeof window === 'undefined') return 'dark';
+    return localStorage.getItem('tv_chart_theme') || 'dark';
+  });
   const [chartRsiH, setChartRsiH]         = useState(80);
   const [lastPriceY, setLastPriceY]         = useState(null);
   const [atRightEdge, setAtRightEdge]       = useState(true);
@@ -404,13 +407,6 @@ function ChartPageInner() {
     try {
       const savedSettings = localStorage.getItem('tv_chart_settings');
       if (savedSettings) setSettings(s => ({ ...s, ...JSON.parse(savedSettings) }));
-    } catch {}
-    try {
-      const savedTheme = localStorage.getItem('tv_chart_theme');
-      if (savedTheme && savedTheme !== 'dark') {
-        setChartTheme(savedTheme);
-        chartRef.current?.setTheme(savedTheme);
-      }
     } catch {}
   }, []);
 
