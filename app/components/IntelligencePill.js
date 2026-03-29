@@ -28,6 +28,17 @@ const SCENARIO_COLORS = {
 const VERDICT_DOT = { clear: 'bg-emerald-400', caution: 'bg-amber-400', warning: 'bg-orange-400', danger: 'bg-red-500' };
 const CONF_COLOR  = { HIGH: 'text-emerald-400', MEDIUM: 'text-amber-400', LOW: 'text-slate-400' };
 
+const REGIME_STYLE = {
+  TREND_DAY_UP:     { text: 'text-emerald-400', dot: 'bg-emerald-400', label: 'Trend Up'      },
+  TREND_DAY_DOWN:   { text: 'text-red-400',     dot: 'bg-red-400',     label: 'Trend Down'    },
+  SHORT_SQUEEZE:    { text: 'text-emerald-300', dot: 'bg-emerald-300', label: 'Short Squeeze'  },
+  LONG_LIQUIDATION: { text: 'text-red-300',     dot: 'bg-red-300',     label: 'Long Liq.'     },
+  RANGE_DAY:        { text: 'text-amber-400',   dot: 'bg-amber-400',   label: 'Range'          },
+  TRAP_DAY:         { text: 'text-amber-300',   dot: 'bg-amber-300',   label: 'Trap'           },
+  BREAKOUT_DAY:     { text: 'text-sky-400',     dot: 'bg-sky-400',     label: 'Breakout'       },
+  LOW_VOL_DRIFT:    { text: 'text-slate-400',   dot: 'bg-slate-400',   label: 'Low Vol'        },
+};
+
 function AgentRow({ label, agent }) {
   if (!agent || agent.unavailable) return null;
   const dot = VERDICT_DOT[agent.verdict] ?? 'bg-slate-400';
@@ -54,10 +65,12 @@ export default function IntelligencePill({ intelligence, bottomOffset = 16 }) {
   if (!intelligence?.scenario) return null;
 
   const { scenario, riskScore, agents, regime, niftyContext } = intelligence;
-  const isUnclear = !scenario.label || scenario.scenario === 'UNCLEAR';
-  const colors    = SCENARIO_COLORS[scenario.color] ?? SCENARIO_COLORS.slate;
-  const band      = scoreBand(riskScore ?? 0);
-  const confCls   = CONF_COLOR[scenario.confidence] ?? 'text-slate-400';
+  const isUnclear   = !scenario.label || scenario.scenario === 'UNCLEAR';
+  const colors      = SCENARIO_COLORS[scenario.color] ?? SCENARIO_COLORS.slate;
+  const band        = scoreBand(riskScore ?? 0);
+  const confCls     = CONF_COLOR[scenario.confidence] ?? 'text-slate-400';
+  const regimeKey   = regime?.regime;
+  const regimeStyle = regimeKey && regimeKey !== 'INITIALIZING' ? (REGIME_STYLE[regimeKey] ?? { text: 'text-slate-400', dot: 'bg-slate-400', label: regimeKey }) : null;
 
   return (
     <div
@@ -126,7 +139,17 @@ export default function IntelligencePill({ intelligence, bottomOffset = 16 }) {
         onClick={() => setExpanded(v => !v)}
         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border bg-[#0a0e1a]/90 hover:bg-[#0a0e1a] transition-colors shadow-lg ${colors.border}`}
       >
-        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${colors.dot}`} />
+        {/* Regime section */}
+        {regimeStyle && (
+          <>
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${regimeStyle.dot}`} />
+            <span className={`text-[11px] font-semibold ${regimeStyle.text}`}>{regimeStyle.label}</span>
+            <span className="w-px h-3 bg-white/20 flex-shrink-0" />
+          </>
+        )}
+
+        {/* Scenario section */}
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${colors.dot}`} />
         {isUnclear ? (
           <span className="text-[11px] text-slate-400 font-medium">Analysing…</span>
         ) : (
