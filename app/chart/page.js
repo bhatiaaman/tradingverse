@@ -6,6 +6,7 @@ import { Suspense } from 'react';
 import OrderModal         from '@/app/components/OrderModal';
 import IntelligencePill   from '@/app/components/IntelligencePill';
 import SymbolSearch        from '@/app/components/SymbolSearch';
+import DrawingToolbar      from '@/app/components/DrawingToolbar';
 
 const RSI_MIN_H = 50;
 const RSI_MAX_H = 200;
@@ -390,6 +391,7 @@ function ChartPageInner() {
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [indexPicker, setIndexPicker]       = useState(false);   // CE/PE picker for indices
   const [orderOptionType, setOrderOptionType] = useState(null);  // 'CE' | 'PE' | null
+  const [activeTool, setActiveTool]         = useState(null);    // drawing tool id or null
 
   const containerRef   = useRef(null);
   const chartRef       = useRef(null);
@@ -443,6 +445,27 @@ function ChartPageInner() {
   }, [symbol, chartInterval]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // ── Drawing tools — sync activeTool to chart, persist drawings ───────────────
+  const drawingKey = (sym, iv) => `tv_drawings_${sym}_${iv}`;
+
+  // Sync activeTool to chart instance whenever it changes
+  useEffect(() => {
+    chartRef.current?.setActiveTool(activeTool ?? null);
+  }, [activeTool]);
+
+  // Escape key: cancel in-progress drawing first, then deselect tool
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key !== 'Escape') return;
+      if (activeTool) {
+        chartRef.current?.cancelDrawing();
+        setActiveTool(null);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [activeTool]);
 
   // Detect mobile
   useEffect(() => {
@@ -659,6 +682,21 @@ function ChartPageInner() {
         '60minute': 150,   // ~6 weeks
       }[chartInterval];
       if (defaultBars) chart.fitRecent(defaultBars);
+
+      // Load saved drawings for this symbol+interval
+      try {
+        const saved = localStorage.getItem(drawingKey(symbol, chartInterval));
+        if (saved) chart.setDrawings(JSON.parse(saved));
+      } catch {}
+
+      // Persist drawings on each placement
+      chart.onDrawingComplete((_, all) => {
+        try { localStorage.setItem(drawingKey(symbol, chartInterval), JSON.stringify(all)); } catch {}
+      });
+
+      // Re-apply active tool after recreation
+      if (activeTool) chart.setActiveTool(activeTool);
+
       applyOverlays(chart);
     });
   }, [candles, dailyCandles, chartInterval, chartTheme, intelligence, settings]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -871,6 +909,9 @@ function ChartPageInner() {
           key={`${symbol}-${chartInterval}`}
           className="w-full h-full"
         />
+
+        {/* Drawing toolbar — left edge, vertically centered */}
+        <DrawingToolbar activeTool={activeTool} onToolSelect={setActiveTool} />
 
         {/* RSI pane drag handle — draggable resize strip above the RSI pane */}
         {settings.showRSI && (

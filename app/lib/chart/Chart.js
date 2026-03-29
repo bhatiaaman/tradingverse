@@ -24,6 +24,7 @@ import { renderMarkers }     from './renderers/markers.js';
 import { renderSMC }        from './renderers/smc.js';
 import { renderCPR }        from './renderers/cpr.js';
 import { renderRSIPane }    from './renderers/rsi-pane.js';
+import { renderDrawings }   from './renderers/drawings.js';
 import { DARK as DARK_PALETTE, LIGHT as LIGHT_PALETTE } from './palette.js';
 
 export function createChart(container, options = {}) {
@@ -65,6 +66,9 @@ export function createChart(container, options = {}) {
   let   markers     = [];                 // [{ index, direction: 'bull'|'bear' }]
   let   rsiPaneData = null;              // { rsi: number[], rsiMA: number[]|null, label: string }
   let   showVolume    = options.showVolume ?? true;
+  let   drawings      = [];              // [{ id, type, p1, p2, color, width }]
+  let   drawingInProgress = null;        // preview drawing while placing second point
+  let   drawingCb     = null;            // onDrawingComplete callback
   let   candleColors  = { bull: '#22c55e', bear: '#ef4444' };
   let   crosshair   = { visible: false };
   let   crosshairCb      = null;
@@ -100,7 +104,7 @@ export function createChart(container, options = {}) {
     // Recompute price scale from current viewport + data every frame
     vp.autoScale(candles);
 
-    // Draw order: grid/axes → volume → SMC → CPR → zones → lines → candles → RSI pane → crosshair
+    // Draw order: grid/axes → volume → SMC → CPR → zones → lines → candles → drawings → RSI pane → crosshair
     renderAxes(ctx, vp, candles, interval, palette);
     if (showVolume) renderVolume(ctx, vp, candles);
     if (smcData)   renderSMC(ctx, vp, smcData, palette);
@@ -111,6 +115,10 @@ export function createChart(container, options = {}) {
     }
     renderCandles(ctx, vp, candles, candleColors);
     renderMarkers(ctx, vp, candles, markers);
+    if (drawings.length || drawingInProgress) {
+      const resolved = drawings.map(d => _resolveDrawing(d));
+      renderDrawings(ctx, vp, resolved, drawingInProgress ? _resolveDrawing(drawingInProgress) : null);
+    }
     if (rsiPaneData && vp.rsiPaneH > 0) {
       const snapIdx = crosshair.visible ? crosshair.snapIndex : null;
       renderRSIPane(ctx, vp, rsiPaneData.rsi, rsiPaneData.rsiMA, snapIdx, rsiPaneData.label, palette);
@@ -161,6 +169,40 @@ export function createChart(container, options = {}) {
         const defaultBars = { '1minute': 390, '5minute': 234, '15minute': 104, '60minute': 150 }[interval];
         if (defaultBars) vp.fitRecent(candles, defaultBars);
         else             vp.fitContent(candles);
+        markDirty();
+        break;
+      }
+
+      case 'drawing-preview': {
+        const { p1, p2 } = data;
+        drawingInProgress = {
+          type: data.tool, color: '#3b82f6', width: 1.5, preview: true,
+          p1: _canvasToPoint(p1.x, p1.y),
+          p2: _canvasToPoint(p2.x, p2.y),
+        };
+        markDirty();
+        break;
+      }
+
+      case 'drawing-done': {
+        const { p1, p2 } = data;
+        const d = {
+          id:    `d_${Date.now()}`,
+          type:  data.tool,
+          color: '#3b82f6',
+          width: 1.5,
+          p1:    _canvasToPoint(p1.x, p1.y),
+          p2:    _canvasToPoint(p2.x, p2.y),
+        };
+        drawings = [...drawings, d];
+        drawingInProgress = null;
+        drawingCb?.(d, drawings);
+        markDirty();
+        break;
+      }
+
+      case 'drawing-cancel': {
+        drawingInProgress = null;
         markDirty();
         break;
       }
@@ -427,6 +469,41 @@ export function createChart(container, options = {}) {
       // if interval changes. This is consistent with LWC's behaviour.
     },
 
+    // ── Drawing tools ────────────────────────────────────────────────────────────
+    // Activate a drawing tool. Pass null to return to pan/crosshair mode.
+    setActiveTool(tool) {
+      handler.setDrawingMode(tool ?? null);
+      if (!tool) { drawingInProgress = null; markDirty(); }
+    },
+
+    // Cancel the current in-progress drawing (e.g. on Escape) without changing tool.
+    cancelDrawing() {
+      handler.cancelDrawing();
+    },
+
+    // Replace all drawings — use on symbol/interval change to load saved drawings.
+    setDrawings(data) {
+      drawings = Array.isArray(data) ? data : [];
+      drawingInProgress = null;
+      markDirty();
+    },
+
+    getDrawings() { return drawings; },
+
+    deleteDrawing(id) {
+      drawings = drawings.filter(d => d.id !== id);
+      markDirty();
+    },
+
+    clearDrawings() {
+      drawings = [];
+      drawingInProgress = null;
+      markDirty();
+    },
+
+    // Called with (newDrawing, allDrawings) after each placement.
+    onDrawingComplete(cb) { drawingCb = cb; },
+
     destroy() {
       destroyed = true;
       cancelAnimationFrame(rafId);
@@ -448,5 +525,23 @@ export function createChart(container, options = {}) {
       if (i != null) out[i] = pt.value;
     }
     return out;
+  }
+
+  // Convert canvas (CSS px) coordinates to a drawing point { barIndex, time, price }.
+  function _canvasToPoint(x, y) {
+    const idx       = vp.xToIndex(x);
+    const barIndex  = Math.round(Math.max(0, Math.min((candles.length || 1) - 1, idx)));
+    return { barIndex, time: candles[barIndex]?.time ?? null, price: vp.yToPrice(y) };
+  }
+
+  // Resolve a stored drawing's barIndex from its canonical `time` field.
+  // This ensures drawings remain anchored to the right candle if the array grows.
+  function _resolveDrawing(d) {
+    const resolvePoint = p => {
+      if (!p) return p;
+      const idx = p.time ? (timeIndex.get(p.time) ?? p.barIndex) : p.barIndex;
+      return { ...p, barIndex: Math.max(0, Math.min((candles.length || 1) - 1, idx ?? 0)) };
+    };
+    return { ...d, p1: resolvePoint(d.p1), p2: d.p2 ? resolvePoint(d.p2) : null };
   }
 }

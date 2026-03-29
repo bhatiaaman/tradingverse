@@ -17,6 +17,9 @@ export class EventHandler {
     this._drag    = { active: false, lastX: 0, lastY: 0 };
     // Touch state
     this._touch   = { active: false, lastX: 0, lastY: 0, lastDist: null, tapTimer: null, tapCount: 0 };
+    // Drawing state
+    this._drawingTool   = null;  // active tool id or null
+    this._drawPoint1    = null;  // first click anchor {x, y} or null
 
     this._bind('mousedown',  this._onMouseDown);
     this._bind('dblclick',   this._onDblClick);
@@ -51,11 +54,47 @@ export class EventHandler {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
-  // ── Mouse down — start drag ──────────────────────────────────────────────────
+  // ── Drawing mode API ─────────────────────────────────────────────────────────
+  setDrawingMode(tool) {
+    this._drawingTool = tool ?? null;
+    this._drawPoint1  = null;
+    this._canvas.style.cursor = tool ? 'crosshair' : 'crosshair';
+  }
+
+  cancelDrawing() {
+    this._drawPoint1 = null;
+    this._emit('drawing-cancel', {});
+  }
+
+  // ── Mouse down — start drag OR place drawing anchor ──────────────────────────
   _onMouseDown(e) {
     if (e.button !== 0) return;
     e.preventDefault();
     const { x, y } = this._cssXY(e);
+
+    // ── Drawing mode ──────────────────────────────────────────────────────────
+    if (this._drawingTool) {
+      const inChart = x >= this._vp.chartLeft && x <= this._vp.chartRight
+                   && y >= this._vp.chartTop  && y <= this._vp.chartBottom;
+      if (!inChart) return;
+
+      const singlePoint = this._drawingTool === 'horizontal_line'
+                       || this._drawingTool === 'vertical_line';
+      if (singlePoint) {
+        // Single-click tools — complete immediately
+        this._emit('drawing-done', { tool: this._drawingTool, p1: { x, y }, p2: { x, y } });
+      } else if (!this._drawPoint1) {
+        // First click — set anchor, live preview begins on mousemove
+        this._drawPoint1 = { x, y };
+      } else {
+        // Second click — finalise
+        this._emit('drawing-done', { tool: this._drawingTool, p1: this._drawPoint1, p2: { x, y } });
+        this._drawPoint1 = null;
+      }
+      return; // never start a pan while drawing tool is active
+    }
+
+    // ── Normal pan ────────────────────────────────────────────────────────────
     this._drag.active = true;
     this._drag.lastX  = x;
     this._drag.lastY  = y;
@@ -81,13 +120,17 @@ export class EventHandler {
     this._canvas.style.cursor = 'crosshair';
   }
 
-  // ── Mouse move on canvas — crosshair only (not drag) ────────────────────────
+  // ── Mouse move on canvas — crosshair + drawing preview ──────────────────────
   _onCanvasMouseMove(e) {
     const { x, y } = this._cssXY(e);
-    // Only emit crosshair when inside chart draw area
     const inChart = x >= this._vp.chartLeft && x <= this._vp.chartRight
                  && y >= this._vp.chartTop  && y <= this._vp.chartBottom;
     this._emit('crosshair', inChart ? { x, y } : null);
+
+    // Live preview of in-progress two-point drawing
+    if (this._drawingTool && this._drawPoint1 && inChart) {
+      this._emit('drawing-preview', { tool: this._drawingTool, p1: this._drawPoint1, p2: { x, y } });
+    }
   }
 
   // ── Mouse leave canvas — hide crosshair ──────────────────────────────────────
