@@ -713,11 +713,10 @@ function ChartPageInner() {
   const open0      = candles.length > 0 ? candles[0].open : null;
   const changePct  = ltp != null && open0 ? ((ltp - open0) / open0) * 100 : null;
   const isUp       = changePct != null ? changePct >= 0 : null;
-  // Derive regime + scenario from central intelligence
-  const regimeData      = intelligence?.regime ?? null;
-  const stationData     = intelligence ? { scenario: intelligence.scenario, station: intelligence.agents?.station } : null;
-  const regime          = regimeData?.regime ? (REGIME_BADGE[regimeData.regime] || REGIME_BADGE.INITIALIZING) : null;
-  const confColor       = regimeData?.confidence ? (CONF_COLORS[regimeData.confidence] || 'text-slate-400') : 'text-slate-400';
+  // Derive regime from central intelligence (for S/R zone useEffect + regime badge)
+  const regimeData = intelligence?.regime ?? null;
+  const regime     = regimeData?.regime ? (REGIME_BADGE[regimeData.regime] || REGIME_BADGE.INITIALIZING) : null;
+  const confColor  = regimeData?.confidence ? (CONF_COLORS[regimeData.confidence] || 'text-slate-400') : 'text-slate-400';
   const anyEma = settings.showEma9 || settings.showEma21 || settings.showEma50 ||
                  (settings.showEma9D && isIntraday) || (settings.showEma9W && !isIntraday);
 
