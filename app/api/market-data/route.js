@@ -1,4 +1,3 @@
-import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/app/lib/providers';
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
@@ -42,7 +41,7 @@ const MARKET_INDICES = {
   VIX:       { symbol: 'INDIA VIX',         exchange: 'NSE', token: 264969 },
   FINNIFTY:  { symbol: 'NIFTY FIN SERVICE', exchange: 'NSE', token: 257801 },
   MIDCAP:    { symbol: 'NIFTY MIDCAP 100',  exchange: 'NSE', token: 256777 },
-  GIFTNIFTY: { symbol: 'GIFT NIFTY',        exchange: 'NSEIX', token: 291849 },
+  // GIFTNIFTY excluded from batch OHLC — NSEIX not supported in batch; fetched separately via LTP
 };
 
 async function fetchIndianIndicesFromKite(dp) {
@@ -70,11 +69,6 @@ async function fetchIndianIndicesFromKite(dp) {
       vix:       processIndex('VIX'),
       finNifty:  processIndex('FINNIFTY'),
       midcap:    processIndex('MIDCAP'),
-      // Note: GIFTNIFTY prevClose from NSEIX is NOT used for change% —
-      // we override it below with niftyLastSessionClose (NSE Nifty prev close)
-      // so the displayed change = implied gap vs yesterday's NSE close, which
-      // is exactly what traders need for pre-market gap reading.
-      giftNifty: processIndex('GIFTNIFTY'),
     };
   } catch (error) {
     console.error('Kite indices fetch error:', error.message);
@@ -181,15 +175,33 @@ async function fetchNiftyFromYahoo() {
   }
 }
 
-// Fetch GIFT Nifty current price + its own previous session close (5d daily history).
-// Using GIFT's own prev close (not NSE NIFTY's) gives the correct change% that
-// matches what SGX/NSE IFSC shows and correctly reflects the expected NIFTY gap.
+// Fetch GIFT Nifty via Kite LTP (NSEIX exchange — separate from batch OHLC which doesn't support NSEIX).
+// Returns { price } or null.
+async function fetchGIFTNiftyFromKite(dp) {
+  try {
+    const GIFT_TOKEN = 291849;
+    // Kite LTP accepts instrument_token directly as 'NSEIX:GIFT NIFTY'
+    const data = await dp.getLTP(['NSEIX:GIFT NIFTY']);
+    const price = data?.data?.['NSEIX:GIFT NIFTY']?.last_price
+               ?? data?.['NSEIX:GIFT NIFTY']?.last_price;
+    if (price && price > 10000) return { price };
+    // Fallback: try token-based lookup
+    const data2 = await dp.getLTP([`NSEIX:${GIFT_TOKEN}`]);
+    const price2 = data2?.data?.[`NSEIX:${GIFT_TOKEN}`]?.last_price
+                ?? data2?.[`NSEIX:${GIFT_TOKEN}`]?.last_price;
+    if (price2 && price2 > 10000) return { price: price2 };
+  } catch { /* fall through to Yahoo */ }
+  return null;
+}
+
+// Fetch GIFT Nifty from Yahoo Finance — fallback when Kite NSEIX is unavailable.
 const GIFT_CACHE_KEY = `${NS}:gift-nifty-v2`;
 const GIFT_CACHE_TTL = 10 * 60; // 10 min — stale data is better than nothing
 
 async function fetchGIFTNifty() {
-  // Try Yahoo Finance: multiple tickers × both query domains to beat rate-limits
-  const tickers = ['GIFTNIFTY.NS', 'NIFTYIFSC.NS', 'NIFTY.NS'];
+  // GIFTNIFTY.NS = NSE IFSC NIFTY futures on Yahoo Finance (primary)
+  // ^NFTIFSC = alternative ticker used by some Yahoo endpoints
+  const tickers = ['GIFTNIFTY.NS', '^NFTIFSC', 'NIFTYIFSC.NS'];
   const domains  = ['query1', 'query2'];
 
   for (const domain of domains) {
@@ -431,12 +443,14 @@ export async function GET() {
     const niftyWeeklyHigh      = historicalResult?.weeklyHigh ?? null;
     const niftyWeeklyLow       = historicalResult?.weeklyLow  ?? null;
 
-    const [kiteIndices, globalIndices, kiteCommodities, yahooCommodities, giftNiftyYahoo, breadthData] = await Promise.all([
+    const [kiteIndices, globalIndices, kiteCommodities, yahooCommodities, giftNiftyKite, giftNiftyYahoo, breadthData] = await Promise.all([
       hasKite ? fetchIndianIndicesFromKite(dp) : Promise.resolve(null),
       fetchGlobalIndices(),
       hasKite ? fetchCommoditiesFromKite(dp) : Promise.resolve(null),
       fetchCommoditiesFromYahoo(),
-      // Fetch Yahoo in parallel regardless — used as fallback if Kite GIFT price is null
+      // Kite LTP for GIFT Nifty (NSEIX — separate from batch OHLC which doesn't support it)
+      hasKite ? fetchGIFTNiftyFromKite(dp) : Promise.resolve(null),
+      // Yahoo as secondary fallback
       fetchGIFTNifty(),
       hasKite ? fetchMarketBreadth(dp) : Promise.resolve(null),
     ]);
@@ -525,7 +539,7 @@ export async function GET() {
     // We use Kite's last_price (live, reliable) but override prevClose with niftyLastSessionClose
     // below, because NSEIX's own session close gives a misleading change% vs what NSE traders care
     // about (implied gap on next NSE open). Yahoo/stale cache kick in when Kite is disconnected.
-    let giftNiftyPrice = kiteIndices?.giftNifty?.price ?? giftNiftyYahoo?.price ?? null;
+    let giftNiftyPrice = giftNiftyKite?.price ?? giftNiftyYahoo?.price ?? null;
 
     // Prev close for change%: use NSE Nifty's last session close — this is what SGX/NSE IFSC
     // uses and what traders care about (implied gap on open). GIFT's own session close
