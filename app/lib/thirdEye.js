@@ -18,8 +18,8 @@ function getSessionTime(candles) {
   const ist = new Date((ts + 5.5 * 3600) * 1000);
   const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
   if (mins < 555)  return 'premarket';
-  if (mins <= 570) return 'opening';    // 9:15–9:30
-  if (mins < 870)  return 'midday';    // 9:30–14:30
+  if (mins <= 555) return 'opening';    // 9:15 candle only (closes at 9:29)
+  if (mins < 870)  return 'midday';    // 9:30 onwards
   if (mins <= 930) return 'closing';   // 14:30–15:30
   return 'postmarket';
 }
