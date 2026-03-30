@@ -45,11 +45,11 @@ const INDEX_TOKENS = {
 
 // ── Cache TTLs by interval ────────────────────────────────────────────────────
 const CACHE_TTL = {
-  'minute':   30,
-  '5minute':  60,
-  '15minute': 120,
-  '60minute': 300,
-  'day':      300,   // 5 min — daily candles need to update after 3:30 PM close
+  'minute':   20,   // 20s — 1m bars update every minute, keep fresh
+  '5minute':  30,   // 30s — matches frontend 30s poll
+  '15minute': 55,   // 55s — just under the 60s poll so each poll gets fresh data
+  '60minute': 180,  // 3 min — hourly bar changes slowly
+  'day':      300,  // 5 min — daily bar only needs occasional refresh
 };
 
 // ── NSE EQ token map: fetch CSV, parse, cache in Redis for 24h ───────────────
