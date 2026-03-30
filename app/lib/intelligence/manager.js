@@ -248,13 +248,19 @@ async function collectOIData(symbol, base) {
 // ── Public API ────────────────────────────────────────────────────────────────
 // Returns unified intelligence for a symbol. Always runs all 5 agents.
 // base: internal base URL (e.g. 'http://localhost:3000') — needed for internal API calls.
-export async function getIntelligence(symbol, { base, interval = '15minute' } = {}) {
+export async function getIntelligence(symbol, { base, interval = '15minute', transactionType, instrumentType } = {}) {
   const sym      = symbol.toUpperCase();
   const isIndex  = INDEX_SYMBOLS.has(sym);
   const regimeSym = (sym === 'BANKNIFTY') ? 'BANKNIFTY' : 'NIFTY';
 
-  // Direction-agnostic order stub — agents that need it get a neutral context
-  const order = { symbol: sym, exchange: 'NSE', instrumentType: 'EQ', transactionType: 'BUY', productType: 'MIS' };
+  // Use real direction when provided (order modal); fall back to neutral stub (chart pill)
+  const order = {
+    symbol:          sym,
+    exchange:        instrumentType && ['CE','PE'].includes(instrumentType?.toUpperCase()) ? 'NFO' : 'NSE',
+    instrumentType:  instrumentType ?? 'EQ',
+    transactionType: transactionType ?? 'BUY',
+    productType:     'MIS',
+  };
 
   // 1. Collect behavioral data + run all data collectors in parallel
   const [behavioralData, structureData, patternData, stationData, oiData, regimeRes] =

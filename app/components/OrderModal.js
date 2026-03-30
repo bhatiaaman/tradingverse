@@ -657,31 +657,15 @@ export default function OrderModal({
     finally { setRegimeLoading(false); }
   };
 
-  // Trigger deep analysis + regime when modal opens or transaction type changes
+  // Trigger deep analysis + regime when modal opens or direction changes.
+  // Never use cached intelligence for scenario — direction (BUY/SELL, CE/PE) changes
+  // the scenario result completely and the chart-pill cache is direction-agnostic.
   useEffect(() => {
     if (isOpen && symbol && transactionType && isLoggedIn) {
-      const isFresh = intelligence?.computedAt && (Date.now() - intelligence.computedAt < 180_000);
-      if (isFresh) {
-        setDeepIntelResult({
-          behavioral: intelligence.agents?.behavioral,
-          structure:  intelligence.agents?.structure,
-          pattern:    intelligence.agents?.pattern,
-          station:    intelligence.agents?.station,
-          oi:         intelligence.agents?.oi,
-          scenario:   intelligence.scenario,
-          positions:  intelligence.positions,
-          orders:     intelligence.orders,
-          sentiment:  intelligence.sentiment,
-          sector:     intelligence.sector,
-          vix:        intelligence.vix,
-        });
-        setRegimeData({ NIFTY: intelligence.regime, BANKNIFTY: null });
-      } else {
-        fetchDeepIntel();
-        fetchRegime();
-      }
+      fetchDeepIntel();
+      fetchRegime();
     }
-  }, [isOpen, symbol, transactionType, isLoggedIn, kiteOptionSymbol, intelligence]);
+  }, [isOpen, symbol, transactionType, isLoggedIn, kiteOptionSymbol]);
 
   // ─── FETCH MARKET DEPTH ────────────────────────────────────────────────
   const fetchDepth = useCallback(async () => {
