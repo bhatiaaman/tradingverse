@@ -286,6 +286,8 @@ function getNiftyLevelAlerts(indices) {
     const [commentaryCollapsed, setCommentaryCollapsed] = useState(true);
     const prevCommentaryRef = useRef(null);
     const soundEnabledRef   = useRef(false); // only alert after first load
+    // Track last directional entry direction so we can label Cont. correctly
+    const lastEntryDirRef   = useRef(null); // 'bull' | 'bear' | null
     // Key levels bar — follows chartSymbol
     const [keyLevels, setKeyLevels] = useState(null);
     // Nifty-only levels — always NIFTY, used in commentary station alerts
@@ -1214,9 +1216,9 @@ function getNiftyLevelAlerts(indices) {
     const buildNarrative = (entry) => {
       const { topSetup: s, context: c, candle, rawPatterns = [] } = entry;
 
-      // Opening noise
+      // Opening noise — only first 15m candle (9:15 candle)
       if (c.sessionTime === 'opening') {
-        return { type: 'wait', action: 'WAIT', headline: 'Opening noise — stand aside', reason: 'First 15 min still forming. Wait for range to establish before taking trades.' };
+        return { type: 'wait', action: 'WAIT', headline: 'Opening candle forming — stand aside', reason: 'First 15m candle still building. Wait for it to close before taking any trade.' };
       }
       // Closing caution
       if (c.sessionTime === 'closing') {
@@ -1227,11 +1229,13 @@ function getNiftyLevelAlerts(indices) {
       if (s) {
         const id = s.pattern.id;
         if (id === 's13_choch_bull' || id === 's16_spring') {
+          lastEntryDirRef.current = null; // direction cleared on exit
           return { type: 'exit', direction: 'bull', action: 'EXIT SHORT',
             headline: 'Structure flipped bullish — cover shorts',
             reason: `${s.pattern.name}. Downtrend structure broken. Exit shorts if holding. Potential long entry.` };
         }
         if (id === 's13_choch_bear' || id === 's16_upthrust') {
+          lastEntryDirRef.current = null;
           return { type: 'exit', direction: 'bear', action: 'EXIT LONG',
             headline: 'Structure flipped bearish — exit longs',
             reason: `${s.pattern.name}. Uptrend structure broken. Exit longs if holding. Potential short entry.` };
@@ -1292,8 +1296,11 @@ function getNiftyLevelAlerts(indices) {
           };
         }
 
-        // Fresh = primary initiating entry; Cont. = continuation/re-entry
-        const subType = GO_IDS.has(id) ? 'fresh' : 'cont';
+        // Fresh = primary initiating entry; Cont. = continuation/re-entry in same direction
+        // Only label Cont. if we've already issued a directional entry in the same direction.
+        // If we haven't (or direction flipped), treat it as Fresh so user isn't confused.
+        const hasPriorEntry = lastEntryDirRef.current === dir;
+        const subType  = (GO_IDS.has(id) || !hasPriorEntry) ? 'fresh' : 'cont';
         const subLabel = subType === 'fresh' ? '(Fresh)' : '(Cont.)';
 
         const parts = [s.pattern.name];
@@ -1308,6 +1315,7 @@ function getNiftyLevelAlerts(indices) {
         // Supporting candlestick pattern (if any aligns with setup direction)
         const supPat = rawPatterns.find(p => p.pattern.direction === dir || p.pattern.direction === 'neutral');
         if (supPat) parts.push(supPat.pattern.name);
+        lastEntryDirRef.current = dir; // track for Cont. labelling
         return {
           type: 'entry',
           subType,
@@ -2752,14 +2760,16 @@ function getNiftyLevelAlerts(indices) {
                         thirdEyeLive.topSetup          ? 'bg-rose-500/[0.05] border-rose-500/20' :
                                                          'bg-white/[0.02] border-white/[0.06]'
                       }`}>
-                        {/* LIVE pulse dot */}
-                        <div className="absolute top-2 right-2 flex items-center gap-1">
-                          <span className="relative flex h-1.5 w-1.5">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-sky-400"></span>
-                          </span>
-                          <span className="text-[9px] font-bold text-sky-400 tracking-wider">LIVE</span>
-                        </div>
+                        {/* LIVE pulse dot — only during market hours */}
+                        {isMarketHours() && (
+                          <div className="absolute top-2 right-2 flex items-center gap-1">
+                            <span className="relative flex h-1.5 w-1.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-sky-400"></span>
+                            </span>
+                            <span className="text-[9px] font-bold text-sky-400 tracking-wider">LIVE</span>
+                          </div>
+                        )}
                         <div className="flex items-center gap-2 mb-1.5 pr-12">
                           {ln && (
                             <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider shrink-0 ${
