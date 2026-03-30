@@ -1186,7 +1186,8 @@ function getNiftyLevelAlerts(indices) {
 
     // Primary entry setups — strong initial move, not continuation
     const GO_IDS = new Set(['s3_orb_bull','s3_orb_bear','s6_engulf_bull','s6_engulf_bear',
-                             's11_ib_bull','s11_ib_bear','s18_bb_bull','s18_bb_bear']);
+                             's11_ib_bull','s11_ib_bear','s18_bb_bull','s18_bb_bear',
+                             's19_flag_bull','s19_flag_bear']);
 
     // Compute ATM strike + weekly/monthly label from a Nifty price (client-side, mirrors place/route.js)
     function getAtmInfo(niftyPrice) {

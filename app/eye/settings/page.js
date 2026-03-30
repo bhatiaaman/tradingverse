@@ -111,6 +111,13 @@ const SETUPS = [
       { key: 'volMult', label: 'Min volume multiplier', default: 1.5, step: 0.1, min: 1.0, max: 5.0 },
     ],
   },
+  {
+    id: 's19', name: 'Flag & Pole Breakout',
+    desc: 'Pole (3–5 candles, ≥1.5% move) followed by tight consolidation (≤0.8% range), breakout close beyond flag with volume expansion.',
+    thresholds: [
+      { key: 'volMult', label: 'Min volume multiplier', default: 1.3, step: 0.1, min: 1.0, max: 5.0 },
+    ],
+  },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -966,6 +966,35 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   // Non-opening candles: range must be ≤ 1.5× ATR14 (no chasing runaway spikes).
   // Opening candle gets a pass on range — gap moves are inherently wide.
   // SL: if candle body ≤ 1× ATR → c0.open; if body > 1× ATR (wide/gap candle) → c0.close ± 1 ATR.
+  // ── S19: Flag & Pole Breakout ─────────────────────────────────────────────
+  // Pole (3–5 candles, ≥1.5% move) + tight flag (3–6 candles, ≤0.8% range,
+  // ≤40% retracement of pole). Breakout candle closes beyond flag high/low
+  // with volume expansion. SL: far edge of flag. Strength 4 (same as IB Breakout).
+  if (en('s19') && candles.length >= 15) {
+    const flagSetup = patterns.find(p => p.id === 'bull_flag' || p.id === 'bear_flag');
+    if (flagSetup) {
+      const s19Vol = t('s19', 'volMult', 1.3);
+      if (pre.volume.mult >= s19Vol) {
+        const isBullFlag = flagSetup.id === 'bull_flag';
+        // Reconstruct flag range for SL (flag low for bull, flag high for bear)
+        // detectFlagAndPole already confirmed breakout; use prior candles for SL
+        const flagCandles = candles.slice(-8, -1); // approximate flag window
+        const flagHigh = Math.max(...flagCandles.map(c => c.high));
+        const flagLow  = Math.min(...flagCandles.map(c => c.low));
+        setups.push({
+          id:            isBullFlag ? 's19_flag_bull' : 's19_flag_bear',
+          name:          isBullFlag ? 'Bull Flag Breakout' : 'Bear Flag Breakdown',
+          direction:     isBullFlag ? 'bull' : 'bear',
+          strength:      4,
+          sl:            isBullFlag ? flagLow * 0.999 : flagHigh * 1.001,
+          target:        null,
+          coversPattern: flagSetup.id,
+          details:       flagSetup.details,
+        });
+      }
+    }
+  }
+
   if (en('s18') && pre.bb && candles.length >= 21) {
     const { upper, middle, lower } = pre.bb;
     const atr        = pre.atr14;
