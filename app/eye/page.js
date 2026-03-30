@@ -2734,7 +2734,7 @@ function getNiftyLevelAlerts(indices) {
                   </div>
                 )}
 
-                {thirdEyeOpen && thirdEyeLive && (() => {
+                {thirdEyeOpen && thirdEyeLive && isMarketHours() && (() => {
                   const ln = buildNarrative(thirdEyeLive);
                   const liveIsBull = thirdEyeLive.topSetup?.pattern?.direction === 'bull';
                   const liveClose  = thirdEyeLive.candle?.close;
