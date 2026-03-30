@@ -2631,61 +2631,60 @@ function getNiftyLevelAlerts(indices) {
               {/* ── Third Eye ────────────────────────────────────────── */}
               <div className="bg-[#0d1829] border border-white/[0.06] rounded-2xl overflow-hidden">
                 {/* Header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.05]">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">👁</span>
-                    <span className="text-sm font-bold text-white">Third Eye</span>
-                    {thirdEyeData?.strongSetups?.length > 0 && (
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {/* Mode toggle */}
-                    <div className="flex items-center gap-0.5 border-r border-white/10 pr-2">
-                      <button
-                        onClick={() => setThirdEyeMode('semi')}
-                        className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all ${
-                          thirdEyeMode === 'semi'
-                            ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                            : 'text-slate-600 hover:text-slate-400'
-                        }`}
-                        title="Semi-Auto: action card shown, you confirm before order fires"
-                      >
-                        Semi
-                      </button>
-                      <button
-                        disabled
-                        className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide text-slate-700 cursor-not-allowed"
-                        title="Auto mode — coming soon"
-                      >
-                        Auto
+                <div className="px-3 py-2.5 border-b border-white/[0.05]">
+                  {/* Row 1: title + collapse */}
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">👁</span>
+                      <span className="text-sm font-bold text-white">Third Eye</span>
+                      {thirdEyeData?.strongSetups?.length > 0 && (
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Link href="/eye/settings" className="flex items-center gap-1 px-2 py-1 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-colors text-[10px] font-medium" title="Setup Settings">
+                        <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+                          <path d="M8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/>
+                          <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.474l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z"/>
+                        </svg>
+                        Setups
+                      </Link>
+                      <button onClick={() => setThirdEyeOpen(o => !o)} className="text-slate-500 hover:text-slate-300">
+                        {thirdEyeOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
                     </div>
-                    {/* Environment toggle */}
-                    {['light', 'medium', 'tight'].map(env => (
+                  </div>
+                  {/* Row 2: mode + environment */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setThirdEyeMode('semi')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide transition-all ${
+                        thirdEyeMode === 'semi'
+                          ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                          : 'text-slate-600 hover:text-slate-400 border border-transparent'
+                      }`}
+                      title="Semi-Auto: action card shown, you confirm before order fires"
+                    >Semi</button>
+                    <button
+                      disabled
+                      className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide text-slate-700 cursor-not-allowed border border-transparent"
+                      title="Auto mode — coming soon"
+                    >Auto</button>
+                    <span className="w-px h-3 bg-white/10 mx-0.5" />
+                    {[['light','L','sky'],['medium','M','amber'],['tight','T','rose']].map(([env, label, col]) => (
                       <button
                         key={env}
                         onClick={() => setThirdEyeEnv(env)}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all ${
+                        className={`w-7 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide transition-all ${
                           thirdEyeEnv === env
-                            ? env === 'light'  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                            : env === 'medium' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                            : 'text-slate-600 hover:text-slate-400'
+                            ? col === 'sky'   ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                            : col === 'amber' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            :                   'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            : 'text-slate-600 hover:text-slate-400 border border-transparent'
                         }`}
-                      >
-                        {env}
-                      </button>
+                        title={env}
+                      >{label}</button>
                     ))}
-                    <Link href="/eye/settings" className="ml-1 text-slate-400 hover:text-slate-200 transition-colors" title="Setup Settings">
-                      <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/>
-                        <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.474l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z"/>
-                      </svg>
-                    </Link>
-                    <button onClick={() => setThirdEyeOpen(o => !o)} className="ml-0.5 text-slate-600 hover:text-slate-400">
-                      {thirdEyeOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </button>
                   </div>
                 </div>
 
