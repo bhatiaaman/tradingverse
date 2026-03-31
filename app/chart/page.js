@@ -1138,10 +1138,10 @@ function ChartPageInner() {
           </div>
         )}
 
-        {/* VWAP badge — bottom-left, sits to the right of the Intelligence pill */}
+        {/* VWAP badge — bottom-left, stacked above the Intelligence pill */}
         {settings.showVwap && isIntraday && vwap != null && (
-          <div className="absolute left-48 z-10 flex items-center gap-1.5 bg-[#0a0e1a]/90 border border-amber-500/20 rounded-lg px-2.5 py-1 pointer-events-none select-none"
-            style={{ bottom: (settings.showRSI ? chartRsiH + 28 : 0) + 16 }}>
+          <div className="absolute left-14 z-10 flex items-center gap-1.5 bg-[#0a0e1a]/90 border border-amber-500/20 rounded-lg px-2.5 py-1 pointer-events-none select-none"
+            style={{ bottom: (settings.showRSI ? chartRsiH + 28 : 0) + 52 }}>
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
             <span className="text-[10px] text-amber-500 font-mono font-semibold">VWAP</span>
             <span className="text-[10px] text-slate-400 font-mono">₹{vwap.toFixed(1)}</span>
