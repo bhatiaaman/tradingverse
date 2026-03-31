@@ -157,16 +157,6 @@ function computeSMC(candles) {
 }
 
 function dateIST(unixSec) { return new Date((unixSec + IST_OFFSET_S) * 1000).toISOString().slice(0, 10); }
-function aggregateWeekly(dailyCandles) {
-  const weeks = {};
-  for (const c of dailyCandles) {
-    const d = new Date(c.time * 1000), day = d.getUTCDay();
-    const monTime = c.time + (day === 0 ? -6 : 1 - day) * 86400;
-    if (!weeks[monTime]) weeks[monTime] = { time: monTime, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume };
-    else { weeks[monTime].high = Math.max(weeks[monTime].high, c.high); weeks[monTime].low = Math.min(weeks[monTime].low, c.low); weeks[monTime].close = c.close; weeks[monTime].volume += c.volume; }
-  }
-  return Object.values(weeks).sort((a, b) => a.time - b.time);
-}
 function _cprLevels(H, L, C) {
   const P = (H + L + C) / 3, BC = (H + L) / 2, TC = 2 * P - BC, widthPct = P > 0 ? ((TC - BC) / P) * 100 : 0;
   return { tc: TC, p: P, bc: BC, r1: 2*P-L, r2: P+(H-L), s1: 2*P-H, s2: P-(H-L), widthPct, widthClass: widthPct < 0.15 ? 'narrow' : widthPct > 0.35 ? 'wide' : 'normal' };
@@ -612,11 +602,7 @@ function OptionsChartInner() {
   const ceHPanelWrapRef = useRef(null);
   const peHPanelWrapRef = useRef(null);
 
-  const [chartKey, setChartKey] = useState(
-    params.get('symbol') && params.get('expiry') && params.get('strike')
-      ? { symbol: params.get('symbol'), expiry: params.get('expiry'), strike: Number(params.get('strike')), interval: params.get('interval') || '5minute' }
-      : null
-  );
+  const [chartKey, setChartKey] = useState(null);
 
   // Persist overlay settings to shared key (mirrors chart/page.js key names)
   const persistSettings = (patch = {}) => {
@@ -660,6 +646,7 @@ function OptionsChartInner() {
 
   useEffect(() => {
     if (!symbol) return;
+    lastLoadedRef.current = null;
     setExpiry(''); setStrike(null); setStrikes([]); setExpiries([]); setLoadingExp(true);
     fetch(`/api/option-meta?action=expiries&symbol=${symbol}`).then(r => r.json()).then(d => {
       if (d.expiries?.length) { setExpiries(d.expiries); const urlExp = params.get('expiry'); setExpiry(d.expiries.find(e => e.date === urlExp) ? urlExp : d.expiries[0].date); }
