@@ -19,6 +19,7 @@ const INTERVAL_LABELS = {
   '15minute': '15m',
   '60minute': '1H',
   'day':      'D',
+  'week':     'W',
 };
 
 const REGIME_BADGE = {
@@ -60,6 +61,7 @@ const OVERLAY_DEFS = [
   { key: 'showVolume', label: 'Volume',       color: '#475569',          intradayOnly: false, dailyOnly: false },
   { key: 'showSMC',    label: 'SMC  (BOS · OB · FVG)', color: '#6366f1', intradayOnly: false, dailyOnly: false },
   { key: 'showCPR',    label: 'CPR  (TC · P · BC)',    color: '#6366f1', intradayOnly: false, dailyOnly: false },
+  { key: 'showBB',     label: 'Bollinger Bands', color: '#2962ff',        intradayOnly: false, dailyOnly: false, hasParams: true },
   { key: 'showRSI',    label: 'RSI',          color: '#818cf8',          intradayOnly: false, dailyOnly: false, hasParams: true },
 ];
 
@@ -75,11 +77,14 @@ const DEFAULT_SETTINGS = {
   showVolume:    true,
   showSMC:       true,
   showCPR:       false,
+  showBB:        false,
   showRSI:       false,
   bullColor:     '#22c55e',
   bearColor:     '#ef4444',
   rsiPeriod:     12,
   rsiMAPeriod:   5,
+  bbLength:      20,
+  bbMult:        2.0,
 };
 
 // ── Weekly aggregation (for EMA 9 Weekly on daily chart) ──────────────────────
@@ -240,6 +245,24 @@ function computeSMAAligned(values, period) {
     if (runLen >= period) out[i] = sum / period;
   }
   return out;
+}
+
+function computeBB(candles, length = 20, mult = 2.0) {
+  const n = candles.length;
+  if (n < length) return null;
+  const basis = new Array(n).fill(null);
+  const upper = new Array(n).fill(null);
+  const lower = new Array(n).fill(null);
+  for (let i = length - 1; i < n; i++) {
+    const slice = candles.slice(i - length + 1, i + 1);
+    const mean  = slice.reduce((s, c) => s + c.close, 0) / length;
+    const variance = slice.reduce((s, c) => s + (c.close - mean) ** 2, 0) / length;
+    const sd    = Math.sqrt(variance);
+    basis[i] = parseFloat(mean.toFixed(2));
+    upper[i] = parseFloat((mean + mult * sd).toFixed(2));
+    lower[i] = parseFloat((mean - mult * sd).toFixed(2));
+  }
+  return { basis, upper, lower };
 }
 
 function isMarketHours() {
@@ -423,22 +446,32 @@ function ChartPageInner() {
 
     let spotPrice = 0;
     const needDailyFetch = chartInterval !== 'day';
+    const isWeeklyInterval = chartInterval === 'week';
     try {
+      // For weekly, fetch daily candles from API and aggregate client-side
+      const apiInterval = isWeeklyInterval ? 'day' : chartInterval;
       const [cd, dd] = await Promise.all([
-        fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}${chartInterval === 'day' ? '&days=730' : ''}&bust=1`).then(r => r.json()),
-        needDailyFetch
+        fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${apiInterval}${(chartInterval === 'day' || isWeeklyInterval) ? '&days=730' : ''}&bust=1`).then(r => r.json()),
+        needDailyFetch && !isWeeklyInterval
           ? fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=day&days=730&bust=1`).then(r => r.json())
           : Promise.resolve(null),
       ]);
-      const c = cd?.candles || [];
+      const rawDaily = cd?.candles || [];
+      // Weekly: aggregate daily → weekly candles; keep raw daily for overlays
+      const c = isWeeklyInterval ? aggregateWeekly(rawDaily) : rawDaily;
       setCandles(c);
       spotPrice = c.length ? c[c.length - 1].close : 0;
-      setDailyCandles(needDailyFetch ? (dd?.candles || []) : c);
+      if (isWeeklyInterval) {
+        setDailyCandles(rawDaily);
+      } else {
+        setDailyCandles(needDailyFetch ? (dd?.candles || []) : c);
+      }
     } catch { /* leave candles empty */ }
 
     try {
+      const intelInterval = chartInterval === 'week' ? 'day' : chartInterval;
       const intelRes = await fetch(
-        `/api/intelligence?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}`
+        `/api/intelligence?symbol=${encodeURIComponent(symbol)}&interval=${intelInterval}`
       );
       if (intelRes.ok) setIntelligence(await intelRes.json());
     } catch { /* non-fatal */ }
@@ -485,18 +518,19 @@ function ChartPageInner() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  // Auto-refresh candles every 60s during market hours
+  // Auto-refresh candles every 60s during market hours (weekly chart doesn't need it — candle changes weekly)
   useEffect(() => {
+    if (chartInterval === 'week') return;
     const id = setInterval(() => { if (isMarketHours()) fetchAll(); }, 60000);
     return () => clearInterval(id);
-  }, [fetchAll]);
+  }, [fetchAll, chartInterval]);
 
   // Auto-refresh intelligence every 3 min during market hours (independent of candles)
   useEffect(() => {
     const refreshIntel = async () => {
       if (!isMarketHours() || !symbol) return;
       try {
-        const res = await fetch(`/api/intelligence?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}`);
+        const res = await fetch(`/api/intelligence?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval === 'week' ? 'day' : chartInterval}`);
         if (res.ok) setIntelligence(await res.json());
       } catch { /* non-fatal */ }
     };
@@ -533,7 +567,7 @@ function ChartPageInner() {
     if (!containerRef.current || candles.length === 0) return;
 
     const el         = containerRef.current;
-    const isIntraday = chartInterval !== 'day';
+    const isIntraday = chartInterval !== 'day' && chartInterval !== 'week';
     const cf         = chartCreatedForRef.current;
     // Only recreate (which resets viewport) when interval, theme, or container changes, or on first load.
     // Candle data refreshes (new reference on auto-refresh) are handled via updateCandles
@@ -610,8 +644,8 @@ function ChartPageInner() {
         chart.clearZone('ema9d');
       }
 
-      // ── EMA 9 Weekly — flat zone line on daily chart ──────────────────────
-      if (settings.showEma9W && !isIntraday && dailyCandles.length >= 9) {
+      // ── EMA 9 Weekly — flat zone line on daily chart only ────────────────
+      if (settings.showEma9W && chartInterval === 'day' && dailyCandles.length >= 9) {
         const val = computeEMA(aggregateWeekly(dailyCandles), 9).at(-1)?.value;
         if (val) chart.setZone({ id: 'ema9w', price: val, color: 'rgba(251,146,60,0.85)', label: 'W·EMA9', style: 'solid', width: 2.5, inline: true });
       } else {
@@ -633,6 +667,14 @@ function ChartPageInner() {
         chart.setCPR(segs.length ? segs : null);
       } else {
         chart.clearCPR();
+      }
+
+      // ── Bollinger Bands ───────────────────────────────────────────────────
+      if (settings.showBB && candles.length >= (settings.bbLength ?? 20)) {
+        const bb = computeBB(candles, settings.bbLength ?? 20, settings.bbMult ?? 2.0);
+        chart.setBB(bb);
+      } else {
+        chart.clearBB();
       }
 
       // ── Candle colors ─────────────────────────────────────────────────────
@@ -690,6 +732,7 @@ function ChartPageInner() {
         '5minute':  234,   // ~3 trading days  (78 bars/day × 3)
         '15minute': 104,   // ~4 trading days  (26 bars/day × 4)
         '60minute': 150,   // ~6 weeks
+        'week':      52,   // ~1 year of weekly bars
       }[chartInterval];
       if (defaultBars) chart.fitRecent(defaultBars);
 
@@ -759,7 +802,7 @@ function ChartPageInner() {
     chartRef.current?.setTheme(next);
   };
 
-  const isIntraday = chartInterval !== 'day';
+  const isIntraday = chartInterval !== 'day' && chartInterval !== 'week';
   const ltp        = candles.length > 0 ? candles[candles.length - 1].close : null;
   const open0      = candles.length > 0 ? candles[0].open : null;
   const changePct  = ltp != null && open0 ? ((ltp - open0) / open0) * 100 : null;
@@ -769,7 +812,7 @@ function ChartPageInner() {
   const regime     = regimeData?.regime ? (REGIME_BADGE[regimeData.regime] || REGIME_BADGE.INITIALIZING) : null;
   const confColor  = regimeData?.confidence ? (CONF_COLORS[regimeData.confidence] || 'text-slate-400') : 'text-slate-400';
   const anyEma = settings.showEma9 || settings.showEma21 || settings.showEma50 ||
-                 (settings.showEma9D && isIntraday) || (settings.showEma9W && !isIntraday);
+                 (settings.showEma9D && isIntraday) || (settings.showEma9W && chartInterval === 'day');
 
   const isIndex  = symbol in INDEX_STRIKE_STEP;
   const step     = INDEX_STRIKE_STEP[symbol] ?? 1;
@@ -1144,7 +1187,7 @@ function ChartPageInner() {
               ))}
               <div className="grid grid-cols-2 gap-1">
                 {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams }) => {
-                  const disabled = (intradayOnly && !isIntraday) || (dailyOnly && isIntraday);
+                  const disabled = (intradayOnly && !isIntraday) || (dailyOnly && chartInterval !== 'day');
                   const on       = settings[key] && !disabled;
                   return (
                     <div key={key} className={`${hasParams && on ? 'col-span-2' : ''}`}>
@@ -1156,7 +1199,23 @@ function ChartPageInner() {
                         <span className="w-4 h-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: color, opacity: on ? 1 : 0.3 }} />
                         <span className={`text-sm flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
                       </button>
-                      {hasParams && on && (
+                      {hasParams && on && key === 'showBB' && (
+                        <div className="flex items-center gap-3 px-3 py-1.5 text-xs text-slate-400">
+                          <label className="flex items-center gap-1.5">Length
+                            <input type="number" min={2} max={200} value={settings.bbLength ?? 20}
+                              onChange={e => setNum('bbLength', Math.max(2, Math.min(200, +e.target.value || 20)))}
+                              className="w-12 bg-slate-800 border border-white/10 rounded px-1.5 py-0.5 text-white text-xs text-center"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1.5">StdDev
+                            <input type="number" min={0.1} max={5} step={0.1} value={settings.bbMult ?? 2.0}
+                              onChange={e => setNum('bbMult', Math.max(0.1, Math.min(5, +e.target.value || 2.0)))}
+                              className="w-12 bg-slate-800 border border-white/10 rounded px-1.5 py-0.5 text-white text-xs text-center"
+                            />
+                          </label>
+                        </div>
+                      )}
+                      {hasParams && on && key === 'showRSI' && (
                         <div className="flex items-center gap-3 px-3 py-1.5 text-xs text-slate-400">
                           <label className="flex items-center gap-1.5">Period
                             <input type="number" min={2} max={50} value={settings.rsiPeriod ?? 12}
@@ -1188,7 +1247,7 @@ function ChartPageInner() {
               <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-2 px-1">Chart Overlays</div>
               <div className="space-y-0.5">
                 {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams }) => {
-                  const disabled = (intradayOnly && !isIntraday) || (dailyOnly && isIntraday);
+                  const disabled = (intradayOnly && !isIntraday) || (dailyOnly && chartInterval !== 'day');
                   const on       = settings[key] && !disabled;
                   return (
                     <div key={key}>
@@ -1205,7 +1264,21 @@ function ChartPageInner() {
                           {on ? 'ON' : 'OFF'}
                         </span>
                       </button>
-                      {hasParams && on && (
+                      {hasParams && on && key === 'showBB' && (
+                        <div className="flex items-center gap-2 px-2 pb-1.5 text-[10px] text-slate-400">
+                          <span>Len</span>
+                          <input type="number" min={2} max={200} value={settings.bbLength ?? 20}
+                            onChange={e => setNum('bbLength', Math.max(2, Math.min(200, +e.target.value || 20)))}
+                            className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-white text-[10px] text-center"
+                          />
+                          <span>SD</span>
+                          <input type="number" min={0.1} max={5} step={0.1} value={settings.bbMult ?? 2.0}
+                            onChange={e => setNum('bbMult', Math.max(0.1, Math.min(5, +e.target.value || 2.0)))}
+                            className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-white text-[10px] text-center"
+                          />
+                        </div>
+                      )}
+                      {hasParams && on && key === 'showRSI' && (
                         <div className="flex items-center gap-2 px-2 pb-1.5 text-[10px] text-slate-400">
                           <span>Period</span>
                           <input type="number" min={2} max={50} value={settings.rsiPeriod ?? 12}
