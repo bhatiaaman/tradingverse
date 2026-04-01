@@ -7,6 +7,7 @@ import Nav from '../../components/Nav';
 import { createChart } from '../../lib/chart/Chart';
 import DrawingToolbar from '../../components/DrawingToolbar';
 import OrderModal from '../../components/OrderModal';
+import { nseStrikeSteps } from '../../lib/nseStrikeSteps';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const INTERVALS = [
@@ -656,18 +657,35 @@ function OptionsChartInner() {
   useEffect(() => {
     if (!symbol || !expiry) return;
     setStrike(null); setStrikes([]); setLoadingStr(true);
-    Promise.all([
-      fetch(`/api/option-meta?action=strikes&symbol=${symbol}&expiry=${expiry}`).then(r => r.json()),
-      fetch(`/api/option-meta?action=spot&symbol=${symbol}`).then(r => r.json()).catch(() => ({ ltp: null })),
-    ]).then(([sData, spotData]) => {
-      const list = sData.strikes || [];
+
+    function pickATM(list, spot, sym) {
+      if (!spot || !list.length) return list[Math.floor(list.length / 2)] ?? null;
+      // Snap spot to nearest valid step, then find closest real strike in the list
+      const step = nseStrikeSteps[sym] ?? (spot >= 5000 ? 50 : spot >= 1000 ? 20 : spot >= 500 ? 10 : spot >= 100 ? 5 : 2.5);
+      const snapped = Math.round(spot / step) * step;
+      // Pick the strike in the list closest to the snapped value
+      return list.reduce((p, c) => Math.abs(c - snapped) < Math.abs(p - snapped) ? c : p);
+    }
+
+    async function load() {
+      const [sData, spotData] = await Promise.all([
+        fetch(`/api/option-meta?action=strikes&symbol=${symbol}&expiry=${expiry}`).then(r => r.json()),
+        fetch(`/api/option-meta?action=spot&symbol=${symbol}`).then(r => r.json()).catch(() => ({ ltp: null })),
+      ]);
+      let list = sData.strikes || [];
+      // Cache miss — bust and retry once
+      if (!list.length) {
+        const retry = await fetch(`/api/option-meta?action=strikes&symbol=${symbol}&expiry=${expiry}&bust=1`).then(r => r.json()).catch(() => ({}));
+        list = retry.strikes || [];
+      }
       setStrikes(list); setSpotPrice(spotData.ltp ?? null);
       if (!list.length) return;
       const urlStrike = urlStrikeRef.current;
       if (urlStrike && list.includes(urlStrike)) { setStrike(urlStrike); urlStrikeRef.current = null; return; }
-      const spot = spotData.ltp;
-      setStrike(spot ? list.reduce((p, c) => Math.abs(c - spot) < Math.abs(p - spot) ? c : p) : list[Math.floor(list.length / 2)]);
-    }).catch(() => {}).finally(() => setLoadingStr(false));
+      setStrike(pickATM(list, spotData.ltp, symbol));
+    }
+
+    load().catch(() => {}).finally(() => setLoadingStr(false));
   }, [symbol, expiry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
