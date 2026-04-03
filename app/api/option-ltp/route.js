@@ -55,11 +55,20 @@ function getNextExpiry(symbol, fromDate = new Date()) {
 }
 
 // Build Kite option symbol format
-// For monthly: SYMBOL + YY + MMM + STRIKE + CE/PE (e.g., TCS26FEB2950CE)
-function buildKiteOptionSymbol(symbol, strike, optionType, expiry) {
+// For monthly: SYMBOL + YY + MMM + STRIKE + CE/PE (e.g., NIFTY26APR22700CE)
+// For weekly: SYMBOL + YY + M + DD + STRIKE + CE/PE (e.g., NIFTY26407 22700CE for Apr 7, 2026)
+function buildKiteOptionSymbol(symbol, strike, optionType, expiry, isWeekly = false) {
   const yy = String(expiry.getFullYear()).slice(-2);
-  const mmm = expiry.toLocaleString('en-US', { month: 'short' }).toUpperCase();
-  return `${symbol}${yy}${mmm}${strike}${optionType}`;
+  if (isWeekly) {
+    // Weekly format: YYMDD (month WITHOUT leading zero, day with leading zero)
+    const mm = String(expiry.getMonth() + 1);  // NO padStart — single digit for months 1-9
+    const dd = String(expiry.getDate()).padStart(2, '0');
+    return `${symbol}${yy}${mm}${dd}${strike}${optionType}`;
+  } else {
+    // Monthly format: YYMMM
+    const mmm = expiry.toLocaleString('en-US', { month: 'short' }).toUpperCase();
+    return `${symbol}${yy}${mmm}${strike}${optionType}`;
+  }
 }
 
 // Get strike step based on symbol - using pre-loaded NSE data
@@ -158,21 +167,26 @@ export async function GET(request) {
 
     // Get expiry — if caller passes an explicit date (YYYY-MM-DD), use it directly
     const now = new Date();
-    let expiry, kiteSymbol, tvExpiryDate;
+    let expiry, kiteSymbol, tvExpiryDate, isWeeklyExpiry = false;
     if (expiryParam) {
       expiry = new Date(expiryParam + 'T00:00:00Z');
       tvExpiryDate = expiry;
+      // If explicit expiry is passed with expiryType, use that; otherwise assume monthly
+      isWeeklyExpiry = expiryType === 'weekly';
     } else if (symbol.toUpperCase() === 'NIFTY') {
       if (expiryType === 'monthly') {
         expiry = getLastTuesdayOfMonth(now);
         tvExpiryDate = expiry;
+        isWeeklyExpiry = false;
       } else {
         expiry = getLastTuesdayOfWeek(now);
         tvExpiryDate = expiry;
+        isWeeklyExpiry = true;
       }
     } else {
       expiry = getNextExpiry(symbol, now);
       tvExpiryDate = getLastTuesdayOfMonth(now);
+      isWeeklyExpiry = false;
     }
 
     // Calculate ATM strike — then validate against real NFO strikes to avoid invalid strikes
@@ -187,7 +201,7 @@ export async function GET(request) {
       if (validStrikes?.length) atmStrike = nearestStrike(validStrikes, price);
     }
 
-    kiteSymbol = buildKiteOptionSymbol(symbol, atmStrike, optionType, expiry);
+    kiteSymbol = buildKiteOptionSymbol(symbol, atmStrike, optionType, expiry, isWeeklyExpiry);
 
     // Get LTP for the option
     let ltp = 0;
