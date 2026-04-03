@@ -766,6 +766,30 @@ function ChartPageInner() {
     };
   }, []);
 
+  // ── Poll for incremental candle updates (no full chart recreation) ─────────
+  // Every 5 seconds, fetch new candles and update chart WITHOUT triggering
+  // the main effect. This preserves zoom/pan/theme/drawings and only updates
+  // the latest candle(s).
+  useEffect(() => {
+    if (!symbol || !chartInterval || !chartRef.current) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}`);
+        const data = await res.json();
+        if (data.candles?.length && chartRef.current) {
+          // Update candles WITHOUT re-running the main effect
+          setCandles(data.candles);
+          chartRef.current.updateCandles(data.candles);
+        }
+      } catch (err) {
+        console.error('Chart poll error:', err);
+      }
+    }, 5000);  // Poll every 5 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [symbol, chartInterval]);
+
   // Fallback: if lastPriceY is still null 300ms after candles load, read it directly.
   // Covers the edge case where the RAF fires before onLastPriceY is registered.
   useEffect(() => {

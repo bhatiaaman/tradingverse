@@ -194,7 +194,7 @@ function fmtPx(v) {
 
 // ── OptionChartPanel ──────────────────────────────────────────────────────────
 const OptionChartPanel = forwardRef(function OptionChartPanel(
-  { symbol, strike, expiry, type, interval, overlays, rsiSettings, bbSettings, candleColors, rsiHeight, onRsiDragStart, onCrosshairIndex },
+  { symbol, strike, expiry, type, interval, overlays, rsiSettings, bbSettings, candleColors, rsiHeight, onRsiDragStart, onCrosshairIndex, expiryType },
   ref
 ) {
   const containerRef = useRef(null);
@@ -202,6 +202,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
   const chartCreatedForRef = useRef({ el: null, interval: null });
   const candlesRef   = useRef(null);
   const dailyCandlesRef = useRef(null);
+  const tradingSymbolRef = useRef(null);
 
   const [loading,        setLoading]        = useState(true);
   const [err,            setErr]            = useState(null);
@@ -334,6 +335,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
       if (!tsRes.ok || !tsData.tradingSymbol) { setErr(tsData.error || 'Symbol not found'); setLoading(false); return; }
 
       const kiteTs = tsData.tradingSymbol;
+      tradingSymbolRef.current = kiteTs;
       const [cdData, ddData] = await Promise.all([
         fetch(`/api/chart-data?symbol=${encodeURIComponent(kiteTs)}&interval=${interval}`).then(r => r.json()),
         fetch(`/api/chart-data?symbol=${encodeURIComponent(kiteTs)}&interval=day&days=365`).then(r => r.json()).catch(() => ({ candles: [] })),
@@ -401,6 +403,30 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
     if (!chartRef.current || !candlesRef.current) return;
     applyOverlays(chartRef.current, candlesRef.current, dailyCandlesRef.current);
   }, [overlays, rsiSettings, bbSettings, candleColors, rsiHeight, applyOverlays]);
+
+  // ── Poll for candle updates (incremental, no chart recreation) ───────────────
+  // Fetch latest candles every 5 seconds and update chart without full redraw
+  useEffect(() => {
+    if (!chartRef.current || !tradingSymbolRef.current) return;
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/chart-data?symbol=${encodeURIComponent(tradingSymbolRef.current)}&interval=${interval}`);
+        const data = await res.json();
+        if (data.candles?.length && chartRef.current) {
+          candlesRef.current = data.candles;
+          chartRef.current.updateCandles(data.candles);  // Incremental update, NOT full recreate
+          // Update LTP
+          const lastCandle = data.candles[data.candles.length - 1];
+          if (lastCandle) {
+            setInfo(prev => ({ ...prev, ltp: lastCandle.close }));
+          }
+        }
+      } catch (err) {
+        console.error('Chart poll error:', err);
+      }
+    }, 5000);  // Poll every 5 seconds
+    return () => clearInterval(pollInterval);
+  }, [interval]);
 
   // Destroy on unmount
   useEffect(() => {
@@ -511,6 +537,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
         defaultType="BUY"
         optionType={type}
         optionExpiry={expiry}
+        optionExpiryType={expiryType}
         onOrderPlaced={() => setOrderModalOpen(false)}
       />
     </div>
@@ -730,11 +757,12 @@ function OptionsChartInner() {
   }
 
   const expiryObj = expiries.find(e => e.date === expiry);
+  const expiryType = expiryObj?.isMonthly ? 'monthly' : 'weekly';
 
   const panelProps = chartKey ? {
     symbol: chartKey.symbol, strike: chartKey.strike, expiry: chartKey.expiry,
     interval: chartKey.interval, overlays, rsiSettings, bbSettings, candleColors,
-    rsiHeight, onRsiDragStart: makeRsiDragHandler,
+    rsiHeight, onRsiDragStart: makeRsiDragHandler, expiryType,
   } : null;
 
   function renderCharts() {

@@ -568,11 +568,16 @@ export default function OrderModal({
     }
   };
 
+  // For non-NIFTY/BANKNIFTY: fetch details normally
+  // For NIFTY/BANKNIFTY: wait for selectedExpiryDate to be set (from expiries fetch)
   useEffect(() => {
-    if (isOpen && optionType && symbol && price && isLoggedIn && selectedExpiryDate) {
-      fetchOptionDetails();
-    }
-  }, [isOpen, optionType, symbol, price, isLoggedIn, selectedExpiryDate, availableExpiries]);
+    if (!isOpen || !optionType || !symbol || !price || !isLoggedIn) return;
+
+    // Skip for NIFTY/BANKNIFTY until dropdown value is set
+    if ((symbol === 'NIFTY' || symbol === 'BANKNIFTY') && !selectedExpiryDate) return;
+
+    fetchOptionDetails();
+  }, [isOpen, optionType, symbol, price, isLoggedIn, selectedExpiryDate]);
 
   const fetchOptionDetails = async () => {
     setFetchingLtp(true);
