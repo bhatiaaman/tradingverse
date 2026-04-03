@@ -430,6 +430,7 @@ export default function OrderModal({
   optionType = null,
   optionSymbol = null,
   optionExpiry = null,  // YYYY-MM-DD — explicit expiry from chart, skips server-side date calc
+  optionExpiryType = null,  // 'weekly' or 'monthly' for NIFTY — passed from chart
   onOrderPlaced,
   intelligence = null,
 }) {
@@ -456,6 +457,11 @@ export default function OrderModal({
   const [expiryDay, setExpiryDay] = useState(null);
   const [lotSize, setLotSize] = useState(1);
   const [fetchingLtp, setFetchingLtp] = useState(false);
+
+  // For NIFTY/BANKNIFTY expiry selection
+  const [availableExpiries, setAvailableExpiries] = useState([]);
+  const [selectedExpiryDate, setSelectedExpiryDate] = useState(null);
+  const [loadingExpiries, setLoadingExpiries] = useState(false);
 
   const [avgDownAlert, setAvgDownAlert] = useState(null); // Averaging down warning
   const [positions, setPositions] = useState([]);
@@ -537,11 +543,36 @@ export default function OrderModal({
     }, 500);
   };
 
+  // Fetch available expiries for NIFTY/BANKNIFTY
   useEffect(() => {
-    if (isOpen && optionType && symbol && price && isLoggedIn) {
+    if (isOpen && optionType && (symbol === 'NIFTY' || symbol === 'BANKNIFTY')) {
+      fetchAvailableExpiries();
+    }
+  }, [isOpen, optionType, symbol]);
+
+  const fetchAvailableExpiries = async () => {
+    setLoadingExpiries(true);
+    try {
+      const res = await fetch(`/api/option-meta?action=expiries&symbol=${symbol}`);
+      const data = await res.json();
+      if (data.expiries?.length) {
+        setAvailableExpiries(data.expiries);
+        // Auto-select nearest expiry
+        const nearest = data.expiries[0];
+        setSelectedExpiryDate(nearest.date);
+      }
+    } catch (err) {
+      console.error('Error fetching expiries:', err);
+    } finally {
+      setLoadingExpiries(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && optionType && symbol && price && isLoggedIn && selectedExpiryDate) {
       fetchOptionDetails();
     }
-  }, [isOpen, optionType, symbol, price, isLoggedIn]);
+  }, [isOpen, optionType, symbol, price, isLoggedIn, selectedExpiryDate, availableExpiries]);
 
   const fetchOptionDetails = async () => {
     setFetchingLtp(true);
@@ -551,7 +582,24 @@ export default function OrderModal({
       url.searchParams.set('symbol', symbol);
       url.searchParams.set('price', price);
       url.searchParams.set('type', optionType);
-      if (optionExpiry) url.searchParams.set('expiry', optionExpiry);
+
+      // For NIFTY/BANKNIFTY, use selected expiry; otherwise use passed optionExpiry
+      const expiryToUse = (symbol === 'NIFTY' || symbol === 'BANKNIFTY')
+        ? selectedExpiryDate
+        : optionExpiry;
+      if (expiryToUse) url.searchParams.set('expiry', expiryToUse);
+
+      // Determine expiryType for NIFTY
+      let finalExpiryType = optionExpiryType;
+      if (!finalExpiryType && (symbol === 'NIFTY' || symbol === 'BANKNIFTY')) {
+        // Check if selected expiry is weekly or monthly
+        const expiryObj = availableExpiries.find(e => e.date === selectedExpiryDate);
+        finalExpiryType = expiryObj?.isMonthly ? 'monthly' : 'weekly';
+      } else if (!finalExpiryType) {
+        finalExpiryType = 'monthly';
+      }
+      url.searchParams.set('expiryType', finalExpiryType);
+
       const res = await fetch(url.toString());
       const data = await res.json();
       if (res.ok && data.optionSymbol) {
@@ -605,6 +653,8 @@ export default function OrderModal({
       setDeepIntelResult(null);
       setRegimeData(null);
       setDepth(null);
+      setAvailableExpiries([]);
+      setSelectedExpiryDate(null);
       if (optionType && price) {
         setStrike(getExpectedStrike(symbol, price, optionType));
       } else {
@@ -1131,6 +1181,24 @@ export default function OrderModal({
           {/* Market Depth */}
           <DepthPanel depth={depth} loading={depthLoading} onRefresh={fetchDepth}
             transactionType={transactionType} orderType={orderType} />
+
+          {/* Expiry selector for NIFTY/BANKNIFTY */}
+          {(symbol === 'NIFTY' || symbol === 'BANKNIFTY') && availableExpiries.length > 0 && (
+            <div>
+              <label className="block text-slate-400 text-xs mb-1.5">Expiry</label>
+              <select
+                value={selectedExpiryDate || ''}
+                onChange={(e) => setSelectedExpiryDate(e.target.value)}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+              >
+                {availableExpiries.map(exp => (
+                  <option key={exp.date} value={exp.date}>
+                    {exp.shortLabel}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Rest of form (unchanged) */}
           <div>
