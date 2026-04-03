@@ -114,7 +114,7 @@ function computeBB(candles, length = 20, mult = 2.0) {
 }
 
 function computeSMC(candles) {
-  const n = candles.length, STR = 3;
+  const n = candles.length, STR = 2;
   if (n < STR * 2 + 5) return null;
   const pivotHighs = [], pivotLows = [];
   for (let i = STR; i < n - STR; i++) {
@@ -154,7 +154,14 @@ function computeSMC(candles) {
     if (curr.low > prev.high && (curr.low - prev.high) / prev.high * 100 >= 0.20) { if (!candles.slice(i + 1).some(c => c.low <= prev.high)) rawFVGs.push({ type: 'bull', high: curr.low, low: prev.high, startIdx: i - 1 }); }
     if (curr.high < prev.low && (prev.low - curr.high) / curr.high * 100 >= 0.20) { if (!candles.slice(i + 1).some(c => c.high >= prev.low)) rawFVGs.push({ type: 'bear', high: prev.low, low: curr.high, startIdx: i - 1 }); }
   }
-  return { bosLevels: allBreaks.slice(-4), orderBlocks: [...bullOBs, ...bearOBs], fvgs: [...rawFVGs.filter(f => f.type === 'bull' && f.low <= lastClose).sort((a, b) => b.high - a.high).slice(0, 1), ...rawFVGs.filter(f => f.type === 'bear' && f.high >= lastClose).sort((a, b) => a.low - b.low).slice(0, 1)] };
+  // Filter to show UNBROKEN BOS and ALL CHoCH (trend reversals)
+  const unbrokenBreaks = allBreaks.slice(-15).filter(bos => {
+    if (bos.isCHoCH) return true; // Always show CHoCH
+    const sliceAfterBreak = candles.slice(bos.breakIdx + 1);
+    if (bos.type === 'bull') return !sliceAfterBreak.some(c => c.close < bos.price);
+    return !sliceAfterBreak.some(c => c.close > bos.price);
+  });
+  return { bosLevels: unbrokenBreaks, orderBlocks: [...bullOBs, ...bearOBs], fvgs: [...rawFVGs.filter(f => f.type === 'bull' && f.low <= lastClose).sort((a, b) => b.high - a.high).slice(0, 1), ...rawFVGs.filter(f => f.type === 'bear' && f.high >= lastClose).sort((a, b) => a.low - b.low).slice(0, 1)] };
 }
 
 function dateIST(unixSec) { return new Date((unixSec + IST_OFFSET_S) * 1000).toISOString().slice(0, 10); }

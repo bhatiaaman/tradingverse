@@ -374,7 +374,7 @@ function generateTemplatePlan(gapData, keyLevels, globalMarkets, calendar, optio
     plan += `  • India VIX: ${vix.toFixed(1)} — ${vix > 20 ? '⚠️ High volatility, reduce position size' : vix > 15 ? 'Elevated, use tight stops' : 'Normal range'}\n`;
   }
   if (optionsData?.pcr) {
-    plan += `  • Options PCR: ${optionsData.pcr.toFixed(2)} (${optionsData.pcr > 1.2 ? 'Bullish' : optionsData.pcr < 0.8 ? 'Bearish' : 'Neutral'})\n`;
+    plan += `  • Options PCR: ${optionsData.pcr.toFixed(2)} (${optionsData.pcr > 1.2 ? 'Bearish' : optionsData.pcr < 0.8 ? 'Bullish' : 'Neutral'})\n`;
   }
   if (optionsData?.support)    plan += `  • OI Put Wall (Support): ${optionsData.support}\n`;
   if (optionsData?.resistance) plan += `  • OI Call Wall (Resistance): ${optionsData.resistance}\n`;

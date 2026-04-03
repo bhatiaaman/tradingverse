@@ -126,7 +126,7 @@ function makeCommentary({ spot, atm, maxPain, pcr, straddlePremium, ivHvRatio,
   // 2. PCR with change detection
   if (pcr != null) {
     const delta = (prevPCR != null && Math.abs(pcr - prevPCR) > 0.05)
-      ? ` (${pcr > prevPCR ? '↑ from ' : '↓ from '}${prevPCR.toFixed(2)} — ${pcr > prevPCR ? 'put writing picking up, bullish' : 'call writing increasing, bearish'})`
+      ? ` (${pcr > prevPCR ? '↑ from ' : '↓ from '}${prevPCR.toFixed(2)} — ${pcr > prevPCR ? 'put writing picking up, bearish' : 'call writing increasing, bullish'})`
       : '';
     if (pcr < 0.5)
       lines.push({ icon: '📊', c: 'text-red-400',     t: `PCR ${pcr.toFixed(2)} — very bearish. Heavy call writing capping rallies.${delta}` });
@@ -669,7 +669,7 @@ export default function ExpiryPage() {
               { label: 'Spot',       val: fmt(d.spot, 2),                        sub: null,                            c: 'text-white' },
               { label: 'ATM',        val: fmt(d.atm),                             sub: null,                            c: 'text-violet-400' },
               { label: 'Max Pain',   val: fmt(d.maxPain),                         sub: `${Math.abs(d.spot - d.maxPain).toFixed(0)}pts away`, c: 'text-amber-400' },
-              { label: 'PCR',        val: d.pcr?.toFixed(2) || '—',               sub: d.pcr < 0.7 ? 'Bearish' : d.pcr > 1.2 ? 'Bullish' : 'Neutral', c: d.pcr < 0.7 ? 'text-red-400' : d.pcr > 1.2 ? 'text-emerald-400' : 'text-slate-300' },
+              { label: 'PCR',        val: d.pcr?.toFixed(2) || '—',               sub: d.pcr > 1.2 ? 'Bearish' : d.pcr < 0.7 ? 'Bullish' : 'Neutral', c: d.pcr > 1.2 ? 'text-red-400' : d.pcr < 0.7 ? 'text-emerald-400' : 'text-slate-300' },
               { label: 'Straddle',   val: `₹${fmt(d.straddlePremium, 0)}`,        sub: `±${fmt(d.straddlePremium, 0)} pts`, c: 'text-violet-400' },
               { label: 'ATM IV',     val: d.atmIV ? `${fmt(d.atmIV, 1)}%` : '—', sub: d.hv30 ? `HV ${fmt(d.hv30, 1)}%` : null, c: 'text-sky-400' },
               { label: 'IV/HV',      val: d.ivHvRatio ? `${fmt(d.ivHvRatio, 2)}×` : '—', sub: d.ivHvRatio > 1.2 ? 'Sellers edge' : d.ivHvRatio < 0.9 ? 'Buyers edge' : 'Neutral', c: d.ivHvRatio > 1.2 ? 'text-emerald-400' : d.ivHvRatio < 0.9 ? 'text-violet-400' : 'text-slate-300' },
@@ -862,7 +862,7 @@ export default function ExpiryPage() {
                         <td className="px-3 py-2 text-left text-slate-300 font-mono font-semibold">{s.pe?.ltp ? `₹${fmt(s.pe.ltp, 2)}` : '—'}</td>
                         <td className="px-3 py-2 text-left text-emerald-400 font-mono">{fmtL(s.pe?.oi)}</td>
                         <td className="px-3 py-2 text-left text-sky-400 font-mono">{s.pe?.iv ? `${fmt(s.pe.iv, 1)}%` : '—'}</td>
-                        <td className={`px-3 py-2 text-center font-mono ${rowPCR == null ? 'text-slate-600' : rowPCR < 0.7 ? 'text-red-400' : rowPCR > 1.3 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                        <td className={`px-3 py-2 text-center font-mono ${rowPCR == null ? 'text-slate-600' : rowPCR > 1.3 ? 'text-red-400' : rowPCR < 0.7 ? 'text-emerald-400' : 'text-slate-400'}`}>
                           {rowPCR != null ? rowPCR.toFixed(2) : '—'}
                         </td>
                       </tr>

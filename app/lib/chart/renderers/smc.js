@@ -81,43 +81,75 @@ export function renderSMC(ctx, vp, smc, palette) {
     const y = vp.priceToY(bos.price);
     if (y < vp.chartTop || y > vp.chartBottom) continue;
 
-    const x1 = vp.barCenterX(bos.idx);
-    const x2 = vp.barCenterX(bos.breakIdx);
+    const x1     = vp.barCenterX(bos.idx);
+    const xBreak = vp.barCenterX(bos.breakIdx);
 
     // Only draw if at least partially visible
-    if (x2 < vp.chartLeft || x1 > vp.chartRight) continue;
+    if (xBreak < vp.chartLeft || x1 > vp.chartRight) continue;
 
     const cx1 = Math.max(vp.chartLeft, x1);
-    const cx2 = Math.min(vp.chartRight, x2);
 
     const color = bos.isCHoCH
       ? (bos.type === 'bull' ? P.bullChoch : P.bearChoch)
       : (bos.type === 'bull' ? P.bullBos   : P.bearBos);
 
-    // Dashed line
     ctx.strokeStyle = color;
     ctx.lineWidth   = 1;
-    ctx.setLineDash([5, 4]);
+
+    // Dashed line from pivot to break bar (TV style)
+    ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(cx1, y);
-    ctx.lineTo(cx2, y);
+    ctx.lineTo(Math.min(xBreak, vp.chartRight), y);
     ctx.stroke();
     ctx.setLineDash([]);
-
-    // Center label
-    const midX  = Math.max(cx1 + 16, Math.min(cx2 - 16, (cx1 + cx2) / 2));
-    const label = bos.isCHoCH ? 'CHoCH' : 'BOS';
-
-    // Label background
-    const tw = ctx.measureText(label).width;
-    ctx.fillStyle = P.bosLabelBg;
-    ctx.fillRect(midX - tw / 2 - 2, y - 9, tw + 4, 9);
-
-    ctx.fillStyle    = color;
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(label, midX, y - 1);
   }
 
   ctx.restore();
+
+  // ── 3b. BOS / CHoCH labels — on the dashed line ────────────────────────────
+  ctx.font = 'bold 9px monospace';
+  for (const bos of bosLevels) {
+    if (bos.breakIdx == null) continue;
+
+    const y = vp.priceToY(bos.price);
+    if (y < vp.chartTop || y > vp.chartBottom) continue;
+
+    const x1     = vp.barCenterX(bos.idx);
+    const xBreak = vp.barCenterX(bos.breakIdx);
+
+    if (xBreak < vp.chartLeft || x1 > vp.chartRight) continue;
+
+    const cx1 = Math.max(vp.chartLeft, x1);
+    const cx2 = Math.min(xBreak, vp.chartRight);
+
+    const color = bos.isCHoCH
+      ? (bos.type === 'bull' ? P.bullChoch : P.bearChoch)
+      : (bos.type === 'bull' ? P.bullBos   : P.bearBos);
+
+    // Label in middle of dashed line
+    const label = bos.isCHoCH ? 'CHoCH' : 'BOS';
+    const tw  = ctx.measureText(label).width;
+    const pad = 2;
+    const midX = (cx1 + cx2) / 2;
+    const lx  = midX - tw / 2;
+    const ly  = y;
+
+    // Dashed box border
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 0.75;
+    ctx.setLineDash([3, 2]);
+    ctx.strokeRect(lx - pad, ly - 9 - pad, tw + pad * 2, 9 + pad * 2);
+    ctx.setLineDash([]);
+
+    // Background fill
+    ctx.fillStyle = P.bosLabelBg;
+    ctx.fillRect(lx - pad, ly - 9 - pad, tw + pad * 2, 9 + pad * 2);
+
+    // Text
+    ctx.fillStyle    = color;
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(label, lx, ly);
+  }
 }

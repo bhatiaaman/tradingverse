@@ -279,7 +279,7 @@ function isMarketHours() {
 // OB mitigation: close price (wick touches don't count) — matches TradingView.
 function computeSMC(candles) {
   const n = candles.length;
-  const STR = 3; // pivot strength: 3 bars each side
+  const STR = 2; // pivot strength: 2 bars each side (catches more pivots on 5m/15m)
   if (n < STR * 2 + 5) return null;
 
   // ── Swing pivots ─────────────────────────────────────────────────────────
@@ -321,10 +321,21 @@ function computeSMC(candles) {
     trendState   = brk.type;
   }
 
-  // Show only the most recent 4 structural breaks (keeps chart readable)
-  const recentBreaks = allBreaks.slice(-4);
-
+  // Filter to show only UNBROKEN BOS and ALL CHoCH (trend reversals)
+  // BOS: show only if unbroken (price hasn't retested and violated)
+  // CHoCH: show all recent ones since they mark important trend changes
   const lastClose = candles[n - 1].close;
+  const recentBreaks = allBreaks.slice(-15).filter(bos => {
+    // Always show CHoCH (trend reversals) — these are important pivot points
+    if (bos.isCHoCH) return true;
+
+    // For BOS (continuations), only show if unbroken
+    const sliceAfterBreak = candles.slice(bos.breakIdx + 1);
+    if (bos.type === 'bull') {
+      return !sliceAfterBreak.some(c => c.close < bos.price);
+    }
+    return !sliceAfterBreak.some(c => c.close > bos.price);
+  });
 
   // ── Order Blocks ─────────────────────────────────────────────────────────
   // OB = last opposite-direction candle BEFORE the pivot that was broken.
@@ -425,6 +436,7 @@ function ChartPageInner() {
   // Tracks which candles/interval/theme the current chart was created with.
   // If these haven't changed, only overlays need updating — no destroy/recreate.
   const chartCreatedForRef = useRef({ candles: null, interval: null, theme: null });
+  const candlesRef = useRef(null);  // Track latest candles without triggering React re-runs
 
   // ── Restore persisted settings + theme after mount (avoids SSR hydration mismatch) ─
   useEffect(() => {
@@ -459,6 +471,7 @@ function ChartPageInner() {
       const rawDaily = cd?.candles || [];
       // Weekly: aggregate daily → weekly candles; keep raw daily for overlays
       const c = isWeeklyInterval ? aggregateWeekly(rawDaily) : rawDaily;
+      candlesRef.current = c;
       setCandles(c);
       spotPrice = c.length ? c[c.length - 1].close : 0;
       if (isWeeklyInterval) {
@@ -768,8 +781,7 @@ function ChartPageInner() {
 
   // ── Poll for incremental candle updates (no full chart recreation) ─────────
   // Every 5 seconds, fetch new candles and update chart WITHOUT triggering
-  // the main effect. This preserves zoom/pan/theme/drawings and only updates
-  // the latest candle(s).
+  // the main effect. Store in ref + call updateCandles only.
   useEffect(() => {
     if (!symbol || !chartInterval || !chartRef.current) return;
 
@@ -778,8 +790,9 @@ function ChartPageInner() {
         const res = await fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}`);
         const data = await res.json();
         if (data.candles?.length && chartRef.current) {
-          // Update candles WITHOUT re-running the main effect
-          setCandles(data.candles);
+          // Update ref and chart WITHOUT calling setCandles
+          // This prevents the main effect from re-running and recalculating overlays
+          candlesRef.current = data.candles;
           chartRef.current.updateCandles(data.candles);
         }
       } catch (err) {
