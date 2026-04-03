@@ -669,17 +669,22 @@ function OptionsChartInner() {
     }
 
     async function load() {
-      const [sData, spotData] = await Promise.all([
-        fetch(`/api/option-meta?action=strikes&symbol=${symbol}&expiry=${expiry}`).then(r => r.json()),
-        fetch(`/api/option-meta?action=spot&symbol=${symbol}`).then(r => r.json()).catch(() => ({ ltp: null })),
-      ]);
+      // Fetch spot first and set it immediately — don't block strikes on slow spot
+      let spotData = { ltp: null };
+      try {
+        spotData = await fetch(`/api/option-meta?action=spot&symbol=${symbol}`).then(r => r.json());
+      } catch {}
+      setSpotPrice(spotData.ltp ?? null);
+
+      // Now fetch strikes with spot already available
+      const sData = await fetch(`/api/option-meta?action=strikes&symbol=${symbol}&expiry=${expiry}`).then(r => r.json());
       let list = sData.strikes || [];
       // Cache miss — bust and retry once
       if (!list.length) {
         const retry = await fetch(`/api/option-meta?action=strikes&symbol=${symbol}&expiry=${expiry}&bust=1`).then(r => r.json()).catch(() => ({}));
         list = retry.strikes || [];
       }
-      setStrikes(list); setSpotPrice(spotData.ltp ?? null);
+      setStrikes(list);
       if (!list.length) return;
       const urlStrike = urlStrikeRef.current;
       if (urlStrike && list.includes(urlStrike)) { setStrike(urlStrike); urlStrikeRef.current = null; return; }
