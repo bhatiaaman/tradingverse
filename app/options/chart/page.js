@@ -510,6 +510,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
         price={strike}
         defaultType="BUY"
         optionType={type}
+        optionExpiry={expiry}
         onOrderPlaced={() => setOrderModalOpen(false)}
       />
     </div>
@@ -550,7 +551,7 @@ function OptionsChartInner() {
 
   const [symbol,      setSymbol]      = useState(params.get('symbol')   || 'NIFTY');
   const [expiry,      setExpiry]      = useState(params.get('expiry')   || '');
-  const [strike,      setStrike]      = useState(params.get('strike')   ? Number(params.get('strike')) : null);
+  const [strike,      setStrike]      = useState(null);  // Never init from URL — wait for strikes validation
   const [interval,    setInterval]    = useState(params.get('interval') || '5minute');
   const [layout,      setLayout]      = useState('vertical');
   const [singleType,  setSingleType]  = useState('CE');

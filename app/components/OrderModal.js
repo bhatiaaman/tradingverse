@@ -429,6 +429,7 @@ export default function OrderModal({
   defaultType = 'BUY',
   optionType = null,
   optionSymbol = null,
+  optionExpiry = null,  // YYYY-MM-DD — explicit expiry from chart, skips server-side date calc
   onOrderPlaced,
   intelligence = null,
 }) {
@@ -546,7 +547,12 @@ export default function OrderModal({
     setFetchingLtp(true);
     setError('');
     try {
-      const res = await fetch(`/api/option-ltp?symbol=${symbol}&price=${price}&type=${optionType}`);
+      const url = new URL('/api/option-ltp', window.location.origin);
+      url.searchParams.set('symbol', symbol);
+      url.searchParams.set('price', price);
+      url.searchParams.set('type', optionType);
+      if (optionExpiry) url.searchParams.set('expiry', optionExpiry);
+      const res = await fetch(url.toString());
       const data = await res.json();
       if (res.ok && data.optionSymbol) {
         setKiteOptionSymbol(data.optionSymbol);

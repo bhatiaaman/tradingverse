@@ -144,21 +144,25 @@ export async function GET(request) {
     const symbol = searchParams.get('symbol');
     const price = parseFloat(searchParams.get('price') || '0');
     const optionType = searchParams.get('type')?.toUpperCase(); // CE or PE
-    const expiryType = searchParams.get('expiryType'); // 'weekly' or 'monthly' for NIFTY
+    const expiryParam = searchParams.get('expiry'); // YYYY-MM-DD — if provided, use directly
+    const expiryType = searchParams.get('expiryType'); // 'weekly' or 'monthly' for NIFTY (fallback)
 
     if (!symbol || !optionType) {
       return NextResponse.json({ error: 'Missing symbol or type' }, { status: 400 });
     }
-    
+
     const dp = await getDataProvider();
     if (!dp.isConnected()) {
       return NextResponse.json({ error: 'Kite not authenticated' }, { status: 401 });
     }
-    
-    // Get expiry first — needed for NFO strike validation
+
+    // Get expiry — if caller passes an explicit date (YYYY-MM-DD), use it directly
     const now = new Date();
     let expiry, kiteSymbol, tvExpiryDate;
-    if (symbol.toUpperCase() === 'NIFTY') {
+    if (expiryParam) {
+      expiry = new Date(expiryParam + 'T00:00:00Z');
+      tvExpiryDate = expiry;
+    } else if (symbol.toUpperCase() === 'NIFTY') {
       if (expiryType === 'monthly') {
         expiry = getLastTuesdayOfMonth(now);
         tvExpiryDate = expiry;
