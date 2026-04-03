@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, TrendingUp, TrendingDown, Loader2, RefreshCw, LogIn, Brain, AlertTriangle, Target, ChevronDown, BarChart2 } from 'lucide-react';
 import { nseStrikeSteps } from '@/app/lib/nseStrikeSteps';
+import { useProviderStatus } from '@/app/lib/use-provider-status';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Scenario Card (dark-only, used inside OrderModal analysis tab)
@@ -417,6 +418,22 @@ function DepthPanel({ depth, loading, onRefresh, transactionType, orderType }) {
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+function BrokerStatusBadge() {
+  const { status, loading } = useProviderStatus();
+
+  const bgColor = loading ? 'bg-slate-700' : status?.connected ? 'bg-emerald-900/40' : 'bg-rose-900/40';
+  const textColor = loading ? 'text-slate-400' : status?.connected ? 'text-emerald-400' : 'text-rose-400';
+  const dotColor = loading ? 'bg-slate-500' : status?.connected ? 'bg-emerald-500' : 'bg-rose-500';
+  const label = loading ? 'Checking' : status?.broker === 'paper' ? 'Paper' : 'Kite';
+
+  return (
+    <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium ${bgColor} ${textColor}`}>
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotColor}`} />
+      {label}
     </div>
   );
 }
@@ -939,6 +956,7 @@ export default function OrderModal({
             >
               <BarChart2 className="w-4 h-4 text-slate-400" />
             </a>
+            <BrokerStatusBadge />
             <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-lg transition-colors">
               <X className="w-5 h-5 text-slate-400" />
             </button>

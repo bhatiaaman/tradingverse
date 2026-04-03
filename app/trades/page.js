@@ -5,6 +5,7 @@
   import { RefreshCw, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
   import Nav from '../components/Nav';
   import { usePageVisibility } from '@/app/hooks/usePageVisibility';
+  import { useProviderStatus } from '@/app/lib/use-provider-status';
   import { playBullishFlip, playBearishFlip, playReversalAlert, playWarningPing, playReversalBuilding, playSentiment50Cross } from '../lib/sounds';
 
   // ── Check if nifty price is near a key H/L level (within 0.3%) ────────────
@@ -216,6 +217,28 @@ function getNiftyLevelAlerts(indices) {
           })}
         </div>
       </div>
+    );
+  }
+
+  function BrokerStatusIndicator() {
+    const { status, loading } = useProviderStatus();
+
+    const statusColor = loading ? 'bg-slate-500' : status?.connected ? 'bg-emerald-400' : 'bg-rose-500';
+    const textColor = loading ? 'text-slate-500' : status?.connected ? 'text-emerald-400' : 'text-rose-400';
+    const label = loading ? 'Checking…' : status?.broker === 'paper' ? `Paper Trading` : `${status?.brokerLabel}`;
+    const subLabel = loading ? '' : status?.connected ? 'Connected' : 'Disconnected';
+
+    return (
+      <button
+        onClick={() => window.location.href = '/settings'}
+        className="flex items-center gap-2 text-sm hover:opacity-80 transition-opacity"
+        title={`Broker: ${label} - ${subLabel} — click to change`}
+      >
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColor}`} />
+        <span className={`font-medium ${textColor}`}>
+          {label} {subLabel && `(${subLabel})`}
+        </span>
+      </button>
     );
   }
 
@@ -1344,26 +1367,9 @@ function getNiftyLevelAlerts(indices) {
         {/* Sub-bar: Kite status + quick links */}
         <div className="border-b border-white/5 bg-[#060b14]">
           <div className="max-w-[1400px] mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between">
-            {/* Kite status — admin only */}
+            {/* Broker status — admin only */}
             {userRole === 'admin' ? (
-              <button
-                onClick={openKiteSettings}
-                className="flex items-center gap-2 text-sm hover:opacity-80 transition-opacity"
-                title={kiteAuth.checking ? 'Checking...' : kiteAuth.isLoggedIn ? 'Kite Connected — click to manage' : 'Kite Disconnected — click to connect'}
-              >
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  kiteAuth.isLoggedIn ? 'bg-emerald-400' :
-                  kiteAuth.checking  ? 'bg-slate-500' :
-                  'bg-rose-500'
-                }`} />
-                <span className={`font-medium ${
-                  kiteAuth.isLoggedIn ? 'text-emerald-400' :
-                  kiteAuth.checking  ? 'text-slate-500' :
-                  'text-rose-400'
-                }`}>
-                  {kiteAuth.checking ? 'Checking…' : kiteAuth.isLoggedIn ? 'Kite Connected' : 'Kite Disconnected'}
-                </span>
-              </button>
+              <BrokerStatusIndicator />
             ) : <div />}
 
             {/* Live ticker — Nifty · BankNifty · VIX */}

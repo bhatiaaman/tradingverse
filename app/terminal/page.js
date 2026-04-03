@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePageVisibility } from '@/app/hooks/usePageVisibility';
 import { useTheme } from '@/lib/theme-context';
 import { playOrderExecuted } from '@/app/lib/sounds';
+import { useProviderStatus } from '@/app/lib/use-provider-status';
 import { getVIXInsight } from '@/app/lib/vix-messaging';
 import {
   Search, X, RefreshCw, Brain, Loader2, ChevronDown, ChevronRight,
@@ -739,6 +740,7 @@ function NiftyRangeBar({ indices }) {
 function TopBar({ indices, kiteConnected, user, setUser, regimeData }) {
   const { isDark, toggleTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const { status, loading } = useProviderStatus();
   useEffect(() => setMounted(true), []);
 
   const handleLogout = async () => {
@@ -800,8 +802,10 @@ function TopBar({ indices, kiteConnected, user, setUser, regimeData }) {
           {mounted && (isDark ? <Sun size={14} className="text-gray-400 dark:text-white/50" /> : <Moon size={14} className="text-gray-500" />)}
         </button>
         <div className="flex items-center gap-1.5">
-          <span className={`w-1.5 h-1.5 rounded-full ${kiteConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-          <span className="text-xs text-gray-400 dark:text-white/30 hidden sm:inline">{kiteConnected ? 'Live' : 'Off'}</span>
+          <span className={`w-1.5 h-1.5 rounded-full ${loading ? 'bg-gray-500' : status?.connected ? 'bg-green-500' : 'bg-red-500'}`} />
+          <span className="text-xs text-gray-400 dark:text-white/30 hidden sm:inline">
+            {loading ? 'Checking' : status?.broker === 'paper' ? 'Paper' : 'Kite'} {status?.connected ? 'Live' : 'Off'}
+          </span>
         </div>
       </div>
     </div>

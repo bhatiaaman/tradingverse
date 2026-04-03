@@ -119,6 +119,7 @@ export async function POST(request) {
       quantity: orderParams.quantity,
       price: orderParams.price ?? null,
       trigger_price: orderParams.trigger_price ?? null,
+      ...(broker.brokerType === 'paper' && { paper: true }),
     });
 
     return NextResponse.json({
@@ -158,6 +159,7 @@ export async function POST(request) {
       price: body?.price ?? null,
       trigger_price: body?.trigger_price ?? null,
       error: errorMessage,
+      ...(broker.brokerType === 'paper' && { paper: true }),
     });
 
     return NextResponse.json({ error: errorMessage }, { status: statusCode });

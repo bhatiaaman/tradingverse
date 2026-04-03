@@ -10,6 +10,8 @@ export default function SettingsPage() {
   const user   = useUser()
   const router = useRouter()
   const [kite, setKite] = useState(null)
+  const [activeBroker, setActiveBroker] = useState(null)
+  const [selectingBroker, setSelectingBroker] = useState(false)
 
   // Redirect visitors to login
   useEffect(() => {
@@ -18,11 +20,30 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!isPro(user)) return
-    fetch('/api/kite-config')
-      .then(r => r.json())
-      .then(d => setKite(d))
-      .catch(() => setKite({ tokenValid: false }))
+    Promise.all([
+      fetch('/api/kite-config').then(r => r.json()).catch(() => ({ tokenValid: false })),
+      fetch('/api/broker-select').then(r => r.json()).catch(() => null),
+    ]).then(([kiteData, brokerData]) => {
+      setKite(kiteData)
+      setActiveBroker(brokerData?.broker || 'kite')
+    })
   }, [user])
+
+  const selectBroker = async (brokerName) => {
+    setSelectingBroker(true)
+    try {
+      await fetch('/api/broker-select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ broker: brokerName }),
+      })
+      setActiveBroker(brokerName)
+    } catch (e) {
+      console.error('Failed to select broker:', e)
+    } finally {
+      setSelectingBroker(false)
+    }
+  }
 
   const connected = kite?.tokenValid === true
 
@@ -102,42 +123,78 @@ export default function SettingsPage() {
           </section>
         )}
 
-        {/* ── Broker & Data Sources (pro/admin only) ────────────────── */}
+        {/* ── Broker Selection (pro/admin only) ────────────────────────── */}
         {isPro(user) && (
           <>
-            <h2 className="text-xs font-bold tracking-[0.18em] uppercase text-slate-400 mt-10 mb-4">Broker & Data Sources</h2>
+            <h2 className="text-xs font-bold tracking-[0.18em] uppercase text-slate-400 mt-10 mb-4">Trading Broker</h2>
 
-            {/* Active Broker */}
-            <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-6 mb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center">
-                    <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                  </div>
+            {/* Broker Cards */}
+            <div className="grid sm:grid-cols-2 gap-3 mb-6">
+              {/* Zerodha Kite */}
+              <button
+                onClick={() => selectBroker('kite')}
+                disabled={selectingBroker}
+                className={`rounded-2xl p-5 text-left transition-all border-2 ${
+                  activeBroker === 'kite'
+                    ? 'border-blue-600 dark:border-blue-400 bg-blue-50 dark:bg-blue-950/20'
+                    : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] hover:border-blue-400 dark:hover:border-blue-500/30'
+                } disabled:opacity-60 disabled:cursor-not-allowed`}
+              >
+                <div className="flex items-start justify-between mb-2">
                   <div>
                     <p className="font-bold text-slate-900 dark:text-white">Zerodha Kite</p>
-                    <p className="text-slate-500 text-sm">Real-time data + order execution</p>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">Real-time data + order execution</p>
                   </div>
+                  {activeBroker === 'kite' && (
+                    <span className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-500/20 px-2 py-0.5 rounded">Active</span>
+                  )}
                 </div>
-                <div className="flex items-center gap-4">
-                  {kite === null ? (
-                    <span className="text-xs text-slate-400">Checking…</span>
-                  ) : (
-                    <span className={`flex items-center gap-1.5 text-sm font-semibold ${connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-                      <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                {kite === null ? (
+                  <span className="text-xs text-slate-400">Checking…</span>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-sm font-semibold">
+                    <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                    <span className={connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}>
                       {connected ? 'Connected' : 'Disconnected'}
                     </span>
+                  </div>
+                )}
+              </button>
+
+              {/* Paper Trading */}
+              <button
+                onClick={() => selectBroker('paper')}
+                disabled={selectingBroker}
+                className={`rounded-2xl p-5 text-left transition-all border-2 ${
+                  activeBroker === 'paper'
+                    ? 'border-amber-600 dark:border-amber-400 bg-amber-50 dark:bg-amber-950/20'
+                    : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] hover:border-amber-400 dark:hover:border-amber-500/30'
+                } disabled:opacity-60 disabled:cursor-not-allowed`}
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <p className="font-bold text-slate-900 dark:text-white">Paper Trading</p>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">Simulate trades without real money</p>
+                  </div>
+                  {activeBroker === 'paper' && (
+                    <span className="text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/20 px-2 py-0.5 rounded">Active</span>
                   )}
-                  <Link href="/settings/kite" className="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline">
-                    Manage →
-                  </Link>
                 </div>
-              </div>
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  Always Connected
+                </div>
+              </button>
             </div>
 
-            {/* Coming Soon */}
+            {activeBroker === 'kite' && (
+              <Link href="/settings/kite" className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline mb-6">
+                Manage Kite connection →
+              </Link>
+            )}
+
+            {/* Coming Soon Brokers */}
+            <h2 className="text-xs font-bold tracking-[0.18em] uppercase text-slate-400 mt-8 mb-4">Coming Soon</h2>
             <div className="grid sm:grid-cols-2 gap-3 mb-6">
               {[
                 { name: 'Upstox',    desc: 'API v2 + WebSocket streaming' },
