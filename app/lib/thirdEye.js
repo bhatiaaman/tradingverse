@@ -223,6 +223,19 @@ function computeEMAValue(candles, period) {
   return ema;
 }
 
+// Returns last 2 values of EMA for crossover detection
+function computeEMAHistory(candles, period) {
+  if (candles.length < period + 1) return null;
+  const k = 2 / (period + 1);
+  let ema = candles.slice(0, period).reduce((s, c) => s + c.close, 0) / period;
+  let prev = ema;
+  for (let i = period; i < candles.length; i++) {
+    prev = ema;
+    ema  = candles[i].close * k + ema * (1 - k);
+  }
+  return { cur: ema, prev };
+}
+
 function computeEMAStack(candles) {
   if (!candles || candles.length < 55) return null;
   const ema9  = computeEMAValue(candles, 9);
@@ -1031,6 +1044,89 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
           coversPattern: flagSetup.id,
           details:       flagSetup.details,
         });
+      }
+    }
+  }
+
+  // ── S20: EMA9 × EMA21 Crossover + VWAP confirmation ─────────────────────────
+  if (en('s20') && candles.length >= 30) {
+    const h9  = computeEMAHistory(candles, 9);
+    const h21 = computeEMAHistory(candles, 21);
+
+    if (h9 && h21) {
+      const bullCross = h9.prev <= h21.prev && h9.cur > h21.cur;
+      const bearCross = h9.prev >= h21.prev && h9.cur < h21.cur;
+      const aboveVwap = pre.vwap ? c0.close > pre.vwap.price : c0.close > h21.cur;
+      const belowVwap = pre.vwap ? c0.close < pre.vwap.price : c0.close < h21.cur;
+
+      const slBuf = (c0.high - c0.low) * 0.3;
+
+      if (bullCross && aboveVwap) {
+        const sl  = parseFloat((Math.min(c0.low, c1.low) - slBuf).toFixed(2));
+        const rng = c0.close - sl;
+        setups.push({
+          id: 's20_ema_cross_bull', name: 'EMA Cross Bull', direction: 'bull', strength: 4,
+          sl,
+          target: parseFloat((c0.close + rng * 2).toFixed(2)),
+          lifecycle: { slType: 'trailing', trailIndicator: 'ema9' },
+          details: { ema9: parseFloat(h9.cur.toFixed(2)), ema21: parseFloat(h21.cur.toFixed(2)), vwap: pre.vwap?.price ?? null },
+        });
+      }
+
+      if (bearCross && belowVwap) {
+        const sl  = parseFloat((Math.max(c0.high, c1.high) + slBuf).toFixed(2));
+        const rng = sl - c0.close;
+        setups.push({
+          id: 's20_ema_cross_bear', name: 'EMA Cross Bear', direction: 'bear', strength: 4,
+          sl,
+          target: parseFloat((c0.close - rng * 2).toFixed(2)),
+          lifecycle: { slType: 'trailing', trailIndicator: 'ema9' },
+          details: { ema9: parseFloat(h9.cur.toFixed(2)), ema21: parseFloat(h21.cur.toFixed(2)), vwap: pre.vwap?.price ?? null },
+        });
+      }
+    }
+  }
+
+  // ── S21: VWAP Reclaim ─────────────────────────────────────────────────────
+  // Price extended 35–90pts from VWAP, momentum fading, reclaim candle fires
+  if (en('s21') && pre.vwap && candles.length >= 20) {
+    const vwapPrice = pre.vwap.price;
+    const dist      = c0.close - vwapPrice;
+    const absDist   = Math.abs(dist);
+    const r0        = c0.high - c0.low;
+    const r1        = c1.high - c1.low;
+
+    // 35–90pts from VWAP + momentum fading (current candle range < previous)
+    if (absDist >= 35 && absDist <= 90 && r0 < r1 * 1.1) {
+
+      // LONG: price was below VWAP, reclaim candle closes above prev candle high
+      if (dist < 0 && c0.close > c1.high) {
+        const sl  = parseFloat((Math.min(c0.low, c1.low) - 10).toFixed(2));
+        const rng = c0.close - sl;
+        if (rng <= 45) {
+          setups.push({
+            id: 's21_vwap_reclaim_bull', name: 'VWAP Reclaim', direction: 'bull', strength: 4,
+            sl,
+            target: parseFloat((vwapPrice + 30).toFixed(2)),
+            lifecycle: { slType: 'trailing', trailIndicator: 'ema9' },
+            details: { vwap: parseFloat(vwapPrice.toFixed(2)), distFromVwap: parseFloat(absDist.toFixed(1)) },
+          });
+        }
+      }
+
+      // SHORT: price was above VWAP, rejection candle closes below prev candle low
+      if (dist > 0 && c0.close < c1.low) {
+        const sl  = parseFloat((Math.max(c0.high, c1.high) + 10).toFixed(2));
+        const rng = sl - c0.close;
+        if (rng <= 45) {
+          setups.push({
+            id: 's21_vwap_reclaim_bear', name: 'VWAP Reclaim', direction: 'bear', strength: 4,
+            sl,
+            target: parseFloat((vwapPrice - 30).toFixed(2)),
+            lifecycle: { slType: 'trailing', trailIndicator: 'ema9' },
+            details: { vwap: parseFloat(vwapPrice.toFixed(2)), distFromVwap: parseFloat(absDist.toFixed(1)) },
+          });
+        }
       }
     }
   }
