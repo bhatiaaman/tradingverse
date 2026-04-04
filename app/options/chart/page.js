@@ -8,6 +8,10 @@ import { createChart } from '../../lib/chart/Chart';
 import DrawingToolbar from '../../components/DrawingToolbar';
 import OrderModal from '../../components/OrderModal';
 import { nseStrikeSteps } from '../../lib/nseStrikeSteps';
+import {
+  computeVWAP, computeEMA, computeRSI,
+  computeSMAAligned, computeBB, computeSMC, computeCPR,
+} from '@/app/lib/chart-indicators';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const INTERVALS = [
@@ -42,149 +46,6 @@ const DEFAULT_OVERLAYS = {
   ema9D: true, volume: true, smc: false, cpr: false, bb: false, rsi: false,
 };
 
-// ── Compute helpers (mirrors chart/page.js) ───────────────────────────────────
-function computeVWAP(candles) {
-  let cumTPV = 0, cumVol = 0;
-  return candles.map(c => {
-    const tp = (c.high + c.low + c.close) / 3;
-    const vol = c.volume > 0 ? c.volume : 1;
-    cumTPV += tp * vol; cumVol += vol;
-    return { time: c.time, value: parseFloat((cumTPV / cumVol).toFixed(2)) };
-  });
-}
-
-function computeEMA(candles, period) {
-  if (candles.length < period) return [];
-  const k = 2 / (period + 1);
-  let ema = candles.slice(0, period).reduce((s, c) => s + c.close, 0) / period;
-  const result = [];
-  for (let i = period - 1; i < candles.length; i++) {
-    if (i > period - 1) ema = candles[i].close * k + ema * (1 - k);
-    result.push({ time: candles[i].time, value: parseFloat(ema.toFixed(2)) });
-  }
-  return result;
-}
-
-function computeRSI(candles, period) {
-  const out = new Array(candles.length).fill(null);
-  if (candles.length < period + 1) return out;
-  let gainSum = 0, lossSum = 0;
-  for (let i = 1; i <= period; i++) {
-    const d = candles[i].close - candles[i - 1].close;
-    if (d >= 0) gainSum += d; else lossSum -= d;
-  }
-  let avgGain = gainSum / period, avgLoss = lossSum / period;
-  out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-  for (let i = period + 1; i < candles.length; i++) {
-    const d = candles[i].close - candles[i - 1].close;
-    avgGain = (avgGain * (period - 1) + Math.max(0, d))  / period;
-    avgLoss = (avgLoss * (period - 1) + Math.max(0, -d)) / period;
-    out[i]  = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-  }
-  return out;
-}
-
-function computeSMAAligned(values, period) {
-  const out = new Array(values.length).fill(null);
-  let sum = 0, runStart = -1;
-  for (let i = 0; i < values.length; i++) {
-    if (values[i] == null) { sum = 0; runStart = -1; continue; }
-    if (runStart === -1) runStart = i;
-    sum += values[i];
-    const runLen = i - runStart + 1;
-    if (runLen > period) sum -= values[i - period];
-    if (runLen >= period) out[i] = sum / period;
-  }
-  return out;
-}
-
-function computeBB(candles, length = 20, mult = 2.0) {
-  const n = candles.length;
-  if (n < length) return null;
-  const basis = new Array(n).fill(null), upper = new Array(n).fill(null), lower = new Array(n).fill(null);
-  for (let i = length - 1; i < n; i++) {
-    const slice = candles.slice(i - length + 1, i + 1);
-    const mean = slice.reduce((s, c) => s + c.close, 0) / length;
-    const sd = Math.sqrt(slice.reduce((s, c) => s + (c.close - mean) ** 2, 0) / length);
-    basis[i] = parseFloat(mean.toFixed(2));
-    upper[i] = parseFloat((mean + mult * sd).toFixed(2));
-    lower[i] = parseFloat((mean - mult * sd).toFixed(2));
-  }
-  return { basis, upper, lower };
-}
-
-function computeSMC(candles) {
-  const n = candles.length, STR = 2;
-  if (n < STR * 2 + 5) return null;
-  const pivotHighs = [], pivotLows = [];
-  for (let i = STR; i < n - STR; i++) {
-    let isH = true, isL = true;
-    for (let j = 1; j <= STR; j++) {
-      if (candles[i-j].high >= candles[i].high || candles[i+j].high >= candles[i].high) isH = false;
-      if (candles[i-j].low  <= candles[i].low  || candles[i+j].low  <= candles[i].low)  isL = false;
-    }
-    if (isH) pivotHighs.push({ idx: i, price: candles[i].high });
-    if (isL) pivotLows.push({ idx: i, price: candles[i].low });
-  }
-  const allBreaks = [];
-  for (const ph of pivotHighs) for (let j = ph.idx + 1; j < n; j++) { if (candles[j].close > ph.price) { allBreaks.push({ type: 'bull', price: ph.price, idx: ph.idx, breakIdx: j }); break; } }
-  for (const pl of pivotLows)  for (let j = pl.idx + 1; j < n; j++) { if (candles[j].close < pl.price) { allBreaks.push({ type: 'bear', price: pl.price, idx: pl.idx, breakIdx: j }); break; } }
-  allBreaks.sort((a, b) => a.breakIdx - b.breakIdx);
-  let trendState = null;
-  for (const brk of allBreaks) { brk.isCHoCH = trendState !== null && trendState !== brk.type; trendState = brk.type; }
-  const lastClose = candles[n - 1].close;
-  const rawOBs = [], seenOBs = new Set();
-  for (const bos of allBreaks.slice(-14)) {
-    for (let i = bos.idx - 1; i >= Math.max(0, bos.idx - 20); i--) {
-      const c = candles[i], isBullBar = c.close >= c.open;
-      const isOpposite = (bos.type === 'bull' && !isBullBar) || (bos.type === 'bear' && isBullBar);
-      if (!isOpposite) continue;
-      const key = `${bos.type}_${Math.round(c.high)}_${Math.round(c.low)}`;
-      if (seenOBs.has(key)) break; seenOBs.add(key);
-      const mitigated = bos.type === 'bull' ? candles.slice(bos.breakIdx).some(cc => cc.close < c.low) : candles.slice(bos.breakIdx).some(cc => cc.close > c.high);
-      if (!mitigated) rawOBs.push({ bias: bos.type, high: c.high, low: c.low, barIdx: i });
-      break;
-    }
-  }
-  const bullOBs = rawOBs.filter(o => o.bias === 'bull' && o.low  <= lastClose).sort((a, b) => b.high - a.high).slice(0, 1);
-  const bearOBs = rawOBs.filter(o => o.bias === 'bear' && o.high >= lastClose).sort((a, b) => a.low  - b.low).slice(0, 1);
-  const rawFVGs = [];
-  for (let i = 2; i < n - 1; i++) {
-    const prev = candles[i - 2], curr = candles[i];
-    if (curr.low > prev.high && (curr.low - prev.high) / prev.high * 100 >= 0.20) { if (!candles.slice(i + 1).some(c => c.low <= prev.high)) rawFVGs.push({ type: 'bull', high: curr.low, low: prev.high, startIdx: i - 1 }); }
-    if (curr.high < prev.low && (prev.low - curr.high) / curr.high * 100 >= 0.20) { if (!candles.slice(i + 1).some(c => c.high >= prev.low)) rawFVGs.push({ type: 'bear', high: prev.low, low: curr.high, startIdx: i - 1 }); }
-  }
-  // Filter to show UNBROKEN BOS and ALL CHoCH (trend reversals)
-  const unbrokenBreaks = allBreaks.slice(-15).filter(bos => {
-    if (bos.isCHoCH) return true; // Always show CHoCH
-    const sliceAfterBreak = candles.slice(bos.breakIdx + 1);
-    if (bos.type === 'bull') return !sliceAfterBreak.some(c => c.close < bos.price);
-    return !sliceAfterBreak.some(c => c.close > bos.price);
-  });
-  return { bosLevels: unbrokenBreaks, orderBlocks: [...bullOBs, ...bearOBs], fvgs: [...rawFVGs.filter(f => f.type === 'bull' && f.low <= lastClose).sort((a, b) => b.high - a.high).slice(0, 1), ...rawFVGs.filter(f => f.type === 'bear' && f.high >= lastClose).sort((a, b) => a.low - b.low).slice(0, 1)] };
-}
-
-function dateIST(unixSec) { return new Date((unixSec + IST_OFFSET_S) * 1000).toISOString().slice(0, 10); }
-function _cprLevels(H, L, C) {
-  const P = (H + L + C) / 3, BC = (H + L) / 2, TC = 2 * P - BC, widthPct = P > 0 ? ((TC - BC) / P) * 100 : 0;
-  return { tc: TC, p: P, bc: BC, r1: 2*P-L, r2: P+(H-L), s1: 2*P-H, s2: P-(H-L), widthPct, widthClass: widthPct < 0.15 ? 'narrow' : widthPct > 0.35 ? 'wide' : 'normal' };
-}
-function computeCPR(candles, dailyCandles) {
-  if (!candles?.length || !dailyCandles?.length) return [];
-  const segments = [];
-  let dayStart = 0, currentDate = dateIST(candles[0].time);
-  for (let i = 1; i <= candles.length; i++) {
-    const isLast = i === candles.length, d = isLast ? null : dateIST(candles[i].time);
-    if (isLast || d !== currentDate) {
-      let prevIdx = -1;
-      for (let j = dailyCandles.length - 1; j >= 0; j--) { if (dateIST(dailyCandles[j].time) < currentDate) { prevIdx = j; break; } }
-      if (prevIdx >= 0) { const prev = dailyCandles[prevIdx]; segments.push({ startIdx: dayStart, endIdx: i - 1, ..._cprLevels(prev.high, prev.low, prev.close) }); }
-      currentDate = d; dayStart = i;
-    }
-  }
-  return segments;
-}
-
 // ── Misc helpers ──────────────────────────────────────────────────────────────
 function p2(v) { return v != null ? v.toFixed(2) : '—'; }
 function fmtVol(v) {
@@ -216,6 +77,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
   const [info,           setInfo]           = useState(null);
   const [hoverData,      setHoverData]      = useState(null);
   const [lastPriceY,     setLastPriceY]     = useState(null);
+  const [atRightEdge,    setAtRightEdge]    = useState(true);
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [activeTool,     setActiveTool]     = useState(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState(null);
@@ -304,7 +166,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
 
     // CPR
     if (ov.cpr && dailyCandles?.length) {
-      const segs = computeCPR(candles, dailyCandles);
+      const segs = computeCPR(candles, dailyCandles, interval);
       chart.setCPR(segs.length ? segs : null);
     } else { chart.clearCPR(); }
 
@@ -379,6 +241,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
         }
       });
       chart.onLastPriceY(y => setLastPriceY(y));
+      chart.onViewportChange(({ atEnd }) => setAtRightEdge(atEnd));
       chart.onDrawingSelect(id => setSelectedDrawingId(id ?? null));
 
       chart.setCandles(candles);
@@ -523,6 +386,21 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
           >
             <div className="w-8 h-0.5 rounded-full bg-slate-700 pointer-events-none" />
           </div>
+        )}
+
+        {/* Scroll-to-latest button */}
+        {!atRightEdge && (
+          <button
+            onClick={() => chartRef.current?.scrollToEnd()}
+            className="absolute z-20 bottom-16 right-20 flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#1e293b] hover:bg-[#334155] border border-white/[0.12] shadow-lg text-slate-300 text-[11px] font-semibold transition-colors"
+            title="Scroll to latest"
+          >
+            <svg width="13" height="11" viewBox="0 0 13 11" fill="currentColor">
+              <path d="M0 1.5 L4.5 5.5 L0 9.5 L0 1.5Z"/>
+              <path d="M5 1.5 L9.5 5.5 L5 9.5 L5 1.5Z"/>
+              <rect x="10.5" y="1.5" width="2" height="8" rx="1"/>
+            </svg>
+          </button>
         )}
 
         {/* Order entry button */}

@@ -7,6 +7,7 @@
   import { usePageVisibility } from '@/app/hooks/usePageVisibility';
   import { useProviderStatus } from '@/app/lib/use-provider-status';
   import { playBullishFlip, playBearishFlip, playReversalAlert, playWarningPing, playReversalBuilding, playSentiment50Cross } from '../lib/sounds';
+  import { computeVWAP, computeEMA } from '@/app/lib/chart-indicators';
 
   // ── Check if nifty price is near a key H/L level (within 0.3%) ────────────
 function getNiftyLevelAlerts(indices) {
@@ -722,33 +723,6 @@ function getNiftyLevelAlerts(indices) {
       return () => clearInterval(interval);
     }, [optionChainData?.pcr]);
 
-    // Compute VWAP for a set of candles (use vol=1 for indices that return 0 volume)
-    const computeVWAP = (candles) => {
-      let cumTPV = 0, cumVol = 0;
-      return candles.map(c => {
-        const tp  = (c.high + c.low + c.close) / 3;
-        const vol = c.volume > 0 ? c.volume : 1;
-        cumTPV += tp * vol;
-        cumVol += vol;
-        return { time: c.time, value: parseFloat((cumTPV / cumVol).toFixed(2)) };
-      });
-    };
-
-    // Calculate EMA from candle data
-    const calculateEMA = (candles, period) => {
-      if (!candles || candles.length < period) return [];
-      const k = 2 / (period + 1);
-      const emaData = [];
-      let sum = 0;
-      for (let i = 0; i < period; i++) sum += candles[i].close;
-      let ema = sum / period;
-      emaData.push({ time: candles[period - 1].time, value: ema });
-      for (let i = period; i < candles.length; i++) {
-        ema = candles[i].close * k + ema * (1 - k);
-        emaData.push({ time: candles[i].time, value: ema });
-      }
-      return emaData;
-    };
 
     // ── Break of Structure (BOS) detector ────────────────────────────────────
     // Finds the most recent broken swing high (bullish BOS) and broken swing
@@ -936,7 +910,7 @@ function getNiftyLevelAlerts(indices) {
             // EMA lines
             emaPeriods.forEach((period, idx) => {
               const colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#a21caf'];
-              const emaData = calculateEMA(data.candles, period);
+              const emaData = computeEMA(data.candles, period);
               chart.setLine(`ema${period}`, { data: emaData, color: colors[idx % colors.length], width: 1.5 });
             });
 
@@ -1064,7 +1038,7 @@ function getNiftyLevelAlerts(indices) {
       const colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#a21caf'];
       allPeriods.forEach((period, idx) => {
         if (emaPeriods.includes(period)) {
-          const emaData = calculateEMA(candles, period);
+          const emaData = computeEMA(candles, period);
           chart.setLine(`ema${period}`, { data: emaData, color: colors[idx % colors.length], width: 1.5 });
         } else {
           chart.clearLine(`ema${period}`);
