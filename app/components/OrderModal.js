@@ -1344,12 +1344,61 @@ export default function OrderModal({
             </span>
           </div>
 
+          {/* ── Structure Risk Bar — surfaces OI warnings onto the Order tab ── */}
+          {(() => {
+            if (!deepIntelResult) return null;
+            // Each agent returns { behaviors (triggered checks), verdict, riskScore }
+            // behaviors items: { type, severity, title, detail, riskScore, passed: false }
+            const allFlags = [];
+            for (const key of ['structure', 'behavioral', 'pattern', 'station', 'oi']) {
+              const agent = deepIntelResult[key];
+              if (!agent) continue;
+              // Triggered checks live in .behaviors (structure/behavioral) or .checks filtered
+              const behaviors = agent.behaviors ?? agent.checks?.filter(c => !c.passed) ?? [];
+              for (const b of behaviors) {
+                if (b.title && !b.passed) allFlags.push({ severity: b.severity ?? 'caution', title: b.title });
+              }
+            }
+            // Surface scenario against-signals
+            const scenario = deepIntelResult.scenario;
+            const againstLabels = (scenario?.againstSignals || []).slice(0, 2).map(s => s.label).join(' · ');
+            if (againstLabels && (scenario?.confidence === 'LOW' || scenario?.againstSignals?.length >= 2)) {
+              allFlags.unshift({ severity: 'warning', title: againstLabels });
+            }
+            if (!allFlags.length) return null;
+            const topFlags  = allFlags.slice(0, 3);
+            const isDanger  = allFlags.some(f => f.severity === 'danger');
+            const isWarning = !isDanger && allFlags.some(f => f.severity === 'warning');
+            const borderColor = isDanger ? 'border-rose-600' : isWarning ? 'border-orange-500' : 'border-amber-500';
+            const bgColor     = isDanger ? 'bg-rose-950/60'  : isWarning ? 'bg-orange-950/60'  : 'bg-amber-950/60';
+            const textColor   = isDanger ? 'text-rose-300'   : isWarning ? 'text-orange-300'   : 'text-amber-300';
+            const icon        = isDanger ? '🛑' : isWarning ? '⚠️' : '⚡';
+            return (
+              <div className={`rounded-lg border ${borderColor} ${bgColor} px-3 py-2.5`}>
+                <div className="flex items-start gap-2">
+                  <span className="text-sm leading-none mt-0.5 flex-shrink-0">{icon}</span>
+                  <div className="min-w-0">
+                    <p className={`text-[11px] font-bold ${textColor} mb-1`}>
+                      {allFlags.length} signal{allFlags.length > 1 ? 's' : ''} against this {transactionType}
+                    </p>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      {topFlags.map(f => f.title).join(' · ')}
+                    </p>
+                    {allFlags.length > 3 && (
+                      <p className="text-[10px] text-slate-500 mt-0.5">+{allFlags.length - 3} more — see Analysis tab</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {error && (
             <div className="bg-red-900/30 border border-red-700 text-red-400 px-4 py-3 rounded-lg text-sm">
               {error}
             </div>
           )}
-          
+
           {success && (
             <div className="bg-green-900/30 border border-green-700 text-green-400 px-4 py-3 rounded-lg text-sm">
               {success}

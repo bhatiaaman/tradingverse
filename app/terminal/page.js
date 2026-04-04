@@ -2778,6 +2778,15 @@ export default function TerminalPage() {
     const vixInsight = getVIXInsight(parseFloat(indices?.vix), instrumentType, transactionType);
     if (vixInsight) tier2.push({ msg: vixInsight.title });
 
+    // Structure agent checks — VWAP, EMA, RSI, daily structure, etc.
+    // behaviors = triggered (failed) checks from the structure agent
+    const structureBehaviors = intel.result?.structure?.behaviors ?? [];
+    for (const b of structureBehaviors) {
+      if (!b.title) continue;
+      if (b.severity === 'danger' || b.severity === 'warning') tier1.push({ msg: b.title });
+      else if (b.severity === 'caution') tier2.push({ msg: b.title });
+    }
+
     const hasBehavioralDanger = intel.result?.behavioral?.verdict === 'danger';
     if (tier1.length > 0 || tier2.length > 0 || hasBehavioralDanger) {
       setOrderWarnings({ tier1, tier2, hasBehavioralDanger });

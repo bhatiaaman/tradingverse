@@ -325,6 +325,13 @@ function getNiftyLevelAlerts(indices) {
     const [powerCandleDismissed, setPowerCandleDismissed] = useState(null); // dismissed candle time
     const candleDataRef = useRef([]);
 
+    // Position alert state — fetched every 30s, shown when bias conflicts with open positions
+    const [openPositions,     setOpenPositions]     = useState([]);
+    const [positionAlert,     setPositionAlert]     = useState(null); // { bias, conflicting: [...] }
+    const [positionAlertDismissedBias, setPositionAlertDismissedBias] = useState(null); // bias at dismiss time
+    const [exitingSymbol,     setExitingSymbol]     = useState(null);
+    const [exitResult,        setExitResult]        = useState(null);
+
     // Third Eye state
     const [thirdEyeData, setThirdEyeData] = useState(null);
     const [thirdEyeLog, setThirdEyeLog]   = useState([]);   // rolling candle log
@@ -350,6 +357,34 @@ function getNiftyLevelAlerts(indices) {
         .then(r => r.json())
         .then(d => { if (d.entries?.length) setThirdEyeLog(d.entries); })
         .catch(() => {});
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Fetch open positions and check against current bias
+    const checkPositionsAgainstBias = async () => {
+      try {
+        const res  = await fetch('/api/kite-positions');
+        const data = await res.json();
+        if (!data.success || !data.positions?.length) { setOpenPositions([]); setPositionAlert(null); return; }
+        setOpenPositions(data.positions);
+        const bias = biasRef.current;
+        if (bias === 'neutral') { setPositionAlert(null); return; }
+        // Find positions conflicting with current bias
+        // bull bias = shorts are bad (negative qty); bear bias = longs are bad (positive qty)
+        const conflicting = data.positions.filter(p => {
+          if (bias === 'bull') return p.quantity < 0; // short position
+          if (bias === 'bear') return p.quantity > 0; // long position
+          return false;
+        });
+        if (!conflicting.length) { setPositionAlert(null); return; }
+        // Only show if not already dismissed for this exact bias direction
+        setPositionAlert({ bias, conflicting });
+      } catch { /* silent */ }
+    };
+
+    useEffect(() => {
+      checkPositionsAgainstBias();
+      const interval = setInterval(checkPositionsAgainstBias, 30_000);
+      return () => clearInterval(interval);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Load setup config on mount
@@ -1243,6 +1278,8 @@ function getNiftyLevelAlerts(indices) {
           const wasShort = bias === 'bear';
           biasRef.current = 'bull';
           lastEntryDirRef.current = null;
+          setPositionAlertDismissedBias(null); // reset dismiss so banner re-fires
+          setTimeout(checkPositionsAgainstBias, 0);
           return {
             type: 'exit', direction: 'bull', action: 'FLIP LONG',
             headline: wasShort ? 'Direction flipping — careful with those shorts' : 'Bullish structure confirmed — looking for longs',
@@ -1253,6 +1290,8 @@ function getNiftyLevelAlerts(indices) {
           const wasLong = bias === 'bull';
           biasRef.current = 'bear';
           lastEntryDirRef.current = null;
+          setPositionAlertDismissedBias(null);
+          setTimeout(checkPositionsAgainstBias, 0);
           return {
             type: 'exit', direction: 'bear', action: 'FLIP SHORT',
             headline: wasLong ? 'Direction flipping — careful with those longs' : 'Bearish structure confirmed — looking for shorts',
@@ -1438,9 +1477,99 @@ function getNiftyLevelAlerts(indices) {
         reason: `${trendLabel}. Vol ${c.volume.mult}×${c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : ''}${patHint}.` };
     };
 
+    // Exit a conflicting position via market order
+    const exitConflictingPosition = async (position) => {
+      setExitingSymbol(position.tradingsymbol);
+      setExitResult(null);
+      try {
+        const qty = Math.abs(position.quantity);
+        const res = await fetch('/api/third-eye/exit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: position.tradingsymbol, qty }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          setExitResult({ ok: true, symbol: position.tradingsymbol });
+          // Refresh positions after exit
+          setTimeout(checkPositionsAgainstBias, 2000);
+        } else {
+          setExitResult({ ok: false, error: data.error || 'Exit failed' });
+        }
+      } catch (e) {
+        setExitResult({ ok: false, error: e.message });
+      } finally {
+        setExitingSymbol(null);
+      }
+    };
+
     return (
       <div className="min-h-screen bg-[#060b14] text-slate-100">
         <Nav />
+
+        {/* ── Position Conflict Banner ───────────────────────────────────────── */}
+        {positionAlert && positionAlertDismissedBias !== positionAlert.bias && (
+          <div className="border-b-2 border-rose-500 bg-rose-950/80 backdrop-blur-sm">
+            <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3 min-w-0">
+                  <span className="text-rose-400 text-lg leading-none mt-0.5 flex-shrink-0">⚡</span>
+                  <div className="min-w-0">
+                    <p className="text-rose-300 font-bold text-sm">
+                      Structure flipped {positionAlert.bias === 'bull' ? 'BULLISH' : 'BEARISH'} — you have conflicting open positions
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      {positionAlert.conflicting.map(p => {
+                        const pnl  = p.pnl ?? ((p.last_price - p.average_price) * p.quantity);
+                        const side = p.quantity > 0 ? 'LONG' : 'SHORT';
+                        const pnlStr = pnl != null ? `₹${pnl >= 0 ? '+' : ''}${Math.round(pnl).toLocaleString('en-IN')}` : null;
+                        const isExiting = exitingSymbol === p.tradingsymbol;
+                        const wasExited = exitResult?.ok && exitResult.symbol === p.tradingsymbol;
+                        return (
+                          <div key={p.tradingsymbol} className="flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-2 text-sm">
+                              <span className={`font-mono font-semibold ${side === 'LONG' ? 'text-emerald-400' : 'text-rose-400'}`}>{side}</span>
+                              <span className="text-slate-200 font-medium">{p.tradingsymbol}</span>
+                              <span className="text-slate-400">×{Math.abs(p.quantity)}</span>
+                              {p.average_price > 0 && <span className="text-slate-400 text-xs">avg ₹{p.average_price.toFixed(0)}</span>}
+                              {p.last_price   > 0 && <span className="text-slate-400 text-xs">now ₹{p.last_price.toFixed(0)}</span>}
+                              {pnlStr && (
+                                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${pnl >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}`}>
+                                  {pnlStr}
+                                </span>
+                              )}
+                            </div>
+                            {!wasExited ? (
+                              <button
+                                onClick={() => exitConflictingPosition(p)}
+                                disabled={!!exitingSymbol}
+                                className="px-3 py-1 rounded text-xs font-bold bg-rose-500 hover:bg-rose-400 text-white disabled:opacity-50 transition-colors flex-shrink-0"
+                              >
+                                {isExiting ? 'Exiting…' : `Exit ${side} — Market`}
+                              </button>
+                            ) : (
+                              <span className="text-xs text-emerald-400 font-semibold">✓ Exit order placed</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {exitResult?.ok === false && (
+                      <p className="mt-1.5 text-xs text-rose-400">Exit failed: {exitResult.error}</p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPositionAlertDismissedBias(positionAlert.bias)}
+                  className="text-slate-500 hover:text-slate-300 text-xs flex-shrink-0 mt-0.5 transition-colors"
+                  title="Dismiss — will reappear on next scan if still conflicting"
+                >
+                  Keep holding ✕
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Sub-bar: Kite status + quick links */}
         <div className="border-b border-white/5 bg-[#060b14]">
