@@ -1,197 +1,259 @@
 import { NextResponse } from 'next/server';
-import { getBroker } from '@/app/lib/providers';
+import { getBroker, getDataProvider } from '@/app/lib/providers';
 import { orderLimiter, checkLimit } from '@/app/lib/rate-limit';
 import { requireOwner, requireSession, unauthorized, forbidden } from '@/app/lib/session';
 import { redis } from '@/app/lib/redis';
 
+// ─── Redis keys ───────────────────────────────────────────────────────────────
+const QUEUE_KEY    = 'tradingverse:order_queue';
+const STATUS_PFX   = 'tradingverse:order_status:';
+const DEDUP_PFX    = 'tradingverse:order_dedup:';
+const EXEC_LOG_KEY = 'tradingverse:order_exec_log';
+const EXEC_LOG_MAX = 500;
+
+// Legacy order log (kept for order-log page compatibility)
 const ORDER_LOG_KEY = 'tradingverse:order_log';
 const ORDER_LOG_MAX = 200;
 
-async function logOrder(entry) {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function genOrderId() {
+  const hex = Math.random().toString(36).slice(2, 6);
+  return `tv_${Date.now()}_${hex}`;
+}
+
+async function writeExecLog(entry) {
+  try {
+    await redis.rpush(EXEC_LOG_KEY, JSON.stringify(entry));
+    await redis.ltrim(EXEC_LOG_KEY, -EXEC_LOG_MAX, -1);
+  } catch (e) {
+    console.error('[place-order] exec log write failed:', e);
+  }
+}
+
+async function writeLegacyLog(entry) {
   try {
     await redis.rpush(ORDER_LOG_KEY, JSON.stringify(entry));
     await redis.ltrim(ORDER_LOG_KEY, -ORDER_LOG_MAX, -1);
   } catch (e) {
-    console.error('order log write failed:', e);
+    console.error('[place-order] legacy log write failed:', e);
   }
 }
 
+// Poll order_status:{orderId} until SUCCESS/FAILED/REJECTED or timeout.
+// Returns { status, kiteOrderId?, error? }
+async function pollStatus(orderId, timeoutMs = 12000) {
+  const key      = `${STATUS_PFX}${orderId}`;
+  const deadline = Date.now() + timeoutMs;
+  const INTERVAL = 400; // ms between polls
+  while (Date.now() < deadline) {
+    const val = await redis.get(key);
+    if (val && val !== 'QUEUED') return parseStatus(val);
+    await new Promise(r => setTimeout(r, INTERVAL));
+  }
+  return { status: 'TIMEOUT' };
+}
+
+function parseStatus(val) {
+  // val shape: "SUCCESS:{kiteOrderId}" | "FAILED:{msg}" | "REJECTED:{msg}"
+  const colon = val.indexOf(':');
+  if (colon === -1) return { status: val };
+  const status = val.slice(0, colon);
+  const rest   = val.slice(colon + 1);
+  if (status === 'SUCCESS') return { status, kiteOrderId: rest };
+  return { status, error: rest };
+}
+
+// ─── Validate and build order params ─────────────────────────────────────────
+function buildOrderParams(body) {
+  const {
+    tradingsymbol, exchange = 'NSE', transaction_type, quantity,
+    product = 'CNC', order_type = 'MARKET', price = null,
+    trigger_price = null, validity = 'DAY', variety = 'regular',
+    disclosed_quantity = 0, tag = '', source = 'unknown',
+  } = body;
+
+  if (!tradingsymbol)  throw Object.assign(new Error('Trading symbol is required'), { status: 400 });
+  if (!transaction_type || !['BUY', 'SELL'].includes(transaction_type))
+    throw Object.assign(new Error('Transaction type must be BUY or SELL'), { status: 400 });
+  if (!quantity || quantity <= 0)
+    throw Object.assign(new Error('Quantity must be a positive number'), { status: 400 });
+
+  const parsedQty = parseInt(quantity, 10);
+  if (isNaN(parsedQty) || parsedQty <= 0)
+    throw Object.assign(new Error('Invalid quantity'), { status: 400 });
+
+  const params = {
+    tradingsymbol:    tradingsymbol.toUpperCase(),
+    exchange:         exchange.toUpperCase(),
+    transaction_type: transaction_type.toUpperCase(),
+    quantity:         parsedQty,
+    product:          product.toUpperCase(),
+    order_type:       order_type.toUpperCase(),
+    validity,
+    variety,
+  };
+  if (order_type === 'LIMIT' && price) params.price = parseFloat(price);
+  if (['SL', 'SL-M'].includes(order_type) && trigger_price) {
+    const trigNum = Number(trigger_price);
+    params.trigger_price = trigNum;
+    if (price !== null && price !== undefined) {
+      const priceNum = Number(price);
+      params.price = priceNum;
+      if (transaction_type === 'BUY'  && priceNum < trigNum)
+        throw Object.assign(new Error('For SL/SL-M BUY orders, price must be ≥ trigger price.'), { status: 400 });
+      if (transaction_type === 'SELL' && priceNum > trigNum)
+        throw Object.assign(new Error('For SL/SL-M SELL orders, price must be ≤ trigger price.'), { status: 400 });
+    }
+  }
+  if (disclosed_quantity > 0) {
+    const dq = parseInt(disclosed_quantity, 10);
+    if (!isNaN(dq) && dq > 0) params.disclosed_quantity = dq;
+  }
+  if (tag) params.tag = tag.replace(/[^a-zA-Z0-9 \-_.]/g, '').slice(0, 20);
+  return { params, source };
+}
+
+// ─── POST handler ─────────────────────────────────────────────────────────────
 export async function POST(request) {
   const session = await requireSession();
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
   const rl = await checkLimit(orderLimiter, request);
-  if (rl.limited) {
-    return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
-  }
-
-  const broker = await getBroker();
-
-  if (!broker.isConnected()) {
-    return NextResponse.json(
-      { error: 'Kite API not configured. Please set up your API credentials.' },
-      { status: 400 }
-    );
-  }
+  if (rl.limited) return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
 
   let body;
   try {
     body = await request.json();
-    const {
-      tradingsymbol,
-      exchange = 'NSE',
-      transaction_type,
-      quantity,
-      product = 'CNC',
-      order_type = 'MARKET',
-      price = null,
-      trigger_price = null,
-      validity = 'DAY',
-      variety = 'regular',
-      disclosed_quantity = 0,
-      tag = '',
-    } = body;
-
-    if (!tradingsymbol) {
-      return NextResponse.json({ error: 'Trading symbol is required' }, { status: 400 });
-    }
-    if (!transaction_type || !['BUY', 'SELL'].includes(transaction_type)) {
-      return NextResponse.json({ error: 'Transaction type must be BUY or SELL' }, { status: 400 });
-    }
-    if (!quantity || quantity <= 0) {
-      return NextResponse.json({ error: 'Quantity must be a positive number' }, { status: 400 });
-    }
-
-    const parsedQty = parseInt(quantity, 10);
-    if (isNaN(parsedQty) || parsedQty <= 0) {
-      return NextResponse.json({ error: 'Invalid quantity' }, { status: 400 });
-    }
-
-    const orderParams = {
-      tradingsymbol: tradingsymbol.toUpperCase(),
-      exchange: exchange.toUpperCase(),
-      transaction_type: transaction_type.toUpperCase(),
-      quantity: parsedQty,
-      product: product.toUpperCase(),
-      order_type: order_type.toUpperCase(),
-      validity,
-      variety,
-    };
-
-    if (order_type === 'LIMIT' && price) {
-      orderParams.price = parseFloat(price);
-    }
-    if (['SL', 'SL-M'].includes(order_type) && trigger_price) {
-      const triggerNum = Number(trigger_price);
-      orderParams.trigger_price = triggerNum;
-      let priceNum = null;
-      if (price !== null && price !== undefined) {
-        priceNum = Number(price);
-        orderParams.price = priceNum;
-        if (transaction_type === 'BUY' && priceNum < triggerNum) {
-          return NextResponse.json({ error: 'For SL/SL-M BUY orders, price must be equal to or higher than trigger price.' }, { status: 400 });
-        }
-        if (transaction_type === 'SELL' && priceNum > triggerNum) {
-          return NextResponse.json({ error: 'For SL/SL-M SELL orders, price must be equal to or lower than trigger price.' }, { status: 400 });
-        }
-      }
-    }
-    if (disclosed_quantity > 0) {
-      const parsedDQ = parseInt(disclosed_quantity, 10);
-      if (!isNaN(parsedDQ) && parsedDQ > 0) orderParams.disclosed_quantity = parsedDQ;
-    }
-    if (tag) {
-      orderParams.tag = tag.replace(/[^a-zA-Z0-9 \-_.]/g, '').slice(0, 20);
-    }
-
-    const orderResponse = await broker.placeOrder(variety, orderParams);
-
-    await logOrder({
-      ts: Date.now(),
-      status: 'success',
-      order_id: orderResponse.order_id,
-      symbol: orderParams.tradingsymbol,
-      exchange: orderParams.exchange,
-      transaction_type: orderParams.transaction_type,
-      order_type: orderParams.order_type,
-      product: orderParams.product,
-      quantity: orderParams.quantity,
-      price: orderParams.price ?? null,
-      trigger_price: orderParams.trigger_price ?? null,
-      ...(broker.brokerType === 'paper' && { paper: true }),
-    });
-
-    return NextResponse.json({
-      success: true,
-      order_id: orderResponse.order_id,
-      message: `Order placed successfully. Order ID: ${orderResponse.order_id}`,
-      details: orderParams,
-    });
-
-  } catch (error) {
-    console.error('Order placement error:', error);
-
-    let errorMessage = error.message || 'Failed to place order';
-    let statusCode = 500;
-
-    if (error.message?.includes('Token')) {
-      errorMessage = 'Session expired. Please re-authenticate with Kite.';
-      statusCode = 401;
-    } else if (error.message?.includes('margin')) {
-      errorMessage = 'Insufficient margin for this order.';
-      statusCode = 400;
-    } else if (error.message?.includes('quantity')) {
-      errorMessage = 'Invalid quantity. Please check lot size requirements.';
-      statusCode = 400;
-    }
-
-    await logOrder({
-      ts: Date.now(),
-      status: 'failed',
-      order_id: null,
-      symbol: body?.tradingsymbol?.toUpperCase() ?? '?',
-      exchange: body?.exchange?.toUpperCase() ?? '?',
-      transaction_type: body?.transaction_type?.toUpperCase() ?? '?',
-      order_type: body?.order_type?.toUpperCase() ?? '?',
-      product: body?.product?.toUpperCase() ?? '?',
-      quantity: body?.quantity ?? null,
-      price: body?.price ?? null,
-      trigger_price: body?.trigger_price ?? null,
-      error: errorMessage,
-      ...(broker.brokerType === 'paper' && { paper: true }),
-    });
-
-    return NextResponse.json({ error: errorMessage }, { status: statusCode });
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
+
+  // ── Paper trade branch — direct execution, no queue ───────────────────────
+  const PAPER_LOG_KEY = 'tradingverse:paper_orders';
+  const PAPER_LOG_MAX = 500;
+  if (body.paper) {
+    try {
+      const { params } = buildOrderParams(body);
+      let fillPrice = body.price ? parseFloat(body.price) : 0;
+      if (!fillPrice || params.order_type === 'MARKET') {
+        try {
+          const dp   = await getDataProvider();
+          const exch = params.exchange;
+          const sym  = `${exch}:${params.tradingsymbol}`;
+          const ltpData = await dp.getLTP(sym);
+          fillPrice = ltpData?.data?.[sym]?.last_price ?? fillPrice;
+        } catch { /* keep fillPrice as-is */ }
+      }
+      const paperId = `paper_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const entry   = {
+        order_id: paperId, paper: true, ts: Date.now(), status: 'COMPLETE',
+        symbol: params.tradingsymbol, exchange: params.exchange,
+        transaction_type: params.transaction_type, order_type: params.order_type,
+        product: params.product, quantity: params.quantity,
+        fill_price: fillPrice, price: params.price ?? null,
+        trigger_price: params.trigger_price ?? null,
+      };
+      await redis.rpush(PAPER_LOG_KEY, JSON.stringify(entry));
+      await redis.ltrim(PAPER_LOG_KEY, -PAPER_LOG_MAX, -1);
+      return NextResponse.json({
+        success: true, paper: true, order_id: paperId, fill_price: fillPrice,
+        message: `Paper ${params.transaction_type} executed at ₹${fillPrice}`,
+      });
+    } catch (e) {
+      return NextResponse.json({ error: e.message || 'Paper order failed' }, { status: e.status ?? 500 });
+    }
+  }
+
+  // ── Real order — queue via VPS worker ─────────────────────────────────────
+  let params, source;
+  try {
+    ({ params, source } = buildOrderParams(body));
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: e.status ?? 400 });
+  }
+
+  const orderId   = genOrderId();
+  const dedupKey  = `${DEDUP_PFX}${orderId}`;
+  const statusKey = `${STATUS_PFX}${orderId}`;
+  const ts        = Date.now();
+
+  // Write dedup key (30s) + initial QUEUED status (10min)
+  await Promise.all([
+    redis.set(dedupKey,  '1',       { ex: 30 }),
+    redis.set(statusKey, 'QUEUED',  { ex: 600 }),
+  ]);
+
+  // Log RECEIVED
+  await writeExecLog({
+    event: 'RECEIVED', orderId, ts,
+    symbol: params.tradingsymbol, exchange: params.exchange,
+    transaction_type: params.transaction_type, order_type: params.order_type,
+    product: params.product, quantity: params.quantity,
+    price: params.price ?? null, trigger_price: params.trigger_price ?? null,
+    source,
+  });
+
+  // Push to queue
+  const payload = { orderId, ts, source, ...params };
+  await redis.lpush(QUEUE_KEY, JSON.stringify(payload));
+
+  // Poll for result
+  const result = await pollStatus(orderId);
+
+  if (result.status === 'SUCCESS') {
+    await writeLegacyLog({
+      ts, status: 'success', order_id: result.kiteOrderId, orderId,
+      symbol: params.tradingsymbol, exchange: params.exchange,
+      transaction_type: params.transaction_type, order_type: params.order_type,
+      product: params.product, quantity: params.quantity,
+      price: params.price ?? null, trigger_price: params.trigger_price ?? null,
+    });
+    return NextResponse.json({
+      success: true, order_id: result.kiteOrderId, orderId,
+      message: `Order placed. Kite ID: ${result.kiteOrderId}`,
+      details: params,
+    });
+  }
+
+  if (result.status === 'TIMEOUT') {
+    // Order is still in queue / being processed — return orderId so frontend can track
+    return NextResponse.json({
+      success: false, pending: true, orderId,
+      error: 'Worker did not respond in time. Check Execution Log for status.',
+    }, { status: 202 });
+  }
+
+  // FAILED or REJECTED
+  const errMsg = result.error || 'Order failed';
+  await writeLegacyLog({
+    ts, status: 'failed', order_id: null, orderId,
+    symbol: params.tradingsymbol, exchange: params.exchange,
+    transaction_type: params.transaction_type, order_type: params.order_type,
+    product: params.product, quantity: params.quantity,
+    price: params.price ?? null, trigger_price: params.trigger_price ?? null,
+    error: errMsg,
+  });
+  return NextResponse.json({ success: false, error: errMsg, orderId }, { status: 400 });
 }
 
+// ─── GET handler (unchanged) ──────────────────────────────────────────────────
 export async function GET(request) {
   const getSession = await requireSession();
   if (!getSession) return unauthorized();
   if (getSession.role !== 'admin') return forbidden();
 
   const broker = await getBroker();
-
-  if (!broker.isConnected()) {
-    return NextResponse.json({ error: 'Kite API not configured' }, { status: 400 });
-  }
+  if (!broker.isConnected()) return NextResponse.json({ error: 'Kite API not configured' }, { status: 400 });
 
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type') || 'orders';
-
     let data;
-    if (type === 'positions') {
-      data = await broker.getPositions();
-    } else if (type === 'holdings') {
-      data = await broker.getHoldings();
-    } else {
-      data = await broker.getOrders();
-    }
-
+    if (type === 'positions')  data = await broker.getPositions();
+    else if (type === 'holdings') data = await broker.getHoldings();
+    else                       data = await broker.getOrders();
     return NextResponse.json({ success: true, data });
-
   } catch (error) {
     console.error('Error fetching order data:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

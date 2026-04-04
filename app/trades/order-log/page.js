@@ -33,7 +33,7 @@ function Badge({ type }) {
 }
 
 export default function OrderLogPage() {
-  const [tab, setTab] = useState('real') // real | paper
+  const [tab, setTab] = useState('real') // real | paper | exec
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]   = useState(null)
@@ -43,6 +43,8 @@ export default function OrderLogPage() {
   const [paperPositions, setPaperPositions] = useState([])
   const [paperPnl, setPaperPnl] = useState(null)
   const [paperLoading, setPaperLoading] = useState(false)
+  const [execLog, setExecLog] = useState([])
+  const [execLoading, setExecLoading] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -74,8 +76,22 @@ export default function OrderLogPage() {
     }
   }, [])
 
+  const loadExecLog = useCallback(async () => {
+    setExecLoading(true)
+    try {
+      const r = await fetch('/api/order-exec-log')
+      const d = await r.json()
+      setExecLog(d.entries ?? [])
+    } catch (e) {
+      console.error('Failed to load exec log:', e)
+    } finally {
+      setExecLoading(false)
+    }
+  }, [])
+
   useEffect(() => { load() }, [load])
   useEffect(() => { if (tab === 'paper') loadPaper() }, [tab, loadPaper])
+  useEffect(() => { if (tab === 'exec') loadExecLog() }, [tab, loadExecLog])
 
   async function clearLog() {
     if (!confirm('Clear all order log entries? This cannot be undone.')) return
@@ -95,6 +111,14 @@ export default function OrderLogPage() {
     setClearing(false)
   }
 
+  async function clearExecLog() {
+    if (!confirm('Clear execution log? This cannot be undone.')) return
+    setClearing(true)
+    await fetch('/api/order-exec-log', { method: 'DELETE' })
+    setExecLog([])
+    setClearing(false)
+  }
+
   const realEntries = entries.filter(e => !e.paper)
   const visible = filter === 'all' ? realEntries : realEntries.filter(e => e.status === filter)
   const wins = paperPositions.filter(p => p.realizedPnl > 0).length
@@ -111,13 +135,13 @@ export default function OrderLogPage() {
           <div>
             <h1 className="text-xl font-bold text-white">Order Log</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              {tab === 'real' ? 'Last 200 real orders placed via TradingVerse' : 'Paper trades for analysis'}
+              {tab === 'real' ? 'Last 200 real orders placed via TradingVerse' : tab === 'paper' ? 'Paper trades for analysis' : 'Worker execution audit trail — last 500 events'}
             </p>
           </div>
           <div className="flex items-center gap-3">
             {/* Tab Switcher */}
             <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1 text-xs font-semibold">
-              {[['real', 'Real Orders'], ['paper', 'Paper Trades']].map(([key, label]) => (
+              {[['real', 'Real Orders'], ['paper', 'Paper Trades'], ['exec', 'Exec Log']].map(([key, label]) => (
                 <button key={key} onClick={() => setTab(key)}
                   className={`px-3 py-1 rounded-md transition-all ${
                     tab === key
@@ -128,11 +152,13 @@ export default function OrderLogPage() {
                 </button>
               ))}
             </div>
-            <button onClick={tab === 'real' ? load : loadPaper}
+            <button onClick={tab === 'real' ? load : tab === 'paper' ? loadPaper : loadExecLog}
               className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xs font-semibold transition-all border border-white/5">
               Refresh
             </button>
-            <button onClick={tab === 'real' ? clearLog : clearPaperLog} disabled={clearing || (tab === 'real' ? realEntries.length === 0 : paperOrders.length === 0)}
+            <button
+              onClick={tab === 'real' ? clearLog : tab === 'paper' ? clearPaperLog : clearExecLog}
+              disabled={clearing || (tab === 'real' ? realEntries.length === 0 : tab === 'paper' ? paperOrders.length === 0 : execLog.length === 0)}
               className="px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 text-xs font-semibold transition-all border border-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed">
               {clearing ? 'Clearing…' : 'Clear'}
             </button>
@@ -338,6 +364,86 @@ export default function OrderLogPage() {
                           </td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
+        )}
+        {/* Exec Log Tab */}
+        {tab === 'exec' && (
+          <>
+            {execLoading ? (
+              <div className="text-slate-500 text-sm py-16 text-center">Loading…</div>
+            ) : execLog.length === 0 ? (
+              <div className="text-slate-600 text-sm py-16 text-center">No execution events yet. Place a real order to see the audit trail.</div>
+            ) : (
+              <>
+                {/* Group events by orderId for summary stats */}
+                {(() => {
+                  const counts = { RECEIVED: 0, SENT: 0, SUCCESS: 0, FAILED: 0, REJECTED: 0 }
+                  execLog.forEach(e => { if (counts[e.event] !== undefined) counts[e.event]++ })
+                  return (
+                    <div className="flex items-center gap-6 mb-5 text-sm">
+                      <span className="text-slate-500">Events: <span className="text-white font-semibold">{execLog.length}</span></span>
+                      {counts.SUCCESS > 0 && <span className="text-slate-500">Success: <span className="text-emerald-400 font-semibold">{counts.SUCCESS}</span></span>}
+                      {counts.FAILED > 0 && <span className="text-slate-500">Failed: <span className="text-red-400 font-semibold">{counts.FAILED}</span></span>}
+                      {counts.REJECTED > 0 && <span className="text-slate-500">Rejected: <span className="text-orange-400 font-semibold">{counts.REJECTED}</span></span>}
+                      {counts.SENT > 0 && <span className="text-slate-500">Sent: <span className="text-amber-400 font-semibold">{counts.SENT}</span></span>}
+                    </div>
+                  )
+                })()}
+                <div className="rounded-xl border border-white/5 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-xs text-slate-500 bg-white/[0.03] border-b border-white/5">
+                        <th className="text-left px-4 py-3 font-semibold">Time</th>
+                        <th className="text-left px-4 py-3 font-semibold">Event</th>
+                        <th className="text-left px-4 py-3 font-semibold">Symbol</th>
+                        <th className="text-left px-4 py-3 font-semibold">Side</th>
+                        <th className="text-right px-4 py-3 font-semibold">Qty</th>
+                        <th className="text-left px-4 py-3 font-semibold">Order ID</th>
+                        <th className="text-left px-4 py-3 font-semibold">Kite ID / Error</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.04]">
+                      {execLog.map((e, i) => {
+                        const eventStyles = {
+                          SUCCESS:  'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+                          FAILED:   'bg-red-500/15 text-red-400 border-red-500/30',
+                          REJECTED: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+                          SENT:     'bg-amber-500/15 text-amber-400 border-amber-500/30',
+                          RECEIVED: 'bg-slate-500/15 text-slate-400 border-slate-500/30',
+                        }
+                        const cls = eventStyles[e.event] ?? eventStyles.RECEIVED
+                        const ts = e.workerTs ?? e.ts
+                        return (
+                          <tr key={i} className={`transition-colors hover:bg-white/[0.025] ${e.event === 'FAILED' || e.event === 'REJECTED' ? 'bg-red-500/[0.02]' : ''}`}>
+                            <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{ts ? fmt(ts) : '—'}</td>
+                            <td className="px-4 py-3">
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${cls}`}>{e.event}</span>
+                            </td>
+                            <td className="px-4 py-3 font-semibold text-white">{e.symbol ?? '—'}</td>
+                            <td className="px-4 py-3">
+                              {e.transaction_type ? <Badge type={e.transaction_type} /> : <span className="text-slate-600 text-xs">—</span>}
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{e.quantity ?? '—'}</td>
+                            <td className="px-4 py-3 text-xs font-mono text-slate-500 max-w-[140px] truncate" title={e.orderId}>{e.orderId ?? '—'}</td>
+                            <td className="px-4 py-3 text-xs max-w-[180px]">
+                              {e.event === 'SUCCESS' && e.kiteOrderId ? (
+                                <span className="font-mono text-emerald-400">{e.kiteOrderId}</span>
+                              ) : (e.event === 'FAILED' || e.event === 'REJECTED') && e.error ? (
+                                <span className="text-red-400/80 truncate block" title={e.error ?? e.reason}>{e.error ?? e.reason}</span>
+                              ) : e.reason ? (
+                                <span className="text-orange-400/80 truncate block" title={e.reason}>{e.reason}</span>
+                              ) : (
+                                <span className="text-slate-600">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>

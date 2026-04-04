@@ -1,0 +1,14 @@
+{
+  "name": "tradingverse-worker",
+  "version": "1.0.0",
+  "description": "Order execution worker — runs on VPS with static IP",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "pm2": "pm2 start index.js --name kite-worker"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.0",
+    "kiteconnect": "^5.0.1"
+  }
+}
