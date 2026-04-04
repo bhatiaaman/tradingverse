@@ -1090,18 +1090,19 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   // ── S21: VWAP Reclaim ─────────────────────────────────────────────────────
   // Price extended 35–90pts from VWAP, momentum fading, reclaim candle fires
   if (en('s21') && pre.vwap && candles.length >= 20) {
+    const s21c1     = candles[candles.length - 2]; // previous candle
     const vwapPrice = pre.vwap.price;
     const dist      = c0.close - vwapPrice;
     const absDist   = Math.abs(dist);
     const r0        = c0.high - c0.low;
-    const r1        = c1.high - c1.low;
+    const r1        = s21c1.high - s21c1.low;
 
     // 35–90pts from VWAP + momentum fading (current candle range < previous)
     if (absDist >= 35 && absDist <= 90 && r0 < r1 * 1.1) {
 
       // LONG: price was below VWAP, reclaim candle closes above prev candle high
-      if (dist < 0 && c0.close > c1.high) {
-        const sl  = parseFloat((Math.min(c0.low, c1.low) - 10).toFixed(2));
+      if (dist < 0 && c0.close > s21c1.high) {
+        const sl  = parseFloat((Math.min(c0.low, s21c1.low) - 10).toFixed(2));
         const rng = c0.close - sl;
         if (rng <= 45) {
           setups.push({
@@ -1115,8 +1116,8 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
       }
 
       // SHORT: price was above VWAP, rejection candle closes below prev candle low
-      if (dist > 0 && c0.close < c1.low) {
-        const sl  = parseFloat((Math.max(c0.high, c1.high) + 10).toFixed(2));
+      if (dist > 0 && c0.close < s21c1.low) {
+        const sl  = parseFloat((Math.max(c0.high, s21c1.high) + 10).toFixed(2));
         const rng = sl - c0.close;
         if (rng <= 45) {
           setups.push({
