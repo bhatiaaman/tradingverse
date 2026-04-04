@@ -3016,6 +3016,72 @@ function getNiftyLevelAlerts(indices) {
                   );
                 })()}
 
+                {/* ── Always-on Bias + Position Strip ──────────────────────── */}
+                {(() => {
+                  const bias = biasRef.current;
+                  const biasColor = bias === 'bull' ? 'text-emerald-400' : bias === 'bear' ? 'text-rose-400' : 'text-slate-400';
+                  const biasBg    = bias === 'bull' ? 'bg-emerald-500/10 border-emerald-500/20' : bias === 'bear' ? 'bg-rose-500/10 border-rose-500/20' : 'bg-slate-800/60 border-white/5';
+                  const biasLabel = bias === 'bull' ? '▲ BULLISH' : bias === 'bear' ? '▼ BEARISH' : '— NEUTRAL';
+                  const conflicting = openPositions.filter(p =>
+                    (bias === 'bull' && p.quantity < 0) || (bias === 'bear' && p.quantity > 0)
+                  );
+                  const aligned = openPositions.filter(p =>
+                    (bias === 'bull' && p.quantity > 0) || (bias === 'bear' && p.quantity < 0)
+                  );
+                  const totalPnl = openPositions.reduce((s, p) => {
+                    const pnl = p.pnl ?? ((p.last_price - p.average_price) * p.quantity);
+                    return s + (pnl ?? 0);
+                  }, 0);
+                  return (
+                    <div className={`mx-3 mb-2 rounded-lg border ${biasBg} px-3 py-2`}>
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        {/* Bias */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Bias</span>
+                          <span className={`text-[11px] font-bold ${biasColor}`}>{biasLabel}</span>
+                        </div>
+
+                        {/* Open positions summary */}
+                        {openPositions.length > 0 ? (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {conflicting.length > 0 && (
+                              <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.5 rounded">
+                                ⚡ {conflicting.length} AGAINST
+                              </span>
+                            )}
+                            {aligned.length > 0 && (
+                              <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                                ✓ {aligned.length} aligned
+                              </span>
+                            )}
+                            {openPositions.map(p => {
+                              const pnl = p.pnl ?? ((p.last_price - p.average_price) * p.quantity);
+                              const isConflict = conflicting.includes(p);
+                              return (
+                                <span key={p.tradingsymbol} className={`text-[10px] font-mono ${isConflict ? 'text-rose-300' : 'text-slate-400'}`}>
+                                  {p.tradingsymbol.replace(/NFO:/, '')} ×{Math.abs(p.quantity)}
+                                  {pnl != null && (
+                                    <span className={pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}> ₹{Math.round(pnl) >= 0 ? '+' : ''}{Math.round(pnl).toLocaleString('en-IN')}</span>
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-600">No open positions</span>
+                        )}
+
+                        {/* Total P&L */}
+                        {openPositions.length > 0 && (
+                          <span className={`text-[11px] font-bold tabular-nums ml-auto ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {totalPnl >= 0 ? '+' : ''}₹{Math.round(totalPnl).toLocaleString('en-IN')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {thirdEyeOpen && thirdEyeTestMode && (
                   <div className="mx-3 mb-1 px-2 py-1 rounded text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/20 font-bold tracking-wider text-center">
                     TEST MODE · Ctrl+Shift+T to exit
