@@ -288,6 +288,7 @@ function getNiftyLevelAlerts(indices) {
     const soundEnabledRef   = useRef(false); // only alert after first load
     // Track last directional entry direction so we can label Cont. correctly
     const lastEntryDirRef   = useRef(null); // 'bull' | 'bear' | null
+    const biasRef           = useRef('neutral'); // persistent directional bias: 'bull' | 'bear' | 'neutral'
     // Key levels bar — follows chartSymbol
     const [keyLevels, setKeyLevels] = useState(null);
     // Nifty-only levels — always NIFTY, used in commentary station alerts
@@ -882,6 +883,10 @@ function getNiftyLevelAlerts(indices) {
       const el = customChartCtnRef.current;
       if (!el) return;
 
+      // Reset bias and entry tracking whenever symbol/interval changes
+      biasRef.current         = 'neutral';
+      lastEntryDirRef.current = null;
+
       import('@/app/lib/chart/Chart.js').then(({ createChart }) => {
         if (customChartRef.current) { customChartRef.current.destroy(); customChartRef.current = null; }
 
@@ -1213,93 +1218,134 @@ function getNiftyLevelAlerts(indices) {
       return { strike, isMonthly, expiryLabel: isMonthly ? `${dd} ${mm} Monthly` : `${dd} ${mm} Weekly` };
     }
 
-    // Third Eye: plain-English narrative builder for each candle entry
+    // Third Eye: bias-persistent, human-voice narrative builder.
+    // biasRef ('bull'|'bear'|'neutral') persists across candles.
+    // Bias only changes on structural invalidation (CHoCH, confirmed counter-trend BOS, Wyckoff).
+    // All other candles amplify or contextualise the existing bias.
     const buildNarrative = (entry) => {
       const { topSetup: s, context: c, candle, rawPatterns = [] } = entry;
+      const bias = biasRef.current;
 
-      // Opening noise — only first 15m candle (9:15 candle)
+      // ── Opening / closing session gates ───────────────────────────────────
       if (c.sessionTime === 'opening') {
-        return { type: 'wait', action: 'WAIT', headline: 'Opening candle forming — stand aside', reason: 'First 15m candle still building. Wait for it to close before taking any trade.' };
+        const biasNote = bias !== 'neutral' ? ` Bias: ${bias === 'bull' ? 'bullish' : 'bearish'}.` : '';
+        return { type: 'wait', action: 'WAIT', headline: 'Opening candle — stand aside', reason: `First candle still building.${biasNote} Wait for close.` };
       }
-      // Closing caution
       if (c.sessionTime === 'closing') {
-        return { type: 'caution', action: 'CAUTION', headline: 'Closing risk — reduce exposure', reason: 'Last 30 min. Avoid new entries, tighten stops on open positions.' };
+        return { type: 'caution', action: 'CAUTION', headline: 'Last 30 min — tighten stops', reason: 'Avoid new entries. Reduce exposure, close or trail existing positions.' };
       }
 
-      // ── EXIT: structural reversal setups (CHoCH, Wyckoff) ─────────────────
+      // ── BIAS INVALIDATION: CHoCH or Wyckoff ──────────────────────────────
+      // These override everything and flip the bias.
       if (s) {
         const id = s.pattern.id;
         if (id === 's13_choch_bull' || id === 's16_spring') {
-          lastEntryDirRef.current = null; // direction cleared on exit
-          return { type: 'exit', direction: 'bull', action: 'EXIT SHORT',
-            headline: 'Structure flipped bullish — cover shorts',
-            reason: `${s.pattern.name}. Downtrend structure broken. Exit shorts if holding. Potential long entry.` };
+          const wasShort = bias === 'bear';
+          biasRef.current = 'bull';
+          lastEntryDirRef.current = null;
+          return {
+            type: 'exit', direction: 'bull', action: 'FLIP LONG',
+            headline: wasShort ? 'Direction flipping — careful with those shorts' : 'Bullish structure confirmed — looking for longs',
+            reason: `${s.pattern.name}. Downtrend broken. ${wasShort ? 'Cover shorts, bias now bullish.' : 'Bias turning bullish, wait for entry.'}`,
+          };
         }
         if (id === 's13_choch_bear' || id === 's16_upthrust') {
+          const wasLong = bias === 'bull';
+          biasRef.current = 'bear';
+          lastEntryDirRef.current = null;
+          return {
+            type: 'exit', direction: 'bear', action: 'FLIP SHORT',
+            headline: wasLong ? 'Direction flipping — careful with those longs' : 'Bearish structure confirmed — looking for shorts',
+            reason: `${s.pattern.name}. Uptrend broken. ${wasLong ? 'Exit longs, bias now bearish.' : 'Bias turning bearish, wait for entry.'}`,
+          };
+        }
+      }
+
+      // ── BIAS INVALIDATION: confirmed counter-trend BOS ────────────────────
+      if (c.bos && !c.bos.freshBreak) {
+        if (c.bos.type === 'bear' && bias === 'bull') {
+          biasRef.current = 'neutral';
           lastEntryDirRef.current = null;
           return { type: 'exit', direction: 'bear', action: 'EXIT LONG',
-            headline: 'Structure flipped bearish — exit longs',
-            reason: `${s.pattern.name}. Uptrend structure broken. Exit longs if holding. Potential short entry.` };
+            headline: 'Bearish BOS confirmed — bullish bias broken',
+            reason: `Swing low taken out and held. Uptrend structure gone. Exit longs. Waiting to reassess.` };
         }
-      }
-
-      // ── EXIT / WATCH: BOS forms against prior trend ───────────────────────
-      if (c.bos) {
-        if (c.bos.type === 'bear' && c.trend === 'uptrend') {
-          if (c.bos.freshBreak) {
-            return { type: 'watch', direction: 'bear', action: 'BOS WATCH',
-              headline: 'Bearish BOS formed — watch next candle',
-              reason: `Swing low broken. ${c.bos.distPct}% below level. If next candle holds below, exit longs.` };
-          }
-          return { type: 'exit', direction: 'bear', action: 'EXIT LONG',
-            headline: 'Exit longs — BOS confirmed',
-            reason: `Bearish BOS held. Uptrend structure invalidated. ${c.bos.distPct}% from price. Exit longs if holding.` };
-        }
-        if (c.bos.type === 'bull' && c.trend === 'downtrend') {
-          if (c.bos.freshBreak) {
-            return { type: 'watch', direction: 'bull', action: 'BOS WATCH',
-              headline: 'Bullish BOS formed — watch next candle',
-              reason: `Swing high broken. ${c.bos.distPct}% above level. If next candle holds above, cover shorts.` };
-          }
+        if (c.bos.type === 'bull' && bias === 'bear') {
+          biasRef.current = 'neutral';
+          lastEntryDirRef.current = null;
           return { type: 'exit', direction: 'bull', action: 'EXIT SHORT',
-            headline: 'Cover shorts — BOS confirmed',
-            reason: `Bullish BOS held. Downtrend structure invalidated. ${c.bos.distPct}% from price. Cover shorts if holding.` };
+            headline: 'Bullish BOS confirmed — bearish bias broken',
+            reason: `Swing high broken and held. Downtrend structure gone. Cover shorts. Waiting to reassess.` };
         }
       }
 
-      // ── Strong setups (score ≥ 6) ──────────────────────────────────────────
+      // ── FRESH BOS: warn but hold bias ─────────────────────────────────────
+      if (c.bos?.freshBreak) {
+        if (c.bos.type === 'bear' && bias === 'bull') {
+          return { type: 'watch', direction: 'bear', action: 'BOS WATCH',
+            headline: 'Swing low broken — could be a trap or real break',
+            reason: `Watching next candle. Still bullish bias until confirmed. ${c.bos.distPct}% below level.` };
+        }
+        if (c.bos.type === 'bull' && bias === 'bear') {
+          return { type: 'watch', direction: 'bull', action: 'BOS WATCH',
+            headline: 'Swing high broken — could be a trap or real break',
+            reason: `Watching next candle. Still bearish bias until confirmed. ${c.bos.distPct}% above level.` };
+        }
+      }
+
+      // ── Strong setup (score ≥ 6) — main entry logic ────────────────────────
       if (s && s.score >= 6) {
-        const dir   = s.pattern.direction;
-        const trend = c.trend;
-        const id    = s.pattern.id;
+        const dir  = s.pattern.direction;
+        const id   = s.pattern.id;
+        const trendAligned = (c.trend === 'uptrend' && dir === 'bull') ||
+                             (c.trend === 'downtrend' && dir === 'bear') ||
+                             c.trend === 'ranging';
+        const vwapAligned  = c.vwap ? (dir === 'bull' ? c.vwap.above : !c.vwap.above) : null;
+        const biasAligned  = bias === dir || bias === 'neutral';
 
-        const trendAligned = (trend === 'uptrend'   && dir === 'bull') ||
-                             (trend === 'downtrend' && dir === 'bear') ||
-                             trend === 'ranging';
-        const vwapAligned  = c.vwap
-          ? (dir === 'bull' ? c.vwap.above : !c.vwap.above)
-          : null;
-        const allowEntry = trendAligned || vwapAligned === true;
-
-        if (!allowEntry) {
-          // Counter-trend + wrong side of VWAP → Careful (reversal building, not confirmed)
+        if (!biasAligned) {
           const parts = [s.pattern.name];
-          if (c.vwap) parts.push(dir === 'bull' ? 'below VWAP' : 'above VWAP');
-          if (c.volume.mult >= 1.3) parts.push(`${c.volume.mult}× vol`);
+          if (c.vwap?.atVwap) parts.push('at VWAP');
+          else if (c.vwap && Math.abs(c.vwap.distPct) < 0.3) parts.push('near VWAP');
+          if (c.volume.mult >= 1.5) parts.push(`${c.volume.mult}× vol`);
+
+          // High-conviction counter-bias (score ≥ 8): strong enough to tighten stops
+          if (s.score >= 8) {
+            const holdingSide = bias === 'bull' ? 'longs' : 'shorts';
+            return {
+              type: 'caution', direction: dir,
+              action: dir === 'bull' ? 'TIGHTEN SHORTS' : 'TIGHTEN LONGS',
+              headline: `Strong counter move — tighten stops on ${holdingSide}, not a flip yet`,
+              reason: `${parts.join(' · ')} · score ${s.score}/10. Too strong to ignore. Trail stop, don't add to ${holdingSide}.`,
+            };
+          }
+
+          // Moderate counter-bias (score 6–7): acknowledge but hold
           return {
-            type: 'caution',
-            direction: dir,
-            action: dir === 'bull' ? 'LONG (Careful)' : 'SHORT (Careful)',
+            type: 'caution', direction: dir,
+            action: dir === 'bull' ? 'COUNTER LONG' : 'COUNTER SHORT',
             headline: dir === 'bull'
-              ? 'Reversal setup — wait for VWAP reclaim to go long'
-              : 'Distribution setup — wait for VWAP break to go short',
-            reason: `${parts.join(' · ')} — score ${s.score} but ${trend}. ${dir === 'bull' ? 'No long until VWAP reclaimed.' : 'No short until VWAP lost.'}`,
+              ? `Long setup but bias is ${bias} — don't flip, stay patient`
+              : `Short setup but bias is ${bias} — don't flip, stay patient`,
+            reason: `${parts.join(' · ')} · score ${s.score}/10 but against bias. Only act if bias structure changes.`,
           };
         }
 
-        // Fresh = primary initiating entry; Cont. = continuation/re-entry in same direction
-        // Only label Cont. if we've already issued a directional entry in the same direction.
-        // If we haven't (or direction flipped), treat it as Fresh so user isn't confused.
+        // Bias-aligned strong setup — update bias if neutral
+        if (bias === 'neutral') biasRef.current = dir;
+
+        const allowEntry = trendAligned || vwapAligned === true || biasAligned;
+        if (!allowEntry) {
+          const parts = [s.pattern.name];
+          if (c.vwap) parts.push(dir === 'bull' ? 'below VWAP' : 'above VWAP');
+          return {
+            type: 'caution', direction: dir,
+            action: dir === 'bull' ? 'LONG (Careful)' : 'SHORT (Careful)',
+            headline: dir === 'bull' ? 'Reversal setup — wait for VWAP reclaim' : 'Distribution setup — wait for VWAP break',
+            reason: `${parts.join(' · ')} — score ${s.score} but ${c.trend}. ${dir === 'bull' ? 'No long until VWAP reclaimed.' : 'No short until VWAP lost.'}`,
+          };
+        }
+
         const hasPriorEntry = lastEntryDirRef.current === dir;
         const subType  = (GO_IDS.has(id) || !hasPriorEntry) ? 'fresh' : 'cont';
         const subLabel = subType === 'fresh' ? '(Fresh)' : '(Cont.)';
@@ -1309,51 +1355,87 @@ function getNiftyLevelAlerts(indices) {
         else if (c.vwap && Math.abs(c.vwap.distPct) < 0.3) parts.push('near VWAP');
         if (c.bos) parts.push('near BOS');
         if (c.orderBlock) parts.push('in OB zone');
-        if (c.volume.mult >= 1.5) parts.push(`${c.volume.mult}× volume`);
+        if (c.volume.mult >= 1.5) parts.push(`${c.volume.mult}× vol`);
         if (dir === 'bull' && c.rsi != null && c.rsi < 35) parts.push(`RSI oversold ${Math.round(c.rsi)}`);
         if (dir === 'bear' && c.rsi != null && c.rsi > 65) parts.push(`RSI overbought ${Math.round(c.rsi)}`);
-        if (trendAligned && trend !== 'ranging') parts.push('trend aligned');
-        // Supporting candlestick pattern (if any aligns with setup direction)
+        if (trendAligned && c.trend !== 'ranging') parts.push('trend aligned');
         const supPat = rawPatterns.find(p => p.pattern.direction === dir || p.pattern.direction === 'neutral');
         if (supPat) parts.push(supPat.pattern.name);
-        lastEntryDirRef.current = dir; // track for Cont. labelling
+
+        lastEntryDirRef.current = dir;
+        const biasNote = bias !== 'neutral' ? ` Bias ${bias === 'bull' ? 'bullish' : 'bearish'} — setup confirming.` : '';
         return {
-          type: 'entry',
-          subType,
-          direction: dir,
+          type: 'entry', subType, direction: dir,
           action: `${dir === 'bull' ? 'LONG' : 'SHORT'} ${subLabel}`,
-          headline: `${dir === 'bull' ? 'Go long' : 'Go short'} ${subLabel} — score ${s.score}/10`,
-          reason: parts.join(' · '),
+          headline: subType === 'fresh'
+            ? `${dir === 'bull' ? 'Let\'s go long' : 'Let\'s go short'} — setup supporting${biasNote}`
+            : `${dir === 'bull' ? 'Another long' : 'Another short'} confirming — staying with the bias`,
+          reason: `${parts.join(' · ')} · score ${s.score}/10`,
         };
       }
 
-      // Watch list (score 3–5)
+      // ── Watch list (score 3–5) — amplify if bias-aligned, note if counter ─
       if (s && s.score >= 3) {
         const dir = s.pattern.direction;
         const parts = [s.pattern.name];
         if (c.vwap?.atVwap) parts.push('at VWAP');
         if (c.volume.mult >= 1.3) parts.push(`${c.volume.mult}× vol`);
+
+        if (bias !== 'neutral' && dir !== bias) {
+          return {
+            type: 'watch', direction: dir, action: 'COUNTER WATCH',
+            headline: `${dir === 'bull' ? 'Bullish' : 'Bearish'} signal forming — but bias still ${bias}`,
+            reason: `${parts.join(' · ')}. Not acting — waiting for bias to shift first.`,
+          };
+        }
+        // Update bias if neutral and we see a forming setup
+        if (bias === 'neutral' && dir !== 'neutral') biasRef.current = dir;
         return {
-          type: 'watch',
-          direction: dir,
-          action: 'WATCH',
-          headline: `${dir === 'bull' ? '↑ Possible long' : dir === 'bear' ? '↓ Possible short' : 'Setup'} forming`,
-          reason: `${parts.join(' · ')} — wait for confirmation`,
+          type: 'watch', direction: dir, action: 'WATCH',
+          headline: dir === 'bull'
+            ? (bias === 'bull' ? 'Setup forming — supporting the bullish bias' : '↑ Possible long setting up')
+            : dir === 'bear'
+              ? (bias === 'bear' ? 'Setup forming — supporting the bearish bias' : '↓ Possible short setting up')
+              : 'Setup forming — wait for confirmation',
+          reason: `${parts.join(' · ')} — needs confirmation`,
         };
       }
 
-      // No setup — read the candle itself
-      const chg    = ((candle.close - candle.open) / candle.open * 100).toFixed(2);
-      const bull   = candle.close > candle.open;
+      // ── No setup: contextual quiet candle commentary ───────────────────────
+      const chg     = ((candle.close - candle.open) / candle.open * 100).toFixed(2);
+      const isBull  = candle.close > candle.open;
       const patHint = rawPatterns[0] ? ` · ${rawPatterns[0].pattern.name}` : '';
+
       if (c.volume.context === 'climax') {
-        return { type: 'watch', action: 'WATCH', headline: 'Volume climax — possible reversal ahead', reason: `${bull ? 'Bullish' : 'Bearish'} ${Math.abs(chg)}% on ${c.volume.mult}× volume${patHint}. Climax often precedes a turn.` };
+        return { type: 'watch', action: 'WATCH',
+          headline: 'Volume climax — possible turn ahead',
+          reason: `${isBull ? 'Bullish' : 'Bearish'} ${Math.abs(chg)}% on ${c.volume.mult}× vol${patHint}. Climax often precedes a reversal.` };
       }
+
+      // Quiet candle — hold bias with a human comment
+      if (bias === 'bull') {
+        const note = isBull ? 'still holding up' : 'slight pullback, staying patient';
+        return { type: 'quiet', action: 'HOLD BIAS',
+          headline: `Nothing happening — ${note}. Bias bullish`,
+          reason: `${c.volume.context === 'dryup' ? 'Volume dry-up, market pausing.' : `Vol ${c.volume.mult}×.`} Waiting for setup to confirm the long.` };
+      }
+      if (bias === 'bear') {
+        const note = !isBull ? 'still grinding down' : 'minor bounce, staying patient';
+        return { type: 'quiet', action: 'HOLD BIAS',
+          headline: `Nothing happening — ${note}. Bias bearish`,
+          reason: `${c.volume.context === 'dryup' ? 'Volume dry-up, market pausing.' : `Vol ${c.volume.mult}×.`} Waiting for setup to confirm the short.` };
+      }
+
+      // Truly neutral / no bias
       if (c.volume.context === 'dryup') {
-        return { type: 'quiet', action: 'WAIT', headline: 'Low conviction — volume dry-up', reason: `${bull ? 'Bullish' : 'Bearish'} candle ${Math.abs(chg)}% on ${c.volume.mult}× volume${patHint}. No strong participants.` };
+        return { type: 'quiet', action: 'WAIT',
+          headline: 'Low conviction — volume dry-up',
+          reason: `${isBull ? 'Bullish' : 'Bearish'} ${Math.abs(chg)}% on ${c.volume.mult}× vol${patHint}. No strong participants, stay flat.` };
       }
       const trendLabel = c.trend === 'uptrend' ? 'Uptrend intact' : c.trend === 'downtrend' ? 'Downtrend intact' : 'Market ranging';
-      return { type: 'quiet', action: 'OBSERVE', headline: `${bull ? '▲' : '▼'} ${Math.abs(chg)}% — no setup`, reason: `${trendLabel}. Vol ${c.volume.mult}×${c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : ''}${patHint}.` };
+      return { type: 'quiet', action: 'OBSERVE',
+        headline: `${isBull ? '▲' : '▼'} ${Math.abs(chg)}% — waiting for a setup`,
+        reason: `${trendLabel}. Vol ${c.volume.mult}×${c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : ''}${patHint}.` };
     };
 
     return (

@@ -70,12 +70,32 @@ function detectBOSInternal(candles, strength = 3) {
 function getVolumeContext(candles) {
   if (!candles || candles.length < 10) return { mult: 1, context: 'normal' };
   const lookback = candles.length - 1;
-  const refStart = Math.max(0, lookback - 24);
-  const refEnd   = Math.max(0, lookback - 4);
-  const refSlice = candles.slice(refStart, refEnd);
+  const lastVol  = candles[lookback]?.volume || 0;
+
+  // Session-aware baseline: compare against candles from the same time window.
+  // Post-11am IST (660 mins) volume is structurally lower — comparing to morning
+  // candles would flag everything as "low". Use only same-session peers.
+  const lastTs   = candles[lookback]?.time;
+  const lastMins = lastTs ? (() => {
+    const ist = new Date((lastTs + 5.5 * 3600) * 1000);
+    return ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  })() : null;
+
+  let refSlice;
+  if (lastMins !== null && lastMins >= 660) {
+    // Post 11am: use only the post-11am candles before the current one
+    refSlice = candles.slice(0, lookback).filter(c => {
+      const ist  = new Date((c.time + 5.5 * 3600) * 1000);
+      const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+      return mins >= 660;
+    }).slice(-20);
+  } else {
+    // Pre/around 11am: use the last 20 candles before current (excluding current + 3 lookback buffer)
+    refSlice = candles.slice(Math.max(0, lookback - 24), Math.max(0, lookback - 3));
+  }
+
   if (!refSlice.length) return { mult: 1, context: 'normal' };
-  const avgVol  = refSlice.reduce((s, c) => s + (c.volume || 0), 0) / refSlice.length;
-  const lastVol = candles[lookback]?.volume || 0;
+  const avgVol = refSlice.reduce((s, c) => s + (c.volume || 0), 0) / refSlice.length;
   if (!avgVol) return { mult: 1, context: 'normal' };
   const mult = parseFloat((lastVol / avgVol).toFixed(1));
   let context = 'normal';
@@ -125,7 +145,7 @@ function detectFlagAndPole(candles) {
       if (flagRange > poleHeight * 0.40) continue;
 
       const isBullPole = poleMovePct > 0;
-      const details    = { poleMovePct: parseFloat(poleMovePct.toFixed(2)), flagRangePct: parseFloat(flagRangePct.toFixed(2)) };
+      const details    = { poleMovePct: parseFloat(poleMovePct.toFixed(2)), flagRangePct: parseFloat(flagRangePct.toFixed(2)), flagHigh, flagLow };
 
       // Breakout from flag — confirmed signal
       if (isBullPole && c0.close > flagHigh)
@@ -644,6 +664,7 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   // ── S6: Strong Engulfing at Key Level ────────────────────────────────────
   // Engulfing candle at BOS level, VWAP, or OB zone. Volume ≥ 1.4×.
   const atKeyLevel = (pre.vwap?.atVwap) ||
+                     (!pre.vwap && (pre.ema?.atEma21 || pre.ema?.atEma50)) ||
                      (context.bos?.distPct != null && context.bos.distPct <= 0.3) ||
                      (context.orderBlock != null);
 
@@ -680,8 +701,10 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
       const s4Max = t('s4', 'pullbackMax', 65);
 
       if (pullbackPct >= s4Min && pullbackPct <= s4Max) {
-        // Re-entry: candle in same direction as power candle
-        const reEntry = (pc.direction === 'bull' && isBull0) || (pc.direction === 'bear' && !isBull0);
+        // Re-entry: candle in same direction AND close exceeds prior candle's high/low
+        const c1 = candles[n - 2];
+        const exceedsPrior = pc.direction === 'bull' ? c0.close > c1.high : c0.close < c1.low;
+        const reEntry = exceedsPrior && ((pc.direction === 'bull' && isBull0) || (pc.direction === 'bear' && !isBull0));
         if (reEntry) {
           // Volume: expanding vs prior 2 candles avg
           const priorVolAvg = ((candles[n - 2]?.volume || 0) + (candles[n - 3]?.volume || 0)) / 2;
@@ -773,7 +796,7 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
         const pct = recentBOS9.type === 'bull'
           ? Math.abs(c.high - recentBOS9.price) / recentBOS9.price * 100
           : Math.abs(c.low  - recentBOS9.price) / recentBOS9.price * 100;
-        return pct <= 0.15;
+        return pct <= 0.25;
       }).length;
       if (touchCount >= s9Touches)
         setups.push({ id: 's9_sr_flip', name: 'S/R Flip Retest', direction: recentBOS9.type, strength: 4,
@@ -797,7 +820,7 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
         const distDB = Math.abs((c0.close - l2.price) / l2.price * 100);
         if (distDB <= 0.5 && isBull0 && volDiv)
           setups.push({ id: 's10_double_bottom', name: 'Double Bottom', direction: 'bull', strength: 4,
-            sl: l2.price * 0.998, target: null, watchlistOnly: true,
+            sl: l2.price * 0.998, target: null,
             details: { level: parseFloat(l2.price.toFixed(2)), diff: parseFloat(diff.toFixed(2)), volDiv } });
       }
     }
@@ -811,36 +834,45 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
         const distDT = Math.abs((c0.close - h2.price) / h2.price * 100);
         if (distDT <= 0.5 && !isBull0 && volDiv)
           setups.push({ id: 's10_double_top', name: 'Double Top', direction: 'bear', strength: 4,
-            sl: h2.price * 1.002, target: null, watchlistOnly: true,
+            sl: h2.price * 1.002, target: null,
             details: { level: parseFloat(h2.price.toFixed(2)), diff: parseFloat(diff.toFixed(2)), volDiv } });
       }
     }
   }
 
-  // ── S11: Inside Bar Breakout (with volume confirmation) ───────────────────
+  // ── S11: Inside Bar Breakout (with volume + body confirmation) ───────────────────
   if (en('s11')) {
     const ibBull   = patterns.find(p => p.id === 'ib_breakout');
     const ibBear   = patterns.find(p => p.id === 'ib_breakdown');
     const s11Vol   = t('s11', 'volMult', 1.5);
-    if (ibBull && pre.volume.mult >= s11Vol)
+    const range0   = c0.high - c0.low;
+    const bodyPct0 = range0 > 0 ? Math.abs(c0.close - c0.open) / range0 : 0;
+    if (ibBull && pre.volume.mult >= s11Vol && bodyPct0 >= 0.30)
       setups.push({ id: 's11_ib_bull', name: 'IB Breakout', direction: 'bull', strength: 4,
         sl: candles[n - 2].low * 0.999, target: null, coversPattern: 'ib_breakout',
-        details: { volMult: pre.volume.mult } });
-    if (ibBear && pre.volume.mult >= s11Vol)
+        details: { volMult: pre.volume.mult, bodyPct: parseFloat(bodyPct0.toFixed(2)) } });
+    if (ibBear && pre.volume.mult >= s11Vol && bodyPct0 >= 0.30)
       setups.push({ id: 's11_ib_bear', name: 'IB Breakdown', direction: 'bear', strength: 4,
         sl: candles[n - 2].high * 1.001, target: null, coversPattern: 'ib_breakdown',
-        details: { volMult: pre.volume.mult } });
+        details: { volMult: pre.volume.mult, bodyPct: parseFloat(bodyPct0.toFixed(2)) } });
   }
 
-  // ── S12: VWAP + Key Level Confluence ─────────────────────────────────────
-  // Within 0.15% of VWAP AND within 0.2% of BOS level simultaneously.
-  if (en('s12') && pre.vwap?.distPct <= t('s12', 'vwapDistPct', 0.15) && context.bos?.distPct <= t('s12', 'bosDistPct', 0.2)) {
-    const bPct = (c0.high - c0.low) > 0 ? Math.abs(c0.close - c0.open) / (c0.high - c0.low) : 0;
-    if (bPct >= 0.35)
-      setups.push({ id: `s12_confluence_${isBull0 ? 'bull' : 'bear'}`, name: 'VWAP + Level Confluence',
-        direction: isBull0 ? 'bull' : 'bear', strength: 4,
-        sl: isBull0 ? pre.vwap.price * 0.999 : pre.vwap.price * 1.001, target: null,
-        details: { vwapDist: pre.vwap.distPct, bosDist: context.bos.distPct } });
+  // ── S12: VWAP + Key Level Confluence (VWAP fallback: EMA21) ─────────────────────────
+  // Within 0.15% of VWAP (or EMA21 if no VWAP) AND within 0.2% of BOS level simultaneously.
+  {
+    const s12VwapDist = t('s12', 'vwapDistPct', 0.15);
+    const s12BosDist  = t('s12', 'bosDistPct', 0.2);
+    const atVwapOrEma = pre.vwap ? pre.vwap.distPct <= s12VwapDist
+                                  : (pre.ema?.atEma21 || pre.ema?.atEma50);
+    const anchorSl    = pre.vwap ? pre.vwap.price : (pre.ema?.ema21 ?? null);
+    if (en('s12') && atVwapOrEma && context.bos?.distPct <= s12BosDist) {
+      const bPct = (c0.high - c0.low) > 0 ? Math.abs(c0.close - c0.open) / (c0.high - c0.low) : 0;
+      if (bPct >= 0.35)
+        setups.push({ id: `s12_confluence_${isBull0 ? 'bull' : 'bear'}`, name: 'VWAP + Level Confluence',
+          direction: isBull0 ? 'bull' : 'bear', strength: 4,
+          sl: anchorSl ? (isBull0 ? anchorSl * 0.999 : anchorSl * 1.001) : null, target: null,
+          details: { vwapDist: pre.vwap?.distPct ?? null, bosDist: context.bos.distPct, usedEmaFallback: !pre.vwap } });
+    }
   }
 
   // ── S13: Liquidity Sweep + CHoCH ─────────────────────────────────────────
@@ -851,11 +883,13 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
     const sH    = Math.max(...sl16.slice(0, -1).map(c => c.high));
     const sL    = Math.min(...sl16.slice(0, -1).map(c => c.low));
     const thr   = 0.001;
-    if (c1.high > sH * (1 + thr) && c1.close < sH && !isBull0 && c0.close < c1.low)
+    // CHoCH confirmation: close beyond midpoint of sweep candle (relaxed from full candle high/low)
+    const c1Mid = (c1.high + c1.low) / 2;
+    if (c1.high > sH * (1 + thr) && c1.close < sH && !isBull0 && c0.close < c1Mid)
       setups.push({ id: 's13_choch_bear', name: 'Liq. Sweep + CHoCH', direction: 'bear', strength: 4,
         sl: c1.high * 1.001, target: null, coversPattern: 'liq_sweep_high',
         details: { sweepHigh: parseFloat(sH.toFixed(2)), chochClose: c0.close } });
-    if (c1.low < sL * (1 - thr) && c1.close > sL && isBull0 && c0.close > c1.high)
+    if (c1.low < sL * (1 - thr) && c1.close > sL && isBull0 && c0.close > c1Mid)
       setups.push({ id: 's13_choch_bull', name: 'Liq. Sweep + CHoCH', direction: 'bull', strength: 4,
         sl: c1.low * 0.999, target: null, coversPattern: 'liq_sweep_low',
         details: { sweepLow: parseFloat(sL.toFixed(2)), chochClose: c0.close } });
@@ -906,11 +940,14 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
             const confIds = ['hammer','bull_pin','shooting_star','bear_pin',
                              'bull_engulfing','bear_engulfing','doji','morning_star','evening_star'];
             const hasConf = patterns.some(p => confIds.includes(p.id) && (p.direction === bos15.type || p.direction === 'neutral'));
-            if (hasConf)
+            if (hasConf) {
+              // Target: 127% extension of impulse beyond the impulse high/low
+              const ext127 = bos15.type === 'bull' ? iL + iR * 1.27 : iH - iR * 1.27;
               setups.push({ id: `s15_ote_${bos15.type}`, name: 'OTE Retracement', direction: bos15.type, strength: 4,
                 sl: bos15.type === 'bull' ? ote79 * 0.999 : ote79 * 1.001,
-                target: bos15.type === 'bull' ? iH * 1.027 : iL * 0.973,
-                details: { ote62: parseFloat(ote62.toFixed(2)), ote79: parseFloat(ote79.toFixed(2)), movePct: parseFloat(movePct.toFixed(2)) } });
+                target: parseFloat(ext127.toFixed(2)),
+                details: { ote62: parseFloat(ote62.toFixed(2)), ote79: parseFloat(ote79.toFixed(2)), movePct: parseFloat(movePct.toFixed(2)), iH: parseFloat(iH.toFixed(2)), iL: parseFloat(iL.toFixed(2)) } });
+            }
           }
         }
       }
@@ -919,17 +956,22 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
 
   // ── S16: Wyckoff Spring / Upthrust ───────────────────────────────────────
   // Price briefly breaks a defined trading range boundary then snaps back inside.
+  // Require ≥2 prior candles fully inside range (confirms it's a real range, not trend break).
   if (en('s16') && pre.tradingRange) {
     const { high: rH, low: rL } = pre.tradingRange;
     const rng = c0.high - c0.low || 1;
-    if (c0.low < rL && c0.close > rL && (c0.close - c0.low) / rng >= 0.5)
-      setups.push({ id: 's16_spring', name: 'Wyckoff Spring', direction: 'bull', strength: 4,
-        sl: c0.low * 0.999, target: rH,
-        details: { rangeLow: rL, rangeHigh: rH, wickLow: c0.low } });
-    if (c0.high > rH && c0.close < rH && (c0.high - c0.close) / rng >= 0.5)
-      setups.push({ id: 's16_upthrust', name: 'Wyckoff Upthrust', direction: 'bear', strength: 4,
-        sl: c0.high * 1.001, target: rL,
-        details: { rangeLow: rL, rangeHigh: rH, wickHigh: c0.high } });
+    // Count candles fully inside range in recent history (excluding current)
+    const insideCount = candles.slice(-8, -1).filter(c => c.low >= rL && c.high <= rH).length;
+    if (insideCount >= 2) {
+      if (c0.low < rL && c0.close > rL && (c0.close - c0.low) / rng >= 0.5)
+        setups.push({ id: 's16_spring', name: 'Wyckoff Spring', direction: 'bull', strength: 4,
+          sl: c0.low * 0.999, target: rH,
+          details: { rangeLow: rL, rangeHigh: rH, wickLow: c0.low, insideCount } });
+      if (c0.high > rH && c0.close < rH && (c0.high - c0.close) / rng >= 0.5)
+        setups.push({ id: 's16_upthrust', name: 'Wyckoff Upthrust', direction: 'bear', strength: 4,
+          sl: c0.high * 1.001, target: rL,
+          details: { rangeLow: rL, rangeHigh: rH, wickHigh: c0.high, insideCount } });
+    }
   }
 
   // ── S17: Confluence Stack (4+ independent factors) ────────────────────────
@@ -976,11 +1018,9 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
       const s19Vol = t('s19', 'volMult', 1.3);
       if (pre.volume.mult >= s19Vol) {
         const isBullFlag = flagSetup.id === 'bull_flag';
-        // Reconstruct flag range for SL (flag low for bull, flag high for bear)
-        // detectFlagAndPole already confirmed breakout; use prior candles for SL
-        const flagCandles = candles.slice(-8, -1); // approximate flag window
-        const flagHigh = Math.max(...flagCandles.map(c => c.high));
-        const flagLow  = Math.min(...flagCandles.map(c => c.low));
+        // Use exact flag range stored in flagSetup.details by detectFlagAndPole
+        const flagHigh = flagSetup.details?.flagHigh ?? Math.max(...candles.slice(-8, -1).map(c => c.high));
+        const flagLow  = flagSetup.details?.flagLow  ?? Math.min(...candles.slice(-8, -1).map(c => c.low));
         setups.push({
           id:            isBullFlag ? 's19_flag_bull' : 's19_flag_bear',
           name:          isBullFlag ? 'Bull Flag Breakout' : 'Bear Flag Breakdown',
@@ -1006,7 +1046,7 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
     const prior10L   = Math.min(...candles.slice(-11, -1).map(c => c.low));
 
     // ATR range gate: skip mid-session runaway candles (opening candle exempt)
-    const passesRangeGate = !atr || isOpening || candleRange <= 1.5 * atr;
+    const passesRangeGate = !atr || isOpening || candleRange <= 2.0 * atr;
 
     // Two-tier SL: tight when candle is normal, ATR-capped when candle is wide
     const wideCandle  = atr && candleBody > atr;
