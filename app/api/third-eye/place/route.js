@@ -68,11 +68,13 @@ function buildNiftyKiteSymbol(niftyPrice, direction, expiry) {
 
 export async function POST(req) {
   try {
-    const { niftyPrice, direction } = await req.json();
+    const { niftyPrice, direction, qty } = await req.json();
 
     if (!niftyPrice || !['bull', 'bear'].includes(direction)) {
       return NextResponse.json({ error: 'Missing or invalid niftyPrice / direction' }, { status: 400 });
     }
+
+    const quantity = Math.max(65, parseInt(qty) || 65);
 
     const expiry     = getNearestTuesdayExpiry();
     const symbol     = buildNiftyKiteSymbol(niftyPrice, direction, expiry);
@@ -106,7 +108,7 @@ export async function POST(req) {
       transaction_type: 'BUY',
       order_type:       'LIMIT',
       product:          'MIS',
-      quantity:         65,
+      quantity:         quantity,
       price:            limitPrice,
     });
 

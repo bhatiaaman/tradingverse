@@ -342,6 +342,7 @@ function getNiftyLevelAlerts(indices) {
     const [thirdEyeMode,    setThirdEyeMode]    = useState('semi'); // 'semi' | 'auto' (auto = coming soon)
     const [activeTrade,     setActiveTrade]     = useState(null);   // placed trade object
     const [tradeLTP,        setTradeLTP]        = useState(null);   // live option LTP
+    const [semiAutoQty,     setSemiAutoQty]     = useState(65);     // user-editable qty for semi-auto orders
     const [tradeExiting,    setTradeExiting]    = useState(false);
     const [tradeExited,     setTradeExited]     = useState(null);   // exit result
     const [thirdEyeLive,    setThirdEyeLive]    = useState(null);   // current forming candle (updates every 30s)
@@ -1154,7 +1155,7 @@ function getNiftyLevelAlerts(indices) {
     };
 
     // Third Eye: semi-auto order placement for S3/S6 on Nifty
-    const SEMI_AUTO_IDS = ['s3_orb_bull','s3_orb_bear','s6_engulf_bull','s6_engulf_bear','s18_bb_bull','s18_bb_bear'];
+    const SEMI_AUTO_IDS = ['s21_vwap_reclaim_bull','s21_vwap_reclaim_bear','s3_orb_bull','s3_orb_bear','s6_engulf_bull','s6_engulf_bear','s18_bb_bull','s18_bb_bear'];
 
     const placeThirdEyeOrder = async (entry) => {
       // Test mode: simulate placement without hitting the API
@@ -1173,6 +1174,7 @@ function getNiftyLevelAlerts(indices) {
           body:    JSON.stringify({
             niftyPrice: entry.candle.close,
             direction:  entry.topSetup.pattern.direction,
+            qty:        semiAutoQty,
           }),
         });
         const data = await res.json();
@@ -1183,7 +1185,7 @@ function getNiftyLevelAlerts(indices) {
             strike:     data.strike,
             optionType: data.optionType,
             limitPrice: data.limitPrice,
-            qty:        65,
+            qty:        semiAutoQty,
             direction:  entry.topSetup.pattern.direction,
             setupName:  entry.topSetup.pattern.name,
             slLevel:    entry.topSetup.pattern.sl ?? null,
@@ -3137,7 +3139,18 @@ function getNiftyLevelAlerts(indices) {
                               <span className="text-[10px] text-slate-600 font-mono">{entry.isTest ? '—' : entry.time}</span>
                             </div>
                             <p className="text-[11px] font-semibold text-white mb-1">{s.name}</p>
-                            <p className="text-[10px] text-slate-500 mb-2.5">Score {entry.topSetup.score} · <span className="text-white/70 font-mono">{optLabel}</span> · <span className="text-slate-600">{atm.expiryLabel}</span> · 65 qty</p>
+                            <div className="flex items-center gap-2 mb-2.5">
+                              <p className="text-[10px] text-slate-500">Score {entry.topSetup.score} · <span className="text-white/70 font-mono">{optLabel}</span> · <span className="text-slate-600">{atm.expiryLabel}</span></p>
+                              <div className="ml-auto flex items-center gap-1">
+                                <span className="text-[9px] text-slate-500">Qty</span>
+                                <input
+                                  type="number" min="65" step="65"
+                                  value={semiAutoQty}
+                                  onChange={e => setSemiAutoQty(Math.max(65, parseInt(e.target.value) || 65))}
+                                  className="w-16 text-[10px] font-mono text-white bg-white/10 border border-white/10 rounded px-1.5 py-0.5 text-center focus:outline-none focus:border-white/30"
+                                />
+                              </div>
+                            </div>
                             <div className="grid grid-cols-3 gap-1 mb-2 text-center">
                               <div>
                                 <p className="text-[9px] text-slate-600 mb-0.5">Entry</p>
@@ -3171,7 +3184,7 @@ function getNiftyLevelAlerts(indices) {
                                 disabled={placing}
                                 className={`w-full py-2 rounded-lg text-[11px] font-bold tracking-wide transition-all disabled:opacity-50 ${isBull ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'} text-white`}
                               >
-                                {placing ? 'Placing…' : `Buy ${optLabel} · 65 qty`}
+                                {placing ? 'Placing…' : `Buy ${optLabel} · ${semiAutoQty} qty`}
                               </button>
                             )}
                           </div>
