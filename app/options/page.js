@@ -381,6 +381,323 @@ function PayoffChart({ spot, atmStrike, premium, isStrangle, lowerStrike, upperS
   return <canvas ref={canvasRef} className="w-full h-[160px] rounded" />;
 }
 
+// ── Trade Desk: rules-based opportunity signals ───────────────────────────────
+function generateTradeDesk(chainData, straddleData) {
+  if (!chainData || !straddleData?.length) return { buys: [], sells: [], regime: null };
+
+  const { spot, atm, atmIV, hv30, ivHvRatio, straddlePremium, strikes } = chainData;
+  const buys = [], sells = [];
+
+  // Straddle stats
+  const openPremium  = straddleData[0]?.value ?? 0;
+  const curPremium   = straddleData[straddleData.length - 1]?.value ?? 0;
+  const dayLow       = Math.min(...straddleData.map(d => d.value));
+  const decayPct     = openPremium > 0 ? (openPremium - curPremium) / openPremium * 100 : 0;
+  const recoveryPct  = dayLow > 0 ? (curPremium - dayLow) / dayLow * 100 : 0;
+  const expansionPct = openPremium > 0 ? (curPremium - openPremium) / openPremium * 100 : 0;
+
+  // ATM row
+  const atmRow = strikes?.find(s => s.strike === atm);
+  const atmCe  = atmRow?.ce;
+  const atmPe  = atmRow?.pe;
+
+  // OI walls
+  const otmCalls = (strikes || []).filter(s => s.strike > spot && s.ce?.oi > 0);
+  const otmPuts  = (strikes || []).filter(s => s.strike < spot && s.pe?.oi > 0);
+  const callWall = otmCalls.reduce((m, s) => (s.ce.oi > (m?.ce?.oi || 0) ? s : m), null);
+  const putFloor = otmPuts.reduce((m, s)  => (s.pe.oi > (m?.pe?.oi || 0) ? s : m), null);
+
+  // PCR
+  const totalCeOI = (strikes || []).reduce((s, r) => s + (r.ce?.oi || 0), 0);
+  const totalPeOI = (strikes || []).reduce((s, r) => s + (r.pe?.oi || 0), 0);
+  const pcr = totalCeOI > 0 ? totalPeOI / totalCeOI : 1;
+
+  const spotAboveAtm = spot > atm;
+  const iv = ivHvRatio ?? 1;
+
+  // ── Regime ──────────────────────────────────────────────────────────────────
+  let regime;
+  if (expansionPct > 12)       regime = 'expansion';    // sellers trapped
+  else if (decayPct > 18)      regime = 'range';        // sellers in control
+  else if (recoveryPct > 15)   regime = 'recovery';     // watch for breakout
+  else                         regime = 'neutral';
+
+  // ── BUY SIGNALS ─────────────────────────────────────────────────────────────
+
+  // 1. Expansion — sellers trapped, momentum buy
+  if (expansionPct > 10) {
+    const dir = spotAboveAtm ? 'CE' : 'PE';
+    const ltp = dir === 'CE' ? atmCe?.ltp : atmPe?.ltp;
+    const reasons = [
+      `Straddle +${expansionPct.toFixed(0)}% above open — sellers squeezed`,
+      `Price ${spotAboveAtm ? 'above' : 'below'} ATM confirms ${spotAboveAtm ? 'bullish' : 'bearish'} momentum`,
+    ];
+    if (iv < 1.1) reasons.push(`IV/HV ${iv.toFixed(2)}× — options still not expensive`);
+    if (atmCe?.oiChange < -30000 || atmPe?.oiChange < -30000)
+      reasons.push(`OI unwinding at ATM — short covering adds fuel`);
+    buys.push({ strike: atm, type: dir, confidence: expansionPct > 20 ? 'HIGH' : 'MEDIUM',
+      trigger: 'expansion', reasons, ltp, sl: ltp ? (ltp * 0.60).toFixed(0) : null });
+  }
+
+  // 2. Recovery from day lows — potential breakout setup
+  if (recoveryPct > 18 && expansionPct <= 10) {
+    const dir = spotAboveAtm ? 'CE' : 'PE';
+    const ltp = dir === 'CE' ? atmCe?.ltp : atmPe?.ltp;
+    const reasons = [
+      `Straddle recovered +${recoveryPct.toFixed(0)}% from day lows (₹${dayLow.toFixed(0)} → ₹${curPremium.toFixed(0)})`,
+      `Classic seller exhaustion — watch for directional break`,
+    ];
+    if (iv < 0.95) reasons.push(`IV/HV ${iv.toFixed(2)}× — cheap options, asymmetric risk/reward`);
+    buys.push({ strike: atm, type: dir, confidence: recoveryPct > 28 ? 'HIGH' : 'MEDIUM',
+      trigger: 'recovery', reasons, ltp, sl: ltp ? (ltp * 0.60).toFixed(0) : null });
+  }
+
+  // 3. Cheap IV — pre-catalyst accumulation
+  if (iv < 0.85 && buys.length === 0) {
+    const ltp = atmCe?.ltp;
+    buys.push({ strike: atm, type: 'CE/PE', confidence: 'MEDIUM', trigger: 'cheap_iv',
+      reasons: [
+        `IV/HV ${iv.toFixed(2)}× — options priced below realized volatility`,
+        `Mathematical buyer edge: historical vol suggests bigger moves than priced`,
+        pcr < 0.8 ? `PCR ${pcr.toFixed(2)} — put writers dominant, reversal risk` :
+        pcr > 1.3 ? `PCR ${pcr.toFixed(2)} — extreme, contrarian buy signal` :
+        `Accumulate before catalyst or session expansion`,
+      ], ltp, sl: ltp ? (ltp * 0.60).toFixed(0) : null });
+  }
+
+  // ── SELL SIGNALS ─────────────────────────────────────────────────────────────
+
+  // 1. Call wall — sell OTM CE at resistance
+  if (callWall?.ce?.oi > 300000) {
+    const distPct = ((callWall.strike - spot) / spot * 100).toFixed(1);
+    const reasons = [
+      `${(callWall.ce.oi / 100000).toFixed(1)}L OI at ${callWall.strike} CE — strongest call wall`,
+      `${distPct}% above spot — heavy seller positioning at this level`,
+    ];
+    if ((callWall.ce?.oiChange || 0) > 50000)
+      reasons.push(`+${(callWall.ce.oiChange / 100000).toFixed(1)}L fresh OI today — fresh shorts`);
+    if (decayPct > 8) reasons.push(`Theta working: straddle down ${decayPct.toFixed(0)}% from open`);
+    sells.push({ strike: callWall.strike, type: 'CE', confidence: callWall.ce.oi > 800000 ? 'HIGH' : 'MEDIUM',
+      trigger: 'call_wall', strategy: 'Sell CE / Bear Call Spread',
+      reasons, ltp: callWall.ce.ltp,
+      target: (callWall.ce.ltp * 0.45).toFixed(0), sl: (callWall.ce.ltp * 1.50).toFixed(0) });
+  }
+
+  // 2. Put floor — sell OTM PE at support
+  if (putFloor?.pe?.oi > 300000) {
+    const distPct = ((spot - putFloor.strike) / spot * 100).toFixed(1);
+    const reasons = [
+      `${(putFloor.pe.oi / 100000).toFixed(1)}L OI at ${putFloor.strike} PE — strongest put wall`,
+      `${distPct}% below spot — sellers defending this support`,
+    ];
+    if ((putFloor.pe?.oiChange || 0) > 50000)
+      reasons.push(`+${(putFloor.pe.oiChange / 100000).toFixed(1)}L fresh OI — active positioning`);
+    sells.push({ strike: putFloor.strike, type: 'PE', confidence: putFloor.pe.oi > 800000 ? 'HIGH' : 'MEDIUM',
+      trigger: 'put_floor', strategy: 'Sell PE / Bull Put Spread',
+      reasons, ltp: putFloor.pe.ltp,
+      target: (putFloor.pe.ltp * 0.45).toFixed(0), sl: (putFloor.pe.ltp * 1.50).toFixed(0) });
+  }
+
+  // 3. Range day with expensive IV — sell ATM straddle
+  if (decayPct > 20 && iv > 1.1) {
+    const reasons = [
+      `Straddle decayed ${decayPct.toFixed(0)}% from open — classic range day`,
+      `IV/HV ${iv.toFixed(2)}× — options overpriced vs realized vol`,
+      `Sellers have maintained control all session`,
+    ];
+    if (!sells.find(s => s.trigger === 'range'))
+      sells.push({ strike: atm, type: 'STRADDLE', confidence: decayPct > 30 ? 'HIGH' : 'MEDIUM',
+        trigger: 'range', strategy: 'Sell ATM Straddle / Iron Condor',
+        reasons, ltp: straddlePremium,
+        target: (straddlePremium * 0.45).toFixed(0), sl: null });
+  }
+
+  return { buys: buys.slice(0, 2), sells: sells.slice(0, 2), regime,
+    stats: { decayPct, recoveryPct, expansionPct, pcr, regime } };
+}
+
+// ── Trade Desk Panel ──────────────────────────────────────────────────────────
+function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm }) {
+  const [placing,   setPlacing]   = useState(null); // strike+type key
+  const [results,   setResults]   = useState({});   // key → { ok, msg }
+
+  const REGIME_META = {
+    expansion: { label: 'EXPANSION DAY',  color: 'text-rose-400',    dot: 'bg-rose-400',    tip: 'Sellers trapped — buy breakouts, avoid selling premium' },
+    recovery:  { label: 'WATCH — RECOVERY', color: 'text-amber-400', dot: 'bg-amber-400',   tip: 'Straddle bouncing from lows — potential breakout brewing' },
+    range:     { label: 'RANGE DAY',      color: 'text-emerald-400', dot: 'bg-emerald-400', tip: 'Sellers in control — sell premium, avoid buying options' },
+    neutral:   { label: 'NEUTRAL',        color: 'text-slate-400',   dot: 'bg-slate-500',   tip: 'No clear regime — wait for signal before entering' },
+  };
+  const rm = REGIME_META[regime] || REGIME_META.neutral;
+
+  const CONF = {
+    HIGH:   { bars: 3, color: 'bg-emerald-500', label: 'HIGH' },
+    MEDIUM: { bars: 2, color: 'bg-amber-500',   label: 'MED'  },
+    LOW:    { bars: 1, color: 'bg-slate-500',   label: 'LOW'  },
+  };
+
+  async function handleQuickBuy(opp) {
+    const key = `${opp.strike}-${opp.type}`;
+    if (placing === key) return;
+    setPlacing(key);
+    try {
+      const res  = await fetch('/api/options/atm-quick-order', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, price: spot, optionType: opp.type === 'CE' ? 'CE' : 'PE', qty: null }),
+      });
+      const data = await res.json();
+      setResults(r => ({ ...r, [key]: data.ok
+        ? { ok: true,  msg: `✓ ${opp.type} @ ₹${data.entryLimit} · SL ₹${data.slTrigger}` }
+        : { ok: false, msg: `✕ ${data.error}` },
+      }));
+    } catch (e) {
+      setResults(r => ({ ...r, [key]: { ok: false, msg: `✕ ${e.message}` } }));
+    } finally {
+      setPlacing(null);
+      setTimeout(() => setResults(r => { const n = { ...r }; delete n[key]; return n; }), 8000);
+    }
+  }
+
+  const noBuys  = buys.length  === 0;
+  const noSells = sells.length === 0;
+
+  return (
+    <div className="max-w-[1400px] mx-auto px-6 pb-4">
+      {/* Regime strip */}
+      <div className="flex items-center gap-3 mb-3">
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${rm.dot}`} />
+        <span className={`text-[11px] font-bold tracking-widest ${rm.color}`}>{rm.label}</span>
+        <span className="text-[11px] text-slate-500">{rm.tip}</span>
+        <div className="flex-1 h-px bg-white/[0.05]" />
+        {stats && (
+          <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
+            {stats.expansionPct > 0
+              ? <span className="text-rose-400">Straddle +{stats.expansionPct.toFixed(0)}% vs open</span>
+              : <span className="text-emerald-400">Straddle -{stats.decayPct.toFixed(0)}% vs open</span>}
+            <span>PCR {stats.pcr.toFixed(2)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Two columns */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+
+        {/* ── BUY ZONE ── */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-bold tracking-widest text-emerald-400">⚡ BUY OPPORTUNITIES</span>
+            <div className="flex-1 h-px bg-emerald-900/40" />
+          </div>
+          {noBuys ? (
+            <div className="rounded-xl border border-white/[0.05] bg-[#0a0e18] px-4 py-3 text-[11px] text-slate-500">
+              No buying edge detected — {regime === 'range' ? 'range day, sellers in control. Wait for expansion.' : 'wait for straddle expansion or recovery signal.'}
+            </div>
+          ) : buys.map((opp, i) => {
+            const key  = `${opp.strike}-${opp.type}`;
+            const conf = CONF[opp.confidence] || CONF.MEDIUM;
+            const res  = results[key];
+            return (
+              <div key={i} className="rounded-xl border border-emerald-900/40 bg-[#071a10] px-4 py-3 space-y-2">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-emerald-300">{atm} {opp.type}</span>
+                    <span className="text-[10px] text-slate-500 font-mono">{symbol}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[9px] font-bold ${conf.color === 'bg-emerald-500' ? 'text-emerald-400' : 'text-amber-400'}`}>{conf.label}</span>
+                    <div className="flex gap-0.5">{[0,1,2].map(b => (
+                      <span key={b} className={`w-3 h-1.5 rounded-sm ${b < conf.bars ? conf.color : 'bg-slate-700'}`} />
+                    ))}</div>
+                  </div>
+                </div>
+                {/* Reasons */}
+                <ul className="space-y-0.5">
+                  {opp.reasons.map((r, j) => (
+                    <li key={j} className="flex items-start gap-1.5 text-[11px] text-slate-300">
+                      <span className="text-emerald-600 mt-0.5 flex-shrink-0">•</span>{r}
+                    </li>
+                  ))}
+                </ul>
+                {/* Numbers + action */}
+                <div className="flex items-center justify-between pt-1 border-t border-white/[0.05]">
+                  <div className="flex items-center gap-3 text-[11px] font-mono">
+                    {opp.ltp && <span className="text-white">LTP ₹{opp.ltp.toFixed(0)}</span>}
+                    {opp.sl  && <span className="text-red-400">SL ₹{opp.sl}</span>}
+                  </div>
+                  {opp.type !== 'CE/PE' && (
+                    <div className="flex items-center gap-2">
+                      {res && <span className={`text-[10px] font-mono ${res.ok ? 'text-emerald-400' : 'text-red-400'}`}>{res.msg}</span>}
+                      <button
+                        onClick={() => handleQuickBuy(opp)}
+                        disabled={!!placing}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40 transition-colors"
+                      >
+                        {placing === key ? <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : '⚡'}
+                        {placing === key ? 'Placing…' : 'Quick Buy'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── SELL ZONE ── */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-bold tracking-widest text-red-400">⊕ SELL OPPORTUNITIES</span>
+            <div className="flex-1 h-px bg-red-900/40" />
+          </div>
+          {noSells ? (
+            <div className="rounded-xl border border-white/[0.05] bg-[#0a0e18] px-4 py-3 text-[11px] text-slate-500">
+              No clear selling setup — {regime === 'expansion' ? 'expansion day, avoid selling premium.' : 'wait for high IV or clear OI wall to form.'}
+            </div>
+          ) : sells.map((opp, i) => {
+            const conf = CONF[opp.confidence] || CONF.MEDIUM;
+            return (
+              <div key={i} className="rounded-xl border border-red-900/40 bg-[#1a0a0a] px-4 py-3 space-y-2">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-red-300">{opp.strike} {opp.type}</span>
+                    <span className="text-[10px] text-slate-500 font-mono">{symbol} · {opp.strategy}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[9px] font-bold ${conf.bars === 3 ? 'text-red-400' : 'text-amber-400'}`}>{conf.label}</span>
+                    <div className="flex gap-0.5">{[0,1,2].map(b => (
+                      <span key={b} className={`w-3 h-1.5 rounded-sm ${b < conf.bars ? (conf.bars === 3 ? 'bg-red-500' : 'bg-amber-500') : 'bg-slate-700'}`} />
+                    ))}</div>
+                  </div>
+                </div>
+                {/* Reasons */}
+                <ul className="space-y-0.5">
+                  {opp.reasons.map((r, j) => (
+                    <li key={j} className="flex items-start gap-1.5 text-[11px] text-slate-300">
+                      <span className="text-red-700 mt-0.5 flex-shrink-0">•</span>{r}
+                    </li>
+                  ))}
+                </ul>
+                {/* Numbers */}
+                <div className="flex items-center justify-between pt-1 border-t border-white/[0.05]">
+                  <div className="flex items-center gap-3 text-[11px] font-mono">
+                    {opp.ltp    && <span className="text-white">Sell @ ₹{typeof opp.ltp === 'number' ? opp.ltp.toFixed(0) : opp.ltp}</span>}
+                    {opp.target && <span className="text-emerald-400">T ₹{opp.target}</span>}
+                    {opp.sl     && <span className="text-red-400">SL ₹{opp.sl}</span>}
+                  </div>
+                  <a href="/options/chart" className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors">
+                    View chart ↗
+                  </a>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Straddle / Strangle Chart (line, reuses our canvas module) ───────────────
 function StraddleChart({ data, color = '#818cf8', label = 'Straddle' }) {
   const ref    = useRef(null);
@@ -634,6 +951,17 @@ export default function OptionsPage() {
           </div>
         </div>
       )}
+
+      {/* ── Trade Desk ── */}
+      {chainData && straddleData?.length > 0 && (() => {
+        const { buys, sells, regime, stats } = generateTradeDesk(chainData, straddleData);
+        return (
+          <TradeDeskPanel
+            buys={buys} sells={sells} regime={regime} stats={stats}
+            symbol={symbol} spot={spot} atm={atm}
+          />
+        );
+      })()}
 
       {/* ── Two-column: Straddle Chart + Probability Panel ── */}
       {chainData && (
