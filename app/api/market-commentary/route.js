@@ -794,12 +794,34 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
     warnings.push(`BankNifty leading Nifty by ${bankRelStrength.diff.toFixed(1)}% — financial sector driving momentum`);
   }
 
-  // ── Regime qualification — incorporate intraday regime into commentary ──
-  // OI signals can be misleading when regime is adversarial (TRAP_DAY, TREND_DAY_DOWN).
+  // ── Regime declarations — needed by both pre-squeeze check and regime block below ──
   const regime = intraday?.intradayRegime;
   const regimeType = regime?.regime;
   const regimeConf = regime?.confidence;
 
+  // ── Pre-squeeze early warning — fires BEFORE regime block (predictive, not confirmed) ──
+  // Regime SHORT_SQUEEZE fires from candle structure (post-trigger). This fires from
+  // positioning data (pre-trigger): low PCR + spot deeply below max pain = compressed short book.
+  // Only inject if the squeeze hasn't already been confirmed by the regime engine.
+  if (maxPain && pcr != null && regimeType !== 'SHORT_SQUEEZE') {
+    const mpGap = maxPain - spot; // positive = spot below max pain (bullish magnetic pull)
+    if (mpGap >= 200 && pcr < 0.55) {
+      // EXTREME: both signals maxed out — lead the warnings list
+      const floorMsg = oiSupport ? ` Put wall ₹${oiSupport} is the floor; break up = covering cascade.` : '';
+      warnings.unshift(`🚨 Short squeeze risk EXTREME — spot ₹${spot.toFixed(0)} is ${mpGap.toFixed(0)}pts below max pain ₹${maxPain} with PCR ${pcr.toFixed(2)}. Massive short book compressed. One catalyst = violent covering rally.${floorMsg}`);
+      // Upgrade bias to BULLISH if neutral — positioning strongly favours an upside snap
+      if (bias === 'NEUTRAL') { bias = 'BULLISH'; biasEmoji = '🟢'; }
+    } else if (mpGap >= 150 && pcr < 0.65) {
+      // HIGH: strong squeeze conditions — notable warning
+      warnings.push(`🔥 Short squeeze conditions HIGH — spot ${mpGap.toFixed(0)}pts below max pain ₹${maxPain}, PCR ${pcr.toFixed(2)} (heavy call writing = large short book). Watch for put wall break as ignition trigger.`);
+    } else if (mpGap >= 100 && pcr < 0.70) {
+      // MODERATE: worth flagging
+      warnings.push(`⚠️ Short covering watch — spot ${mpGap.toFixed(0)}pts below max pain ₹${maxPain} with PCR ${pcr.toFixed(2)}. Monitor for rapid upside if put wall holds.`);
+    }
+  }
+
+  // ── Regime qualification — incorporate intraday regime into commentary ──
+  // OI signals can be misleading when regime is adversarial (TRAP_DAY, TREND_DAY_DOWN).
   if (regimeType === 'TRAP_DAY' && regimeConf !== 'LOW') {
     // Trap day: OI signals are unreliable — longs are being set up for a squeeze in the wrong direction.
     // Prepend to warnings regardless of what OI says.

@@ -84,6 +84,238 @@ function decayProgress(istH, istM) {
   return Math.min(100, Math.round(100 * Math.sqrt(Math.min(elapsed, 375) / 375)));
 }
 
+// ── Short Squeeze Risk Engine ─────────────────────────────────────────────────
+// Returns a score 0-100 + per-signal breakdown.
+// A squeeze forms when: spot is deeply below max pain (magnetic upward pull),
+// PCR is very low (extreme bearish consensus = huge short book = contrarian fuel),
+// IV is inflated (sellers complacent, options expensive = covering is violent),
+// and straddle is confirming directional expansion rather than decaying.
+function computeShortSqueezeRisk({ spot, maxPain, pcr, ivHvRatio, straddleCandles, walls, prevPCR }) {
+  if (spot == null || !maxPain || pcr == null) return null;
+
+  const signals = [];
+  let totalScore = 0;
+
+  // ── Signal 1: Spot vs Max Pain (weight: 35pts)
+  // If spot is BELOW max pain, there is natural upward gravitational pull.
+  // The further below, the more violent the potential squeeze.
+  const mpDelta = maxPain - spot; // positive = spot below max pain (bullish squeeze setup)
+  let mpScore = 0;
+  let mpLabel = '';
+  let mpDesc = '';
+  if (mpDelta >= 300) { mpScore = 35; mpLabel = 'CRITICAL'; mpDesc = `Spot is ${mpDelta.toFixed(0)}pts BELOW max pain ₹${maxPain} — extreme magnetic pull upward. Short book is deeply underwater.`; }
+  else if (mpDelta >= 150) { mpScore = 25; mpLabel = 'HIGH'; mpDesc = `Spot is ${mpDelta.toFixed(0)}pts below max pain ₹${maxPain}. Strong upside gravitational pull building.`; }
+  else if (mpDelta >= 75)  { mpScore = 15; mpLabel = 'MODERATE'; mpDesc = `Spot is ${mpDelta.toFixed(0)}pts below max pain — some upward pull. Watch for acceleration.`; }
+  else if (mpDelta >= 0)   { mpScore = 5;  mpLabel = 'LOW'; mpDesc = `Spot near or at max pain — limited squeeze fuel from this signal.`; }
+  else                     { mpScore = 0;  mpLabel = 'NONE'; mpDesc = `Spot is ABOVE max pain — downside gravity, not a squeeze setup from this signal.`; }
+  signals.push({ name: 'Spot vs Max Pain', score: mpScore, max: 35, label: mpLabel, desc: mpDesc, icon: '🎯' });
+  totalScore += mpScore;
+
+  // ── Signal 2: PCR (weight: 30pts)
+  // Extremely low PCR = everyone is bearish = massive short book = fuel
+  // Paradox: low PCR on expiry morning is contrarian BULLISH (squeeze fuel)
+  let pcrScore = 0;
+  let pcrLabel = '';
+  let pcrDesc = '';
+  if (pcr < 0.45)      { pcrScore = 30; pcrLabel = 'EXTREME FUEL'; pcrDesc = `PCR ${pcr.toFixed(2)} — historically extreme bearish consensus. This level of call-writing dominance is the hallmark of a short-covering event.`; }
+  else if (pcr < 0.60) { pcrScore = 22; pcrLabel = 'HIGH FUEL'; pcrDesc = `PCR ${pcr.toFixed(2)} — very bearish positioning. Large short book in place; put wall defense means violent covering if that level breaks.`; }
+  else if (pcr < 0.75) { pcrScore = 13; pcrLabel = 'MODERATE FUEL'; pcrDesc = `PCR ${pcr.toFixed(2)} — mildly skewed toward bears. Some short fuel but consensus not extreme enough for a full squeeze.`; }
+  else if (pcr < 0.90) { pcrScore = 5;  pcrLabel = 'LOW FUEL'; pcrDesc = `PCR ${pcr.toFixed(2)} — near-balanced. Limited squeeze fuel from positioning alone.`; }
+  else                 { pcrScore = 0;  pcrLabel = 'NONE'; pcrDesc = `PCR ${pcr.toFixed(2)} — put-heavy. Market not in an oversold short-heavy state; different risk profile.`; }
+  // PCR trend bonus: if PCR is rising fast (shorts covering puts), add 5pts
+  const pcrTrend = prevPCR != null && (pcr - prevPCR) > 0.08;
+  if (pcrTrend && pcrScore > 0) { pcrScore = Math.min(pcrScore + 5, 30); pcrDesc += ` PCR rising rapidly from ${prevPCR?.toFixed(2)} — active covering underway.`; }
+  signals.push({ name: 'PCR (Short Book Size)', score: pcrScore, max: 30, label: pcrLabel, desc: pcrDesc, icon: '📊', trend: pcrTrend ? '↑' : null });
+  totalScore += pcrScore;
+
+  // ── Signal 3: IV/HV Ratio (weight: 20pts)
+  // High IV relative to realised vol = sellers are complacent, premiums inflated
+  // When covering hits, these inflated options explode — amplifying the move
+  let ivScore = 0;
+  let ivLabel = '';
+  let ivDesc = '';
+  if (ivHvRatio != null) {
+    if (ivHvRatio >= 1.5)      { ivScore = 20; ivLabel = 'EXTREME'; ivDesc = `IV/HV ${ivHvRatio.toFixed(2)}× — options severely overpriced vs realised vol. Short-sellers are complacent; covering will be explosive.`; }
+    else if (ivHvRatio >= 1.3) { ivScore = 14; ivLabel = 'HIGH'; ivDesc = `IV/HV ${ivHvRatio.toFixed(2)}× — elevated IV. If a squeeze triggers, option moves will amplify the price action.`; }
+    else if (ivHvRatio >= 1.1) { ivScore = 8;  ivLabel = 'MODERATE'; ivDesc = `IV/HV ${ivHvRatio.toFixed(2)}× — options mildly expensive. Normal squeeze conditions.`; }
+    else                       { ivScore = 2;  ivLabel = 'LOW'; ivDesc = `IV/HV ${ivHvRatio.toFixed(2)}× — IV near realised vol. Squeeze less likely to be violent.`; }
+  } else {
+    ivLabel = 'NO DATA'; ivDesc = 'IV/HV data unavailable.';
+  }
+  signals.push({ name: 'IV / Realised Vol', score: ivScore, max: 20, label: ivLabel, desc: ivDesc, icon: '📈' });
+  totalScore += ivScore;
+
+  // ── Signal 4: Straddle Direction (weight: 15pts)
+  // On a sQueeze day, the straddle premium should be RISING (not decaying)
+  // Rising straddle = IV expansion = directional move, not a theta-decay day
+  let sScore = 0;
+  let sLabel = '';
+  let sDesc = '';
+  if (straddleCandles?.length >= 3) {
+    const open = straddleCandles[0].value;
+    const recent = straddleCandles[straddleCandles.length - 1].value;
+    const pctChange = ((recent - open) / open) * 100;
+    if (pctChange >= 20)       { sScore = 15; sLabel = 'EXPANDING'; sDesc = `Straddle UP ${pctChange.toFixed(0)}% from open — IV exploding. A directional move is already underway; this is live squeeze confirmation.`; }
+    else if (pctChange >= 8)   { sScore = 10; sLabel = 'RISING'; sDesc = `Straddle UP ${pctChange.toFixed(0)}% — premium expanding. Market is pricing in a breakout; early squeeze signal.`; }
+    else if (pctChange >= -5)  { sScore = 5;  sLabel = 'FLAT'; sDesc = `Straddle roughly flat. No clear directional conviction yet, but conditions are ripe.`; }
+    else                       { sScore = 0;  sLabel = 'DECAYING'; sDesc = `Straddle DOWN ${Math.abs(pctChange).toFixed(0)}% — theta winning. Less likely a squeeze day; sellers in control.`; }
+  } else {
+    sLabel = 'NO DATA'; sDesc = 'Straddle intraday data not yet available (pre-market or data loading).';
+    sScore = 5; // neutral pre-market
+  }
+  signals.push({ name: 'Straddle Direction', score: sScore, max: 15, label: sLabel, desc: sDesc, icon: '⚡' });
+  totalScore += sScore;
+
+  // ── Overall Risk Level
+  let risk, riskColor, riskBg, riskBorder, riskMsg, riskEmoji;
+  if (totalScore >= 75) {
+    risk = 'EXTREME'; riskEmoji = '🚨';
+    riskColor = 'text-red-400';
+    riskBg = 'bg-red-500/10'; riskBorder = 'border-red-500/30';
+    riskMsg = 'Conditions for a violent short squeeze are fully aligned. Be prepared for a fast, one-directional up-move. Watch the nearest put wall as the ignition trigger — once it breaks up, covering accelerates.';
+  } else if (totalScore >= 50) {
+    risk = 'HIGH'; riskEmoji = '🔥';
+    riskColor = 'text-orange-400';
+    riskBg = 'bg-orange-500/10'; riskBorder = 'border-orange-500/30';
+    riskMsg = 'Short squeeze conditions are building. Multiple signals align — a catalyst or put-wall break could trigger rapid short covering. Avoid new short positions without a clear thesis.';
+  } else if (totalScore >= 28) {
+    risk = 'MODERATE'; riskEmoji = '⚠️';
+    riskColor = 'text-amber-400';
+    riskBg = 'bg-amber-500/10'; riskBorder = 'border-amber-500/30';
+    riskMsg = 'Some squeeze conditions present but not at critical levels. Monitor PCR and straddle direction for escalation. Be cautious initiating new shorts.';
+  } else {
+    risk = 'LOW'; riskEmoji = '✅';
+    riskColor = 'text-emerald-400';
+    riskBg = 'bg-emerald-500/8'; riskBorder = 'border-emerald-500/20';
+    riskMsg = 'No significant short-squeeze pressure detected. Normal expiry dynamics — focus on pinning and theta decay.';
+  }
+
+  // Ignition level: the nearest put wall ABOVE spot (where covering accelerates)
+  const ignitionWall = walls?.support
+    ?.filter(s => s.strike > spot)
+    .sort((a, b) => a.strike - b.strike)[0] ?? null;
+  // Also find the nearest put wall AT or BELOW spot (defending floor)
+  const floorWall = walls?.support
+    ?.filter(s => s.strike <= spot)
+    .sort((a, b) => b.strike - a.strike)[0] ?? null;
+
+  return { score: totalScore, risk, riskColor, riskBg, riskBorder, riskMsg, riskEmoji, signals, ignitionWall, floorWall, mpDelta };
+}
+
+// ── Short Squeeze Risk Card Component ─────────────────────────────────────────
+function ShortSqueezeCard({ squeeze, spot }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!squeeze) return null;
+
+  const { score, risk, riskColor, riskBg, riskBorder, riskMsg, riskEmoji, signals, ignitionWall, floorWall, mpDelta } = squeeze;
+
+  return (
+    <div className={`rounded-xl border overflow-hidden ${riskBg} ${riskBorder}`}>
+      {/* Header */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full px-4 pt-3.5 pb-3 flex items-center gap-3 text-left"
+      >
+        <span className="text-xl leading-none">{riskEmoji}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Short Squeeze Risk</span>
+            <span className={`text-sm font-black ${riskColor}`}>{risk}</span>
+          </div>
+          {/* Score bar */}
+          <div className="mt-1.5 h-1.5 bg-black/30 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${
+                score >= 75 ? 'bg-red-500' : score >= 50 ? 'bg-orange-500' : score >= 28 ? 'bg-amber-500' : 'bg-emerald-500'
+              }`}
+              style={{ width: `${Math.min(score, 100)}%` }}
+            />
+          </div>
+          <div className="flex justify-between mt-0.5">
+            <span className="text-[9px] text-slate-600">Score: {score}/100</span>
+            <span className="text-[9px] text-slate-600">{expanded ? '▲ hide signals' : '▼ show signals'}</span>
+          </div>
+        </div>
+      </button>
+
+      {/* Risk message */}
+      <div className="px-4 pb-3">
+        <p className="text-[11px] text-slate-300 leading-relaxed">{riskMsg}</p>
+      </div>
+
+      {/* Ignition level warning */}
+      {(ignitionWall || floorWall) && (risk === 'EXTREME' || risk === 'HIGH' || risk === 'MODERATE') && (
+        <div className="mx-4 mb-3 rounded-lg bg-black/20 px-3 py-2 space-y-1.5">
+          {floorWall && (
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="text-emerald-400">🛡</span>
+              <span className="text-slate-400">Put wall floor:</span>
+              <span className="font-mono font-bold text-emerald-400">₹{floorWall.strike}</span>
+              <span className="text-slate-600">({fmtL(floorWall.oi)} OI)</span>
+              <span className="text-slate-500">— defend this level</span>
+            </div>
+          )}
+          {ignitionWall && (
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="text-orange-400">🚀</span>
+              <span className="text-slate-400">Ignition above:</span>
+              <span className="font-mono font-bold text-orange-300">₹{ignitionWall.strike}</span>
+              <span className="text-slate-600">({fmtL(ignitionWall.oi)} OI)</span>
+              <span className="text-slate-500">— break triggers covering</span>
+            </div>
+          )}
+          {mpDelta > 0 && (
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="text-violet-400">🎯</span>
+              <span className="text-slate-400">Max pain target:</span>
+              <span className="font-mono font-bold text-violet-300">+{mpDelta.toFixed(0)}pts upside</span>
+              <span className="text-slate-500">if squeeze completes</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Signal breakdown (expandable) */}
+      {expanded && (
+        <div className="px-4 pb-4 space-y-2 border-t border-white/5 pt-3">
+          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Signal Breakdown</div>
+          {signals.map((sig, i) => (
+            <div key={i} className="space-y-0.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">{sig.icon}</span>
+                  <span className="text-[11px] font-semibold text-slate-300">{sig.name}</span>
+                  {sig.trend && <span className="text-[10px] text-emerald-400 font-bold">{sig.trend}</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-semibold ${
+                    sig.score / sig.max >= 0.8 ? 'text-red-400' :
+                    sig.score / sig.max >= 0.5 ? 'text-orange-400' :
+                    sig.score / sig.max >= 0.25 ? 'text-amber-400' : 'text-slate-500'
+                  }`}>{sig.label}</span>
+                  <span className="text-[10px] font-mono text-slate-600">{sig.score}/{sig.max}</span>
+                </div>
+              </div>
+              {/* Signal bar */}
+              <div className="h-1 bg-black/30 rounded-full overflow-hidden ml-5">
+                <div
+                  className={`h-full rounded-full ${
+                    sig.score / sig.max >= 0.8 ? 'bg-red-500' :
+                    sig.score / sig.max >= 0.5 ? 'bg-orange-500' :
+                    sig.score / sig.max >= 0.25 ? 'bg-amber-500' : 'bg-emerald-500/50'
+                  }`}
+                  style={{ width: `${(sig.score / sig.max) * 100}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-slate-500 leading-relaxed ml-5">{sig.desc}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Generate running commentary (5 lines max) ─────────────────────────────────
 function makeCommentary({ spot, atm, maxPain, pcr, straddlePremium, ivHvRatio,
                           walls, straddleCandles, istH, istM, prevPCR, prevSpot,
@@ -123,13 +355,32 @@ function makeCommentary({ spot, atm, maxPain, pcr, straddlePremium, ivHvRatio,
       lines.push({ icon: '🎯', c: 'text-orange-400',  t: `Spot ₹${fmt(spot)} is ${d.toFixed(0)}pts from max pain ₹${maxPain} — far from pin zone. Trending session in play.` });
   }
 
+  // 1.5 — Short squeeze warning (contrarian read: low PCR + spot below max pain = squeeze fuel)
+  // This fires BEFORE the PCR line intentionally — it reframes what low PCR actually means in this context.
+  if (spot && maxPain && pcr != null) {
+    const mpGap   = maxPain - spot; // positive = spot below max pain
+    const pcrTrend = prevPCR != null && (pcr - prevPCR) > 0.06; // PCR rising = covering underway
+    if (mpGap >= 200 && pcr < 0.55) {
+      const floorWallStr = walls?.support?.filter(s => s.strike <= spot).sort((a, b) => b.strike - a.strike)[0];
+      const floorMsg = floorWallStr ? ` Put wall ₹${floorWallStr.strike} is the floor to defend.` : '';
+      lines.push({ icon: '🚨', c: 'text-red-400',
+        t: `SHORT SQUEEZE RISK HIGH — spot ₹${fmt(spot)} is ${mpGap.toFixed(0)}pts below max pain ₹${maxPain} with PCR ${pcr.toFixed(2)}. Massive short book is compressed. One catalyst = violent covering rally.${floorMsg}` });
+    } else if (mpGap >= 150 && pcr < 0.65) {
+      lines.push({ icon: '🔥', c: 'text-orange-400',
+        t: `Short squeeze conditions building — spot ${mpGap.toFixed(0)}pts below max pain, PCR ${pcr.toFixed(2)} (heavy shorts). ${pcrTrend ? 'PCR rising — early covering signals.' : 'Watch for put wall break as the ignition trigger.'}` });
+    } else if (pcrTrend && pcr < 0.80) {
+      lines.push({ icon: '⚠️', c: 'text-amber-400',
+        t: `PCR rising (${prevPCR?.toFixed(2)} → ${pcr.toFixed(2)}) — short covering may be underway. Monitor straddle expansion for confirmation.` });
+    }
+  }
+
   // 2. PCR with change detection
   if (pcr != null) {
     const delta = (prevPCR != null && Math.abs(pcr - prevPCR) > 0.05)
       ? ` (${pcr > prevPCR ? '↑ from ' : '↓ from '}${prevPCR.toFixed(2)} — ${pcr > prevPCR ? 'put writing picking up, bearish' : 'call writing increasing, bullish'})`
       : '';
     if (pcr < 0.5)
-      lines.push({ icon: '📊', c: 'text-red-400',     t: `PCR ${pcr.toFixed(2)} — very bearish. Heavy call writing capping rallies.${delta}` });
+      lines.push({ icon: '📊', c: 'text-red-400',     t: `PCR ${pcr.toFixed(2)} — very bearish. Heavy call writing capping rallies.${delta} Note: in squeeze setups, low PCR = contrarian fuel — see Short Squeeze Risk card.` });
     else if (pcr < 0.8)
       lines.push({ icon: '📊', c: 'text-orange-400',  t: `PCR ${pcr.toFixed(2)} — mildly bearish. More calls written; range bias with downward tilt.${delta}` });
     else if (pcr > 1.3)
@@ -495,11 +746,19 @@ export default function ExpiryPage() {
     });
     const rec = makeRecommendation({ spot, atm, maxPain, pcr, straddlePremium, ivHvRatio, walls, istH, istM });
 
+    // Short squeeze risk score
+    const squeeze = computeShortSqueezeRisk({
+      spot, maxPain, pcr, ivHvRatio,
+      straddleCandles: straddleData,
+      walls,
+      prevPCR: prevRef.current?.pcr,
+    });
+
     prevRef.current = { pcr, spot, straddlePremium };
 
     return { spot, atm, strikes, expiry, expiries, straddlePremium, atmIV, hv30, ivHvRatio,
              expMove, maxPain, pcr, walls, expiryDay, daysLeft, pinScore, gamma, decayPct,
-             nearStrikes, commentary, rec, expectedOpenPrice, expectedOpenStrike, step };
+             nearStrikes, commentary, rec, expectedOpenPrice, expectedOpenStrike, step, squeeze };
   }, [chainData, straddleData, giftData]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -731,6 +990,9 @@ export default function ExpiryPage() {
 
             {/* Right: Intelligence panels */}
             <div className="lg:col-span-2 space-y-3">
+
+              {/* ── Short Squeeze Risk Card — topmost, most important on expiry day */}
+              <ShortSqueezeCard squeeze={d.squeeze} spot={d.spot} />
 
               {/* Pinning Score */}
               {d.pinScore && (
