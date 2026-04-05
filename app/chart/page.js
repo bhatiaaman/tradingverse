@@ -139,6 +139,15 @@ function ChartPageInner() {
   const [quickStatus,  setQuickStatus]  = useState(null); // null | 'loading' | { ok, rows, error }
   const quickTimerRef = useRef(null);
 
+  // Fetch lot size when index symbol changes
+  useEffect(() => {
+    if (!(symbol in INDEX_STRIKE_STEP)) return;
+    fetch(`/api/option-meta?action=lotsize&symbol=${symbol}`)
+      .then(r => r.json())
+      .then(d => { if (d.lotSize) { setQuickLotSize(d.lotSize); setQuickQty(d.lotSize); } })
+      .catch(() => {});
+  }, [symbol]);
+
   const containerRef   = useRef(null);
   const chartRef       = useRef(null);
   const settingsBtnRef = useRef(null);

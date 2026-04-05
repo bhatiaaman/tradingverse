@@ -252,6 +252,16 @@ export async function GET(request) {
       return NextResponse.json({ tradingSymbol: ts, lotSize });
     }
 
+    // Returns lot size for a symbol from cache
+    if (action === 'lotsize') {
+      if (!symbol) return NextResponse.json({ error: 'symbol required' }, { status: 400 });
+      let lotSize = await redisGet(`${NS}:fno-lotsize:${symbol}`);
+      if (lotSize === null) {
+        try { const { symbolMap } = await parseAndCacheNFO(dp); lotSize = symbolMap[symbol]?.lotSize ?? null; } catch { /* non-critical */ }
+      }
+      return NextResponse.json({ lotSize });
+    }
+
     // Returns current spot/LTP for an underlying — used to auto-select ATM strike
     if (action === 'spot') {
       if (!symbol) return NextResponse.json({ error: 'symbol required' }, { status: 400 });
