@@ -68,7 +68,7 @@ function buildNiftyKiteSymbol(niftyPrice, direction, expiry) {
 
 export async function POST(req) {
   try {
-    const { niftyPrice, direction, qty } = await req.json();
+    const { niftyPrice, direction, qty, niftySl } = await req.json();
 
     if (!niftyPrice || !['bull', 'bear'].includes(direction)) {
       return NextResponse.json({ error: 'Missing or invalid niftyPrice / direction' }, { status: 400 });
@@ -101,10 +101,18 @@ export async function POST(req) {
     // Entry: LIMIT at LTP + ₹2 (aggressive limit — ensures fill, acts like market)
     const entryLimit = parseFloat((ltp + 2).toFixed(1));
 
-    // SL: 40% of premium. Trigger at 60% of LTP, limit ₹2 below trigger.
-    // Using LTP (not entryLimit) as the premium reference — closer to actual fill.
-    const slTrigger = parseFloat((ltp * 0.60).toFixed(1));
-    const slLimit   = parseFloat((slTrigger - 2).toFixed(1));
+    // SL: derived from S21's Nifty structure SL level
+    // nifty_sl_distance × ATM delta (≈0.5) = premium drop at SL
+    // Fallback: 40% of premium if no Nifty SL passed
+    let slTrigger;
+    if (niftySl && Math.abs(niftyPrice - niftySl) > 0) {
+      const niftySlDist  = Math.abs(niftyPrice - niftySl);
+      const premiumDrop  = niftySlDist * 0.5; // ATM delta ≈ 0.5
+      slTrigger = parseFloat(Math.max(ltp - premiumDrop, ltp * 0.30).toFixed(1)); // floor at 70% loss
+    } else {
+      slTrigger = parseFloat((ltp * 0.60).toFixed(1)); // fallback: 40% loss
+    }
+    const slLimit = parseFloat((slTrigger - 2).toFixed(1));
 
     // ── Place entry order ─────────────────────────────────────────────────────
     const broker      = await getBroker();
@@ -148,6 +156,7 @@ export async function POST(req) {
       entryLimit,
       slTrigger,
       slLimit,
+      niftySl:    niftySl ?? null,
       orderId:    entryOrder.order_id,
       slOrderId:  slOrder?.order_id ?? null,
       slError:    slError ?? null,

@@ -1186,6 +1186,7 @@ function getNiftyLevelAlerts(indices) {
             niftyPrice: entry.candle.close,
             direction:  entry.topSetup.pattern.direction,
             qty:        semiAutoQty,
+            niftySl:    entry.topSetup.pattern.sl ?? null,
           }),
         });
         const data = await res.json();
@@ -3188,11 +3189,17 @@ function getNiftyLevelAlerts(indices) {
                                     <span className="text-white">₹{placed.entryLimit ?? placed.limitPrice}</span>
                                   </div>
                                   <div className="flex justify-between text-[10px] font-mono">
-                                    <span className="text-slate-500">SL trigger</span>
+                                    <span className="text-slate-500">SL trigger (prem)</span>
                                     <span className={placed.slOrderId ? 'text-rose-400' : 'text-amber-400'}>
                                       {placed.slOrderId ? `₹${placed.slTrigger} ✓` : `₹${placed.slTrigger} ⚠ manual`}
                                     </span>
                                   </div>
+                                  {placed.niftySl && (
+                                    <div className="flex justify-between text-[10px] font-mono">
+                                      <span className="text-slate-500">Nifty SL level</span>
+                                      <span className="text-rose-300">₹{placed.niftySl.toFixed(0)}</span>
+                                    </div>
+                                  )}
                                   {placed.slError && (
                                     <div className="text-[9px] text-amber-400/80">SL order failed: {placed.slError} — set manually</div>
                                   )}
