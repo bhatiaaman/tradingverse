@@ -612,6 +612,11 @@ function OptionsChartInner() {
   const [loadingStr,  setLoadingStr]  = useState(false);
   const [synthesis,   setSynthesis]   = useState(null); // { line, color, icon, regime }
 
+  // Preload cache: { [symbol]: { expiries, strikes, ltp, firstExpiry } }
+  // Populated in background after mount so symbol switches are instant.
+  const preloadCache = useRef({});
+  const preloadQueued = useRef(new Set());
+
   const urlStrikeRef    = useRef(params.get('strike') ? Number(params.get('strike')) : null);
   const urlExpiryRef    = useRef(params.get('expiry') || null); // honoured once on initial load
   const lastLoadedRef   = useRef(null);
@@ -660,71 +665,117 @@ function OptionsChartInner() {
     setShowOverlays(true);
   };
 
-  // ── Meta fetching ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    fetch('/api/option-meta?action=symbols').then(r => r.json()).then(d => { if (d.symbols) setAllSymbols(d.symbols); }).catch(() => {}).finally(() => setLoadingMeta(false));
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function pickATM(list, spot, sym) {
+    if (!spot || !list.length) return list[Math.floor(list.length / 2)] ?? null;
+    const step = nseStrikeSteps[sym] ?? (spot >= 5000 ? 50 : spot >= 1000 ? 20 : spot >= 500 ? 10 : spot >= 100 ? 5 : 2.5);
+    const snapped = Math.round(spot / step) * step;
+    return list.reduce((p, c) => Math.abs(c - snapped) < Math.abs(p - snapped) ? c : p);
+  }
+
+  // Prefetch a symbol into cache (no-op if already cached or in flight)
+  const prefetchSymbol = useCallback(async (sym) => {
+    if (preloadCache.current[sym] || preloadQueued.current.has(sym)) return;
+    preloadQueued.current.add(sym);
+    try {
+      const d = await fetch(`/api/option-meta?action=prefetch&symbol=${sym}`).then(r => r.json());
+      if (d.expiries?.length) preloadCache.current[sym] = d;
+    } catch {}
   }, []);
 
+  // ── On mount: load symbols, prefetch initial symbol immediately, rest in background ──
+  useEffect(() => {
+    async function init() {
+      // Prefetch current symbol first (user sees it immediately)
+      await prefetchSymbol(symbol);
+
+      // Populate symbol list
+      const d = await fetch('/api/option-meta?action=symbols').then(r => r.json()).catch(() => ({}));
+      const syms = d.symbols || [];
+      if (syms.length) setAllSymbols(syms);
+      setLoadingMeta(false);
+
+      // Prefetch remaining symbols in background, 4 at a time
+      const others = syms.map(s => s.name).filter(s => s !== symbol);
+      const BATCH = 4;
+      for (let i = 0; i < others.length; i += BATCH) {
+        await Promise.all(others.slice(i, i + BATCH).map(prefetchSymbol));
+      }
+    }
+    init().catch(() => setLoadingMeta(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── On symbol change: apply from cache instantly, or fetch if cache miss ──
   useEffect(() => {
     if (!symbol) return;
     lastLoadedRef.current = null;
-    urlStrikeRef.current = null; // clear stale URL strike — only honour it for the initial symbol
-    // Clear chart immediately so stale symbol's chart doesn't show while loading
     setChartKey(null);
-    setExpiry(''); setStrike(null); setStrikes([]); setExpiries([]); setLoadingExp(true);
-    let cancelled = false;
-    fetch(`/api/option-meta?action=expiries&symbol=${symbol}`).then(r => r.json()).then(d => {
-      if (cancelled) return;
-      if (d.expiries?.length) {
-        setExpiries(d.expiries);
-        const urlExp = urlExpiryRef.current;
-        urlExpiryRef.current = null; // only honour once
-        const match = urlExp && d.expiries.find(e => e.date === urlExp);
-        setExpiry(match ? urlExp : d.expiries[0].date);
+    setStrike(null); setStrikes([]); setExpiries([]);
+
+    const cached = preloadCache.current[symbol];
+    if (cached?.expiries?.length) {
+      // Cache hit — instant
+      const urlExp = urlExpiryRef.current; urlExpiryRef.current = null;
+      const matchExp = urlExp && cached.expiries.find(e => e.date === urlExp);
+      const chosenExp = matchExp ? urlExp : cached.expiries[0].date;
+      const strikesForExp = chosenExp === cached.firstExpiry
+        ? (cached.strikes || [])
+        : null; // need to fetch if different expiry
+
+      setExpiries(cached.expiries);
+      setExpiry(chosenExp);
+      setSpotPrice(cached.ltp ?? null);
+
+      if (strikesForExp?.length) {
+        setStrikes(strikesForExp);
+        const urlStrike = urlStrikeRef.current; urlStrikeRef.current = null;
+        if (urlStrike && strikesForExp.includes(Number(urlStrike))) setStrike(Number(urlStrike));
+        else setStrike(pickATM(strikesForExp, cached.ltp, symbol));
       }
-    }).catch(() => {}).finally(() => { if (!cancelled) setLoadingExp(false); });
-    return () => { cancelled = true; };
+      // Prefetch this symbol again in background to refresh spot price
+      prefetchSymbol(symbol + '__refresh__').catch(() => {});
+    } else {
+      // Cache miss — fetch (shouldn't happen after preload completes, but handles early clicks)
+      urlStrikeRef.current = null;
+      setLoadingExp(true);
+      let cancelled = false;
+      fetch(`/api/option-meta?action=prefetch&symbol=${symbol}`).then(r => r.json()).then(d => {
+        if (cancelled || !d.expiries?.length) return;
+        preloadCache.current[symbol] = d;
+        const urlExp = urlExpiryRef.current; urlExpiryRef.current = null;
+        const match = urlExp && d.expiries.find(e => e.date === urlExp);
+        const chosenExp = match ? urlExp : d.expiries[0].date;
+        setExpiries(d.expiries);
+        setExpiry(chosenExp);
+        setSpotPrice(d.ltp ?? null);
+        if (d.strikes?.length) {
+          setStrikes(d.strikes);
+          setStrike(pickATM(d.strikes, d.ltp, symbol));
+        }
+      }).catch(() => {}).finally(() => { if (!cancelled) setLoadingExp(false); });
+      return () => { cancelled = true; };
+    }
   }, [symbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── On expiry change: load strikes from cache or fetch ───────────────────
   useEffect(() => {
     if (!symbol || !expiry) return;
+    const cached = preloadCache.current[symbol];
+    // If we already set strikes for this expiry from cache in the symbol effect, skip
+    if (cached?.firstExpiry === expiry && strikes.length) return;
+
     setStrike(null); setStrikes([]); setLoadingStr(true);
     let cancelled = false;
-
-    function pickATM(list, spot, sym) {
-      if (!spot || !list.length) return list[Math.floor(list.length / 2)] ?? null;
-      const step = nseStrikeSteps[sym] ?? (spot >= 5000 ? 50 : spot >= 1000 ? 20 : spot >= 500 ? 10 : spot >= 100 ? 5 : 2.5);
-      const snapped = Math.round(spot / step) * step;
-      return list.reduce((p, c) => Math.abs(c - snapped) < Math.abs(p - snapped) ? c : p);
-    }
-
-    async function load() {
-      let spotData = { ltp: null };
-      try {
-        spotData = await fetch(`/api/option-meta?action=spot&symbol=${symbol}`).then(r => r.json());
-      } catch {}
+    fetch(`/api/option-meta?action=strikes&symbol=${symbol}&expiry=${expiry}`).then(r => r.json()).then(d => {
       if (cancelled) return;
-      setSpotPrice(spotData.ltp ?? null);
-
-      const sData = await fetch(`/api/option-meta?action=strikes&symbol=${symbol}&expiry=${expiry}`).then(r => r.json());
-      if (cancelled) return;
-      let list = sData.strikes || [];
-      if (!list.length) {
-        const retry = await fetch(`/api/option-meta?action=strikes&symbol=${symbol}&expiry=${expiry}&bust=1`).then(r => r.json()).catch(() => ({}));
-        if (cancelled) return;
-        list = retry.strikes || [];
-      }
+      const list = d.strikes || [];
       setStrikes(list);
       if (!list.length) return;
-      // urlStrikeRef is only set on initial page load — honour it once then clear
-      const urlStrike = urlStrikeRef.current;
-      if (urlStrike && list.includes(Number(urlStrike))) { setStrike(Number(urlStrike)); urlStrikeRef.current = null; return; }
-      setStrike(pickATM(list, spotData.ltp, symbol));
-    }
-
-    load().catch(() => {}).finally(() => { if (!cancelled) setLoadingStr(false); });
+      const ltp = cached?.ltp ?? spotPrice;
+      setStrike(pickATM(list, ltp, symbol));
+    }).catch(() => {}).finally(() => { if (!cancelled) setLoadingStr(false); });
     return () => { cancelled = true; };
-  }, [symbol, expiry]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [expiry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!symbol || !expiry || !strike) return;

@@ -271,6 +271,39 @@ export async function GET(request) {
       return NextResponse.json({ ltp, symbol });
     }
 
+    // Prefetch: expiries + strikes for first expiry + spot — all in one call from cache.
+    // Used by options chart page to preload all symbols on mount so symbol switches are instant.
+    if (action === 'prefetch') {
+      if (!symbol) return NextResponse.json({ error: 'symbol required' }, { status: 400 });
+
+      // Expiries from cache
+      let expiries = await redisGet(`${EXPIRY_PFX}${symbol}`);
+      if (!expiries?.length) {
+        const { symbols } = await parseAndCacheNFO(dp);
+        const sym = symbols.find(s => s.name === symbol);
+        expiries = sym?.expiries ?? [];
+      }
+      if (!expiries?.length) return NextResponse.json({ expiries: [], strikes: [], ltp: null });
+
+      // Strikes for first expiry from cache
+      const firstExpiry = expiries[0].date;
+      let strikes = await redisGet(`${STRIKES_PFX}${symbol}:${firstExpiry}`);
+      if (!strikes) {
+        await parseAndCacheNFO(dp);
+        strikes = await redisGet(`${STRIKES_PFX}${symbol}:${firstExpiry}`) ?? [];
+      }
+
+      // Spot — fire independently, don't block if slow
+      let ltp = null;
+      try {
+        const kiteKey = SPOT_KEYS[symbol] || `NSE:${symbol}`;
+        const ohlc = await dp.getOHLC([kiteKey]);
+        ltp = ohlc?.[kiteKey]?.last_price ?? null;
+      } catch {}
+
+      return NextResponse.json({ expiries, strikes, ltp, firstExpiry });
+    }
+
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
 
   } catch (err) {
