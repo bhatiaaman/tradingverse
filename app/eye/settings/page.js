@@ -126,8 +126,9 @@ const SETUPS = [
   },
   {
     id: 's21', name: 'VWAP Reclaim',
-    desc: 'Price extended 35–90pts from VWAP with momentum fading. Reclaim candle closes beyond prior candle high/low. Semi-auto enabled for Nifty 5-min.',
+    desc: 'Price extended 35–90pts from VWAP with momentum fading. Reclaim candle closes beyond prior candle high/low.',
     thresholds: [],
+    defaultSemiAuto: true,
   },
 ];
 
@@ -135,7 +136,11 @@ const SETUPS = [
 function buildDefault() {
   const cfg = {};
   for (const s of SETUPS) {
-    cfg[s.id] = { enabled: s.defaultDisabled !== true, thresholds: {}, conditions: {} };
+    cfg[s.id] = {
+      enabled:   s.defaultDisabled !== true,
+      semiAuto:  s.defaultSemiAuto === true,
+      thresholds: {}, conditions: {},
+    };
     for (const th of s.thresholds) cfg[s.id].thresholds[th.key] = th.default;
   }
   return cfg;
@@ -145,7 +150,8 @@ function mergeWithDefaults(saved) {
   const base = buildDefault();
   for (const s of SETUPS) {
     if (saved[s.id]) {
-      base[s.id].enabled = saved[s.id].enabled !== false;
+      base[s.id].enabled  = saved[s.id].enabled !== false;
+      base[s.id].semiAuto = saved[s.id].semiAuto === true;
       for (const th of s.thresholds) {
         const v = saved[s.id]?.thresholds?.[th.key];
         if (v != null) base[s.id].thresholds[th.key] = v;
@@ -173,6 +179,11 @@ export default function EyeSettingsPage() {
 
   const toggleSetup = (id) => {
     setConfig(c => ({ ...c, [id]: { ...c[id], enabled: !c[id].enabled } }));
+    setSaved(false);
+  };
+
+  const toggleSemiAuto = (id) => {
+    setConfig(c => ({ ...c, [id]: { ...c[id], semiAuto: !c[id].semiAuto } }));
     setSaved(false);
   };
 
@@ -274,6 +285,22 @@ export default function EyeSettingsPage() {
                     </div>
                     <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{setup.desc}</p>
                   </div>
+
+                  {/* Semi-auto toggle (only when enabled) */}
+                  {isEnabled && (
+                    <button
+                      onClick={() => toggleSemiAuto(setup.id)}
+                      title="Enable semi-auto trade card"
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-semibold transition-all ${
+                        cfg?.semiAuto
+                          ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                          : 'bg-white/5 border-white/10 text-slate-500 hover:text-slate-300'
+                      }`}
+                    >
+                      <span>{cfg?.semiAuto ? '⚡' : '○'}</span>
+                      Semi-auto
+                    </button>
+                  )}
 
                   {/* Expand button (only if has thresholds) */}
                   {hasThresh && (

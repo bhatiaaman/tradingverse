@@ -1155,7 +1155,18 @@ function getNiftyLevelAlerts(indices) {
     };
 
     // Third Eye: semi-auto order placement for S3/S6 on Nifty
-    const SEMI_AUTO_IDS = ['s21_vwap_reclaim_bull','s21_vwap_reclaim_bear','s3_orb_bull','s3_orb_bear','s6_engulf_bull','s6_engulf_bear','s18_bb_bull','s18_bb_bear'];
+    // Build semi-auto IDs from saved config — any setup with semiAuto:true
+    // maps to its bull+bear variant IDs (e.g. s21 → s21_vwap_reclaim_bull/bear)
+    const cfg = setupConfigRef.current;
+    const SEMI_AUTO_IDS = Object.entries(cfg)
+      .filter(([, v]) => v?.semiAuto === true && v?.enabled !== false)
+      .flatMap(([id]) => [`${id}_bull`, `${id}_bear`,
+                          `${id}_vwap_reclaim_bull`, `${id}_vwap_reclaim_bear`,
+                          `${id}_ema_cross_bull`, `${id}_ema_cross_bear`,
+                          `${id}_orb_bull`, `${id}_orb_bear`,
+                          `${id}_engulf_bull`, `${id}_engulf_bear`,
+                          `${id}_bb_bull`, `${id}_bb_bear`,
+                          `${id}_flag_bull`, `${id}_flag_bear`]);
 
     const placeThirdEyeOrder = async (entry) => {
       // Test mode: simulate placement without hitting the API
@@ -3107,7 +3118,7 @@ function getNiftyLevelAlerts(indices) {
                       const n       = buildNarrative(entry);
                       const isFirst = i === 0;
 
-                      // Semi-auto action card: S3/S6, score ≥ 6, Nifty chart, most recent candle only
+                      // Semi-auto action card: setup has semiAuto:true in config, score ≥ 6, Nifty chart, most recent candle only
                       const setupId    = entry.topSetup?.pattern?.id;
                       const isActionable = (
                         isFirst &&
