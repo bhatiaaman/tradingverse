@@ -669,6 +669,8 @@ function OptionsChartInner() {
     if (!symbol) return;
     lastLoadedRef.current = null;
     urlStrikeRef.current = null; // clear stale URL strike — only honour it for the initial symbol
+    // Clear chart immediately so stale symbol's chart doesn't show while loading
+    setChartKey(null);
     setExpiry(''); setStrike(null); setStrikes([]); setExpiries([]); setLoadingExp(true);
     let cancelled = false;
     fetch(`/api/option-meta?action=expiries&symbol=${symbol}`).then(r => r.json()).then(d => {
@@ -868,8 +870,17 @@ function OptionsChartInner() {
     if (!chartKey || !panelProps) return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center">
-          <div className="text-5xl mb-4 opacity-10">📈</div>
-          <p className="text-slate-500 text-sm">Select symbol, expiry and strike above</p>
+          {(loadingExp || loadingStr) ? (
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 rounded-full border-2 border-blue-500/40 border-t-blue-400 animate-spin" />
+              <p className="text-slate-500 text-sm">Loading {symbol}…</p>
+            </div>
+          ) : (
+            <>
+              <div className="text-5xl mb-4 opacity-10">📈</div>
+              <p className="text-slate-500 text-sm">Select symbol, expiry and strike above</p>
+            </>
+          )}
         </div>
       </div>
     );
