@@ -98,27 +98,59 @@ export async function POST(req) {
       return NextResponse.json({ error: `No price found for ${symbol} — symbol may not exist yet` }, { status: 404 });
     }
 
-    const limitPrice = Math.round(ltp); // nearest integer
+    // Entry: LIMIT at LTP + ₹2 (aggressive limit — ensures fill, acts like market)
+    const entryLimit = parseFloat((ltp + 2).toFixed(1));
 
-    // ── Place order ───────────────────────────────────────────────────────────
-    const broker = await getBroker();
-    const order  = await broker.placeOrder('regular', {
+    // SL: 40% of premium. Trigger at 60% of LTP, limit ₹2 below trigger.
+    // Using LTP (not entryLimit) as the premium reference — closer to actual fill.
+    const slTrigger = parseFloat((ltp * 0.60).toFixed(1));
+    const slLimit   = parseFloat((slTrigger - 2).toFixed(1));
+
+    // ── Place entry order ─────────────────────────────────────────────────────
+    const broker      = await getBroker();
+    const entryOrder  = await broker.placeOrder('regular', {
       tradingsymbol:    symbol,
       exchange:         'NFO',
       transaction_type: 'BUY',
       order_type:       'LIMIT',
       product:          'MIS',
       quantity:         quantity,
-      price:            limitPrice,
+      price:            entryLimit,
     });
+
+    // ── Place SL order immediately after entry ────────────────────────────────
+    // SL-LIMIT SELL: triggers when premium drops to slTrigger, exits at slLimit
+    let slOrder = null;
+    let slError = null;
+    try {
+      slOrder = await broker.placeOrder('regular', {
+        tradingsymbol:    symbol,
+        exchange:         'NFO',
+        transaction_type: 'SELL',
+        order_type:       'SL',
+        product:          'MIS',
+        quantity:         quantity,
+        trigger_price:    slTrigger,
+        price:            slLimit,
+      });
+    } catch (e) {
+      // SL placement failure is non-fatal — entry still went through
+      slError = e.message;
+      console.error('[third-eye/place] SL order failed:', e.message);
+    }
 
     return NextResponse.json({
       ok:         true,
       symbol,
       strike:     Math.round(niftyPrice / 50) * 50,
       optionType: direction === 'bull' ? 'CE' : 'PE',
-      limitPrice,
-      orderId:    order.order_id,
+      ltp,
+      entryLimit,
+      slTrigger,
+      slLimit,
+      orderId:    entryOrder.order_id,
+      slOrderId:  slOrder?.order_id ?? null,
+      slError:    slError ?? null,
       expiry:     expiry.toISOString().split('T')[0],
     });
 

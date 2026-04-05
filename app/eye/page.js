@@ -1195,7 +1195,7 @@ function getNiftyLevelAlerts(indices) {
             symbol:     data.symbol,
             strike:     data.strike,
             optionType: data.optionType,
-            limitPrice: data.limitPrice,
+            limitPrice: data.entryLimit ?? data.limitPrice,
             qty:        semiAutoQty,
             direction:  entry.topSetup.pattern.direction,
             setupName:  entry.topSetup.pattern.name,
@@ -3181,8 +3181,21 @@ function getNiftyLevelAlerts(indices) {
                             )}
                             {placed ? (
                               placed.ok ? (
-                                <div className="text-[10px] text-emerald-400 text-center py-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20 font-mono">
-                                  ✓ {placed.symbol} @ ₹{placed.limitPrice}
+                                <div className="bg-emerald-500/10 rounded-lg border border-emerald-500/20 px-3 py-2 space-y-1">
+                                  <div className="text-[10px] text-emerald-400 font-mono font-semibold">✓ Entry placed — {placed.symbol}</div>
+                                  <div className="flex justify-between text-[10px] font-mono">
+                                    <span className="text-slate-500">Buy limit</span>
+                                    <span className="text-white">₹{placed.entryLimit ?? placed.limitPrice}</span>
+                                  </div>
+                                  <div className="flex justify-between text-[10px] font-mono">
+                                    <span className="text-slate-500">SL trigger</span>
+                                    <span className={placed.slOrderId ? 'text-rose-400' : 'text-amber-400'}>
+                                      {placed.slOrderId ? `₹${placed.slTrigger} ✓` : `₹${placed.slTrigger} ⚠ manual`}
+                                    </span>
+                                  </div>
+                                  {placed.slError && (
+                                    <div className="text-[9px] text-amber-400/80">SL order failed: {placed.slError} — set manually</div>
+                                  )}
                                 </div>
                               ) : (
                                 <div className="text-[10px] text-rose-400 text-center py-1.5 bg-rose-500/10 rounded-lg border border-rose-500/20">
