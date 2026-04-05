@@ -109,8 +109,9 @@ function isMarketHours() {
 
 // ── Inner chart component (uses useSearchParams) ──────────────────────────────
 function ChartPageInner() {
-  const params = useSearchParams();
-  const symbol = params.get('symbol') || 'NIFTY';
+  const params    = useSearchParams();
+  const symbol    = params.get('symbol') || 'NIFTY';
+  const atParam   = params.get('at') || null;   // ISO timestamp from scanner — highlights signal candle
 
   const [chartInterval, setChartInterval] = useState(params.get('interval') || '5minute');
   const [candles, setCandles]             = useState([]);
@@ -438,6 +439,11 @@ function ChartPageInner() {
       }
       // Settings or overlay toggle — just re-apply without touching viewport
       applyOverlays(chartRef.current);
+      // Re-apply scanner marker on every overlay update so intelligence load doesn't wipe it
+      if (atParam) {
+        const atSec = parseInt(atParam, 10);
+        if (atSec > 0) chartRef.current.setMarkers([{ time: atSec, direction: 'bull' }]);
+      }
       return;
     }
 
@@ -487,6 +493,15 @@ function ChartPageInner() {
       if (activeTool) chart.setActiveTool(activeTool);
 
       applyOverlays(chart);
+
+      // If opened from scanner with ?at= param, mark + scroll to signal candle
+      if (atParam) {
+        const atSec = parseInt(atParam, 10);
+        if (atSec > 0) {
+          chart.setMarkers([{ time: atSec, direction: 'bull' }]);
+          chart.scrollToTime(atSec);
+        }
+      }
     });
   }, [candles, dailyCandles, chartInterval, chartTheme, intelligence, settings]); // eslint-disable-line react-hooks/exhaustive-deps
 

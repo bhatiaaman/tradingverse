@@ -311,11 +311,21 @@ export function createChart(container, options = {}) {
     },
 
     // Set power-candle markers. data: [{ time, direction: 'bull'|'bear' }]
+    // Falls back to nearest candle within 2 hours if exact time not in index.
     setMarkers(data) {
       if (!data?.length) { markers = []; markDirty(); return; }
-      markers = data
-        .map(m => ({ ...m, index: timeIndex.get(m.time) ?? -1 }))
-        .filter(m => m.index >= 0);
+      markers = data.map(m => {
+        let index = timeIndex.get(m.time) ?? -1;
+        if (index < 0) {
+          let bestDist = 7200, bestIdx = -1;
+          for (let i = 0; i < candles.length; i++) {
+            const dist = Math.abs(candles[i].time - m.time);
+            if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+          }
+          index = bestIdx;
+        }
+        return { ...m, index };
+      }).filter(m => m.index >= 0);
       markDirty();
     },
 
@@ -481,6 +491,27 @@ export function createChart(container, options = {}) {
       const len = vp.logTo - vp.logFrom;
       vp.logTo   = candles.length;
       vp.logFrom = candles.length - len;
+      markDirty();
+    },
+
+    // Scroll so a specific unix-second timestamp is centred in the viewport.
+    // If exact candle not found, snaps to the nearest candle within 2 hours.
+    scrollToTime(unixSec) {
+      let idx = timeIndex.get(unixSec);
+      if (idx == null) {
+        // Find nearest candle by time (within ±2 hours = 7200 sec)
+        let bestDist = 7200, bestIdx = null;
+        for (let i = 0; i < candles.length; i++) {
+          const dist = Math.abs(candles[i].time - unixSec);
+          if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+        }
+        idx = bestIdx;
+      }
+      if (idx == null) return;
+      const len  = vp.logTo - vp.logFrom;
+      const half = len / 2;
+      vp.logFrom = Math.max(0, idx - half);
+      vp.logTo   = vp.logFrom + len;
       markDirty();
     },
 

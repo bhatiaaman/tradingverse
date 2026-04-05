@@ -1,8 +1,7 @@
 import { getLatestScan, getAllScans, getScannerLatest, getScannerHistory } from "@/app/lib/scanStore";
+import { getScanEnriched } from "@/app/lib/scan-enrichment";
 
 function toSlug(raw) {
-  // Lowercase + replace non-alphanumeric runs with dash
-  // Makes lookup case-agnostic: "Bullish-BO-15min" == "bullish-bo-15min"
   return String(raw || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
@@ -11,18 +10,26 @@ export async function GET(request) {
     const url = new URL(request.url);
     const scanner = url.searchParams.get('scanner');
 
+    let latest, history;
+
     if (scanner) {
       const slug = toSlug(scanner);
-      const latest = await getScannerLatest(slug);
-      const history = await getScannerHistory(slug);
-      return Response.json({ latest: latest || null, history: history || [] });
+      latest  = await getScannerLatest(slug);
+      history = await getScannerHistory(slug);
+    } else {
+      latest  = await getLatestScan();
+      history = await getAllScans();
     }
 
-    const latest = await getLatestScan();
-    const history = await getAllScans();
-    return Response.json({ latest: latest || null, history: history || [] });
+    latest  = latest  || null;
+    history = Array.isArray(history) ? history : [];
+
+    // Attach enriched per-stock data for the latest scan
+    const enriched = latest?.id ? await getScanEnriched(latest.id) : null;
+
+    return Response.json({ latest, history, enriched: enriched || null });
   } catch (e) {
     console.error('get-scans error', e);
-    return Response.json({ latest: null, history: [] }, { status: 500 });
+    return Response.json({ latest: null, history: [], enriched: null }, { status: 500 });
   }
 }

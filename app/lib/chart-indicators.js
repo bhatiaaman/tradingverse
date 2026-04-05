@@ -176,7 +176,7 @@ export function computeBB(candles, length = 20, mult = 2.0) {
 // CHoCH: majority vote of last 3 breaks prevents single noise break from flipping trend.
 export function computeSMC(candles) {
   const n = candles.length;
-  const STR = 3; // pivot strength: 3 bars each side
+  const STR = 2; // pivot strength: 2 bars each side (catches more pivots on 5m/15m)
   if (n < STR * 2 + 5) return null;
 
   // ── Swing pivots ─────────────────────────────────────────────────────────
