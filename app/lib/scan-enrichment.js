@@ -136,85 +136,125 @@ function filterSessionCandles(candles, dateStr) {
   });
 }
 
-// ── Signal classification (maps to the 4 scan sub-conditions) ─────────────────
-// S1: PDH BO (full candle + RSI>70 + large candle) → PDH_BO_STRONG ★★★★
-// S2: VWAP+RSI crossover                           → VWAP_RSI_BO   ★★★
-// S3: PDL Reclaim                                  → PDL_RECLAIM   ★★★
-// S4: PDH BO + Cloud                               → PDH_BO_CLOUD  ★★★★
-function classifySignal({ triggerPrice, prevClose15m, pdh, pdl, vwap, prevVwap, cloudTop, rsi, prevRsi }) {
-  const aboveVwap   = vwap     != null && triggerPrice > vwap;
-  const aboveCloud  = cloudTop != null && triggerPrice > cloudTop;
+// ── Detect scan direction from scan name ──────────────────────────────────────
+// Chartink doesn't allow custom payload fields, so we infer from scan_name.
+// Any scan name containing "bear", "short", "breakdown", "sell" → bearish.
+export function detectScanDir(scanName) {
+  const lower = String(scanName || '').toLowerCase();
+  if (/bear|short|breakdown|break.?down|sell|put/.test(lower)) return 'bear';
+  return 'bull';
+}
+
+// ── Signal classification ─────────────────────────────────────────────────────
+// Bull signals: PDH_BO_CLOUD ★★★★, PDH_BO_STRONG ★★★★, PDL_RECLAIM ★★★,
+//               VWAP_RSI_BO ★★★, PDH_BO ★★★, MOMENTUM ★★
+// Bear signals: PDL_BD_CLOUD ★★★★, PDL_BD_STRONG ★★★★, PDH_REJECT ★★★,
+//               VWAP_RSI_BD ★★★, PDL_BD ★★★, MOMENTUM_BEAR ★★
+function classifySignal({ dir, triggerPrice, prevClose15m, pdh, pdl, vwap, prevVwap, cloudTop, rsi, prevRsi }) {
+  if (dir === 'bear') {
+    const belowVwap    = vwap     != null && triggerPrice < vwap;
+    const belowCloud   = cloudTop != null && triggerPrice < cloudTop;
+    const brokeBelowPDL = pdl != null && triggerPrice < pdl && prevClose15m != null && prevClose15m > pdl;
+    const brokeBelowPDH = pdh != null && triggerPrice < pdh && prevClose15m != null && prevClose15m > pdh;
+    const vwapCrossedDn = vwap != null && prevVwap != null && prevClose15m != null
+                            && prevClose15m >= prevVwap && triggerPrice < vwap;
+    const rsiCrossed30  = rsi != null && prevRsi != null && prevRsi >= 30 && rsi < 30;
+
+    if (brokeBelowPDL && belowVwap && belowCloud) {
+      return { type: 'PDL_BD_CLOUD',  label: 'PDL Breakdown', stars: 4, slBase: 'cloud', dir: 'bear' };
+    }
+    if (brokeBelowPDL && belowVwap && rsi != null && rsi < 30) {
+      return { type: 'PDL_BD_STRONG', label: 'PDL Breakdown', stars: 4, slBase: 'cloud_or_vwap', dir: 'bear' };
+    }
+    if (brokeBelowPDH && belowVwap) {
+      return { type: 'PDH_REJECT',    label: 'PDH Rejection', stars: 3, slBase: 'pdh', dir: 'bear' };
+    }
+    if ((vwapCrossedDn || belowVwap) && (rsiCrossed30 || (rsi != null && rsi < 30))) {
+      return { type: 'VWAP_RSI_BD',   label: 'VWAP+RSI BD',  stars: 3, slBase: 'vwap', dir: 'bear' };
+    }
+    if (brokeBelowPDL) {
+      return { type: 'PDL_BD',        label: 'PDL Breakdown', stars: 3, slBase: 'vwap', dir: 'bear' };
+    }
+    return   { type: 'MOMENTUM_BEAR', label: 'Momentum ↓',   stars: 2, slBase: 'atr',  dir: 'bear' };
+  }
+
+  // Bull
+  const aboveVwap    = vwap     != null && triggerPrice > vwap;
+  const aboveCloud   = cloudTop != null && triggerPrice > cloudTop;
   const brokeAbovePDH = pdh != null && triggerPrice > pdh && prevClose15m != null && prevClose15m < pdh;
   const brokeAbovePDL = pdl != null && triggerPrice > pdl && prevClose15m != null && prevClose15m < pdl;
-  const vwapCrossed = vwap != null && prevVwap != null && prevClose15m != null
-                        && prevClose15m <= prevVwap && triggerPrice > vwap;
-  const rsiCrossed70 = rsi != null && prevRsi != null && prevRsi <= 70 && rsi > 70;
+  const vwapCrossed   = vwap != null && prevVwap != null && prevClose15m != null
+                          && prevClose15m <= prevVwap && triggerPrice > vwap;
+  const rsiCrossed70  = rsi != null && prevRsi != null && prevRsi <= 70 && rsi > 70;
 
-  // S4 / S1: PDH breakout — strongest signal
   if (brokeAbovePDH && aboveVwap && aboveCloud) {
-    return { type: 'PDH_BO_CLOUD', label: 'PDH Breakout', stars: 4, slBase: 'cloud', dir: 'bull' };
+    return { type: 'PDH_BO_CLOUD',  label: 'PDH Breakout', stars: 4, slBase: 'cloud',        dir: 'bull' };
   }
   if (brokeAbovePDH && aboveVwap && rsi != null && rsi > 70) {
     return { type: 'PDH_BO_STRONG', label: 'PDH Breakout', stars: 4, slBase: 'cloud_or_vwap', dir: 'bull' };
   }
-  // S3: PDL Reclaim
   if (brokeAbovePDL && aboveVwap) {
-    return { type: 'PDL_RECLAIM', label: 'PDL Reclaim', stars: 3, slBase: 'pdl', dir: 'bull' };
+    return { type: 'PDL_RECLAIM',   label: 'PDL Reclaim',  stars: 3, slBase: 'pdl',           dir: 'bull' };
   }
-  // S2: VWAP + RSI crossover
   if ((vwapCrossed || aboveVwap) && (rsiCrossed70 || (rsi != null && rsi > 70))) {
-    return { type: 'VWAP_RSI_BO', label: 'VWAP+RSI BO', stars: 3, slBase: 'vwap', dir: 'bull' };
+    return { type: 'VWAP_RSI_BO',   label: 'VWAP+RSI BO', stars: 3, slBase: 'vwap',          dir: 'bull' };
   }
-  // PDH breakout without full confirmation
   if (brokeAbovePDH) {
-    return { type: 'PDH_BO', label: 'PDH Breakout', stars: 3, slBase: 'vwap', dir: 'bull' };
+    return { type: 'PDH_BO',        label: 'PDH Breakout', stars: 3, slBase: 'vwap',          dir: 'bull' };
   }
-  // Generic
-  return { type: 'MOMENTUM', label: 'Momentum', stars: 2, slBase: 'atr', dir: 'bull' };
+  return   { type: 'MOMENTUM',      label: 'Momentum',     stars: 2, slBase: 'atr',           dir: 'bull' };
 }
 
 // ── SL + target derivation ────────────────────────────────────────────────────
-// Strategy: find the nearest structure level BELOW entry price, add a small buffer.
-// Priority: PDH (now support) > VWAP > Cloud top > PDL > ATR fallback
-// The SL must be at least 0.3% below entry and at most 3% below entry.
+// Bull: nearest structure level BELOW entry (PDH/VWAP/cloud/PDL), SL below
+// Bear: nearest structure level ABOVE entry (PDL/VWAP/cloud/PDH), SL above
 function computeLevels({ triggerPrice, atr15m, vwap, cloudTop, pdh, pdl, signal }) {
-  const minSlDist = triggerPrice * 0.003; // at least 0.3% risk
-  const maxSlDist = triggerPrice * 0.03;  // cap at 3% risk
+  const dir       = signal.dir;
+  const minDist   = triggerPrice * 0.003;
+  const maxDist   = triggerPrice * 0.03;
+  let sl;
 
-  // Collect candidate support levels that are BELOW trigger price with a small buffer
-  const candidates = [];
-  if (pdh  && pdh  < triggerPrice && triggerPrice - pdh  <= maxSlDist) candidates.push(pdh  - minSlDist * 0.3);
-  if (vwap && vwap < triggerPrice && triggerPrice - vwap <= maxSlDist) candidates.push(vwap - minSlDist * 0.3);
-  if (cloudTop && cloudTop < triggerPrice && triggerPrice - cloudTop <= maxSlDist) candidates.push(cloudTop - minSlDist * 0.3);
-  if (pdl  && pdl  < triggerPrice && triggerPrice - pdl  <= maxSlDist) candidates.push(pdl  - minSlDist * 0.3);
+  if (dir === 'bear') {
+    // SL above entry — find nearest resistance level above trigger price
+    const candidates = [];
+    if (pdl  && pdl  > triggerPrice && pdl  - triggerPrice <= maxDist) candidates.push(pdl  + minDist * 0.3);
+    if (vwap && vwap > triggerPrice && vwap - triggerPrice <= maxDist) candidates.push(vwap + minDist * 0.3);
+    if (cloudTop && cloudTop > triggerPrice && cloudTop - triggerPrice <= maxDist) candidates.push(cloudTop + minDist * 0.3);
+    if (pdh  && pdh  > triggerPrice && pdh  - triggerPrice <= maxDist) candidates.push(pdh  + minDist * 0.3);
 
-  // Pick the nearest (highest) support level below entry
-  let sl = candidates.length > 0
-    ? Math.max(...candidates)
-    : null;
+    sl = candidates.length > 0 ? Math.min(...candidates) : null;
+    if (!sl || sl - triggerPrice < minDist) sl = atr15m ? triggerPrice + atr15m * 1.5 : triggerPrice * 1.015;
+    if (sl - triggerPrice > maxDist) sl = triggerPrice + maxDist;
+    sl = parseFloat(sl.toFixed(2));
 
-  // If no structure level is within 3% — or structure-based SL is too tight — use ATR
-  if (!sl || triggerPrice - sl < minSlDist) {
-    sl = atr15m
-      ? triggerPrice - atr15m * 1.5
-      : triggerPrice * 0.985;
+    const risk    = sl - triggerPrice;
+    const target1 = parseFloat((triggerPrice - risk * 1.5).toFixed(2));
+    const target2 = parseFloat((triggerPrice - risk * 3.0).toFixed(2));
+    const riskPct = parseFloat((risk / triggerPrice * 100).toFixed(2));
+    return { entry: parseFloat(triggerPrice.toFixed(2)), sl, target1, target2, riskPct, rrRatio: 1.5 };
   }
 
-  // Hard cap: never more than 3% risk
-  if (triggerPrice - sl > maxSlDist) sl = triggerPrice - maxSlDist;
+  // Bull: SL below entry — nearest support level
+  const candidates = [];
+  if (pdh  && pdh  < triggerPrice && triggerPrice - pdh  <= maxDist) candidates.push(pdh  - minDist * 0.3);
+  if (vwap && vwap < triggerPrice && triggerPrice - vwap <= maxDist) candidates.push(vwap - minDist * 0.3);
+  if (cloudTop && cloudTop < triggerPrice && triggerPrice - cloudTop <= maxDist) candidates.push(cloudTop - minDist * 0.3);
+  if (pdl  && pdl  < triggerPrice && triggerPrice - pdl  <= maxDist) candidates.push(pdl  - minDist * 0.3);
 
+  sl = candidates.length > 0 ? Math.max(...candidates) : null;
+  if (!sl || triggerPrice - sl < minDist) sl = atr15m ? triggerPrice - atr15m * 1.5 : triggerPrice * 0.985;
+  if (triggerPrice - sl > maxDist) sl = triggerPrice - maxDist;
   sl = parseFloat(sl.toFixed(2));
 
   const risk    = triggerPrice - sl;
   const target1 = parseFloat((triggerPrice + risk * 1.5).toFixed(2));
   const target2 = parseFloat((triggerPrice + risk * 3.0).toFixed(2));
   const riskPct = parseFloat((risk / triggerPrice * 100).toFixed(2));
-
   return { entry: parseFloat(triggerPrice.toFixed(2)), sl, target1, target2, riskPct, rrRatio: 1.5 };
 }
 
 // ── Enrich a single stock ─────────────────────────────────────────────────────
-async function enrichStock(symbol, triggerPrice, dp, tokenMap) {
+async function enrichStock(symbol, triggerPrice, dp, tokenMap, scanDir = 'bull') {
   const token = tokenMap[symbol];
   if (!token) return { symbol, triggerPrice, enrichFailed: true, reason: 'token not found' };
 
@@ -270,7 +310,7 @@ async function enrichStock(symbol, triggerPrice, dp, tokenMap) {
     : (histCandles.length >= 2 ? histCandles[histCandles.length - 2].close : null);
 
   // Signal classification
-  const signal = classifySignal({ triggerPrice, prevClose15m, pdh, pdl, vwap, prevVwap, cloudTop, rsi, prevRsi });
+  const signal = classifySignal({ dir: scanDir, triggerPrice, prevClose15m, pdh, pdl, vwap, prevVwap, cloudTop, rsi, prevRsi });
 
   // Trade levels
   const levels = computeLevels({ triggerPrice, atr15m, vwap, cloudTop, pdh, pdl, signal });
@@ -304,7 +344,7 @@ async function enrichStock(symbol, triggerPrice, dp, tokenMap) {
 }
 
 // ── Main: enrich all stocks in a scan (called from webhook via after()) ────────
-export async function enrichScan(scanId, stocks) {
+export async function enrichScan(scanId, stocks, scanName = '') {
   try {
     const dp = await getDataProvider();
     if (!dp.isConnected()) {
@@ -312,6 +352,7 @@ export async function enrichScan(scanId, stocks) {
       return;
     }
 
+    const scanDir  = detectScanDir(scanName);
     const tokenMap = await getNSETokenMap(dp);
     const results  = [];
     const BATCH    = 4; // parallel requests per batch — avoid overwhelming Kite
@@ -323,7 +364,7 @@ export async function enrichScan(scanId, stocks) {
           // Chartink free plan sends no prices — tp will be 0; enrichStock handles fallback
           const tp = parseFloat(String(price).replace(/[^0-9.]/g, '')) || 0;
           if (!symbol) return Promise.resolve({ symbol, enrichFailed: true, reason: 'missing symbol' });
-          return enrichStock(symbol, tp, dp, tokenMap)
+          return enrichStock(symbol, tp, dp, tokenMap, scanDir)
             .catch(e => ({ symbol, triggerPrice: tp, enrichFailed: true, reason: e.message }));
         })
       );

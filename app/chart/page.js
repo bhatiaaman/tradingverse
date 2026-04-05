@@ -111,7 +111,8 @@ function isMarketHours() {
 function ChartPageInner() {
   const params    = useSearchParams();
   const symbol    = params.get('symbol') || 'NIFTY';
-  const atParam   = params.get('at') || null;   // ISO timestamp from scanner — highlights signal candle
+  const atParam   = params.get('at')    || null;   // Unix sec from scanner — highlights signal candle
+  const atDirParam= params.get('atdir') || 'bull'; // 'bull' | 'bear' — arrow direction
 
   const [chartInterval, setChartInterval] = useState(params.get('interval') || '5minute');
   const [candles, setCandles]             = useState([]);
@@ -442,7 +443,7 @@ function ChartPageInner() {
       // Re-apply scanner marker on every overlay update so intelligence load doesn't wipe it
       if (atParam) {
         const atSec = parseInt(atParam, 10);
-        if (atSec > 0) chartRef.current.setMarkers([{ time: atSec, direction: 'bull' }]);
+        if (atSec > 0) chartRef.current.setMarkers([{ time: atSec, direction: atDirParam }]);
       }
       return;
     }
@@ -498,7 +499,7 @@ function ChartPageInner() {
       if (atParam) {
         const atSec = parseInt(atParam, 10);
         if (atSec > 0) {
-          chart.setMarkers([{ time: atSec, direction: 'bull' }]);
+          chart.setMarkers([{ time: atSec, direction: atDirParam }]);
           chart.scrollToTime(atSec);
         }
       }

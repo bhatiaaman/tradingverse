@@ -55,7 +55,7 @@ export async function POST(request) {
     const stocks = parseStocks(scanData).filter(s => s.symbol);
     if (stocks.length > 0) {
       after(async () => {
-        await enrichScan(enrichedData.id, stocks);
+        await enrichScan(enrichedData.id, stocks, scanData.scan_name || '');
       });
     }
 

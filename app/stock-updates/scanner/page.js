@@ -41,12 +41,20 @@ function Stars({ count = 0, max = 4 }) {
 
 // ── Signal type metadata ──────────────────────────────────────────────────────
 const SIGNAL_META = {
+  // Bullish
   PDH_BO_CLOUD:  { color: 'text-emerald-400', border: 'border-emerald-500/40', bg: 'bg-emerald-900/10' },
   PDH_BO_STRONG: { color: 'text-emerald-400', border: 'border-emerald-500/40', bg: 'bg-emerald-900/10' },
   PDH_BO:        { color: 'text-green-400',   border: 'border-green-500/30',   bg: 'bg-green-900/10'   },
   PDL_RECLAIM:   { color: 'text-amber-400',   border: 'border-amber-500/40',   bg: 'bg-amber-900/10'   },
   VWAP_RSI_BO:   { color: 'text-blue-400',    border: 'border-blue-500/30',    bg: 'bg-blue-900/10'    },
   MOMENTUM:      { color: 'text-slate-300',   border: 'border-slate-600/40',   bg: 'bg-slate-800/30'   },
+  // Bearish
+  PDL_BD_CLOUD:  { color: 'text-red-400',     border: 'border-red-500/40',     bg: 'bg-red-900/10'     },
+  PDL_BD_STRONG: { color: 'text-red-400',     border: 'border-red-500/40',     bg: 'bg-red-900/10'     },
+  PDL_BD:        { color: 'text-rose-400',    border: 'border-rose-500/30',    bg: 'bg-rose-900/10'    },
+  PDH_REJECT:    { color: 'text-orange-400',  border: 'border-orange-500/40',  bg: 'bg-orange-900/10'  },
+  VWAP_RSI_BD:   { color: 'text-purple-400',  border: 'border-purple-500/30',  bg: 'bg-purple-900/10'  },
+  MOMENTUM_BEAR: { color: 'text-slate-400',   border: 'border-slate-600/40',   bg: 'bg-slate-800/30'   },
 };
 
 const DEFAULT_SIGNAL_META = { color: 'text-slate-300', border: 'border-slate-600/30', bg: 'bg-slate-800/20' };
@@ -159,7 +167,7 @@ function SignalCard({ stock, enriched, quote, selected, onClick, onOrder, onChar
           <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
             {/* Chart */}
             <button
-              onClick={() => onChart(stock.symbol, triggeredAt)}
+              onClick={() => onChart(stock.symbol, triggeredAt, sig?.dir || 'bull')}
               className="text-[10px] px-1.5 py-1 rounded bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:bg-blue-600/30 transition-colors font-medium"
               title="15m Chart"
             >
@@ -344,9 +352,9 @@ export default function ScannerPage({ scanName, scanSlug }) {
   }
 
   // ── Open 15m chart in native chart page ──────────────────────────────────
-  const openChart = useCallback((symbol, triggeredAt) => {
+  const openChart = useCallback((symbol, triggeredAt, dir = 'bull') => {
     const unixSec = buildSignalUnixSec(triggeredAt, 15);
-    const atStr = unixSec ? `&at=${unixSec}` : '';
+    const atStr = unixSec ? `&at=${unixSec}&atdir=${dir}` : '';
     window.open(`/chart?symbol=${symbol}&interval=15minute${atStr}`, '_blank');
   }, []);
 
@@ -801,7 +809,7 @@ export default function ScannerPage({ scanName, scanSlug }) {
                                 )}
                               </div>
                               <div className="flex flex-col gap-1.5">
-                                <button onClick={() => openChart(selectedStock, latestData.triggeredAt)}
+                                <button onClick={() => openChart(selectedStock, latestData.triggeredAt, enrichedMap[selectedStock]?.signal?.dir || 'bull')}
                                   className="flex items-center gap-1.5 px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 rounded-xl text-blue-300 text-xs font-medium transition-colors">
                                   <Eye size={13} /> 15m Chart
                                 </button>
