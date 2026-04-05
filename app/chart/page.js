@@ -133,6 +133,12 @@ function ChartPageInner() {
   const [activeTool, setActiveTool]         = useState(null);    // drawing tool id or null
   const [selectedDrawingId, setSelectedDrawingId] = useState(null);
 
+  // Quick-order state (indices only)
+  const [quickQty,     setQuickQty]     = useState(65);
+  const [quickLotSize, setQuickLotSize] = useState(65);
+  const [quickStatus,  setQuickStatus]  = useState(null); // null | 'loading' | { ok, rows, error }
+  const quickTimerRef = useRef(null);
+
   const containerRef   = useRef(null);
   const chartRef       = useRef(null);
   const settingsBtnRef = useRef(null);
@@ -556,9 +562,43 @@ function ChartPageInner() {
   const anyEma = settings.showEma9 || settings.showEma21 || settings.showEma50 ||
                  (settings.showEma9D && isIntraday) || (settings.showEma9W && chartInterval === 'day');
 
-  const isIndex  = symbol in INDEX_STRIKE_STEP;
-  const step     = INDEX_STRIKE_STEP[symbol] ?? 1;
+  const isIndex   = symbol in INDEX_STRIKE_STEP;
+  const step      = INDEX_STRIKE_STEP[symbol] ?? 1;
   const lastClose = candles.length ? candles[candles.length - 1].close : null;
+
+  // ── ATM quick-order handler (indices only) ──────────────────────────────────
+  const handleAtmQuick = useCallback(async (optionType) => {
+    if (!ltp || quickStatus === 'loading') return;
+    setQuickStatus('loading');
+    if (quickTimerRef.current) clearTimeout(quickTimerRef.current);
+    try {
+      const res  = await fetch('/api/options/atm-quick-order', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ symbol, price: ltp, optionType, qty: quickQty }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setQuickStatus({ ok: false, error: data.error || 'Order failed', rows: [
+          { label: 'Symbol', value: data.tradingsymbol ?? symbol },
+          { label: 'Type',   value: optionType, color: 'text-amber-400' },
+          { label: 'Strike', value: data.atmStrike ? `${data.atmStrike}` : '—' },
+        ]});
+      } else {
+        setQuickStatus({ ok: true, rows: [
+          { label: 'Symbol',    value: data.tradingsymbol },
+          { label: 'Strike',    value: `${data.atmStrike} ${optionType}` },
+          { label: 'Entry',     value: `₹${data.entryLimit}` },
+          { label: 'Kite ID',   value: data.kiteOrderId ?? '—', color: 'text-slate-400' },
+          { label: 'SL trigger',value: data.slOrderId ? `₹${data.slTrigger}` : (data.slError ? 'failed' : '—'),
+            color: data.slOrderId ? 'text-amber-400' : 'text-red-400' },
+        ], error: data.slError ?? null });
+      }
+    } catch (e) {
+      setQuickStatus({ ok: false, error: e.message || 'Network error', rows: [] });
+    }
+    quickTimerRef.current = setTimeout(() => setQuickStatus(null), 10000);
+  }, [symbol, ltp, quickQty, quickStatus]);
   const atmStrike = lastClose ? Math.round(lastClose / step) * step : null;
 
   return (
@@ -594,6 +634,35 @@ function ChartPageInner() {
                 </span>
               )}
             </>
+          )}
+
+          {/* Quick-order controls (index symbols only) */}
+          {isIndex && (
+            <div className="hidden sm:flex items-center gap-1.5 pl-2 border-l border-white/[0.08]">
+              <input
+                type="number"
+                value={quickQty}
+                min={quickLotSize} step={quickLotSize}
+                onChange={e => setQuickQty(Math.max(quickLotSize, parseInt(e.target.value) || quickLotSize))}
+                className="w-[52px] bg-[#0d1829] border border-white/[0.10] rounded px-1.5 py-0.5 text-[11px] text-white text-center focus:outline-none focus:border-indigo-500 font-mono"
+                title={`Qty (1 lot = ${quickLotSize})`}
+              />
+              <button
+                onClick={() => handleAtmQuick('CE')}
+                disabled={quickStatus === 'loading' || !ltp}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-600/20 hover:bg-emerald-600/40 border border-emerald-600/40 text-emerald-400 disabled:opacity-40 transition-colors"
+                title="Quick BUY ATM CE"
+              >⚡ CE</button>
+              <button
+                onClick={() => handleAtmQuick('PE')}
+                disabled={quickStatus === 'loading' || !ltp}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-red-600/20 hover:bg-red-600/40 border border-red-600/40 text-red-400 disabled:opacity-40 transition-colors"
+                title="Quick BUY ATM PE"
+              >⚡ PE</button>
+              {quickStatus === 'loading' && (
+                <span className="w-3 h-3 border-2 border-slate-600 border-t-indigo-400 rounded-full animate-spin" />
+              )}
+            </div>
           )}
 
           <div className="flex-1" />
@@ -753,6 +822,27 @@ function ChartPageInner() {
             }}
           >
             <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-slate-600/50 group-hover:bg-slate-400/60 transition-colors" />
+          </div>
+        )}
+
+        {/* Quick-order status panel */}
+        {quickStatus && quickStatus !== 'loading' && (
+          <div className={`absolute top-2 right-2 z-30 flex flex-col gap-1.5 px-3 py-2.5 rounded-xl border shadow-2xl min-w-[220px] ${
+            quickStatus.ok ? 'bg-[#0d1f14] border-emerald-600/40' : 'bg-[#1a0d0d] border-red-600/40'
+          }`}>
+            <div className="flex items-center justify-between gap-3">
+              <span className={`text-[11px] font-bold ${quickStatus.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                {quickStatus.ok ? '✓ Order Placed' : '✕ Order Failed'}
+              </span>
+              <button onClick={() => setQuickStatus(null)} className="text-slate-600 hover:text-slate-400 text-xs">✕</button>
+            </div>
+            {quickStatus.rows?.map((row, i) => (
+              <div key={i} className="flex items-center justify-between text-[11px] font-mono">
+                <span className="text-slate-500">{row.label}</span>
+                <span className={row.color ?? 'text-slate-200'}>{row.value}</span>
+              </div>
+            ))}
+            {quickStatus.error && <p className="text-[10px] text-red-400 leading-snug">{quickStatus.error}</p>}
           </div>
         )}
 
