@@ -610,6 +610,7 @@ function OptionsChartInner() {
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [loadingExp,  setLoadingExp]  = useState(false);
   const [loadingStr,  setLoadingStr]  = useState(false);
+  const [synthesis,   setSynthesis]   = useState(null); // { line, color, icon, regime }
 
   const urlStrikeRef    = useRef(params.get('strike') ? Number(params.get('strike')) : null);
   const lastLoadedRef   = useRef(null);
@@ -722,6 +723,102 @@ function OptionsChartInner() {
     Object.entries(key).forEach(([k, v]) => url.searchParams.set(k, v));
     window.history.replaceState({}, '', url.toString());
   }, [symbol, expiry, strike, interval, loadingMeta, loadingExp, loadingStr]);
+
+  // ── One-line synthesis ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!symbol || !expiry || !strike) return;
+    let cancelled = false;
+
+    async function fetchSynthesis() {
+      try {
+        const [chainData, straddleRes] = await Promise.all([
+          fetch(`/api/options/chain-with-greeks?symbol=${symbol}&expiry=${expiry}`).then(r => r.json()),
+          fetch(`/api/options/straddle-chart?symbol=${symbol}&expiry=${expiry}&strike=${strike}&interval=5minute`).then(r => r.json()),
+        ]);
+        if (cancelled) return;
+
+        const straddleData = straddleRes?.candles ?? [];
+
+        if (!chainData?.strikes?.length) { setSynthesis(null); return; }
+
+        const { spot, atm, ivHvRatio } = chainData;
+        const chainStrikes = chainData.strikes;
+        const hasStraddle  = straddleData?.length > 0;
+        const openPremium  = hasStraddle ? (straddleData[0]?.value ?? 0) : 0;
+        const curPremium   = hasStraddle ? (straddleData[straddleData.length - 1]?.value ?? 0) : 0;
+        const dayLow       = hasStraddle ? Math.min(...straddleData.map(d => d.value)) : 0;
+        const decayPct     = openPremium > 0 ? (openPremium - curPremium) / openPremium * 100 : 0;
+        const recoveryPct  = dayLow > 0 ? (curPremium - dayLow) / dayLow * 100 : 0;
+        const expansionPct = openPremium > 0 ? (curPremium - openPremium) / openPremium * 100 : 0;
+        const iv           = ivHvRatio ?? 1;
+        const spotAboveAtm = spot > atm;
+
+        // OI walls
+        const otmCalls = (chainStrikes || []).filter(s => s.strike > spot && s.ce?.oi > 0);
+        const otmPuts  = (chainStrikes || []).filter(s => s.strike < spot && s.pe?.oi > 0);
+        const callWall = otmCalls.reduce((m, s) => (s.ce.oi > (m?.ce?.oi || 0) ? s : m), null);
+        const putFloor = otmPuts.reduce((m, s)  => (s.pe.oi > (m?.pe?.oi || 0) ? s : m), null);
+        const totalCeOI = (chainStrikes || []).reduce((s, r) => s + (r.ce?.oi || 0), 0);
+        const totalPeOI = (chainStrikes || []).reduce((s, r) => s + (r.pe?.oi || 0), 0);
+        const pcr = totalCeOI > 0 ? (totalPeOI / totalCeOI).toFixed(2) : '—';
+
+        // Regime — straddle-based when available, IV/HV fallback otherwise
+        let regime, icon, color, line;
+        if (hasStraddle && expansionPct > 12) {
+          regime = 'EXPANSION';
+          icon   = '⚡';
+          color  = 'text-rose-400 border-rose-500/40 bg-rose-900/20';
+          const dir = spotAboveAtm ? 'CE' : 'PE';
+          line   = `Straddle +${expansionPct.toFixed(0)}% above open — sellers squeezed. ${dir} buying edge.`;
+          if (callWall?.ce?.oi > 300000) line += ` Call wall: ${callWall.strike} CE (${(callWall.ce.oi/100000).toFixed(1)}L OI).`;
+        } else if (hasStraddle && decayPct > 18) {
+          regime = 'RANGE';
+          icon   = '↓';
+          color  = 'text-emerald-400 border-emerald-500/40 bg-emerald-900/20';
+          line   = `Straddle down ${decayPct.toFixed(0)}% from open ₹${openPremium.toFixed(0)} — range day, theta sellers in control.`;
+          if (iv > 1.1) line += ` IV/HV ${iv.toFixed(2)}× — overpriced premium, ideal sell conditions.`;
+        } else if (hasStraddle && recoveryPct > 15) {
+          regime = 'RECOVERY';
+          icon   = '↑';
+          color  = 'text-amber-400 border-amber-500/40 bg-amber-900/20';
+          line   = `Straddle recovered +${recoveryPct.toFixed(0)}% from day low ₹${dayLow.toFixed(0)} — seller exhaustion, watch for breakout.`;
+          if (iv < 0.95) line += ` IV/HV ${iv.toFixed(2)}× — cheap options, asymmetric risk/reward.`;
+        } else if (!hasStraddle && iv > 1.3) {
+          regime = 'HIGH IV';
+          icon   = '↑';
+          color  = 'text-rose-400 border-rose-500/40 bg-rose-900/20';
+          line   = `IV/HV ${iv.toFixed(2)}× — options significantly overpriced vs realized vol. Seller edge.`;
+          if (callWall?.ce?.oi > 300000) line += ` Call wall: ${callWall.strike} CE (${(callWall.ce.oi/100000).toFixed(1)}L OI).`;
+          else if (putFloor?.pe?.oi > 300000) line += ` Put floor: ${putFloor.strike} PE.`;
+        } else if (!hasStraddle && iv < 0.85) {
+          regime = 'LOW IV';
+          icon   = '↓';
+          color  = 'text-emerald-400 border-emerald-500/40 bg-emerald-900/20';
+          const dir = spotAboveAtm ? 'CE' : 'PE';
+          line   = `IV/HV ${iv.toFixed(2)}× — options cheap vs realized vol. Buyer edge. Consider ${dir}.`;
+        } else {
+          regime = 'NEUTRAL';
+          icon   = '~';
+          color  = 'text-slate-400 border-slate-600/40 bg-slate-800/20';
+          if (hasStraddle) {
+            if (decayPct > 0) line = `Straddle down ${decayPct.toFixed(0)}% from open — mild decay, range tendency.`;
+            else line = `Straddle up ${Math.abs(expansionPct).toFixed(0)}% from open — mild expansion, monitor.`;
+          } else {
+            line = `IV/HV ${iv.toFixed(2)}× — options fairly priced.`;
+            if (callWall?.ce?.oi > 500000) line += ` Call wall: ${callWall.strike} CE.`;
+            else if (putFloor?.pe?.oi > 500000) line += ` Put floor: ${putFloor.strike} PE.`;
+          }
+        }
+        // Append PCR
+        line += ` PCR ${pcr}.`;
+
+        setSynthesis({ line, color, icon, regime });
+      } catch { /* non-critical */ }
+    }
+
+    fetchSynthesis();
+    return () => { cancelled = true; };
+  }, [symbol, expiry, strike]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Splitter drag handlers ────────────────────────────────────────────────
   function startVDividerDrag(e) {
@@ -915,6 +1012,15 @@ function OptionsChartInner() {
 
         </div>
       </div>
+
+      {/* ── Synthesis strip ──────────────────────────────────────────────── */}
+      {synthesis && (
+        <div className={`shrink-0 border-b border-[#1e3a5f] px-6 py-1.5 flex items-center gap-2.5 ${synthesis.color}`}>
+          <span className="text-[11px] font-bold font-mono tracking-widest opacity-70">{synthesis.regime}</span>
+          <span className="text-[10px] opacity-40">·</span>
+          <span className="text-[11px] leading-snug flex-1">{synthesis.line}</span>
+        </div>
+      )}
 
       {/* ── Chart area ────────────────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 px-4 py-3">

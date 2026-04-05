@@ -383,15 +383,16 @@ function PayoffChart({ spot, atmStrike, premium, isStrangle, lowerStrike, upperS
 
 // ── Trade Desk: rules-based opportunity signals ───────────────────────────────
 function generateTradeDesk(chainData, straddleData) {
-  if (!chainData || !straddleData?.length) return { buys: [], sells: [], regime: null };
+  if (!chainData) return { buys: [], sells: [], regime: null };
 
   const { spot, atm, atmIV, hv30, ivHvRatio, straddlePremium, strikes } = chainData;
   const buys = [], sells = [];
 
-  // Straddle stats
-  const openPremium  = straddleData[0]?.value ?? 0;
-  const curPremium   = straddleData[straddleData.length - 1]?.value ?? 0;
-  const dayLow       = Math.min(...straddleData.map(d => d.value));
+  // Straddle stats — optional, falls back to zero when no intraday data yet
+  const hasStraddle  = straddleData?.length > 0;
+  const openPremium  = hasStraddle ? (straddleData[0]?.value ?? 0) : 0;
+  const curPremium   = hasStraddle ? (straddleData[straddleData.length - 1]?.value ?? 0) : 0;
+  const dayLow       = hasStraddle ? Math.min(...straddleData.map(d => d.value)) : 0;
   const decayPct     = openPremium > 0 ? (openPremium - curPremium) / openPremium * 100 : 0;
   const recoveryPct  = dayLow > 0 ? (curPremium - dayLow) / dayLow * 100 : 0;
   const expansionPct = openPremium > 0 ? (curPremium - openPremium) / openPremium * 100 : 0;
@@ -416,11 +417,20 @@ function generateTradeDesk(chainData, straddleData) {
   const iv = ivHvRatio ?? 1;
 
   // ── Regime ──────────────────────────────────────────────────────────────────
+  // When straddle data exists, use it as primary signal; otherwise fall back to IV/HV
   let regime;
-  if (expansionPct > 12)       regime = 'expansion';    // sellers trapped
-  else if (decayPct > 18)      regime = 'range';        // sellers in control
-  else if (recoveryPct > 15)   regime = 'recovery';     // watch for breakout
-  else                         regime = 'neutral';
+  if (hasStraddle) {
+    if (expansionPct > 12)     regime = 'expansion';
+    else if (decayPct > 18)    regime = 'range';
+    else if (recoveryPct > 15) regime = 'recovery';
+    else                       regime = 'neutral';
+  } else {
+    // IV/HV-based regime when no intraday straddle data yet
+    if (iv > 1.4)              regime = 'expansion';   // expensive options → sellers at risk
+    else if (iv < 0.8)         regime = 'neutral';     // cheap IV, no directional edge yet
+    else if (iv > 1.1)         regime = 'range';       // IV elevated but not extreme
+    else                       regime = 'neutral';
+  }
 
   // ── BUY SIGNALS ─────────────────────────────────────────────────────────────
 
@@ -452,7 +462,7 @@ function generateTradeDesk(chainData, straddleData) {
       trigger: 'recovery', reasons, ltp, sl: ltp ? (ltp * 0.60).toFixed(0) : null });
   }
 
-  // 3. Cheap IV — pre-catalyst accumulation
+  // 3. Cheap IV — pre-catalyst accumulation (also fires when no straddle data)
   if (iv < 0.85 && buys.length === 0) {
     const ltp = atmCe?.ltp;
     buys.push({ strike: atm, type: 'CE/PE', confidence: 'MEDIUM', trigger: 'cheap_iv',
@@ -496,6 +506,19 @@ function generateTradeDesk(chainData, straddleData) {
       trigger: 'put_floor', strategy: 'Sell PE / Bull Put Spread',
       reasons, ltp: putFloor.pe.ltp,
       target: (putFloor.pe.ltp * 0.45).toFixed(0), sl: (putFloor.pe.ltp * 1.50).toFixed(0) });
+  }
+
+  // 3a. No straddle data + high IV — IV mean-reversion sell signal
+  if (!hasStraddle && iv > 1.2 && sells.length === 0) {
+    const reasons = [
+      `IV/HV ${iv.toFixed(2)}× — options significantly overpriced vs realized vol`,
+      `Mathematical seller edge: premium likely to decay toward historical vol`,
+      pcr > 1.0 ? `PCR ${pcr.toFixed(2)} — put-heavy positioning supports range bias` : `Sell premium at elevated IV levels`,
+    ];
+    sells.push({ strike: atm, type: 'STRADDLE', confidence: iv > 1.5 ? 'HIGH' : 'MEDIUM',
+      trigger: 'high_iv', strategy: 'Sell ATM Straddle / Iron Condor',
+      reasons, ltp: straddlePremium,
+      target: straddlePremium ? (straddlePremium * 0.45).toFixed(0) : null, sl: null });
   }
 
   // 3. Range day with expensive IV — sell ATM straddle
@@ -570,9 +593,11 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm }) {
         <div className="flex-1 h-px bg-white/[0.05]" />
         {stats && (
           <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
-            {stats.expansionPct > 0
-              ? <span className="text-rose-400">Straddle +{stats.expansionPct.toFixed(0)}% vs open</span>
-              : <span className="text-emerald-400">Straddle -{stats.decayPct.toFixed(0)}% vs open</span>}
+            {(stats.expansionPct !== 0 || stats.decayPct !== 0) ? (
+              stats.expansionPct > 0
+                ? <span className="text-rose-400">Straddle +{stats.expansionPct.toFixed(0)}% vs open</span>
+                : <span className="text-emerald-400">Straddle -{stats.decayPct.toFixed(0)}% vs open</span>
+            ) : null}
             <span>PCR {stats.pcr.toFixed(2)}</span>
           </div>
         )}
@@ -953,7 +978,7 @@ export default function OptionsPage() {
       )}
 
       {/* ── Trade Desk ── */}
-      {chainData && straddleData?.length > 0 && (() => {
+      {chainData && (() => {
         const { buys, sells, regime, stats } = generateTradeDesk(chainData, straddleData);
         return (
           <TradeDeskPanel
