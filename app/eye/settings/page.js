@@ -122,6 +122,7 @@ const SETUPS = [
     id: 's20', name: 'EMA Cross (9×21)',
     desc: 'EMA9 crosses EMA21 with price on the correct side of VWAP. Trend-filtered — only longs in uptrend, shorts in downtrend.',
     thresholds: [],
+    defaultDisabled: true,
   },
   {
     id: 's21', name: 'VWAP Reclaim',
@@ -134,7 +135,7 @@ const SETUPS = [
 function buildDefault() {
   const cfg = {};
   for (const s of SETUPS) {
-    cfg[s.id] = { enabled: true, thresholds: {}, conditions: {} };
+    cfg[s.id] = { enabled: s.defaultDisabled !== true, thresholds: {}, conditions: {} };
     for (const th of s.thresholds) cfg[s.id].thresholds[th.key] = th.default;
   }
   return cfg;
