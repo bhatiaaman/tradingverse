@@ -126,10 +126,52 @@ export async function POST(req) {
       price:            entryLimit,
     });
 
-    // ── Place SL order immediately after entry ────────────────────────────────
-    // SL-LIMIT SELL: triggers when premium drops to slTrigger, exits at slLimit
-    let slOrder = null;
-    let slError = null;
+    const entryOrderId = entryOrder.order_id;
+
+    // ── Poll for entry fill before placing SL ────────────────────────────────
+    // Must confirm BUY is filled — otherwise SL SELL would create naked short
+    let filled   = false;
+    let slOrder  = null;
+    let slError  = null;
+    const POLL_INTERVAL = 500; // ms
+    const POLL_TIMEOUT  = 10000; // 10s max wait
+    const pollStart     = Date.now();
+
+    while (Date.now() - pollStart < POLL_TIMEOUT) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+      try {
+        const orders = await broker.getOrders();
+        const entry  = (orders.data ?? orders).find(o => o.order_id === entryOrderId);
+        if (entry?.status === 'COMPLETE') { filled = true; break; }
+        if (entry?.status === 'REJECTED' || entry?.status === 'CANCELLED') {
+          return NextResponse.json({
+            ok: false,
+            error: `Entry order ${entry.status}: ${entry.status_message ?? ''}`,
+          }, { status: 400 });
+        }
+      } catch { /* ignore poll errors, keep trying */ }
+    }
+
+    if (!filled) {
+      // Entry didn't fill in 10s — return without SL, user must manage manually
+      return NextResponse.json({
+        ok:         true,
+        symbol,
+        strike:     Math.round(niftyPrice / 50) * 50,
+        optionType: direction === 'bull' ? 'CE' : 'PE',
+        ltp,
+        entryLimit,
+        slTrigger,
+        slLimit,
+        niftySl:    niftySl ?? null,
+        orderId:    entryOrderId,
+        slOrderId:  null,
+        slError:    'Entry not filled in 10s — SL not placed. Set manually in Kite.',
+        expiry:     expiry.toISOString().split('T')[0],
+      });
+    }
+
+    // ── Entry confirmed filled — now place SL ────────────────────────────────
     try {
       slOrder = await broker.placeOrder('regular', {
         tradingsymbol:    symbol,
@@ -142,7 +184,6 @@ export async function POST(req) {
         price:            slLimit,
       });
     } catch (e) {
-      // SL placement failure is non-fatal — entry still went through
       slError = e.message;
       console.error('[third-eye/place] SL order failed:', e.message);
     }
