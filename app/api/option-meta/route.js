@@ -52,12 +52,13 @@ async function parseAndCacheNFO(dp) {
   const lines   = csvText.trim().split('\n');
   const headers = lines[0].split(',');
 
-  const tokenIdx  = headers.indexOf('instrument_token');
-  const tsIdx     = headers.indexOf('tradingsymbol');
-  const nameIdx   = headers.indexOf('name');
-  const expiryIdx = headers.indexOf('expiry');
-  const strikeIdx = headers.indexOf('strike');
-  const typeIdx   = headers.indexOf('instrument_type');
+  const tokenIdx   = headers.indexOf('instrument_token');
+  const tsIdx      = headers.indexOf('tradingsymbol');
+  const nameIdx    = headers.indexOf('name');
+  const expiryIdx  = headers.indexOf('expiry');
+  const strikeIdx  = headers.indexOf('strike');
+  const typeIdx    = headers.indexOf('instrument_type');
+  const lotSizeIdx = headers.indexOf('lot_size');
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
@@ -69,18 +70,20 @@ async function parseAndCacheNFO(dp) {
     const type = cols[typeIdx]?.replace(/"/g, '').trim();
     if (type !== 'CE' && type !== 'PE') continue;
 
-    const name   = cols[nameIdx]?.replace(/"/g, '').trim();
-    const expiry = cols[expiryIdx]?.replace(/"/g, '').trim();
-    const strike = parseFloat(cols[strikeIdx]) || 0;
-    const ts     = cols[tsIdx]?.replace(/"/g, '').trim();
-    const token  = parseInt(cols[tokenIdx]) || 0;
+    const name    = cols[nameIdx]?.replace(/"/g, '').trim();
+    const expiry  = cols[expiryIdx]?.replace(/"/g, '').trim();
+    const strike  = parseFloat(cols[strikeIdx]) || 0;
+    const ts      = cols[tsIdx]?.replace(/"/g, '').trim();
+    const token   = parseInt(cols[tokenIdx]) || 0;
+    const lotSize = parseInt(cols[lotSizeIdx]) || 0;
 
     if (!name || !expiry || !strike || !ts) continue;
     if (new Date(expiry) < today) continue;
 
     if (!symbolMap[name]) {
-      symbolMap[name] = { expiries: new Set(), strikesByExpiry: {}, tsTokenMap: {} };
+      symbolMap[name] = { expiries: new Set(), strikesByExpiry: {}, tsTokenMap: {}, lotSize: 0 };
     }
+    if (lotSize && !symbolMap[name].lotSize) symbolMap[name].lotSize = lotSize;
     symbolMap[name].expiries.add(expiry);
     if (type === 'CE') { // CE side is sufficient for strikes list
       if (!symbolMap[name].strikesByExpiry[expiry]) {
@@ -159,6 +162,12 @@ async function parseAndCacheNFO(dp) {
     cachePromises.push(
       redisSet(`${NS}:fno-ts-tokens:${name}`, data.tsTokenMap, META_TTL)
     );
+    // Cache lot size per symbol name
+    if (data.lotSize) {
+      cachePromises.push(
+        redisSet(`${NS}:fno-lotsize:${name}`, data.lotSize, META_TTL)
+      );
+    }
     // Cache reverse lookup per symbol+expiry: {strike_TYPE: tradingsymbol}
     for (const [exp, lookup] of Object.entries(data.nameLookup || {})) {
       cachePromises.push(
@@ -235,7 +244,12 @@ export async function GET(request) {
       if (!lookup) return NextResponse.json({ error: `No data for ${symbol} ${expiry}` }, { status: 404 });
       const ts = lookup[`${strike}_${type}`];
       if (!ts) return NextResponse.json({ error: `No tradingsymbol for ${symbol} ${strike} ${type} expiry ${expiry}` }, { status: 404 });
-      return NextResponse.json({ tradingSymbol: ts });
+      let lotSize = await redisGet(`${NS}:fno-lotsize:${symbol}`);
+      if (lotSize === null) {
+        // Key not yet in cache (first load after code change) — reparse to populate it
+        try { const { symbolMap } = await parseAndCacheNFO(dp); lotSize = symbolMap[symbol]?.lotSize ?? null; } catch { /* non-critical */ }
+      }
+      return NextResponse.json({ tradingSymbol: ts, lotSize });
     }
 
     // Returns current spot/LTP for an underlying — used to auto-select ATM strike

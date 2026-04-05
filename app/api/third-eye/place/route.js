@@ -1,5 +1,40 @@
 import { NextResponse } from 'next/server';
-import { getBroker, getDataProvider } from '@/app/lib/providers';
+import { getDataProvider, getBroker } from '@/app/lib/providers'; // getBroker used for fill-poll only
+import { redis } from '@/app/lib/redis';
+
+// ── VPS queue helpers (same as place-order) ───────────────────────────────────
+const QUEUE_KEY  = 'tradingverse:order_queue';
+const STATUS_PFX = 'tradingverse:order_status:';
+const DEDUP_PFX  = 'tradingverse:order_dedup:';
+
+function genOrderId() {
+  return `tv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+async function pushAndPoll(params, timeoutMs = 10000) {
+  const orderId   = genOrderId();
+  const statusKey = `${STATUS_PFX}${orderId}`;
+  await Promise.all([
+    redis.set(`${DEDUP_PFX}${orderId}`, '1',      { ex: 30  }),
+    redis.set(statusKey,                 'QUEUED', { ex: 600 }),
+  ]);
+  await redis.lpush(QUEUE_KEY, JSON.stringify({ orderId, ts: Date.now(), source: 'third-eye', variety: 'regular', ...params }));
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const val = await redis.get(statusKey);
+    if (val && val !== 'QUEUED') {
+      const colon  = val.indexOf(':');
+      const status = colon === -1 ? val : val.slice(0, colon);
+      const rest   = colon === -1 ? ''  : val.slice(colon + 1);
+      return status === 'SUCCESS'
+        ? { ok: true,  kiteOrderId: rest, orderId }
+        : { ok: false, error: rest || 'Order failed', orderId };
+    }
+    await new Promise(r => setTimeout(r, 400));
+  }
+  return { ok: false, error: 'Worker timeout — check Execution Log', orderId, timeout: true };
+}
 
 // ── Expiry helpers ────────────────────────────────────────────────────────────
 
@@ -114,92 +149,80 @@ export async function POST(req) {
     }
     const slLimit = parseFloat((slTrigger - 2).toFixed(1));
 
-    // ── Place entry order ─────────────────────────────────────────────────────
-    const broker      = await getBroker();
-    const entryOrder  = await broker.placeOrder('regular', {
-      tradingsymbol:    symbol,
-      exchange:         'NFO',
-      transaction_type: 'BUY',
-      order_type:       'LIMIT',
-      product:          'MIS',
-      quantity:         quantity,
-      price:            entryLimit,
+    // ── Entry order → VPS queue ───────────────────────────────────────────────
+    const entryResult = await pushAndPoll({
+      tradingsymbol: symbol, exchange: 'NFO',
+      transaction_type: 'BUY', order_type: 'LIMIT',
+      product: 'MIS', quantity, price: entryLimit,
     });
 
-    const entryOrderId = entryOrder.order_id;
+    if (!entryResult.ok) {
+      return NextResponse.json({
+        ok: false, symbol, ltp, entryLimit,
+        error: entryResult.error,
+        orderId: entryResult.orderId,
+      }, { status: entryResult.timeout ? 202 : 400 });
+    }
 
-    // ── Poll for entry fill before placing SL ────────────────────────────────
-    // Must confirm BUY is filled — otherwise SL SELL would create naked short
-    let filled   = false;
-    let slOrder  = null;
-    let slError  = null;
-    const POLL_INTERVAL = 500; // ms
-    const POLL_TIMEOUT  = 10000; // 10s max wait
-    const pollStart     = Date.now();
+    const kiteEntryId = entryResult.kiteOrderId;
 
-    while (Date.now() - pollStart < POLL_TIMEOUT) {
-      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+    // ── Poll Kite fill confirmation before placing SL ─────────────────────────
+    let filled  = false;
+    let slError = null;
+    let slKiteId = null;
+    const pollStart = Date.now();
+
+    while (Date.now() - pollStart < 10000) {
+      await new Promise(r => setTimeout(r, 500));
       try {
+        const broker = await getBroker();
         const orders = await broker.getOrders();
-        const entry  = (orders.data ?? orders).find(o => o.order_id === entryOrderId);
+        const entry  = (orders.data ?? orders).find(o => o.order_id === kiteEntryId);
         if (entry?.status === 'COMPLETE') { filled = true; break; }
         if (entry?.status === 'REJECTED' || entry?.status === 'CANCELLED') {
           return NextResponse.json({
-            ok: false,
-            error: `Entry order ${entry.status}: ${entry.status_message ?? ''}`,
+            ok: false, symbol, ltp, entryLimit,
+            error: `Entry ${entry.status}: ${entry.status_message ?? ''}`,
+            orderId: entryResult.orderId, kiteOrderId: kiteEntryId,
           }, { status: 400 });
         }
-      } catch { /* ignore poll errors, keep trying */ }
+      } catch { /* keep polling */ }
     }
 
     if (!filled) {
-      // Entry didn't fill in 10s — return without SL, user must manage manually
       return NextResponse.json({
-        ok:         true,
-        symbol,
-        strike:     Math.round(niftyPrice / 50) * 50,
+        ok: true, symbol,
+        strike: Math.round(niftyPrice / 50) * 50,
         optionType: direction === 'bull' ? 'CE' : 'PE',
-        ltp,
-        entryLimit,
-        slTrigger,
-        slLimit,
-        niftySl:    niftySl ?? null,
-        orderId:    entryOrderId,
-        slOrderId:  null,
-        slError:    'Entry not filled in 10s — SL not placed. Set manually in Kite.',
-        expiry:     expiry.toISOString().split('T')[0],
+        ltp, entryLimit, slTrigger, slLimit, niftySl: niftySl ?? null,
+        orderId: entryResult.orderId, kiteOrderId: kiteEntryId,
+        slOrderId: null,
+        slError: 'Entry not filled in 10s — SL not placed. Set manually in Kite.',
+        expiry: expiry.toISOString().split('T')[0],
       });
     }
 
-    // ── Entry confirmed filled — now place SL ────────────────────────────────
+    // ── SL order → VPS queue (only after fill confirmed) ─────────────────────
     try {
-      slOrder = await broker.placeOrder('regular', {
-        tradingsymbol:    symbol,
-        exchange:         'NFO',
-        transaction_type: 'SELL',
-        order_type:       'SL',
-        product:          'MIS',
-        quantity:         quantity,
-        trigger_price:    slTrigger,
-        price:            slLimit,
+      const slResult = await pushAndPoll({
+        tradingsymbol: symbol, exchange: 'NFO',
+        transaction_type: 'SELL', order_type: 'SL',
+        product: 'MIS', quantity,
+        trigger_price: slTrigger, price: slLimit,
       });
+      if (slResult.ok) slKiteId = slResult.kiteOrderId;
+      else slError = slResult.error;
     } catch (e) {
       slError = e.message;
-      console.error('[third-eye/place] SL order failed:', e.message);
     }
 
     return NextResponse.json({
-      ok:         true,
-      symbol,
+      ok: true, symbol,
       strike:     Math.round(niftyPrice / 50) * 50,
       optionType: direction === 'bull' ? 'CE' : 'PE',
-      ltp,
-      entryLimit,
-      slTrigger,
-      slLimit,
-      niftySl:    niftySl ?? null,
-      orderId:    entryOrder.order_id,
-      slOrderId:  slOrder?.order_id ?? null,
+      ltp, entryLimit, slTrigger, slLimit, niftySl: niftySl ?? null,
+      orderId:    entryResult.orderId, kiteOrderId: kiteEntryId,
+      slOrderId:  slKiteId ?? null,
       slError:    slError ?? null,
       expiry:     expiry.toISOString().split('T')[0],
     });

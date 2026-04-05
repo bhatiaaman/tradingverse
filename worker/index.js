@@ -39,15 +39,19 @@ async function redisCmd(...args) {
   return json.result;
 }
 
-// BRPOP blocks until an item is available (0 = no timeout)
+// Poll queue with RPOP — Upstash REST doesn't support blocking BRPOP reliably
+// (infinite BRPOP causes EOF when Upstash closes the HTTP connection after ~30s)
 async function brpop(key) {
-  const res = await fetch(`${REDIS_URL}/brpop/${encodeURIComponent(key)}/0`, {
-    headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-  });
-  const json = await res.json();
-  if (json.error) throw new Error(`Redis brpop error: ${json.error}`);
-  // result is [key, value] or null
-  return json.result ? json.result[1] : null;
+  while (true) {
+    const res  = await fetch(`${REDIS_URL}/rpop/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+    });
+    const json = await res.json();
+    if (json.error) throw new Error(`Redis rpop error: ${json.error}`);
+    if (json.result !== null && json.result !== undefined) return json.result;
+    // Nothing in queue — wait 800ms before next poll
+    await new Promise(r => setTimeout(r, 800));
+  }
 }
 
 async function redisSet(key, value, exSeconds) {
@@ -70,13 +74,15 @@ async function redisLtrim(key, start, stop) {
 }
 
 // ─── Redis keys ───────────────────────────────────────────────────────────────
+// NS must match REDIS_NAMESPACE env var in the Next.js app (default: 'default')
+const NS           = process.env.REDIS_NAMESPACE || 'default';
 const QUEUE_KEY    = 'tradingverse:order_queue';
 const STATUS_PFX   = 'tradingverse:order_status:';
 const DEDUP_PFX    = 'tradingverse:order_dedup:';
 const EXEC_LOG_KEY = 'tradingverse:order_exec_log';
 const EXEC_LOG_MAX = 500;
-const KITE_TOKEN_KEY = 'tradingverse:kite:access_token';
-const KITE_APIKEY_KEY = 'tradingverse:kite:api_key';
+const KITE_TOKEN_KEY  = `${NS}:kite:access_token`;
+const KITE_APIKEY_KEY = `${NS}:kite:api_key`;
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
 async function writeLog(entry) {
@@ -94,6 +100,7 @@ async function writeLog(entry) {
 async function getKite() {
   const apiKey      = process.env.KITE_API_KEY || await redisGet(KITE_APIKEY_KEY);
   const accessToken = await redisGet(KITE_TOKEN_KEY);
+  console.log(`[worker] api_key=${apiKey?.slice(0,8)}... token=${accessToken?.slice(0,8)}... key_source=${process.env.KITE_API_KEY ? 'env' : 'redis'}`);
   if (!apiKey || !accessToken) throw new Error('Kite credentials missing in Redis');
   const kite = new KiteConnect({ api_key: apiKey });
   kite.setAccessToken(accessToken);
