@@ -118,6 +118,16 @@ const SETUPS = [
       { key: 'volMult', label: 'Min volume multiplier', default: 1.3, step: 0.1, min: 1.0, max: 5.0 },
     ],
   },
+  {
+    id: 's20', name: 'EMA Cross (9×21)',
+    desc: 'EMA9 crosses EMA21 with price on the correct side of VWAP. Trend-filtered — only longs in uptrend, shorts in downtrend.',
+    thresholds: [],
+  },
+  {
+    id: 's21', name: 'VWAP Reclaim',
+    desc: 'Price extended 35–90pts from VWAP with momentum fading. Reclaim candle closes beyond prior candle high/low. Semi-auto enabled for Nifty 5-min.',
+    thresholds: [],
+  },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
