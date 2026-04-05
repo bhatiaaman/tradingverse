@@ -613,6 +613,7 @@ function OptionsChartInner() {
   const [synthesis,   setSynthesis]   = useState(null); // { line, color, icon, regime }
 
   const urlStrikeRef    = useRef(params.get('strike') ? Number(params.get('strike')) : null);
+  const urlExpiryRef    = useRef(params.get('expiry') || null); // honoured once on initial load
   const lastLoadedRef   = useRef(null);
   const chartAreaRef    = useRef(null);
   const cePanelRef      = useRef(null);
@@ -667,49 +668,60 @@ function OptionsChartInner() {
   useEffect(() => {
     if (!symbol) return;
     lastLoadedRef.current = null;
+    urlStrikeRef.current = null; // clear stale URL strike — only honour it for the initial symbol
     setExpiry(''); setStrike(null); setStrikes([]); setExpiries([]); setLoadingExp(true);
+    let cancelled = false;
     fetch(`/api/option-meta?action=expiries&symbol=${symbol}`).then(r => r.json()).then(d => {
-      if (d.expiries?.length) { setExpiries(d.expiries); const urlExp = params.get('expiry'); setExpiry(d.expiries.find(e => e.date === urlExp) ? urlExp : d.expiries[0].date); }
-    }).catch(() => {}).finally(() => setLoadingExp(false));
+      if (cancelled) return;
+      if (d.expiries?.length) {
+        setExpiries(d.expiries);
+        const urlExp = urlExpiryRef.current;
+        urlExpiryRef.current = null; // only honour once
+        const match = urlExp && d.expiries.find(e => e.date === urlExp);
+        setExpiry(match ? urlExp : d.expiries[0].date);
+      }
+    }).catch(() => {}).finally(() => { if (!cancelled) setLoadingExp(false); });
+    return () => { cancelled = true; };
   }, [symbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!symbol || !expiry) return;
     setStrike(null); setStrikes([]); setLoadingStr(true);
+    let cancelled = false;
 
     function pickATM(list, spot, sym) {
       if (!spot || !list.length) return list[Math.floor(list.length / 2)] ?? null;
-      // Snap spot to nearest valid step, then find closest real strike in the list
       const step = nseStrikeSteps[sym] ?? (spot >= 5000 ? 50 : spot >= 1000 ? 20 : spot >= 500 ? 10 : spot >= 100 ? 5 : 2.5);
       const snapped = Math.round(spot / step) * step;
-      // Pick the strike in the list closest to the snapped value
       return list.reduce((p, c) => Math.abs(c - snapped) < Math.abs(p - snapped) ? c : p);
     }
 
     async function load() {
-      // Fetch spot first and set it immediately — don't block strikes on slow spot
       let spotData = { ltp: null };
       try {
         spotData = await fetch(`/api/option-meta?action=spot&symbol=${symbol}`).then(r => r.json());
       } catch {}
+      if (cancelled) return;
       setSpotPrice(spotData.ltp ?? null);
 
-      // Now fetch strikes with spot already available
       const sData = await fetch(`/api/option-meta?action=strikes&symbol=${symbol}&expiry=${expiry}`).then(r => r.json());
+      if (cancelled) return;
       let list = sData.strikes || [];
-      // Cache miss — bust and retry once
       if (!list.length) {
         const retry = await fetch(`/api/option-meta?action=strikes&symbol=${symbol}&expiry=${expiry}&bust=1`).then(r => r.json()).catch(() => ({}));
+        if (cancelled) return;
         list = retry.strikes || [];
       }
       setStrikes(list);
       if (!list.length) return;
+      // urlStrikeRef is only set on initial page load — honour it once then clear
       const urlStrike = urlStrikeRef.current;
-      if (urlStrike && list.includes(urlStrike)) { setStrike(urlStrike); urlStrikeRef.current = null; return; }
+      if (urlStrike && list.includes(Number(urlStrike))) { setStrike(Number(urlStrike)); urlStrikeRef.current = null; return; }
       setStrike(pickATM(list, spotData.ltp, symbol));
     }
 
-    load().catch(() => {}).finally(() => setLoadingStr(false));
+    load().catch(() => {}).finally(() => { if (!cancelled) setLoadingStr(false); });
+    return () => { cancelled = true; };
   }, [symbol, expiry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
