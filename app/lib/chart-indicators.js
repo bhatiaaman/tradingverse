@@ -176,7 +176,8 @@ export function computeBB(candles, length = 20, mult = 2.0) {
 // CHoCH: majority vote of last 3 breaks prevents single noise break from flipping trend.
 export function computeSMC(candles) {
   const n = candles.length;
-  const STR = 2; // pivot strength: 2 bars each side (catches more pivots on 5m/15m)
+  // Pivot strength: 5 bars each side (matches standard TV SMC, removes minor noise)
+  const STR = 5; 
   if (n < STR * 2 + 5) return null;
 
   // ── Swing pivots ─────────────────────────────────────────────────────────
@@ -228,12 +229,12 @@ export function computeSMC(candles) {
 
   // Show unbroken BOS + all CHoCH (trend reversals always significant)
   const lastClose = candles[n - 1].close;
-  const recentBreaks = allBreaks.slice(-20).filter(bos => {
+  const recentBreaks = allBreaks.slice(-15).filter(bos => {
     if (bos.isCHoCH) return true;
     const sliceAfterBreak = candles.slice(bos.breakIdx + 1);
     if (bos.type === 'bull') return !sliceAfterBreak.some(c => c.close < bos.price);
     return !sliceAfterBreak.some(c => c.close > bos.price);
-  });
+  }).slice(-5); // Keep chart clean by showing max 5 recent structural bounds
 
   // ── Order Blocks ─────────────────────────────────────────────────────────
   const rawOBs  = [];
