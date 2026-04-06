@@ -476,6 +476,10 @@ function scoreToVerdict(score) {
 // Main export
 // ─────────────────────────────────────────────────────────────────────────────
 export function runStationAgent(data) {
+  const spotPrice = data.order?.spotPrice ?? 
+                    data.stationData?.candles15m?.at(-1)?.close ?? 
+                    null;
+
   // 1. Run detectStations once (5m candles not available — degrades gracefully)
   let stationResult = null;
   try {
@@ -485,8 +489,8 @@ export function runStationAgent(data) {
         candles15m:   data.stationData?.candles15m ?? [],
         candlesDaily: data.stationData?.candlesDaily ?? [],
       },
-      currentPrice:    data.order.spotPrice,
-      transactionType: data.order.transactionType,
+      currentPrice:    spotPrice,
+      transactionType: data.order?.transactionType,
     });
   } catch (e) {
     console.error('station: detectStations failed', e);
