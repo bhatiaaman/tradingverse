@@ -11,6 +11,7 @@ import {
   aggregateWeekly, computeVWAP, computeEMA, computeRSI,
   computeSMAAligned, computeBB, computeSMC, computeCPR,
 } from '@/app/lib/chart-indicators';
+import { useChartRefresh } from '@/app/lib/chart/useChartRefresh';
 
 const RSI_MIN_H = 50;
 const RSI_MAX_H = 200;
@@ -215,24 +216,6 @@ function ChartPageInner() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // ── Silent background patch — updates candles WITHOUT touching React state ────
-  // Bypasses React state entirely so the main chart-build effect never re-runs.
-  // Used for the 60s auto-refresh; overlays (EMAs etc.) stay valid because
-  // indictor data is recomputed only when candle count changes (new candle appended).
-  const fetchAndPatch = useCallback(async () => {
-    if (!chartRef.current) return; // chart not ready yet — skip silently
-    try {
-      const apiInterval = chartInterval === 'week' ? 'day' : chartInterval;
-      const res  = await fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${apiInterval}&bust=1`);
-      if (!res.ok) return;
-      const data = await res.json();
-      const rawCandles = data.candles || [];
-      if (!rawCandles.length || !chartRef.current) return;
-      const newCandles = chartInterval === 'week' ? aggregateWeekly(rawCandles) : rawCandles;
-      candlesRef.current = newCandles;
-      chartRef.current.updateCandles(newCandles);
-    } catch { /* non-fatal — next tick will retry */ }
-  }, [symbol, chartInterval]);
 
   // ── Drawing tools — sync activeTool to chart, persist drawings ───────────────
   const drawingKey = (sym, iv) => `tv_drawings_${sym}_${iv}`;
@@ -272,14 +255,22 @@ function ChartPageInner() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  // Auto-refresh every 30s — uses fetchAndPatch (silent, no chart recreation)
-  useEffect(() => {
-    if (chartInterval === 'week') return;
-    const REFRESH_MS = { 'minute': 30_000, '5minute': 30_000, '15minute': 60_000, '60minute': 180_000 };
-    const ms = REFRESH_MS[chartInterval] ?? 60_000;
-    const id = setInterval(() => { if (isMarketHours()) fetchAndPatch(); }, ms);
-    return () => clearInterval(id);
-  }, [fetchAndPatch, chartInterval]);
+  // ── Central refresh — 5s LTP tick + 30s candle refresh (useChartRefresh) ─────
+  // Replaces the old fetchAndPatch useCallback + two separate setInterval effects.
+  // See app/lib/chart/useChartRefresh.js for the full implementation.
+  useChartRefresh({
+    symbol,
+    interval: chartInterval,
+    chartRef,
+    candlesRef,
+    // onRefreshed: call applyOverlays with fresh candles so EMA9/VWAP/CPR stay in sync
+    // after every 30s background candle refresh (candlesRef.current is already updated
+    // by the hook before this callback fires).
+    onRefreshed: (newCandles) => {
+      if (chartRef.current) applyOverlays(chartRef.current, newCandles);
+    },
+  });
+
 
   // Auto-refresh intelligence every 3 min during market hours (independent of candles)
   useEffect(() => {
@@ -314,6 +305,132 @@ function ChartPageInner() {
     setShowSettings(true);
   };
 
+  // ── applyOverlays ─────────────────────────────────────────────────────────────
+  // Lifted OUT of the main useEffect so it can be called from two places:
+  //   1. Inside the main useEffect (on initial load + settings toggle)
+  //   2. Via onRefreshed in useChartRefresh (on every 30s candle refresh)
+  // Takes (chart, candles) explicitly so both call sites pass the correct data.
+  // Everything else (settings, dailyCandles, intelligence, chartInterval) is
+  // captured from the latest React state via the useCallback dep array.
+  const applyOverlays = useCallback((chart, candles) => {
+    if (!chart || !candles?.length) return;
+    const isIntraday = chartInterval !== 'day' && chartInterval !== 'week';
+
+    // ── VWAP ──────────────────────────────────────────────────────────────
+    if (settings.showVwap && isIntraday) {
+      const lastDate  = new Date((candles[candles.length - 1].time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10);
+      const sessCdls  = candles.filter(c => new Date((c.time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10) === lastDate);
+      const vwapData  = computeVWAP(sessCdls.length ? sessCdls : candles.slice(-1));
+      chart.setLine('vwap', { data: vwapData, color: '#f59e0b', width: 2 });
+      const last = vwapData[vwapData.length - 1]?.value;
+      setVwap(last ?? null);
+    } else {
+      chart.clearLine('vwap');
+      setVwap(null);
+    }
+
+    // ── OR Band ───────────────────────────────────────────────────────────
+    if (settings.showOrBand && isIntraday && candles.length >= 1) {
+      const lastDate = new Date((candles[candles.length - 1].time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10);
+      const dayStart = candles.findIndex(c => new Date((c.time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10) === lastDate);
+      const orC = candles[dayStart >= 0 ? dayStart : 0];
+      chart.setZone({ id: 'or_high', price: orC.high, color: 'rgba(96,165,250,0.8)',  label: 'OR H', style: 'dashed', inline: true });
+      chart.setZone({ id: 'or_low',  price: orC.low,  color: 'rgba(96,165,250,0.8)',  label: 'OR L', style: 'dashed', inline: true });
+    } else {
+      chart.clearZone('or_high');
+      chart.clearZone('or_low');
+    }
+
+    // ── S/R zones from Station agent ──────────────────────────────────────
+    if (settings.showSR) {
+      const stations = intelligence?.agents?.station?.allStations;
+      chart.clearZonesWithPrefix('sr_');
+      if (stations?.length) {
+        const ltp    = candles[candles.length - 1]?.close || 0;
+        const dist   = s => Math.abs(s.price - ltp);
+        const broken = s => (s.type === 'SUPPORT' && ltp < s.price) || (s.type === 'RESISTANCE' && ltp > s.price);
+        const sup = stations.filter(s => s.type === 'SUPPORT').sort((a, b) => dist(a) - dist(b)).slice(0, 4);
+        const res = stations.filter(s => s.type === 'RESISTANCE').sort((a, b) => dist(a) - dist(b)).slice(0, 4);
+        for (const s of sup) chart.setZone({ id: `sr_s_${s.price}`, price: s.price,
+          color: broken(s) ? 'rgba(134,239,172,0.55)' : 'rgba(74,222,128,0.85)',
+          label: `S${s.quality >= 7 ? '★' : ''}`, style: 'dashed', inline: true });
+        for (const r of res) chart.setZone({ id: `sr_r_${r.price}`, price: r.price,
+          color: broken(r) ? 'rgba(252,165,165,0.55)' : 'rgba(248,113,113,0.85)',
+          label: `R${r.quality >= 7 ? '★' : ''}`, style: 'dashed', inline: true });
+      }
+    } else {
+      chart.clearZonesWithPrefix('sr_');
+    }
+
+    // ── EMA lines ─────────────────────────────────────────────────────────
+    if (settings.showEma9)  chart.setLine('ema9',  { data: computeEMA(candles, 9),  color: EMA_COLORS.ema9,  width: 2 });
+    else                    chart.clearLine('ema9');
+    if (settings.showEma21) chart.setLine('ema21', { data: computeEMA(candles, 21), color: EMA_COLORS.ema21, width: 2 });
+    else                    chart.clearLine('ema21');
+    if (settings.showEma50) chart.setLine('ema50', { data: computeEMA(candles, 50), color: EMA_COLORS.ema50, width: 2 });
+    else                    chart.clearLine('ema50');
+
+    // ── EMA 9 Daily — flat zone line on intraday ──────────────────────────
+    if (settings.showEma9D && isIntraday && dailyCandles.length >= 9) {
+      const val = computeEMA(dailyCandles, 9).at(-1)?.value;
+      if (val) chart.setZone({ id: 'ema9d', price: val, color: 'rgba(232,121,249,0.85)', label: 'D·EMA9', style: 'solid', width: 2.5, inline: true });
+    } else {
+      chart.clearZone('ema9d');
+    }
+
+    // ── EMA 9 Weekly — flat zone line on daily chart only ────────────────
+    if (settings.showEma9W && chartInterval === 'day' && dailyCandles.length >= 9) {
+      const val = computeEMA(aggregateWeekly(dailyCandles), 9).at(-1)?.value;
+      if (val) chart.setZone({ id: 'ema9w', price: val, color: 'rgba(251,146,60,0.85)', label: 'W·EMA9', style: 'solid', width: 2.5, inline: true });
+    } else {
+      chart.clearZone('ema9w');
+    }
+
+    // ── SMC overlays (BOS · OB · FVG) ────────────────────────────────────
+    if (settings.showSMC && candles.length > 10) {
+      const smc = computeSMC(candles);
+      if (smc) chart.setSMC(smc);
+      else chart.clearSMC();
+    } else {
+      chart.clearSMC();
+    }
+
+    // ── CPR (Central Pivot Range) — per-day segments ─────────────────────
+    if (settings.showCPR) {
+      const segs = computeCPR(candles, dailyCandles, chartInterval);
+      chart.setCPR(segs.length ? segs : null);
+    } else {
+      chart.clearCPR();
+    }
+
+    // ── Bollinger Bands ───────────────────────────────────────────────────
+    if (settings.showBB && candles.length >= (settings.bbLength ?? 20)) {
+      const bb = computeBB(candles, settings.bbLength ?? 20, settings.bbMult ?? 2.0);
+      chart.setBB(bb);
+    } else {
+      chart.clearBB();
+    }
+
+    // ── Candle colors ─────────────────────────────────────────────────────
+    chart.setCandleColors({ bull: settings.bullColor, bear: settings.bearColor });
+
+    // ── Volume ────────────────────────────────────────────────────────────
+    chart.setShowVolume(settings.showVolume);
+
+    // ── RSI sub-pane ──────────────────────────────────────────────────────
+    if (settings.showRSI && candles.length > (settings.rsiPeriod ?? 12) + 1) {
+      const period   = settings.rsiPeriod ?? 12;
+      const maPeriod = settings.rsiMAPeriod ?? 5;
+      const rsi      = computeRSI(candles, period);
+      const rsiMA    = maPeriod >= 2 ? computeSMAAligned(rsi, maPeriod) : null;
+      const lbl      = maPeriod >= 2 ? `RSI(${period},${maPeriod})` : `RSI(${period})`;
+      chart.setRSIPane(rsi, rsiMA, lbl);
+      chart.setRSIPaneHeight(chartRsiHRef.current);
+    } else {
+      chart.clearRSIPane();
+    }
+  }, [settings, dailyCandles, intelligence, chartInterval]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Build / rebuild chart, or just update overlays if data hasn't changed ────
   // Key invariant: chart is destroyed+recreated (resetting viewport) ONLY when
   // candles, chartInterval, or chartTheme change. Toggling overlays in settings
@@ -334,134 +451,15 @@ function ChartPageInner() {
       || cf.interval  !== chartInterval
       || cf.theme     !== chartTheme;
 
-    const applyOverlays = (chart) => {
 
-      // ── VWAP ──────────────────────────────────────────────────────────────
-      if (settings.showVwap && isIntraday) {
-        // Use last trading session in candles (not "today" — market may be closed)
-        const lastDate  = new Date((candles[candles.length - 1].time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10);
-        const sessCdls  = candles.filter(c => new Date((c.time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10) === lastDate);
-        const vwapData  = computeVWAP(sessCdls.length ? sessCdls : candles.slice(-1));
-        chart.setLine('vwap', { data: vwapData, color: '#f59e0b', width: 2 });
-        const last = vwapData[vwapData.length - 1]?.value;
-        setVwap(last ?? null);
-      } else {
-        chart.clearLine('vwap');
-        setVwap(null);
-      }
-
-      // ── OR Band ───────────────────────────────────────────────────────────
-      if (settings.showOrBand && isIntraday && candles.length >= 1) {
-        // Use last trading session's first bar
-        const lastDate = new Date((candles[candles.length - 1].time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10);
-        const dayStart = candles.findIndex(c => new Date((c.time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10) === lastDate);
-        const orC = candles[dayStart >= 0 ? dayStart : 0];
-        chart.setZone({ id: 'or_high', price: orC.high, color: 'rgba(96,165,250,0.8)',  label: 'OR H', style: 'dashed', inline: true });
-        chart.setZone({ id: 'or_low',  price: orC.low,  color: 'rgba(96,165,250,0.8)',  label: 'OR L', style: 'dashed', inline: true });
-      } else {
-        chart.clearZone('or_high');
-        chart.clearZone('or_low');
-      }
-
-      // ── S/R zones from Station agent ──────────────────────────────────────
-      if (settings.showSR) {
-        const stations = intelligence?.agents?.station?.allStations;
-        chart.clearZonesWithPrefix('sr_');
-        if (stations?.length) {
-          const ltp    = candles[candles.length - 1]?.close || 0;
-          const dist   = s => Math.abs(s.price - ltp);
-          const broken = s => (s.type === 'SUPPORT' && ltp < s.price) || (s.type === 'RESISTANCE' && ltp > s.price);
-          const sup = stations.filter(s => s.type === 'SUPPORT').sort((a, b) => dist(a) - dist(b)).slice(0, 4);
-          const res = stations.filter(s => s.type === 'RESISTANCE').sort((a, b) => dist(a) - dist(b)).slice(0, 4);
-          for (const s of sup) chart.setZone({ id: `sr_s_${s.price}`, price: s.price,
-            color: broken(s) ? 'rgba(134,239,172,0.55)' : 'rgba(74,222,128,0.85)',
-            label: `S${s.quality >= 7 ? '★' : ''}`, style: 'dashed', inline: true });
-          for (const r of res) chart.setZone({ id: `sr_r_${r.price}`, price: r.price,
-            color: broken(r) ? 'rgba(252,165,165,0.55)' : 'rgba(248,113,113,0.85)',
-            label: `R${r.quality >= 7 ? '★' : ''}`, style: 'dashed', inline: true });
-        }
-      } else {
-        chart.clearZonesWithPrefix('sr_');
-      }
-
-      // ── EMA lines ─────────────────────────────────────────────────────────
-      if (settings.showEma9)  chart.setLine('ema9',  { data: computeEMA(candles, 9),  color: EMA_COLORS.ema9,  width: 2 });
-      else                    chart.clearLine('ema9');
-      if (settings.showEma21) chart.setLine('ema21', { data: computeEMA(candles, 21), color: EMA_COLORS.ema21, width: 2 });
-      else                    chart.clearLine('ema21');
-      if (settings.showEma50) chart.setLine('ema50', { data: computeEMA(candles, 50), color: EMA_COLORS.ema50, width: 2 });
-      else                    chart.clearLine('ema50');
-
-      // ── EMA 9 Daily — flat zone line on intraday ──────────────────────────
-      if (settings.showEma9D && isIntraday && dailyCandles.length >= 9) {
-        const val = computeEMA(dailyCandles, 9).at(-1)?.value;
-        if (val) chart.setZone({ id: 'ema9d', price: val, color: 'rgba(232,121,249,0.85)', label: 'D·EMA9', style: 'solid', width: 2.5, inline: true });
-      } else {
-        chart.clearZone('ema9d');
-      }
-
-      // ── EMA 9 Weekly — flat zone line on daily chart only ────────────────
-      if (settings.showEma9W && chartInterval === 'day' && dailyCandles.length >= 9) {
-        const val = computeEMA(aggregateWeekly(dailyCandles), 9).at(-1)?.value;
-        if (val) chart.setZone({ id: 'ema9w', price: val, color: 'rgba(251,146,60,0.85)', label: 'W·EMA9', style: 'solid', width: 2.5, inline: true });
-      } else {
-        chart.clearZone('ema9w');
-      }
-
-      // ── SMC overlays (BOS · OB · FVG) ────────────────────────────────────
-      if (settings.showSMC && candles.length > 10) {
-        const smc = computeSMC(candles);
-        if (smc) chart.setSMC(smc);
-        else chart.clearSMC();
-      } else {
-        chart.clearSMC();
-      }
-
-      // ── CPR (Central Pivot Range) — per-day segments ─────────────────────
-      if (settings.showCPR) {
-        const segs = computeCPR(candles, dailyCandles, chartInterval);
-        chart.setCPR(segs.length ? segs : null);
-      } else {
-        chart.clearCPR();
-      }
-
-      // ── Bollinger Bands ───────────────────────────────────────────────────
-      if (settings.showBB && candles.length >= (settings.bbLength ?? 20)) {
-        const bb = computeBB(candles, settings.bbLength ?? 20, settings.bbMult ?? 2.0);
-        chart.setBB(bb);
-      } else {
-        chart.clearBB();
-      }
-
-      // ── Candle colors ─────────────────────────────────────────────────────
-      chart.setCandleColors({ bull: settings.bullColor, bear: settings.bearColor });
-
-      // ── Volume ────────────────────────────────────────────────────────────
-      chart.setShowVolume(settings.showVolume);
-
-      // ── RSI sub-pane ──────────────────────────────────────────────────────
-      if (settings.showRSI && candles.length > (settings.rsiPeriod ?? 12) + 1) {
-        const period   = settings.rsiPeriod ?? 12;
-        const maPeriod = settings.rsiMAPeriod ?? 5;
-        const rsi      = computeRSI(candles, period);
-        const rsiMA    = maPeriod >= 2 ? computeSMAAligned(rsi, maPeriod) : null;
-        const lbl      = maPeriod >= 2 ? `RSI(${period},${maPeriod})` : `RSI(${period})`;
-        chart.setRSIPane(rsi, rsiMA, lbl);
-        chart.setRSIPaneHeight(chartRsiHRef.current);
-      } else {
-        chart.clearRSIPane();
-      }
-    }; // end applyOverlays
+    const applyOverlays_local = (chart) => applyOverlays(chart, candles); // local alias capturing closure `candles`
 
     if (!needsRecreation) {
-      // Candles refreshed (new reference) — slide viewport if at right edge, else stay put
       if (cf.candles !== candles) {
         chartRef.current.updateCandles(candles);
         chartCreatedForRef.current = { ...cf, candles };
       }
-      // Settings or overlay toggle — just re-apply without touching viewport
-      applyOverlays(chartRef.current);
-      // Re-apply scanner marker on every overlay update so intelligence load doesn't wipe it
+      applyOverlays_local(chartRef.current);
       if (atParam) {
         const atSec = parseInt(atParam, 10);
         if (atSec > 0) chartRef.current.setMarkers([{ time: atSec, direction: atDirParam }]);
@@ -514,7 +512,7 @@ function ChartPageInner() {
       // Re-apply active tool after recreation
       if (activeTool) chart.setActiveTool(activeTool);
 
-      applyOverlays(chart);
+      applyOverlays(chart, candles);
 
       // If opened from scanner with ?at= param, mark + scroll to signal candle
       if (atParam) {
@@ -536,29 +534,7 @@ function ChartPageInner() {
     };
   }, []);
 
-  // ── Poll for incremental candle updates every 5s (no full chart recreation) ───
-  //
-  // Two-tier strategy to eliminate all visible repaints:
-  // ── Live LTP tick every 5s via /api/quotes — copied from working eye page chart ──
-  // Uses the lightweight quotes endpoint (15s Redis cache) instead of the full
-  // chart-data endpoint. Only calls updateTick(ltp) — mutates last candle in-place,
-  // zero overlay re-indexing, zero viewport movement, zero flicker.
-  // Full candle data refreshes separately via fetchAndPatch every 30s.
-  useEffect(() => {
-    const intraday = chartInterval !== 'week' && chartInterval !== 'day';
-    if (!symbol || !intraday) return;
-    const tick = async () => {
-      if (!chartRef.current) return;
-      try {
-        const res  = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbol)}`);
-        const data = await res.json();
-        const ltp  = data.quotes?.[0]?.ltp;
-        if (ltp != null) chartRef.current.updateTick(ltp);
-      } catch { /* non-fatal */ }
-    };
-    const id = setInterval(tick, 5000);
-    return () => clearInterval(id);
-  }, [symbol, chartInterval]);
+
 
   // Fallback: if lastPriceY is still null 300ms after candles load, read it directly.
   // Covers the edge case where the RAF fires before onLastPriceY is registered.

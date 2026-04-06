@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import Nav from '../../components/Nav';
 import { createChart } from '../../lib/chart/Chart';
+import { useChartRefresh } from '@/app/lib/chart/useChartRefresh';
 import DrawingToolbar from '../../components/DrawingToolbar';
 import OrderModal from '../../components/OrderModal';
 import { nseStrikeSteps } from '../../lib/nseStrikeSteps';
@@ -71,6 +72,10 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
   const candlesRef   = useRef(null);
   const dailyCandlesRef = useRef(null);
   const tradingSymbolRef = useRef(null);
+
+  // tradingSymbol state (Option A): gives useChartRefresh a React dep to watch.
+  // tradingSymbolRef is kept for sync access inside async callbacks.
+  const [tradingSymbol, setTradingSymbol] = useState(null);
 
   const [loading,        setLoading]        = useState(true);
   const [err,            setErr]            = useState(null);
@@ -202,6 +207,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
 
     async function load() {
       setLoading(true); setErr(null); setInfo(null); setHoverData(null);
+      setTradingSymbol(null); // reset so hook stops ticking while we re-resolve
       candlesRef.current = null; dailyCandlesRef.current = null;
 
       const tsRes  = await fetch(`/api/option-meta?action=tradingsymbol&symbol=${symbol}&expiry=${expiry}&strike=${strike}&type=${type}`);
@@ -211,6 +217,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
 
       const kiteTs = tsData.tradingSymbol;
       tradingSymbolRef.current = kiteTs;
+      setTradingSymbol(kiteTs); // kick useChartRefresh to start ticking with new symbol
       if (tsData.lotSize) { setQuickLotSize(tsData.lotSize); setQuickQty(tsData.lotSize); }
       const [cdData, ddData] = await Promise.all([
         fetch(`/api/chart-data?symbol=${encodeURIComponent(kiteTs)}&interval=${interval}`).then(r => r.json()),
@@ -281,46 +288,19 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
     applyOverlays(chartRef.current, candlesRef.current, dailyCandlesRef.current);
   }, [overlays, rsiSettings, bbSettings, candleColors, rsiHeight, applyOverlays]);
 
-  // ── Live LTP tick every 5s — copied from working eye page chart ───────────────
-  // Uses /api/quotes (lightweight, 15s cache) to get real-time LTP and calls
-  // updateTick() which only mutates last candle in-place — zero flicker.
-  useEffect(() => {
-    const id = setInterval(async () => {
-      if (!chartRef.current || !tradingSymbolRef.current) return;
-      try {
-        // The quotes API auto-detects NFO vs NSE based on whether the symbol contains digits
-        const res  = await fetch(`/api/quotes?symbols=${encodeURIComponent(tradingSymbolRef.current)}`);
-        const data = await res.json();
-        const ltp  = data.quotes?.[0]?.ltp;
-        if (ltp != null) {
-          chartRef.current.updateTick(ltp);
-          setInfo(prev => prev ? { ...prev, ltp } : prev);
-        }
-      } catch { /* non-fatal */ }
-    }, 5000);
-    return () => clearInterval(id);
-  }, [interval]); // restart when interval prop changes (remounts panel)
-
-  // ── Full candle refresh every 30s — updateCandles() preserves viewport ────────
-  // Same pattern as fetchAndPatch in chart/page.js and fetchData in eye/page.js.
-  useEffect(() => {
-    const REFRESH_MS = { 'minute': 30_000, '5minute': 30_000, '15minute': 60_000 };
-    const ms = REFRESH_MS[interval] ?? 60_000;
-    const id = setInterval(async () => {
-      if (!chartRef.current || !tradingSymbolRef.current) return;
-      try {
-        const res  = await fetch(`/api/chart-data?symbol=${encodeURIComponent(tradingSymbolRef.current)}&interval=${interval}&bust=1`);
-        const data = await res.json();
-        const newCandles = data.candles;
-        if (!newCandles?.length || !chartRef.current) return;
-        candlesRef.current = newCandles;
-        chartRef.current.updateCandles(newCandles);
-        const last = newCandles[newCandles.length - 1];
-        if (last) setInfo(prev => prev ? { ...prev, ltp: last.close } : prev);
-      } catch { /* non-fatal */ }
-    }, ms);
-    return () => clearInterval(id);
-  }, [interval]);
+  // ── Central refresh — 5s LTP tick + 30s candle refresh (useChartRefresh) ─────
+  // tradingSymbol is React state (set when load() resolves the kite tradingsymbol).
+  // When null (during initial async load), the hook is a no-op.
+  useChartRefresh({
+    symbol:   tradingSymbol,          // null until load() resolves — hook skips gracefully
+    interval,
+    chartRef,
+    candlesRef,
+    onRefreshed: (newCandles) => {
+      const last = newCandles[newCandles.length - 1];
+      if (last) setInfo(prev => prev ? { ...prev, ltp: last.close } : prev);
+    },
+  });
 
   // Destroy on unmount
   useEffect(() => {
