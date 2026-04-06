@@ -360,13 +360,20 @@ function getNiftyLevelAlerts(indices) {
     const [leftTab, setLeftTab]           = useState('sectors');
     const thirdEyeEnvRef      = useRef('medium');
     const setupConfigRef      = useRef({});
-    const lastCandleTimeRef   = useRef(0); // unix sec of last logged candle
+    const lastCandleTimeRef   = useRef(''); // 'HH:MM' of last logged candle
 
     // Restore Third Eye log from Redis on mount (survives browser refresh)
     useEffect(() => {
       fetch('/api/third-eye/log')
         .then(r => r.json())
-        .then(d => { if (d.entries?.length) setThirdEyeLog(d.entries); })
+        .then(d => {
+          if (d.entries?.length) {
+            setThirdEyeLog(d.entries);
+            // Seed the dedup ref with the most recent logged bar so we don't
+            // re-log the same candle immediately after a page refresh
+            if (d.entries[0]?.time) lastCandleTimeRef.current = d.entries[0].time;
+          }
+        })
         .catch(() => {});
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1018,24 +1025,25 @@ function getNiftyLevelAlerts(indices) {
                 });
               }
 
-              // Append to rolling log only when a new bar has opened
-              // Use timestamp of the last candle — count doesn't grow (rolling window from API)
-              const lastCandleTime = data.candles[data.candles.length - 1]?.time ?? 0;
-              if (lastCandleTime > lastCandleTimeRef.current) {
-                lastCandleTimeRef.current = lastCandleTime;
-                const lastCandle = data.candles[data.candles.length - 1];
-                // Format IST time from unix timestamp
-                const d = new Date((lastCandle.time + 19800) * 1000); // +5:30 offset
-                const hh = String(d.getUTCHours()).padStart(2, '0');
-                const mm = String(d.getUTCMinutes()).padStart(2, '0');
+              // Append to rolling log only when a new 5m bar has opened.
+              // Compare formatted HH:MM (not unix sec) — avoids timezone/ref-staleness bugs.
+              // Ref is seeded from Redis on mount so a page refresh mid-bar doesn't duplicate.
+              const lastCandle = data.candles[data.candles.length - 1];
+              const ld = new Date((lastCandle.time + 19800) * 1000);
+              const hh = String(ld.getUTCHours()).padStart(2, '0');
+              const mm = String(ld.getUTCMinutes()).padStart(2, '0');
+              const candleTimeStr = `${hh}:${mm}`;
+              if (candleTimeStr !== lastCandleTimeRef.current) {
+                lastCandleTimeRef.current = candleTimeStr;
                 const entry = {
-                  time:        `${hh}:${mm}`,
+                  time:        candleTimeStr,
                   topSetup:    heResult.strongSetups?.[0] ?? heResult.watchList?.[0] ?? null,
                   context:     heResult.context,
                   candle:      { open: lastCandle.open, high: lastCandle.high, low: lastCandle.low, close: lastCandle.close },
                   rawPatterns: heResult.rawPatterns ?? [],
                 };
                 setThirdEyeLog(prev => {
+                  if (prev[0]?.time === candleTimeStr) return prev; // dedup: same bar added twice
                   const next = [entry, ...prev].slice(0, 12);
                   // Persist to Redis so log survives browser refresh
                   fetch('/api/third-eye/log', {
