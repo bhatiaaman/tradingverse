@@ -290,18 +290,23 @@ export function createChart(container, options = {}) {
       const prevLen = candles.length;
       candles   = data ?? [];
       timeIndex = new Map(candles.map((c, i) => [c.time, i]));
-      for (const [id, line] of lineMap) {
-        lineMap.set(id, { ...line, values: _reindex(line._raw) });
+      // Only re-index overlay lines when the array grew (new candle added).
+      // If just the last candle's OHLC changed (same length), the existing
+      // index mapping is still valid — skipping re-index eliminates the
+      // visible flicker that occurred every 5s on in-progress candle updates.
+      if (candles.length !== prevLen) {
+        for (const [id, line] of lineMap) {
+          lineMap.set(id, { ...line, values: _reindex(line._raw) });
+        }
+        markers = markers.map(m => ({ ...m, index: timeIndex.get(m.time) ?? -1 })).filter(m => m.index >= 0);
+        // New candle appended and right edge was in view — slide viewport forward
+        if (candles.length > prevLen && vp.logTo >= prevLen - 2) {
+          const delta = candles.length - prevLen;
+          vp.logFrom += delta;
+          vp.logTo   += delta;
+        }
       }
-      markers = markers.map(m => ({ ...m, index: timeIndex.get(m.time) ?? -1 })).filter(m => m.index >= 0);
-      // If new candles appended and the right edge was already in view, slide forward
-      if (candles.length > prevLen && vp.logTo >= prevLen - 2) {
-        const delta = candles.length - prevLen;
-        vp.logFrom += delta;
-        vp.logTo   += delta;
-      }
-      // Guard: if viewport is completely outside the new data (e.g. after an interval
-      // switch where recreation used old-TF candles), reset to a sensible window.
+      // Guard: if viewport is completely outside the new data, reset to sensible window.
       if (vp.logFrom >= candles.length || vp.logTo <= 0) {
         const defaultBars = { '1minute': 390, '5minute': 234, '15minute': 104, '60minute': 150 }[interval];
         if (defaultBars) vp.fitRecent(candles, defaultBars);

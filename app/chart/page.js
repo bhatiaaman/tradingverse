@@ -216,10 +216,9 @@ function ChartPageInner() {
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   // ── Silent background patch — updates candles WITHOUT touching React state ────
-  // This is the key fix for the bad refresh UX: calling setCandles() triggers the
-  // main chart-build effect which destroys + recreates the chart, flashing the
-  // loading spinner and resetting the viewport. Instead we fetch new candles and
-  // push them directly into the chart imperatively via updateCandles().
+  // Bypasses React state entirely so the main chart-build effect never re-runs.
+  // Used for the 60s auto-refresh; overlays (EMAs etc.) stay valid because
+  // indictor data is recomputed only when candle count changes (new candle appended).
   const fetchAndPatch = useCallback(async () => {
     if (!chartRef.current) return; // chart not ready yet — skip silently
     try {
@@ -229,12 +228,7 @@ function ChartPageInner() {
       const data = await res.json();
       const rawCandles = data.candles || [];
       if (!rawCandles.length || !chartRef.current) return;
-
-      const { aggregateWeekly: agg } = await import('@/app/lib/chart-indicators').then(m => m);
       const newCandles = chartInterval === 'week' ? aggregateWeekly(rawCandles) : rawCandles;
-
-      // Silently update the ref and chart — NO setCandles, NO setLoading
-      // The main chart-build effect therefore does NOT re-run, viewport is preserved.
       candlesRef.current = newCandles;
       chartRef.current.updateCandles(newCandles);
     } catch { /* non-fatal — next tick will retry */ }
@@ -542,26 +536,40 @@ function ChartPageInner() {
     };
   }, []);
 
-  // ── Poll for incremental candle updates (no full chart recreation) ─────────
-  // Every 5 seconds, fetch new candles and update chart WITHOUT triggering
-  // the main effect. Store in ref + call updateCandles only.
+  // ── Poll for incremental candle updates every 5s (no full chart recreation) ───
+  //
+  // Two-tier strategy to eliminate all visible repaints:
+  //   • Same candle count (in-progress candle update): use updateTick(ltp)
+  //     which mutates only the last candle's close/high/low in-place. Zero
+  //     viewport movement, zero overlay re-indexing, zero flicker.
+  //   • New candle appended: use updateCandles() which slides the viewport
+  //     forward by 1 bar only if the user was already at the right edge.
+  //     Overlay lines are re-indexed only at this point (not every 5s tick).
   useEffect(() => {
-    if (!symbol || !chartInterval || !chartRef.current) return;
+    if (!symbol || !chartInterval) return;
 
     const pollInterval = setInterval(async () => {
+      if (!chartRef.current) return; // chart may not be ready on first tick
       try {
-        const res = await fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}`);
+        const res  = await fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}`);
         const data = await res.json();
-        if (data.candles?.length && chartRef.current) {
-          // Update ref and chart WITHOUT calling setCandles
-          // This prevents the main effect from re-running and recalculating overlays
-          candlesRef.current = data.candles;
-          chartRef.current.updateCandles(data.candles);
+        const newCandles = data.candles;
+        if (!newCandles?.length || !chartRef.current) return;
+
+        const prevLen = candlesRef.current?.length ?? 0;
+
+        if (newCandles.length === prevLen) {
+          // In-progress candle: just update close/high/low of last candle in-place.
+          // updateTick() only mutates last candle and calls markDirty() — no overlay flicker.
+          const ltp = newCandles[newCandles.length - 1]?.close;
+          if (ltp != null) chartRef.current.updateTick(ltp);
+        } else {
+          // New candle appended: slide viewport forward + re-index overlays.
+          candlesRef.current = newCandles;
+          chartRef.current.updateCandles(newCandles);
         }
-      } catch (err) {
-        console.error('Chart poll error:', err);
-      }
-    }, 5000);  // Poll every 5 seconds
+      } catch { /* non-fatal */ }
+    }, 5000);
 
     return () => clearInterval(pollInterval);
   }, [symbol, chartInterval]);
