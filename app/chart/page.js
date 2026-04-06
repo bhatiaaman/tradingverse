@@ -272,12 +272,12 @@ function ChartPageInner() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  // Auto-refresh every 60s — uses fetchAndPatch (silent, no chart recreation)
-  // fetchAll() is intentionally NOT called here — it sets loading=true and setCandles
-  // which destroys+rebuilds the chart. fetchAndPatch() bypasses React state entirely.
+  // Auto-refresh every 30s — uses fetchAndPatch (silent, no chart recreation)
   useEffect(() => {
     if (chartInterval === 'week') return;
-    const id = setInterval(() => { if (isMarketHours()) fetchAndPatch(); }, 60000);
+    const REFRESH_MS = { 'minute': 30_000, '5minute': 30_000, '15minute': 60_000, '60minute': 180_000 };
+    const ms = REFRESH_MS[chartInterval] ?? 60_000;
+    const id = setInterval(() => { if (isMarketHours()) fetchAndPatch(); }, ms);
     return () => clearInterval(id);
   }, [fetchAndPatch, chartInterval]);
 
@@ -539,39 +539,25 @@ function ChartPageInner() {
   // ── Poll for incremental candle updates every 5s (no full chart recreation) ───
   //
   // Two-tier strategy to eliminate all visible repaints:
-  //   • Same candle count (in-progress candle update): use updateTick(ltp)
-  //     which mutates only the last candle's close/high/low in-place. Zero
-  //     viewport movement, zero overlay re-indexing, zero flicker.
-  //   • New candle appended: use updateCandles() which slides the viewport
-  //     forward by 1 bar only if the user was already at the right edge.
-  //     Overlay lines are re-indexed only at this point (not every 5s tick).
+  // ── Live LTP tick every 5s via /api/quotes — copied from working eye page chart ──
+  // Uses the lightweight quotes endpoint (15s Redis cache) instead of the full
+  // chart-data endpoint. Only calls updateTick(ltp) — mutates last candle in-place,
+  // zero overlay re-indexing, zero viewport movement, zero flicker.
+  // Full candle data refreshes separately via fetchAndPatch every 30s.
   useEffect(() => {
-    if (!symbol || !chartInterval) return;
-
-    const pollInterval = setInterval(async () => {
-      if (!chartRef.current) return; // chart may not be ready on first tick
+    const intraday = chartInterval !== 'week' && chartInterval !== 'day';
+    if (!symbol || !intraday) return;
+    const tick = async () => {
+      if (!chartRef.current) return;
       try {
-        const res  = await fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}&bust=1`);
+        const res  = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbol)}`);
         const data = await res.json();
-        const newCandles = data.candles;
-        if (!newCandles?.length || !chartRef.current) return;
-
-        const prevLen = candlesRef.current?.length ?? 0;
-
-        if (newCandles.length === prevLen) {
-          // In-progress candle: just update close/high/low of last candle in-place.
-          // updateTick() only mutates last candle and calls markDirty() — no overlay flicker.
-          const ltp = newCandles[newCandles.length - 1]?.close;
-          if (ltp != null) chartRef.current.updateTick(ltp);
-        } else {
-          // New candle appended: slide viewport forward + re-index overlays.
-          candlesRef.current = newCandles;
-          chartRef.current.updateCandles(newCandles);
-        }
+        const ltp  = data.quotes?.[0]?.ltp;
+        if (ltp != null) chartRef.current.updateTick(ltp);
       } catch { /* non-fatal */ }
-    }, 5000);
-
-    return () => clearInterval(pollInterval);
+    };
+    const id = setInterval(tick, 5000);
+    return () => clearInterval(id);
   }, [symbol, chartInterval]);
 
   // Fallback: if lastPriceY is still null 300ms after candles load, read it directly.

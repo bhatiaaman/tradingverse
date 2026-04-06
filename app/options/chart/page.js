@@ -281,46 +281,45 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
     applyOverlays(chartRef.current, candlesRef.current, dailyCandlesRef.current);
   }, [overlays, rsiSettings, bbSettings, candleColors, rsiHeight, applyOverlays]);
 
-  // ── Poll for candle updates every 5s (two-tier, no chart recreation) ──────────
-  //
-  // IMPORTANT: do NOT guard with `if (!chartRef.current) return` at useEffect level.
-  // The chart is built asynchronously inside load() — chartRef.current is null at the
-  // time this effect first runs, which caused the old code to bail and never set up
-  // the interval at all (the options chart appeared to never refresh).
-  //
-  // Instead, guard inside the callback — by the time the first 5s tick fires the
-  // chart is always ready. Same two-tier strategy as chart/page.js:
-  //   • Same length  → updateTick(ltp)   — zero flicker, just updates last candle body
-  //   • New candle   → updateCandles()   — slides viewport + re-indexes overlays once
+  // ── Live LTP tick every 5s — copied from working eye page chart ───────────────
+  // Uses /api/quotes (lightweight, 15s cache) to get real-time LTP and calls
+  // updateTick() which only mutates last candle in-place — zero flicker.
   useEffect(() => {
-    const pollInterval = setInterval(async () => {
-      if (!chartRef.current || !tradingSymbolRef.current) return; // guard inside callback
+    const id = setInterval(async () => {
+      if (!chartRef.current || !tradingSymbolRef.current) return;
       try {
-        // bust=1 bypasses the Redis cache so every 5s tick gets fresh data from Kite
-        const res = await fetch(`/api/chart-data?symbol=${encodeURIComponent(tradingSymbolRef.current)}&interval=${interval}&bust=1`);
+        // The quotes API auto-detects NFO vs NSE based on whether the symbol contains digits
+        const res  = await fetch(`/api/quotes?symbols=${encodeURIComponent(tradingSymbolRef.current)}`);
         const data = await res.json();
-        const newCandles = data.candles;
-        if (!newCandles?.length || !chartRef.current) return;
-
-        const prevLen = candlesRef.current?.length ?? 0;
-        const lastCandle = newCandles[newCandles.length - 1];
-
-        if (newCandles.length === prevLen) {
-          // In-progress candle tick — mutate last candle in-place, zero flicker
-          if (lastCandle?.close != null) chartRef.current.updateTick(lastCandle.close);
-        } else {
-          // New candle appended — slide viewport + re-index overlays
-          candlesRef.current = newCandles;
-          chartRef.current.updateCandles(newCandles);
-        }
-
-        // Always update displayed LTP
-        if (lastCandle?.close != null) {
-          setInfo(prev => prev ? { ...prev, ltp: lastCandle.close } : prev);
+        const ltp  = data.quotes?.[0]?.ltp;
+        if (ltp != null) {
+          chartRef.current.updateTick(ltp);
+          setInfo(prev => prev ? { ...prev, ltp } : prev);
         }
       } catch { /* non-fatal */ }
     }, 5000);
-    return () => clearInterval(pollInterval);
+    return () => clearInterval(id);
+  }, [interval]); // restart when interval prop changes (remounts panel)
+
+  // ── Full candle refresh every 30s — updateCandles() preserves viewport ────────
+  // Same pattern as fetchAndPatch in chart/page.js and fetchData in eye/page.js.
+  useEffect(() => {
+    const REFRESH_MS = { 'minute': 30_000, '5minute': 30_000, '15minute': 60_000 };
+    const ms = REFRESH_MS[interval] ?? 60_000;
+    const id = setInterval(async () => {
+      if (!chartRef.current || !tradingSymbolRef.current) return;
+      try {
+        const res  = await fetch(`/api/chart-data?symbol=${encodeURIComponent(tradingSymbolRef.current)}&interval=${interval}&bust=1`);
+        const data = await res.json();
+        const newCandles = data.candles;
+        if (!newCandles?.length || !chartRef.current) return;
+        candlesRef.current = newCandles;
+        chartRef.current.updateCandles(newCandles);
+        const last = newCandles[newCandles.length - 1];
+        if (last) setInfo(prev => prev ? { ...prev, ltp: last.close } : prev);
+      } catch { /* non-fatal */ }
+    }, ms);
+    return () => clearInterval(id);
   }, [interval]);
 
   // Destroy on unmount

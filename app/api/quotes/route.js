@@ -58,12 +58,17 @@ export async function GET(request) {
       return NextResponse.json({ quotes: [], error: 'Kite API not configured' });
     }
 
-    const instrumentKeys = symbols.map(sym => INDEX_INSTRUMENTS[sym] || `NSE:${sym}`);
+    // Option symbols contain digits (e.g. NIFTY2640722600BCE) → NFO exchange
+    // Equity/index symbols are uppercase letters only → use INDEX_INSTRUMENTS or NSE
+    const isOptionSym = (s) => /\d/.test(s) && !INDEX_INSTRUMENTS[s];
+    const instrumentKeys = symbols.map(sym =>
+      INDEX_INSTRUMENTS[sym] || (isOptionSym(sym) ? `NFO:${sym}` : `NSE:${sym}`)
+    );
     const ohlcData = await dp.getOHLC(instrumentKeys);
 
     const quotes = [];
     for (const sym of symbols) {
-      const key = INDEX_INSTRUMENTS[sym] || `NSE:${sym}`;
+      const key = INDEX_INSTRUMENTS[sym] || (isOptionSym(sym) ? `NFO:${sym}` : `NSE:${sym}`);
       const d = ohlcData[key];
       if (!d) continue;
       const ltp       = d.last_price;
