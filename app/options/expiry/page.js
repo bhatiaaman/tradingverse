@@ -546,16 +546,17 @@ function OIWallChart({ strikes, spot, maxPain, atm, expectedOpen }) {
         ctx.fillText('🎯', CENTER - BAR_W - 12, y + ROW_H / 2);
       }
 
-      // OI labels on bars (if large enough)
-      if (ceW > 30) {
-        ctx.font = '9px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      // OI labels on bars (if large enough) - Keep a gap from center so it doesn't overlap strike text
+      const GAP = 24;
+      if (ceW > GAP + 10) {
+        ctx.font = '9px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.75)';
         ctx.textAlign = 'right';
-        ctx.fillText(fmtL(s.ce?.oi), CENTER - 2, y + ROW_H / 2);
+        ctx.fillText(fmtL(s.ce?.oi), CENTER - GAP, y + ROW_H / 2);
       }
-      if (peW > 30) {
-        ctx.font = '9px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      if (peW > GAP + 10) {
+        ctx.font = '9px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.75)';
         ctx.textAlign = 'left';
-        ctx.fillText(fmtL(s.pe?.oi), CENTER + 2, y + ROW_H / 2);
+        ctx.fillText(fmtL(s.pe?.oi), CENTER + GAP, y + ROW_H / 2);
       }
     });
 
