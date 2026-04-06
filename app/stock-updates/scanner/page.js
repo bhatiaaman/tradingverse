@@ -348,7 +348,12 @@ export default function ScannerPage({ scanName, scanSlug }) {
     // Snap DOWN to nearest candle boundary (15m bar opens at :00, :15, :30, :45)
     const intervalMs = intervalMinutes * 60 * 1000;
     const snapped = Math.floor(unixMs / intervalMs) * intervalMs;
-    return Math.floor(snapped / 1000);
+
+    // Chartink fires at the CLOSE of the signal bar, which is the same timestamp
+    // as the OPEN of the next bar. e.g. the 11:45 breakout bar closes at 12:00,
+    // so triggeredAt = "12:00 pm". Snapping 12:00 gives 12:00 (building bar).
+    // Subtracting one interval gives 11:45 — the actual signal candle that closed.
+    return Math.floor((snapped - intervalMs) / 1000);
   }
 
   // ── Open 15m chart in native chart page ──────────────────────────────────
