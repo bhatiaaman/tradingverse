@@ -846,7 +846,9 @@ function getNiftyLevelAlerts(indices) {
       const volSlice = candles.slice(-20 - lookback, -lookback);
       const avgVol   = volSlice.reduce((s, c) => s + (c.volume || 0), 0) / volSlice.length;
 
-      if (!atr || !avgVol) return [];
+      if (!atr) return [];
+      // avgVol may be 0 for index instruments (Nifty) — volume check is optional
+      const hasVol = avgVol > 0;
 
       const results = [];
       const start   = Math.max(0, candles.length - lookback);
@@ -855,14 +857,15 @@ function getNiftyLevelAlerts(indices) {
         const body     = Math.abs(c.close - c.open);
         const range    = c.high - c.low;
         const bodyRatio = range > 0 ? body / range : 0;
-        const volMult   = (c.volume || 0) / avgVol;
+        const volMult   = hasVol ? (c.volume || 0) / avgVol : null;
         const rangeMult = range / atr;
 
-        if (bodyRatio >= 0.6 && volMult >= 1.5 && rangeMult >= 1.5) {
+        const passesVol = !hasVol || volMult >= 1.5;
+        if (bodyRatio >= 0.6 && rangeMult >= 1.5 && passesVol) {
           results.push({
             time:      c.time,
             direction: c.close >= c.open ? 'bull' : 'bear',
-            volMult:   Math.round(volMult  * 10) / 10,
+            volMult:   volMult != null ? Math.round(volMult  * 10) / 10 : null,
             rangeMult: Math.round(rangeMult * 10) / 10,
           });
         }
@@ -1837,7 +1840,7 @@ function getNiftyLevelAlerts(indices) {
                         ⚡ REGIME SHIFT ALERT
                       </div>
                       <div className="text-[11px] text-slate-300 mt-0.5 leading-snug">
-                        {isBull ? 'Bullish' : 'Bearish'} power candle — Vol {pc.volMult}× avg, Range {pc.rangeMult}× ATR.
+                        {isBull ? 'Bullish' : 'Bearish'} power candle — {pc.volMult != null ? `Vol ${pc.volMult}× avg, ` : ''}Range {pc.rangeMult}× ATR.
                         {' '}<span className="text-slate-400">Trend may be reversing. Reassess bias and position size.</span>
                       </div>
                     </div>
@@ -2851,7 +2854,7 @@ function getNiftyLevelAlerts(indices) {
                         {isBull ? '▲ Bullish' : '▼ Bearish'}
                       </span>
                       <span className="text-slate-400">
-                        Vol {pc.volMult}× avg · Range {pc.rangeMult}× ATR
+                        {pc.volMult != null ? `Vol ${pc.volMult}× avg · ` : ''}Range {pc.rangeMult}× ATR
                       </span>
                       <span className={`${isBull ? 'text-amber-200/60' : 'text-red-200/60'}`}>
                         · {isBull ? 'Possible bullish reversal or strong continuation — watch next candle' : 'Possible bearish reversal or strong continuation — watch next candle'}
