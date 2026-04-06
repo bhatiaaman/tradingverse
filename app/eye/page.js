@@ -1474,14 +1474,48 @@ function getNiftyLevelAlerts(indices) {
       }
 
       // ── No setup: contextual quiet candle commentary ───────────────────────
-      const chg     = ((candle.close - candle.open) / candle.open * 100).toFixed(2);
-      const isBull  = candle.close > candle.open;
-      const patHint = rawPatterns[0] ? ` · ${rawPatterns[0].pattern.name}` : '';
+      const chg      = ((candle.close - candle.open) / candle.open * 100).toFixed(2);
+      const isBull   = candle.close > candle.open;
+      const patHint  = rawPatterns[0] ? ` · ${rawPatterns[0].pattern.name}` : '';
+      const cRange   = candle.high - candle.low;
+      const cBody    = Math.abs(candle.close - candle.open);
+      const bodyRatio = cRange > 0 ? cBody / cRange : 0;
 
+      // ── Power candle: body ≥65% of range + range ≥1.5× ATR14 ───────────────
+      // ATR works for Nifty index (no volume data). Wicky candles with same range
+      // won't pass bodyRatio, so exhaustion candles aren't mislabelled.
+      const atr       = c.atr14;
+      const isPower   = bodyRatio >= 0.65 && atr != null && cRange >= atr * 1.5;
+
+      if (isPower) {
+        const dir = isBull ? 'bull' : 'bear';
+        const biasAligned = bias === dir || bias === 'neutral';
+        if (bias === 'neutral' && dir !== 'neutral') biasRef.current = dir;
+        const atrMult = (cRange / atr).toFixed(1);
+        if (biasAligned) {
+          return {
+            type: 'watch', direction: dir,
+            action: isBull ? 'STRONG BULL' : 'STRONG BEAR',
+            headline: isBull
+              ? 'Strong bullish candle — momentum expanding'
+              : 'Strong bearish candle — momentum expanding',
+            reason: `${Math.abs(chg)}% body, ${atrMult}× ATR${patHint}. ${isBull ? 'Dips near this close are buying opportunities.' : 'Rallies near this close are selling opportunities.'}`,
+          };
+        } else {
+          return {
+            type: 'caution', direction: dir,
+            action: 'REVERSAL WATCH',
+            headline: `Strong ${isBull ? 'bullish' : 'bearish'} candle — counter-bias, watch closely`,
+            reason: `${Math.abs(chg)}% body, ${atrMult}× ATR${patHint} against ${bias} bias. Monitor for structural change before acting.`,
+          };
+        }
+      }
+
+      // High-volume wicky candle — indecision/exhaustion (equity stocks, not index)
       if (c.volume.context === 'climax') {
         return { type: 'watch', action: 'WATCH',
           headline: 'Volume climax — possible turn ahead',
-          reason: `${isBull ? 'Bullish' : 'Bearish'} ${Math.abs(chg)}% on ${c.volume.mult}× vol${patHint}. Climax often precedes a reversal.` };
+          reason: `${isBull ? 'Bullish' : 'Bearish'} ${Math.abs(chg)}% on ${c.volume.mult}× vol${patHint}. High volume with wicks — exhaustion signal.` };
       }
 
       // Quiet candle — hold bias with a human comment

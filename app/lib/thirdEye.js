@@ -601,6 +601,7 @@ export function buildContext(candles, pre) {
     fvgs:         pre.fvgs,
     tradingRange: pre.tradingRange,
     swingSequence: pre.swingSequence,
+    atr14:        pre.atr14,
   };
 }
 
