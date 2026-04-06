@@ -296,7 +296,8 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
     const pollInterval = setInterval(async () => {
       if (!chartRef.current || !tradingSymbolRef.current) return; // guard inside callback
       try {
-        const res = await fetch(`/api/chart-data?symbol=${encodeURIComponent(tradingSymbolRef.current)}&interval=${interval}`);
+        // bust=1 bypasses the Redis cache so every 5s tick gets fresh data from Kite
+        const res = await fetch(`/api/chart-data?symbol=${encodeURIComponent(tradingSymbolRef.current)}&interval=${interval}&bust=1`);
         const data = await res.json();
         const newCandles = data.candles;
         if (!newCandles?.length || !chartRef.current) return;

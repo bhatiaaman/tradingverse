@@ -223,7 +223,7 @@ function ChartPageInner() {
     if (!chartRef.current) return; // chart not ready yet — skip silently
     try {
       const apiInterval = chartInterval === 'week' ? 'day' : chartInterval;
-      const res  = await fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${apiInterval}`);
+      const res  = await fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${apiInterval}&bust=1`);
       if (!res.ok) return;
       const data = await res.json();
       const rawCandles = data.candles || [];
@@ -551,7 +551,7 @@ function ChartPageInner() {
     const pollInterval = setInterval(async () => {
       if (!chartRef.current) return; // chart may not be ready on first tick
       try {
-        const res  = await fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}`);
+        const res  = await fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${chartInterval}&bust=1`);
         const data = await res.json();
         const newCandles = data.candles;
         if (!newCandles?.length || !chartRef.current) return;
