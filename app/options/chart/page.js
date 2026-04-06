@@ -281,27 +281,44 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
     applyOverlays(chartRef.current, candlesRef.current, dailyCandlesRef.current);
   }, [overlays, rsiSettings, bbSettings, candleColors, rsiHeight, applyOverlays]);
 
-  // ── Poll for candle updates (incremental, no chart recreation) ───────────────
-  // Fetch latest candles every 5 seconds and update chart without full redraw
+  // ── Poll for candle updates every 5s (two-tier, no chart recreation) ──────────
+  //
+  // IMPORTANT: do NOT guard with `if (!chartRef.current) return` at useEffect level.
+  // The chart is built asynchronously inside load() — chartRef.current is null at the
+  // time this effect first runs, which caused the old code to bail and never set up
+  // the interval at all (the options chart appeared to never refresh).
+  //
+  // Instead, guard inside the callback — by the time the first 5s tick fires the
+  // chart is always ready. Same two-tier strategy as chart/page.js:
+  //   • Same length  → updateTick(ltp)   — zero flicker, just updates last candle body
+  //   • New candle   → updateCandles()   — slides viewport + re-indexes overlays once
   useEffect(() => {
-    if (!chartRef.current || !tradingSymbolRef.current) return;
     const pollInterval = setInterval(async () => {
+      if (!chartRef.current || !tradingSymbolRef.current) return; // guard inside callback
       try {
         const res = await fetch(`/api/chart-data?symbol=${encodeURIComponent(tradingSymbolRef.current)}&interval=${interval}`);
         const data = await res.json();
-        if (data.candles?.length && chartRef.current) {
-          candlesRef.current = data.candles;
-          chartRef.current.updateCandles(data.candles);  // Incremental update, NOT full recreate
-          // Update LTP
-          const lastCandle = data.candles[data.candles.length - 1];
-          if (lastCandle) {
-            setInfo(prev => ({ ...prev, ltp: lastCandle.close }));
-          }
+        const newCandles = data.candles;
+        if (!newCandles?.length || !chartRef.current) return;
+
+        const prevLen = candlesRef.current?.length ?? 0;
+        const lastCandle = newCandles[newCandles.length - 1];
+
+        if (newCandles.length === prevLen) {
+          // In-progress candle tick — mutate last candle in-place, zero flicker
+          if (lastCandle?.close != null) chartRef.current.updateTick(lastCandle.close);
+        } else {
+          // New candle appended — slide viewport + re-index overlays
+          candlesRef.current = newCandles;
+          chartRef.current.updateCandles(newCandles);
         }
-      } catch (err) {
-        console.error('Chart poll error:', err);
-      }
-    }, 5000);  // Poll every 5 seconds
+
+        // Always update displayed LTP
+        if (lastCandle?.close != null) {
+          setInfo(prev => prev ? { ...prev, ltp: lastCandle.close } : prev);
+        }
+      } catch { /* non-fatal */ }
+    }, 5000);
     return () => clearInterval(pollInterval);
   }, [interval]);
 
