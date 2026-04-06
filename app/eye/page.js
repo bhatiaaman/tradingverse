@@ -7,6 +7,16 @@
   import { usePageVisibility } from '@/app/hooks/usePageVisibility';
   import { playBullishFlip, playBearishFlip, playReversalAlert, playWarningPing, playReversalBuilding, playSentiment50Cross } from '../lib/sounds';
 
+  // ── Determine directional bias of an open position ────────────────────────
+  // Options: short PE = bullish, short CE = bearish, long PE = bearish, long CE = bullish
+  // Equity/futures: positive qty = bull, negative qty = bear
+  function positionDir(p) {
+    const sym = p.tradingsymbol || '';
+    if (sym.endsWith('PE')) return p.quantity < 0 ? 'bull' : 'bear';
+    if (sym.endsWith('CE')) return p.quantity > 0 ? 'bull' : 'bear';
+    return p.quantity >= 0 ? 'bull' : 'bear';
+  }
+
   // ── Check if nifty price is near a key H/L level (within 0.3%) ────────────
 function getNiftyLevelAlerts(indices) {
   const price = parseFloat(indices?.nifty);
@@ -370,12 +380,9 @@ function getNiftyLevelAlerts(indices) {
         const bias = biasRef.current;
         if (bias === 'neutral') { setPositionAlert(null); return; }
         // Find positions conflicting with current bias
-        // bull bias = shorts are bad (negative qty); bear bias = longs are bad (positive qty)
-        const conflicting = data.positions.filter(p => {
-          if (bias === 'bull') return p.quantity < 0; // short position
-          if (bias === 'bear') return p.quantity > 0; // long position
-          return false;
-        });
+        // Options: short PE = bullish, short CE = bearish, long PE = bearish, long CE = bullish
+        // Equity/futures: positive qty = bullish, negative qty = bearish
+        const conflicting = data.positions.filter(p => positionDir(p) !== bias);
         if (!conflicting.length) { setPositionAlert(null); return; }
         // Only show if not already dismissed for this exact bias direction
         setPositionAlert({ bias, conflicting });
@@ -3036,12 +3043,8 @@ function getNiftyLevelAlerts(indices) {
                   const biasColor = bias === 'bull' ? 'text-emerald-400' : bias === 'bear' ? 'text-rose-400' : 'text-slate-400';
                   const biasBg    = bias === 'bull' ? 'bg-emerald-500/10 border-emerald-500/20' : bias === 'bear' ? 'bg-rose-500/10 border-rose-500/20' : 'bg-slate-800/60 border-white/5';
                   const biasLabel = bias === 'bull' ? '▲ BULLISH' : bias === 'bear' ? '▼ BEARISH' : '— NEUTRAL';
-                  const conflicting = openPositions.filter(p =>
-                    (bias === 'bull' && p.quantity < 0) || (bias === 'bear' && p.quantity > 0)
-                  );
-                  const aligned = openPositions.filter(p =>
-                    (bias === 'bull' && p.quantity > 0) || (bias === 'bear' && p.quantity < 0)
-                  );
+                  const conflicting = openPositions.filter(p => positionDir(p) !== bias);
+                  const aligned     = openPositions.filter(p => positionDir(p) === bias);
                   const totalPnl = openPositions.reduce((s, p) => {
                     const pnl = p.pnl ?? ((p.last_price - p.average_price) * p.quantity);
                     return s + (pnl ?? 0);

@@ -249,8 +249,19 @@ function checkOIDivergence(data) {
     };
   }
 
-  // Price down + put OI rising sharply = fresh put writing = bearish conviction
+  // Price down + put OI rising sharply — context matters:
+  // Near day LOW: put WRITERS selling puts at cheap prices = floor-building (BULLISH)
+  // Mid-range or near HIGH: fresh put BUYERS adding shorts = bearish conviction (BEARISH)
   if (priceChange5 < -0.3 && putOIChange5min != null && putOIChange5min > 2.0) {
+    if (nearLow) {
+      return {
+        type: 'PUT_WRITING_AT_LOW',
+        direction: 'BULLISH',
+        strength: putOIChange5min > 3.5 ? 'STRONG' : 'MODERATE',
+        message: `Fresh put writing on decline (Put OI +${putOIChange5min.toFixed(1)}%)`,
+        watch: 'Put sellers building floor at day low — watch for bounce',
+      };
+    }
     return {
       type: 'FRESH_PUT_WRITING_ON_DECLINE',
       direction: 'BEARISH',

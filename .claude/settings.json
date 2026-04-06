@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(node -e \":*)",
-      "Bash(find /Volumes/Work/projects/tradingverse/app/api -type f -name *.js ! -path *.next*)"
+      "Bash(find /Volumes/Work/projects/tradingverse/app/api -type f -name *.js ! -path *.next*)",
+      "Bash(node -e \"const p = require\\('/Volumes/Work/projects/tradingverse/package.json'\\); console.log\\('next:', p.dependencies?.next\\); console.log\\('react:', p.dependencies?.react\\)\")"
     ],
     "additionalDirectories": [
       "/Volumes/Work/projects/bhatiaverse/app/api/auth/vault/check"

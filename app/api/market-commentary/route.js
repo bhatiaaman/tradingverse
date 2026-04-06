@@ -855,11 +855,17 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
   };
   const narr = synthesizeNarrative(narrativeCtx);
 
-  // Use narrative bias if stronger than what keyword matching found
+  // Use narrative bias only when it doesn't contradict a confident regime-computed bias.
+  // Reversal zone signals add state/headline context but should not flip a clear regime direction.
   let finalBias = bias, finalBiasEmoji = biasEmoji;
   if (narr.bias && narr.bias !== 'NEUTRAL') {
-    finalBias = narr.bias;
-    finalBiasEmoji = narr.bias === 'BULLISH' ? '🟢' : '🔴';
+    if (bias === 'NEUTRAL' || narr.bias === bias) {
+      // Agree or no opinion — use narrative bias
+      finalBias = narr.bias;
+      finalBiasEmoji = narr.bias === 'BULLISH' ? '🟢' : '🔴';
+    }
+    // If narrative conflicts with a non-neutral computed bias: keep computed bias,
+    // the reversal zone is surfaced as a warning via the state label instead.
   }
 
   // Medium-confidence reversal: add to warnings
