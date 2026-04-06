@@ -397,6 +397,20 @@ function generateTradeDesk(chainData, straddleData) {
   const recoveryPct  = dayLow > 0 ? (curPremium - dayLow) / dayLow * 100 : 0;
   const expansionPct = openPremium > 0 ? (curPremium - openPremium) / openPremium * 100 : 0;
 
+  // Track single option momentum (15 min lookback) to catch breakouts hidden by theta
+  let ceSpike = 0, peSpike = 0;
+  if (hasStraddle) {
+    const lookback = Math.min(straddleData.length - 1, 3); // 3 bars of 5m = 15 mins
+    if (lookback > 0) {
+      const curCe = straddleData[straddleData.length - 1].ce;
+      const curPe = straddleData[straddleData.length - 1].pe;
+      const oldCe = straddleData[straddleData.length - 1 - lookback].ce;
+      const oldPe = straddleData[straddleData.length - 1 - lookback].pe;
+      if (oldCe > 0 && curCe != null) ceSpike = (curCe - oldCe) / oldCe * 100;
+      if (oldPe > 0 && curPe != null) peSpike = (curPe - oldPe) / oldPe * 100;
+    }
+  }
+
   // ATM row
   const atmRow = strikes?.find(s => s.strike === atm);
   const atmCe  = atmRow?.ce;
@@ -420,10 +434,11 @@ function generateTradeDesk(chainData, straddleData) {
   // When straddle data exists, use it as primary signal; otherwise fall back to IV/HV
   let regime;
   if (hasStraddle) {
-    if (expansionPct > 12)     regime = 'expansion';
-    else if (decayPct > 18)    regime = 'range';
-    else if (recoveryPct > 15) regime = 'recovery';
-    else                       regime = 'neutral';
+    if (ceSpike > 20 || peSpike > 20) regime = 'breakout';
+    else if (expansionPct > 12)       regime = 'expansion';
+    else if (decayPct > 18)           regime = 'range';
+    else if (recoveryPct > 15)        regime = 'recovery';
+    else                              regime = 'neutral';
   } else {
     // IV/HV-based regime when no intraday straddle data yet
     if (iv > 1.4)              regime = 'expansion';   // expensive options → sellers at risk
@@ -433,6 +448,19 @@ function generateTradeDesk(chainData, straddleData) {
   }
 
   // ── BUY SIGNALS ─────────────────────────────────────────────────────────────
+
+  // 1a. Intraday Breakout — sharp single-leg momentum
+  if (ceSpike > 20 || peSpike > 20) {
+    const isCe = ceSpike > peSpike;
+    const spikeVal = isCe ? ceSpike : peSpike;
+    const dir = isCe ? 'CE' : 'PE';
+    const ltp = isCe ? atmCe?.ltp : atmPe?.ltp;
+    buys.push({ strike: atm, type: dir, confidence: spikeVal > 35 ? 'HIGH' : 'MEDIUM',
+      trigger: 'breakout', reasons: [
+        `Sharp directional move: ${dir} spiked +${spikeVal.toFixed(0)}% in last 15 mins`,
+        `Outpacing theta — strong momentum breakout`,
+      ], ltp, sl: ltp ? (ltp * 0.70).toFixed(0) : null });
+  }
 
   // 1. Expansion — sellers trapped, momentum buy
   if (expansionPct > 10) {
@@ -545,6 +573,7 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm }) {
   const [results,   setResults]   = useState({});   // key → { ok, msg }
 
   const REGIME_META = {
+    breakout:  { label: 'BREAKOUT',       color: 'text-violet-400',  dot: 'bg-violet-400',  tip: 'Sharp directional momentum — buy the moving leg' },
     expansion: { label: 'EXPANSION DAY',  color: 'text-rose-400',    dot: 'bg-rose-400',    tip: 'Sellers trapped — buy breakouts, avoid selling premium' },
     recovery:  { label: 'WATCH — RECOVERY', color: 'text-amber-400', dot: 'bg-amber-400',   tip: 'Straddle bouncing from lows — potential breakout brewing' },
     range:     { label: 'RANGE DAY',      color: 'text-emerald-400', dot: 'bg-emerald-400', tip: 'Sellers in control — sell premium, avoid buying options' },
@@ -614,7 +643,7 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm }) {
           </div>
           {noBuys ? (
             <div className="rounded-xl border border-white/[0.05] bg-[#0a0e18] px-4 py-3 text-[11px] text-slate-500">
-              No buying edge detected — {regime === 'range' ? 'range day, sellers in control. Wait for expansion.' : 'wait for straddle expansion or recovery signal.'}
+              No buying edge detected — {regime === 'range' ? 'range day, sellers in control. Wait for expansion.' : 'wait for straddle expansion or momentum breakout.'}
             </div>
           ) : buys.map((opp, i) => {
             const key  = `${opp.strike}-${opp.type}`;
