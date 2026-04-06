@@ -1033,7 +1033,9 @@ function getNiftyLevelAlerts(indices) {
               const hh = String(ld.getUTCHours()).padStart(2, '0');
               const mm = String(ld.getUTCMinutes()).padStart(2, '0');
               const candleTimeStr = `${hh}:${mm}`;
-              if (candleTimeStr !== lastCandleTimeRef.current) {
+              // Strict greater-than: rejects same time (duplicate) AND backward time
+              // (stale API cache hit returning an older bar than what's already logged)
+              if (candleTimeStr > lastCandleTimeRef.current) {
                 lastCandleTimeRef.current = candleTimeStr;
                 const entry = {
                   time:        candleTimeStr,
@@ -1043,7 +1045,8 @@ function getNiftyLevelAlerts(indices) {
                   rawPatterns: heResult.rawPatterns ?? [],
                 };
                 setThirdEyeLog(prev => {
-                  if (prev[0]?.time === candleTimeStr) return prev; // dedup: same bar added twice
+                  // Check first 3 entries — catches stale cache re-adds even if ref slipped
+                  if (prev.slice(0, 3).some(e => e.time === candleTimeStr)) return prev;
                   const next = [entry, ...prev].slice(0, 12);
                   // Persist to Redis so log survives browser refresh
                   fetch('/api/third-eye/log', {
