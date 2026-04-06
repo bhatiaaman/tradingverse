@@ -88,6 +88,7 @@ export function renderSMC(ctx, vp, smc, palette) {
     if (xBreak < vp.chartLeft || x1 > vp.chartRight) continue;
 
     const cx1 = Math.max(vp.chartLeft, x1);
+    const cx2 = Math.min(vp.chartRight, xBreak);
 
     const color = bos.isCHoCH
       ? (bos.type === 'bull' ? P.bullChoch : P.bearChoch)
@@ -96,27 +97,18 @@ export function renderSMC(ctx, vp, smc, palette) {
     ctx.strokeStyle = color;
     ctx.lineWidth   = 1;
 
-    // Segment 1: pivot → break candle (solid)
-    ctx.setLineDash([]);
+    // TradingView style: dashed line from pivot directly to break candle only
+    ctx.setLineDash([3, 3]);
     ctx.beginPath();
     ctx.moveTo(cx1, y);
-    ctx.lineTo(Math.min(xBreak, vp.chartRight), y);
+    ctx.lineTo(cx2, y);
     ctx.stroke();
-
-    // Segment 2: break candle → right edge (dashed, level still active)
-    if (xBreak < vp.chartRight) {
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(xBreak, y);
-      ctx.lineTo(vp.chartRight, y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
+    ctx.setLineDash([]);
   }
 
   ctx.restore();
 
-  // ── 3b. BOS / CHoCH labels — right-aligned at right edge (TV style) ─────────
+  // ── 3b. BOS / CHoCH labels — centered on the segment (TV style) ─────────
   ctx.font = 'bold 9px monospace';
   for (const bos of bosLevels) {
     if (bos.breakIdx == null) continue;
@@ -133,28 +125,17 @@ export function renderSMC(ctx, vp, smc, palette) {
       ? (bos.type === 'bull' ? P.bullChoch : P.bearChoch)
       : (bos.type === 'bull' ? P.bullBos   : P.bearBos);
 
-    // Label right-aligned at right edge of chart
     const label = bos.isCHoCH ? 'CHoCH' : 'BOS';
-    const tw  = ctx.measureText(label).width;
-    const pad = 3;
-    const lx  = vp.chartRight - tw - 10;
-    const ly  = y;
 
-    // Dashed box border
-    ctx.strokeStyle = color;
-    ctx.lineWidth   = 0.75;
-    ctx.setLineDash([3, 2]);
-    ctx.strokeRect(lx - pad, ly - 9 - pad, tw + pad * 2, 9 + pad * 2);
-    ctx.setLineDash([]);
+    // Center the label directly over the visible segment
+    const visibleX1 = Math.max(vp.chartLeft, x1);
+    const visibleX2 = Math.min(vp.chartRight, xBreak);
+    const segCenter = (visibleX1 + visibleX2) / 2;
 
-    // Background fill
-    ctx.fillStyle = P.bosLabelBg;
-    ctx.fillRect(lx - pad, ly - 9 - pad, tw + pad * 2, 9 + pad * 2);
-
-    // Text
+    // Label sitting cleanly on top of the dashed line, no background box
     ctx.fillStyle    = color;
-    ctx.textAlign    = 'left';
+    ctx.textAlign    = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(label, lx, ly);
+    ctx.fillText(label, segCenter, y - 2);
   }
 }
