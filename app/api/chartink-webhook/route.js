@@ -1,4 +1,3 @@
-import { after } from 'next/server';
 import { setLatestScan, setScannerScan } from "@/app/lib/scanStore";
 import { enrichScan } from "@/app/lib/scan-enrichment";
 
@@ -51,11 +50,11 @@ export async function POST(request) {
 
     console.log('📊 Scan received:', enrichedData.id, '— stocks:', enrichedData.stocks?.length ?? 0);
 
-    // ── Fire enrichment after response (non-blocking via next/server after()) ──
+    // ── Run enrichment synchronously — Chartink tolerates slow webhook responses ──
     const stocks = parseStocks(scanData).filter(s => s.symbol);
     if (stocks.length > 0) {
-      after(async () => {
-        await enrichScan(enrichedData.id, stocks, scanData.scan_name || '');
+      await enrichScan(enrichedData.id, stocks, scanData.scan_name || '').catch(e => {
+        console.error('[webhook] enrichment failed:', e.message);
       });
     }
 
