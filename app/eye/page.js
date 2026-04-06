@@ -360,7 +360,7 @@ function getNiftyLevelAlerts(indices) {
     const [leftTab, setLeftTab]           = useState('sectors');
     const thirdEyeEnvRef      = useRef('medium');
     const setupConfigRef      = useRef({});
-    const lastCandleCountRef  = useRef(0);
+    const lastCandleTimeRef   = useRef(0); // unix sec of last logged candle
 
     // Restore Third Eye log from Redis on mount (survives browser refresh)
     useEffect(() => {
@@ -1018,10 +1018,11 @@ function getNiftyLevelAlerts(indices) {
                 });
               }
 
-              // Append to rolling log only when a new candle has formed
-              const newCount = data.candles.length;
-              if (newCount > lastCandleCountRef.current) {
-                lastCandleCountRef.current = newCount;
+              // Append to rolling log only when a new bar has opened
+              // Use timestamp of the last candle — count doesn't grow (rolling window from API)
+              const lastCandleTime = data.candles[data.candles.length - 1]?.time ?? 0;
+              if (lastCandleTime > lastCandleTimeRef.current) {
+                lastCandleTimeRef.current = lastCandleTime;
                 const lastCandle = data.candles[data.candles.length - 1];
                 // Format IST time from unix timestamp
                 const d = new Date((lastCandle.time + 19800) * 1000); // +5:30 offset
