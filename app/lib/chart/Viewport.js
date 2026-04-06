@@ -86,12 +86,30 @@ export class Viewport {
   }
 
   // ── Auto-scale ───────────────────────────────────────────────────────────────
-  // Derives raw price range from visible candles, then applies zoom + shift.
+  // THE KEY FIX: previously autoScale re-scanned all visible candles and reset
+  // priceMin/priceMax on *every* RAF frame. So when updateTick mutated the last
+  // candle's high/low the entire Y-axis rescaled instantly, making the whole chart
+  // visually "jump" on every 5s tick — the repaint users reported.
+  //
+  // Now: scale is recomputed only when:
+  //   1. The visible bar window changes (pan, zoom, new candle appended) → windowKey mismatch
+  //   2. Live price actually breaks outside the previously scanned range → expand only
+  //   3. First call (no cached range yet)
   autoScale(candles) {
     if (!candles?.length) return;
     const from = Math.max(0, Math.floor(this.logFrom));
     const to   = Math.min(candles.length - 1, Math.ceil(this.logTo));
     if (from > to) return;
+
+    const windowKey = `${from}:${to}`;
+    const hasCache  = this._lastAutoScaleKey != null;
+
+    if (hasCache && windowKey === this._lastAutoScaleKey) {
+      // Same window — only re-scan if last candle's live price broke out of bounds
+      const last = candles[to];
+      if (last.high <= this._rawHi && last.low >= this._rawLo) return; // stable, skip
+      // Price broke bounds — fall through to full scan below
+    }
 
     let lo = Infinity, hi = -Infinity;
     for (let i = from; i <= to; i++) {
@@ -100,11 +118,18 @@ export class Viewport {
     }
     if (lo === Infinity) return;
 
+    this._rawLo = lo;
+    this._rawHi = hi;
+    this._lastAutoScaleKey = windowKey;
+
     const pad = (hi - lo) * 0.08;
     this._rawMin = lo - pad;
     this._rawMax = hi + pad;
     this._applyTransform();
   }
+
+  // Call after pan/zoom/updateCandles to force fresh scale on next frame
+  invalidateScale() { this._lastAutoScaleKey = null; }
 
   _applyTransform() {
     const mid  = (this._rawMin + this._rawMax) / 2;

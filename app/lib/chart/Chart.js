@@ -152,6 +152,7 @@ export function createChart(container, options = {}) {
 
       case 'panX':
         vp.panX(data.dx, candles);
+        vp.invalidateScale();
         markDirty();
         break;
 
@@ -162,6 +163,7 @@ export function createChart(container, options = {}) {
 
       case 'zoomX':
         vp.zoomX(data.factor, data.centerX, candles);
+        vp.invalidateScale();
         markDirty();
         break;
 
@@ -174,6 +176,7 @@ export function createChart(container, options = {}) {
         const defaultBars = { '1minute': 390, '5minute': 234, '15minute': 104, '60minute': 150 }[interval];
         if (defaultBars) vp.fitRecent(candles, defaultBars);
         else             vp.fitContent(candles);
+        vp.invalidateScale();
         markDirty();
         break;
       }
@@ -305,6 +308,7 @@ export function createChart(container, options = {}) {
           vp.logFrom += delta;
           vp.logTo   += delta;
         }
+        vp.invalidateScale(); // window shifted — force fresh scale on next frame
       }
       // Guard: if viewport is completely outside the new data, reset to sensible window.
       if (vp.logFrom >= candles.length || vp.logTo <= 0) {
