@@ -799,11 +799,19 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   // BOS level that had 2+ prior touches before breaking — clean resistance-to-support flip.
   // Touch proximity tightened to 0.15% to reduce false touch counts.
   if (en('s9') && pre.bosLevels.length) {
-    const recentBOS9  = pre.bosLevels.reduce((a, b) => b.idx > a.idx ? b : a);
+    // Use the most recently BROKEN BOS (breakIdx) — that's the level being retested.
+    const recentBOS9  = pre.bosLevels.reduce((a, b) => (b.breakIdx ?? 0) > (a.breakIdx ?? 0) ? b : a);
     const dist9       = Math.abs((c0.close - recentBOS9.price) / recentBOS9.price * 100);
     const s9Dist      = t('s9', 'distPct', 0.3);
     const s9Touches   = t('s9', 'touchCount', 2);
-    if (dist9 <= s9Dist && recentBOS9.breakIdx !== undefined && recentBOS9.breakIdx >= 5) {
+    // Directional validation: price must be approaching from the correct side.
+    // Bear BOS (SHORT retest): close must be AT or BELOW the resistance — if price already
+    //   closed above it the level is reclaimed and the short setup is invalidated.
+    // Bull BOS (LONG retest): close must be AT or ABOVE the support level.
+    const validSide = recentBOS9.type === 'bear'
+      ? c0.close <= recentBOS9.price * 1.002   // at/below resistance (SHORT)
+      : c0.close >= recentBOS9.price * 0.998;  // at/above support (LONG)
+    if (dist9 <= s9Dist && validSide && recentBOS9.breakIdx !== undefined && recentBOS9.breakIdx >= 5) {
       const preBOSSlice = candles.slice(0, recentBOS9.breakIdx);
       const touchCount  = preBOSSlice.filter(c => {
         const pct = recentBOS9.type === 'bull'
