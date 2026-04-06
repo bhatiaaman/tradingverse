@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/app/lib/providers';
 import { detectReversalZone } from './lib/reversal-detector.js';
 import { detectIntradayRegime } from '@/app/api/market-regime/intraday.js';
+import { trackRedis } from '@/app/lib/redis-tracker';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -1332,7 +1333,7 @@ export async function GET(request) {
     const marketIsOpen = isMarketOpen();
 
     if (!refresh) {
-      const cached = await redisGet(CACHE_KEY);
+      const cached = await trackRedis('market-commentary', () => redisGet(CACHE_KEY), 'get:cache');
       if (cached) {
         const age    = Date.now() - new Date(cached.timestamp).getTime();
         const maxAge = marketIsOpen ? 45_000 : 300_000;
@@ -1414,7 +1415,7 @@ export async function GET(request) {
     // Pre-market commentary should never show intraday bias timestamps.
     if (marketIsOpen) {
       const BIAS_HISTORY_KEY = `${NS}:commentary:bias-history`;
-      const allHistory  = (await redisGet(BIAS_HISTORY_KEY)) || [];
+      const allHistory  = (await trackRedis('market-commentary', () => redisGet(BIAS_HISTORY_KEY), 'get:bias-history')) || [];
       // Filter to today's IST date only — yesterday's entries have a 24h TTL but must not show
       const todayIST    = getISTTime().toISOString().slice(0, 10);
       const prevHistory = allHistory.filter(e => e.timestamp?.slice(0, 10) === todayIST);
@@ -1424,7 +1425,7 @@ export async function GET(request) {
         const mm  = String(ist.getUTCMinutes()).padStart(2, '0');
         const entry = { bias: commentary.bias, state: commentary.state, time: `${hh}:${mm}`, timestamp: new Date().toISOString() };
         const updated = [entry, ...prevHistory].slice(0, 5);
-        await redisSet(BIAS_HISTORY_KEY, updated, 86400);
+        await trackRedis('market-commentary', () => redisSet(BIAS_HISTORY_KEY, updated, 86400), 'set:bias-history');
         commentary.biasHistory = updated;
       } else {
         commentary.biasHistory = prevHistory;
@@ -1449,7 +1450,8 @@ export async function GET(request) {
       timestamp:    new Date().toISOString(),
     };
 
-    await redisSet(CACHE_KEY, result, marketIsOpen ? 45 : 300);
+    await trackRedis('market-commentary', () => redisSet(CACHE_KEY, result, marketIsOpen ? 45 : 300), 'set:cache');
+    console.log(`[redis-usage] market-commentary: cache-miss complete · market=${marketIsOpen ? 'OPEN' : 'CLOSED'}`);
 
     return NextResponse.json(result);
 
