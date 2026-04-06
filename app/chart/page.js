@@ -215,6 +215,31 @@ function ChartPageInner() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // ── Silent background patch — updates candles WITHOUT touching React state ────
+  // This is the key fix for the bad refresh UX: calling setCandles() triggers the
+  // main chart-build effect which destroys + recreates the chart, flashing the
+  // loading spinner and resetting the viewport. Instead we fetch new candles and
+  // push them directly into the chart imperatively via updateCandles().
+  const fetchAndPatch = useCallback(async () => {
+    if (!chartRef.current) return; // chart not ready yet — skip silently
+    try {
+      const apiInterval = chartInterval === 'week' ? 'day' : chartInterval;
+      const res  = await fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${apiInterval}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const rawCandles = data.candles || [];
+      if (!rawCandles.length || !chartRef.current) return;
+
+      const { aggregateWeekly: agg } = await import('@/app/lib/chart-indicators').then(m => m);
+      const newCandles = chartInterval === 'week' ? aggregateWeekly(rawCandles) : rawCandles;
+
+      // Silently update the ref and chart — NO setCandles, NO setLoading
+      // The main chart-build effect therefore does NOT re-run, viewport is preserved.
+      candlesRef.current = newCandles;
+      chartRef.current.updateCandles(newCandles);
+    } catch { /* non-fatal — next tick will retry */ }
+  }, [symbol, chartInterval]);
+
   // ── Drawing tools — sync activeTool to chart, persist drawings ───────────────
   const drawingKey = (sym, iv) => `tv_drawings_${sym}_${iv}`;
 
@@ -253,12 +278,14 @@ function ChartPageInner() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  // Auto-refresh candles every 60s during market hours (weekly chart doesn't need it — candle changes weekly)
+  // Auto-refresh every 60s — uses fetchAndPatch (silent, no chart recreation)
+  // fetchAll() is intentionally NOT called here — it sets loading=true and setCandles
+  // which destroys+rebuilds the chart. fetchAndPatch() bypasses React state entirely.
   useEffect(() => {
     if (chartInterval === 'week') return;
-    const id = setInterval(() => { if (isMarketHours()) fetchAll(); }, 60000);
+    const id = setInterval(() => { if (isMarketHours()) fetchAndPatch(); }, 60000);
     return () => clearInterval(id);
-  }, [fetchAll, chartInterval]);
+  }, [fetchAndPatch, chartInterval]);
 
   // Auto-refresh intelligence every 3 min during market hours (independent of candles)
   useEffect(() => {
