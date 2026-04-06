@@ -359,21 +359,17 @@ export async function GET(request) {
       const hasRecent = recentSnap?.totalCallOI  !== undefined;
 
       if (hasRecent) {
-        // Primary: recent 15-min window (what's happening now)
+        // Primary: recent 15-min window — always use this once data exists.
+        // Do NOT fall back to since-open when flat: session-open data can be stale
+        // (e.g. Short Buildup at open, Long Buildup now → since-open would still
+        // show Short Buildup, misleading the user about the current condition).
         marketActivity = detectMarketActivity(
           snapshot,
           { totalCallOI: recentSnap.totalCallOI, totalPutOI: recentSnap.totalPutOI, spot: recentSnap.spot },
           false
         );
-        // If recent is flat/consolidating, fall back to since-open for context
-        if (marketActivity.activity === 'Consolidation' && hasOpen) {
-          marketActivity = detectMarketActivity(
-            snapshot,
-            { totalCallOI: sessionOpen.totalCallOI, totalPutOI: sessionOpen.totalPutOI, spot: sessionOpen.spot },
-            true
-          );
-        }
       } else if (hasOpen) {
+        // No 15-min data yet (first ~15 min of session) — since-open is the only baseline
         marketActivity = detectMarketActivity(
           snapshot,
           { totalCallOI: sessionOpen.totalCallOI, totalPutOI: sessionOpen.totalPutOI, spot: sessionOpen.spot },
