@@ -52,16 +52,14 @@ export function detectMarketActivity(current, previous, sinceOpen = false) {
     activity = 'Long Buildup';
     strength = Math.min(10, Math.round((priceChangePct + totalOIChangePct) * 1.5));
     emoji = '🚀';
-
-    if (callOIChangePct > putOIChangePct) {
-      description = `Fresh longs ${ctx} — Call OI +${callOIChangePct.toFixed(1)}%, price +${priceChangePct.toFixed(2)}%`;
-      actionable = strength > 6
-        ? 'Strong bullish setup — consider longs on dips'
-        : 'Moderate buying — watch for continuation';
-    } else {
-      description = `Put writing ${ctx} — Put OI +${putOIChangePct.toFixed(1)}%, price +${priceChangePct.toFixed(2)}%`;
-      actionable = 'Bulls defending levels — supports forming';
-    }
+    // Show both OI legs — avoids "which one is growing faster" confusion on re-reads
+    const dominant = callOIChangePct >= putOIChangePct ? 'call buyers' : 'put writers';
+    description = `Fresh longs ${ctx} (${dominant}) — Call OI +${callOIChangePct.toFixed(1)}%, Put OI +${putOIChangePct.toFixed(1)}%, price +${priceChangePct.toFixed(2)}%`;
+    actionable = strength > 6
+      ? 'Strong bullish setup — consider longs on dips'
+      : callOIChangePct >= putOIChangePct
+        ? 'Moderate buying — watch for continuation'
+        : 'Bulls defending levels — supports forming';
   }
 
   // ── Short Buildup: Price ↓ + OI ↑ (Bearish) ──
@@ -69,16 +67,14 @@ export function detectMarketActivity(current, previous, sinceOpen = false) {
     activity = 'Short Buildup';
     strength = Math.min(10, Math.round((Math.abs(priceChangePct) + totalOIChangePct) * 1.5));
     emoji = '📉';
-
-    if (putOIChangePct > callOIChangePct) {
-      description = `Fresh shorts ${ctx} — Put OI +${putOIChangePct.toFixed(1)}%, price ${priceChangePct.toFixed(2)}%`;
-      actionable = strength > 6
-        ? 'Strong bearish setup — consider shorts on rallies'
-        : 'Moderate selling — watch for breakdown';
-    } else {
-      description = `Call writing ${ctx} — Call OI +${callOIChangePct.toFixed(1)}%, price ${priceChangePct.toFixed(2)}%`;
-      actionable = 'Bears capping rallies — resistance forming';
-    }
+    // Show both OI legs — avoids confusion when call OI or put OI dominates on different refreshes
+    const dominant = putOIChangePct >= callOIChangePct ? 'put buyers' : 'call writers';
+    description = `Fresh shorts ${ctx} (${dominant}) — Put OI +${putOIChangePct.toFixed(1)}%, Call OI +${callOIChangePct.toFixed(1)}%, price ${priceChangePct.toFixed(2)}%`;
+    actionable = strength > 6
+      ? 'Strong bearish setup — consider shorts on rallies'
+      : putOIChangePct >= callOIChangePct
+        ? 'Moderate selling — watch for breakdown'
+        : 'Bears capping rallies — resistance forming';
   }
 
   // ── Long Unwinding: Price ↓ + OI ↓ (Bearish) ──
@@ -86,16 +82,13 @@ export function detectMarketActivity(current, previous, sinceOpen = false) {
     activity = 'Long Unwinding';
     strength = Math.min(10, Math.round((Math.abs(priceChangePct) + Math.abs(totalOIChangePct)) * 1.5));
     emoji = '😰';
-
-    if (Math.abs(callOIChangePct) > Math.abs(putOIChangePct)) {
-      description = `Longs exiting ${ctx} — Call OI ${callOIChangePct.toFixed(1)}%, price ${priceChangePct.toFixed(2)}%`;
-      actionable = strength > 6
-        ? 'Heavy unwinding — avoid longs, wait for stabilisation'
-        : 'Profit booking — supports may hold';
-    } else {
-      description = `Put unwinding ${ctx} — Put OI ${putOIChangePct.toFixed(1)}%, price ${priceChangePct.toFixed(2)}%`;
-      actionable = 'Bears losing conviction but price weak — stay cautious';
-    }
+    const dominant = Math.abs(callOIChangePct) >= Math.abs(putOIChangePct) ? 'call longs' : 'put longs';
+    description = `Longs exiting ${ctx} (${dominant}) — Call OI ${callOIChangePct.toFixed(1)}%, Put OI ${putOIChangePct.toFixed(1)}%, price ${priceChangePct.toFixed(2)}%`;
+    actionable = strength > 6
+      ? 'Heavy unwinding — avoid longs, wait for stabilisation'
+      : Math.abs(callOIChangePct) >= Math.abs(putOIChangePct)
+        ? 'Profit booking — supports may hold'
+        : 'Bears losing conviction but price weak — stay cautious';
   }
 
   // ── Short Covering: Price ↑ + OI ↓ (Bullish) ──
