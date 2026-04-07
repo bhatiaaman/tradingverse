@@ -175,22 +175,30 @@ async function fetchNiftyFromYahoo() {
   }
 }
 
-// Fetch GIFT Nifty via Kite LTP (NSEIX exchange — separate from batch OHLC which doesn't support NSEIX).
-// Returns { price } or null.
+// Fetch GIFT Nifty via Kite getOHLC to capture the built-in previous session close.
 async function fetchGIFTNiftyFromKite(dp) {
   try {
     const GIFT_TOKEN = 291849;
-    // Kite LTP accepts instrument_token directly as 'NSEIX:GIFT NIFTY'
-    const data = await dp.getLTP(['NSEIX:GIFT NIFTY']);
-    const price = data?.data?.['NSEIX:GIFT NIFTY']?.last_price
-               ?? data?.['NSEIX:GIFT NIFTY']?.last_price;
-    if (price && price > 10000) return { price };
-    // Fallback: try token-based lookup
-    const data2 = await dp.getLTP([`NSEIX:${GIFT_TOKEN}`]);
-    const price2 = data2?.data?.[`NSEIX:${GIFT_TOKEN}`]?.last_price
-                ?? data2?.[`NSEIX:${GIFT_TOKEN}`]?.last_price;
-    if (price2 && price2 > 10000) return { price: price2 };
-  } catch { /* fall through to Yahoo */ }
+    const data = await dp.getOHLC(['NSEIX:GIFT NIFTY']);
+    
+    // Primary Lookup
+    let item = data?.['NSEIX:GIFT NIFTY'];
+    
+    // Fallback Token Lookup
+    if (!item) {
+      const data2 = await dp.getOHLC([`NSEIX:${GIFT_TOKEN}`]);
+      item = data2?.[`NSEIX:${GIFT_TOKEN}`];
+    }
+    
+    if (item && item.last_price > 10000) {
+      return { 
+        price: item.last_price,
+        prevClose: item.ohlc?.close || null
+      };
+    }
+  } catch (error) {
+    console.error('Kite GIFT Nifty OHLC fetch error:', error.message);
+  }
   return null;
 }
 
@@ -535,19 +543,25 @@ export async function GET() {
       else if (niftyData.changePercent < -0.5) bias = 'Bearish';
     }
 
-    // GIFT Nifty price: Kite primary → Yahoo fallback → Redis stale cache last resort
-    // We use Kite's last_price (live, reliable) but override prevClose with niftyLastSessionClose
-    // below, because NSEIX's own session close gives a misleading change% vs what NSE traders care
-    // about (implied gap on next NSE open). Yahoo/stale cache kick in when Kite is disconnected.
+    // SGX/GIFT Relative Change Math
     let giftNiftyPrice = giftNiftyKite?.price ?? giftNiftyYahoo?.price ?? null;
+    
+    // Find absolute SGX previous close natively, independent of NIFTY Spot
+    const nativeGiftPrevClose = giftNiftyKite?.prevClose ?? giftNiftyYahoo?.prevClose ?? null;
+    
+    // Cache the previous close in case the provider goes offline
+    if (nativeGiftPrevClose && nativeGiftPrevClose > 10000) {
+      await redisSet(`${NS}:gift_prev_close_fallback`, nativeGiftPrevClose, 48 * 60 * 60); // 48 hr expiry
+    }
+    
+    // Retrieve native or cached SGX previous close. Fallback to NIFTY only if DB has totally collapsed.
+    const strictGiftPrevClose = nativeGiftPrevClose 
+                             ?? (await redisGet(`${NS}:gift_prev_close_fallback`)) 
+                             ?? niftyLastSessionClose 
+                             ?? null;
 
-    // Prev close for change%: use NSE Nifty's last session close — this is what SGX/NSE IFSC
-    // uses and what traders care about (implied gap on open). GIFT's own session close
-    // (e.g. yesterday evening NSEIX close ~23,208) gives a misleading +0.4% when the real
-    // gap vs NSE is -2%.
-    const giftPrevClose = niftyLastSessionClose ?? giftNiftyYahoo?.prevClose ?? kiteIndices?.giftNifty?.prevClose ?? null;
-    let giftNiftyChange        = (giftNiftyPrice && giftPrevClose) ? giftNiftyPrice - giftPrevClose : null;
-    let giftNiftyChangePercent = (giftNiftyChange !== null && giftPrevClose) ? (giftNiftyChange / giftPrevClose) * 100 : null;
+    let giftNiftyChange        = (giftNiftyPrice && strictGiftPrevClose) ? giftNiftyPrice - strictGiftPrevClose : null;
+    let giftNiftyChangePercent = (giftNiftyChange !== null && strictGiftPrevClose) ? (giftNiftyChange / strictGiftPrevClose) * 100 : null;
 
     const marketData = {
       indices: {

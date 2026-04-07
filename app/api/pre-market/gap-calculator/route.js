@@ -52,12 +52,13 @@ export async function GET(request) {
       const niftyGift = parseFloat(marketData.indices.giftNifty);
       const niftyGapPercent = ((niftyGift - niftyPrevClose) / niftyPrevClose) * 100;
       
-      // Bank Nifty typically moves ~1.2-1.5x Nifty
+      // Bank Nifty typically moves ~1.2-1.5x Nifty SGX Gap percentage
       giftNiftyPrice = previousClose * (1 + (niftyGapPercent * 1.3) / 100);
     }
 
     // Validation
-    if (!previousClose || isNaN(previousClose) || !giftNiftyPrice || isNaN(giftNiftyPrice)) {
+    const hasNiftyData = symbol === 'NIFTY' ? marketData.indices.niftyChangePercent !== null : true;
+    if (!previousClose || isNaN(previousClose) || !giftNiftyPrice || isNaN(giftNiftyPrice) || !hasNiftyData) {
       return NextResponse.json({ 
         error: 'Insufficient data for gap calculation',
         debug: { 
@@ -70,9 +71,21 @@ export async function GET(request) {
       }, { status: 400 });
     }
 
-    // Calculate gap
-    const gapPoints = giftNiftyPrice - previousClose;
-    const gapPercent = (gapPoints / previousClose) * 100;
+    // Calculate Gap Parameters cleanly
+    let gapPercent = parseFloat(marketData.indices.giftNiftyChangePercent);
+    
+    // For NIFTY, accurately derive Predicted Open based on true SGX percentage gap applied against NIFTY spot
+    let predictedOpenPrice = giftNiftyPrice;
+    let gapPoints = gapPercent ? (previousClose * (gapPercent / 100)) : 0;
+    
+    if (symbol === 'NIFTY') {
+       predictedOpenPrice = previousClose * (1 + (gapPercent / 100));
+       gapPoints = predictedOpenPrice - previousClose;
+    } else {
+       // For Bank Nifty, gapPercent is approximated above
+       gapPercent = (giftNiftyPrice - previousClose) / previousClose * 100;
+       gapPoints = giftNiftyPrice - previousClose;
+    }
 
     // Classify gap
     let gapType = 'NEUTRAL';
@@ -112,9 +125,9 @@ export async function GET(request) {
         size: gapSize,
         direction: gapPercent > 0 ? 'UP' : gapPercent < 0 ? 'DOWN' : 'FLAT',
       },
-      expectedOpen: parseFloat(giftNiftyPrice.toFixed(2)),
+      expectedOpen: parseFloat(predictedOpenPrice.toFixed(2)),
       statistics: gapStats,
-      recommendation: getGapRecommendation(gapType, gapSize, gapPercent, symbol, previousClose, giftNiftyPrice),
+      recommendation: getGapRecommendation(gapType, gapSize, gapPercent, symbol, previousClose, predictedOpenPrice),
       dataSource: marketData.source || 'unknown',
       timestamp: new Date().toISOString(),
     });
