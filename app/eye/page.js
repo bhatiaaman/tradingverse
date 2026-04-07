@@ -1032,57 +1032,80 @@ function getNiftyLevelAlerts(indices) {
 
               // Append to rolling log only when a new 5m bar has opened.
               // Compare formatted HH:MM (not unix sec) — avoids timezone/ref-staleness bugs.
-              // Ref is seeded from Redis on mount so a page refresh mid-bar doesn't duplicate.
               const lastCandle = data.candles[data.candles.length - 1];
               const ld = new Date((lastCandle.time + 19800) * 1000);
               const hh = String(ld.getUTCHours()).padStart(2, '0');
               const mm = String(ld.getUTCMinutes()).padStart(2, '0');
               const candleTimeStr = `${hh}:${mm}`;
-              // Strict greater-than: rejects same time (duplicate) AND backward time
-              // (stale API cache hit returning an older bar than what's already logged)
+
               if (candleTimeStr > lastCandleTimeRef.current) {
                 lastCandleTimeRef.current = candleTimeStr;
-                const topSetup = heResult.strongSetups?.[0] ?? heResult.watchList?.[0] ?? null;
-                const entry = {
-                  time:        candleTimeStr,
-                  topSetup,
-                  context:     heResult.context,
-                  candle:      { open: lastCandle.open, high: lastCandle.high, low: lastCandle.low, close: lastCandle.close },
-                  rawPatterns: heResult.rawPatterns ?? [],
-                };
+                
+                // Process the MATURED sealed candle (excluding the new forming one)
+                if (data.candles.length >= 2) {
+                  const sealedCandles = data.candles.slice(0, -1);
+                  const sealedRsiVal = rsiData.length > 1 ? rsiData[rsiData.length - 2]?.value : null;
+                  
+                  const sealedHeResult = runThirdEye(sealedCandles, vwapForHE, sealedRsiVal, thirdEyeEnvRef.current, setupConfigRef.current);
+                  const topSetup = sealedHeResult.strongSetups?.[0] ?? sealedHeResult.watchList?.[0] ?? null;
+                  
+                  const sealedCandle = sealedCandles[sealedCandles.length - 1];
+                  const sLd = new Date((sealedCandle.time + 19800) * 1000);
+                  const sHh = String(sLd.getUTCHours()).padStart(2, '0');
+                  const sMm = String(sLd.getUTCMinutes()).padStart(2, '0');
+                  const sealedTimeStr = `${sHh}:${sMm}`;
 
-                // Push to permanent system log if a setup was triggered
-                if (topSetup) {
-                  fetch('/api/logs', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      category: 'setup',
-                      message: topSetup.name,
-                      data: {
-                        symbol: chartSymbol,
-                        timeframe: chartInterval,
-                        setupName: topSetup.name,
-                        setupId: topSetup.id,
-                        direction: topSetup.direction,
-                        strength: topSetup.strength,
-                        sl: topSetup.sl
-                      }
-                    })
-                  }).catch(e => console.error('Failed to log setup:', e));
+                  const entry = {
+                    time:        sealedTimeStr,
+                    topSetup,
+                    context:     sealedHeResult.context,
+                    candle:      { open: sealedCandle.open, high: sealedCandle.high, low: sealedCandle.low, close: sealedCandle.close },
+                    rawPatterns: sealedHeResult.rawPatterns ?? [],
+                  };
+
+                  // Compute final frozen narrative and explicitly mutate bias FOR THE PERMANENT LOG
+                  const nObj = runBuildNarrative(entry, biasRef.current, lastEntryDirRef.current);
+                  biasRef.current         = nObj.nextBias;
+                  lastEntryDirRef.current = nObj.nextDir;
+                  entry.narrative         = nObj.narrative;
+                  
+                  if (nObj.alertUI) {
+                    setPositionAlertDismissedBias(null);
+                    setTimeout(checkPositionsAgainstBias, 0);
+                  }
+
+                  // Push to permanent system log if a setup was triggered
+                  if (topSetup) {
+                    fetch('/api/logs', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        category: 'setup',
+                        message: topSetup.name,
+                        data: {
+                          symbol: chartSymbol,
+                          timeframe: chartInterval,
+                          setupName: topSetup.name,
+                          setupId: topSetup.id,
+                          direction: topSetup.direction,
+                          strength: topSetup.strength,
+                          sl: topSetup.sl
+                        }
+                      })
+                    }).catch(e => console.error('Failed to log setup:', e));
+                  }
+
+                  setThirdEyeLog(prev => {
+                    // Check if sealed time already exists to avoid dupes 
+                    if (prev.slice(0, 3).some(e => e.time === sealedTimeStr)) return prev;
+                    const next = [entry, ...prev].slice(0, 12);
+                    fetch('/api/third-eye/log', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ entries: next }),
+                    }).catch(() => {});
+                    return next;
+                  });
                 }
-
-                setThirdEyeLog(prev => {
-                  // Check first 3 entries — catches stale cache re-adds even if ref slipped
-                  if (prev.slice(0, 3).some(e => e.time === candleTimeStr)) return prev;
-                  const next = [entry, ...prev].slice(0, 12);
-                  // Persist to Redis so log survives browser refresh
-                  fetch('/api/third-eye/log', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ entries: next }),
-                  }).catch(() => {});
-                  return next;
-                });
               }
             } catch (heErr) {
               console.error('[Third Eye] scan error:', heErr);
@@ -1315,81 +1338,81 @@ function getNiftyLevelAlerts(indices) {
     }
 
     // Third Eye: bias-persistent, human-voice narrative builder.
-    // biasRef ('bull'|'bear'|'neutral') persists across candles.
-    // Bias only changes on structural invalidation (CHoCH, confirmed counter-trend BOS, Wyckoff).
-    // All other candles amplify or contextualise the existing bias.
-    const buildNarrative = (entry) => {
+    // Inputs: the entry object, the current system bias, and the last entry direction.
+    // Returns: { narrative, nextBias, nextDir, alertUI }
+    const runBuildNarrative = (entry, sysBias, sysLastDir) => {
       const { topSetup: s, context: c, candle, rawPatterns = [] } = entry;
-      const bias = biasRef.current;
+      let nextBias = sysBias;
+      let nextDir  = sysLastDir;
+      let alertUI  = false;
+
+      const ret = (narrObj) => ({ narrative: narrObj, nextBias, nextDir, alertUI });
 
       // ── Opening / closing session gates ───────────────────────────────────
       if (c.sessionTime === 'opening') {
-        const biasNote = bias !== 'neutral' ? ` Bias: ${bias === 'bull' ? 'bullish' : 'bearish'}.` : '';
-        return { type: 'wait', action: 'WAIT', headline: 'Opening candle — stand aside', reason: `First candle still building.${biasNote} Wait for close.` };
+        const biasNote = sysBias !== 'neutral' ? ` Bias: ${sysBias === 'bull' ? 'bullish' : 'bearish'}.` : '';
+        return ret({ type: 'wait', action: 'WAIT', headline: 'Opening candle — stand aside', reason: `First candle still building.${biasNote} Wait for close.` });
       }
       if (c.sessionTime === 'closing') {
-        return { type: 'caution', action: 'CAUTION', headline: 'Last 30 min — tighten stops', reason: 'Avoid new entries. Reduce exposure, close or trail existing positions.' };
+        return ret({ type: 'caution', action: 'CAUTION', headline: 'Last 30 min — tighten stops', reason: 'Avoid new entries. Reduce exposure, close or trail existing positions.' });
       }
 
       // ── BIAS INVALIDATION: CHoCH or Wyckoff ──────────────────────────────
-      // These override everything and flip the bias.
       if (s) {
         const id = s.pattern.id;
         if (id === 's13_choch_bull' || id === 's16_spring') {
-          const wasShort = bias === 'bear';
-          biasRef.current = 'bull';
-          lastEntryDirRef.current = null;
-          setPositionAlertDismissedBias(null); // reset dismiss so banner re-fires
-          setTimeout(checkPositionsAgainstBias, 0);
-          return {
+          const wasShort = sysBias === 'bear';
+          nextBias = 'bull';
+          nextDir = null;
+          alertUI = true;
+          return ret({
             type: 'exit', direction: 'bull', action: 'FLIP LONG',
             headline: wasShort ? 'Direction flipping — careful with those shorts' : 'Bullish structure confirmed — looking for longs',
             reason: `${s.pattern.name}. Downtrend broken. ${wasShort ? 'Cover shorts, bias now bullish.' : 'Bias turning bullish, wait for entry.'}`,
-          };
+          });
         }
         if (id === 's13_choch_bear' || id === 's16_upthrust') {
-          const wasLong = bias === 'bull';
-          biasRef.current = 'bear';
-          lastEntryDirRef.current = null;
-          setPositionAlertDismissedBias(null);
-          setTimeout(checkPositionsAgainstBias, 0);
-          return {
+          const wasLong = sysBias === 'bull';
+          nextBias = 'bear';
+          nextDir = null;
+          alertUI = true;
+          return ret({
             type: 'exit', direction: 'bear', action: 'FLIP SHORT',
             headline: wasLong ? 'Direction flipping — careful with those longs' : 'Bearish structure confirmed — looking for shorts',
             reason: `${s.pattern.name}. Uptrend broken. ${wasLong ? 'Exit longs, bias now bearish.' : 'Bias turning bearish, wait for entry.'}`,
-          };
+          });
         }
       }
 
       // ── BIAS INVALIDATION: confirmed counter-trend BOS ────────────────────
       if (c.bos && !c.bos.freshBreak) {
-        if (c.bos.type === 'bear' && bias === 'bull') {
-          biasRef.current = 'neutral';
-          lastEntryDirRef.current = null;
-          return { type: 'exit', direction: 'bear', action: 'EXIT LONG',
+        if (c.bos.type === 'bear' && sysBias === 'bull') {
+          nextBias = 'neutral';
+          nextDir = null;
+          return ret({ type: 'exit', direction: 'bear', action: 'EXIT LONG',
             headline: 'Bearish BOS confirmed — bullish bias broken',
-            reason: `Swing low taken out and held. Uptrend structure gone. Exit longs. Waiting to reassess.` };
+            reason: `Swing low taken out and held. Uptrend structure gone. Exit longs. Waiting to reassess.` });
         }
-        if (c.bos.type === 'bull' && bias === 'bear') {
-          biasRef.current = 'neutral';
-          lastEntryDirRef.current = null;
-          return { type: 'exit', direction: 'bull', action: 'EXIT SHORT',
+        if (c.bos.type === 'bull' && sysBias === 'bear') {
+          nextBias = 'neutral';
+          nextDir = null;
+          return ret({ type: 'exit', direction: 'bull', action: 'EXIT SHORT',
             headline: 'Bullish BOS confirmed — bearish bias broken',
-            reason: `Swing high broken and held. Downtrend structure gone. Cover shorts. Waiting to reassess.` };
+            reason: `Swing high broken and held. Downtrend structure gone. Cover shorts. Waiting to reassess.` });
         }
       }
 
       // ── FRESH BOS: warn but hold bias ─────────────────────────────────────
       if (c.bos?.freshBreak) {
-        if (c.bos.type === 'bear' && bias === 'bull') {
-          return { type: 'watch', direction: 'bear', action: 'BOS WATCH',
+        if (c.bos.type === 'bear' && sysBias === 'bull') {
+          return ret({ type: 'watch', direction: 'bear', action: 'BOS WATCH',
             headline: 'Swing low broken — could be a trap or real break',
-            reason: `Watching next candle. Still bullish bias until confirmed. ${c.bos.distPct}% below level.` };
+            reason: `Watching next candle. Still bullish bias until confirmed. ${c.bos.distPct}% below level.` });
         }
-        if (c.bos.type === 'bull' && bias === 'bear') {
-          return { type: 'watch', direction: 'bull', action: 'BOS WATCH',
+        if (c.bos.type === 'bull' && sysBias === 'bear') {
+          return ret({ type: 'watch', direction: 'bull', action: 'BOS WATCH',
             headline: 'Swing high broken — could be a trap or real break',
-            reason: `Watching next candle. Still bearish bias until confirmed. ${c.bos.distPct}% above level.` };
+            reason: `Watching next candle. Still bearish bias until confirmed. ${c.bos.distPct}% above level.` });
         }
       }
 
@@ -1401,54 +1424,52 @@ function getNiftyLevelAlerts(indices) {
                              (c.trend === 'downtrend' && dir === 'bear') ||
                              c.trend === 'ranging';
         const vwapAligned  = c.vwap ? (dir === 'bull' ? c.vwap.above : !c.vwap.above) : null;
-        const biasAligned  = bias === dir || bias === 'neutral';
+        const biasAligned  = sysBias === dir || sysBias === 'neutral';
 
+        // Wait, if it's NOT bias aligned, treat as a CAUTION, NEVER an entry or "LONG (Cont)".
         if (!biasAligned) {
           const parts = [s.pattern.name];
           if (c.vwap?.atVwap) parts.push('at VWAP');
           else if (c.vwap && Math.abs(c.vwap.distPct) < 0.3) parts.push('near VWAP');
           if (c.volume.mult >= 1.5) parts.push(`${c.volume.mult}× vol`);
 
-          // High-conviction counter-bias (score ≥ 8): strong enough to tighten stops
           if (s.score >= 8) {
-            const holdingSide = bias === 'bull' ? 'longs' : 'shorts';
-            return {
+            const holdingSide = sysBias === 'bull' ? 'longs' : 'shorts';
+            return ret({
               type: 'caution', direction: dir,
               action: dir === 'bull' ? 'TIGHTEN SHORTS' : 'TIGHTEN LONGS',
               headline: `Strong counter move — tighten stops on ${holdingSide}, not a flip yet`,
               reason: `${parts.join(' · ')} · score ${s.score}/10. Too strong to ignore. Trail stop, don't add to ${holdingSide}.`,
-            };
+            });
           }
 
-          // Moderate counter-bias (score 6–7): acknowledge but hold
-          return {
+          return ret({
             type: 'caution', direction: dir,
-            action: dir === 'bull' ? 'COUNTER LONG' : 'COUNTER SHORT',
+            action: dir === 'bull' ? 'CAUTION' : 'CAUTION',
             headline: dir === 'bull'
-              ? `Long setup but bias is ${bias} — don't flip, stay patient`
-              : `Short setup but bias is ${bias} — don't flip, stay patient`,
-            reason: `${parts.join(' · ')} · score ${s.score}/10 but against bias. Only act if bias structure changes.`,
-          };
+              ? `Bullish setup forming — but bias is still ${sysBias}`
+              : `Bearish setup forming — but bias is still ${sysBias}`,
+            reason: `${parts.join(' · ')} · against bias. Wait for structural shift.`,
+          });
         }
 
-        // Bias-aligned strong setup — update bias if neutral
-        if (bias === 'neutral') biasRef.current = dir;
-
+        if (sysBias === 'neutral') nextBias = dir;
         const allowEntry = trendAligned || vwapAligned === true || biasAligned;
+
         if (!allowEntry) {
           const parts = [s.pattern.name];
           if (c.vwap) parts.push(dir === 'bull' ? 'below VWAP' : 'above VWAP');
-          return {
+          return ret({
             type: 'caution', direction: dir,
-            action: dir === 'bull' ? 'LONG (Careful)' : 'SHORT (Careful)',
-            headline: dir === 'bull' ? 'Reversal setup — wait for VWAP reclaim' : 'Distribution setup — wait for VWAP break',
-            reason: `${parts.join(' · ')} — score ${s.score} but ${c.trend}. ${dir === 'bull' ? 'No long until VWAP reclaimed.' : 'No short until VWAP lost.'}`,
-          };
+            action: dir === 'bull' ? 'OBSERVE/WAIT' : 'OBSERVE/WAIT',
+            headline: dir === 'bull' ? 'Bull setup — wait for VWAP reclaim' : 'Bear setup — wait for VWAP break',
+            reason: `${parts.join(' · ')} but ${c.trend}. No entry.`,
+          });
         }
 
-        const hasPriorEntry = lastEntryDirRef.current === dir;
+        const hasPriorEntry = sysLastDir === dir;
         const subType  = (GO_IDS.has(id) || !hasPriorEntry) ? 'fresh' : 'cont';
-        const subLabel = subType === 'fresh' ? '(Fresh)' : '(Cont.)';
+        const subLabel = subType === 'fresh' ? '(Fresh)' : '(Reinforcing)';
 
         const parts = [s.pattern.name];
         if (c.vwap?.atVwap) parts.push('at VWAP');
@@ -1459,46 +1480,43 @@ function getNiftyLevelAlerts(indices) {
         if (dir === 'bull' && c.rsi != null && c.rsi < 35) parts.push(`RSI oversold ${Math.round(c.rsi)}`);
         if (dir === 'bear' && c.rsi != null && c.rsi > 65) parts.push(`RSI overbought ${Math.round(c.rsi)}`);
         if (trendAligned && c.trend !== 'ranging') parts.push('trend aligned');
-        const supPat = rawPatterns.find(p => p.pattern.direction === dir || p.pattern.direction === 'neutral');
-        if (supPat) parts.push(supPat.pattern.name);
 
-        lastEntryDirRef.current = dir;
-        const biasNote = bias !== 'neutral' ? ` Bias ${bias === 'bull' ? 'bullish' : 'bearish'} — setup confirming.` : '';
-        return {
+        nextDir = dir;
+        const biasNote = sysBias !== 'neutral' ? ` Bias ${sysBias === 'bull' ? 'bullish' : 'bearish'} — setup confirming.` : '';
+        return ret({
           type: 'entry', subType, direction: dir,
           action: `${dir === 'bull' ? 'LONG' : 'SHORT'} ${subLabel}`,
           headline: subType === 'fresh'
             ? `${dir === 'bull' ? 'Let\'s go long' : 'Let\'s go short'} — setup supporting${biasNote}`
             : `${dir === 'bull' ? 'Another long' : 'Another short'} confirming — staying with the bias`,
           reason: `${parts.join(' · ')} · score ${s.score}/10`,
-        };
+        });
       }
 
-      // ── Watch list (score 3–5) — amplify if bias-aligned, note if counter ─
+      // ── Watch list (score 3–5) ──────────────────────────────────────────────
       if (s && s.score >= 3) {
         const dir = s.pattern.direction;
         const parts = [s.pattern.name];
         if (c.vwap?.atVwap) parts.push('at VWAP');
         if (c.volume.mult >= 1.3) parts.push(`${c.volume.mult}× vol`);
 
-        if (bias !== 'neutral' && dir !== bias) {
-          return {
-            type: 'watch', direction: dir, action: 'COUNTER WATCH',
-            headline: `${dir === 'bull' ? 'Bullish' : 'Bearish'} signal forming — but bias still ${bias}`,
+        if (sysBias !== 'neutral' && dir !== sysBias) {
+          return ret({
+            type: 'watch', direction: dir, action: 'CAUTION / WATCH',
+            headline: `${dir === 'bull' ? 'Bullish' : 'Bearish'} signal forming — but bias still ${sysBias}`,
             reason: `${parts.join(' · ')}. Not acting — waiting for bias to shift first.`,
-          };
+          });
         }
-        // Update bias if neutral and we see a forming setup
-        if (bias === 'neutral' && dir !== 'neutral') biasRef.current = dir;
-        return {
+        if (sysBias === 'neutral' && dir !== 'neutral') nextBias = dir;
+        return ret({
           type: 'watch', direction: dir, action: 'WATCH',
           headline: dir === 'bull'
-            ? (bias === 'bull' ? 'Setup forming — supporting the bullish bias' : '↑ Possible long setting up')
+            ? (sysBias === 'bull' ? 'Setup forming — supporting the bullish bias' : '↑ Possible long setting up')
             : dir === 'bear'
-              ? (bias === 'bear' ? 'Setup forming — supporting the bearish bias' : '↓ Possible short setting up')
+              ? (sysBias === 'bear' ? 'Setup forming — supporting the bearish bias' : '↓ Possible short setting up')
               : 'Setup forming — wait for confirmation',
           reason: `${parts.join(' · ')} — needs confirmation`,
-        };
+        });
       }
 
       // ── No setup: contextual quiet candle commentary ───────────────────────
@@ -1509,8 +1527,7 @@ function getNiftyLevelAlerts(indices) {
       const cBody    = Math.abs(candle.close - candle.open);
       const bodyRatio = cRange > 0 ? cBody / cRange : 0;
 
-      // ── Power candle: almost-marubozu body ≥75%, wicks ≤12%, range ≥1.5×ATR ─
-      // ATR works for index instruments (Nifty, BankNifty) — no volume needed.
+      // ── Power candle ────────────────────────────────────────────────────────
       const atr        = c.atr14;
       const upperWick  = cRange > 0 ? (candle.close >= candle.open ? candle.high - candle.close : candle.high - candle.open) / cRange : 1;
       const lowerWick  = cRange > 0 ? (candle.close >= candle.open ? candle.open - candle.low  : candle.close - candle.low) / cRange : 1;
@@ -1518,59 +1535,57 @@ function getNiftyLevelAlerts(indices) {
 
       if (isPower) {
         const dir = isBull ? 'bull' : 'bear';
-        const biasAligned = bias === dir || bias === 'neutral';
-        if (bias === 'neutral' && dir !== 'neutral') biasRef.current = dir;
+        const biasAligned = sysBias === dir || sysBias === 'neutral';
+        if (sysBias === 'neutral' && dir !== 'neutral') nextBias = dir;
         const atrMult = (cRange / atr).toFixed(1);
+        
         if (biasAligned) {
-          return {
+          return ret({
             type: 'watch', direction: dir,
             action: isBull ? 'STRONG BULL' : 'STRONG BEAR',
             headline: isBull
               ? 'Strong bullish candle — momentum expanding'
               : 'Strong bearish candle — momentum expanding',
             reason: `${Math.abs(chg)}% body, ${atrMult}× ATR${patHint}. ${isBull ? 'Dips near this close are buying opportunities.' : 'Rallies near this close are selling opportunities.'}`,
-          };
+          });
         } else {
-          return {
+          return ret({
             type: 'caution', direction: dir,
             action: 'REVERSAL WATCH',
             headline: `Strong ${isBull ? 'bullish' : 'bearish'} candle — counter-bias, watch closely`,
-            reason: `${Math.abs(chg)}% body, ${atrMult}× ATR${patHint} against ${bias} bias. Monitor for structural change before acting.`,
-          };
+            reason: `${Math.abs(chg)}% body, ${atrMult}× ATR${patHint} against ${sysBias} bias. Monitor for structural change before acting.`,
+          });
         }
       }
 
-      // High-volume wicky candle — indecision/exhaustion (equity stocks, not index)
       if (c.volume.context === 'climax') {
-        return { type: 'watch', action: 'WATCH',
+        return ret({ type: 'watch', action: 'WATCH',
           headline: 'Volume climax — possible turn ahead',
-          reason: `${isBull ? 'Bullish' : 'Bearish'} ${Math.abs(chg)}% on ${c.volume.mult}× vol${patHint}. High volume with wicks — exhaustion signal.` };
+          reason: `${isBull ? 'Bullish' : 'Bearish'} ${Math.abs(chg)}% on ${c.volume.mult}× vol${patHint}. High volume with wicks — exhaustion signal.` });
       }
 
-      // Quiet candle — hold bias with a human comment
-      if (bias === 'bull') {
+      if (sysBias === 'bull') {
         const note = isBull ? 'still holding up' : 'slight pullback, staying patient';
-        return { type: 'quiet', action: 'HOLD BIAS',
+        return ret({ type: 'quiet', action: 'HOLD BIAS',
           headline: `Nothing happening — ${note}. Bias bullish`,
-          reason: `${c.volume.context === 'dryup' ? 'Volume dry-up, market pausing.' : `Vol ${c.volume.mult}×.`} Waiting for setup to confirm the long.` };
+          reason: `${c.volume.context === 'dryup' ? 'Volume dry-up, market pausing.' : `Vol ${c.volume.mult}×.`} Waiting for setup to confirm the long.` });
       }
-      if (bias === 'bear') {
+      if (sysBias === 'bear') {
         const note = !isBull ? 'still grinding down' : 'minor bounce, staying patient';
-        return { type: 'quiet', action: 'HOLD BIAS',
+        return ret({ type: 'quiet', action: 'HOLD BIAS',
           headline: `Nothing happening — ${note}. Bias bearish`,
-          reason: `${c.volume.context === 'dryup' ? 'Volume dry-up, market pausing.' : `Vol ${c.volume.mult}×.`} Waiting for setup to confirm the short.` };
+          reason: `${c.volume.context === 'dryup' ? 'Volume dry-up, market pausing.' : `Vol ${c.volume.mult}×.`} Waiting for setup to confirm the short.` });
       }
 
-      // Truly neutral / no bias
       if (c.volume.context === 'dryup') {
-        return { type: 'quiet', action: 'WAIT',
+        return ret({ type: 'quiet', action: 'WAIT',
           headline: 'Low conviction — volume dry-up',
-          reason: `${isBull ? 'Bullish' : 'Bearish'} ${Math.abs(chg)}% on ${c.volume.mult}× vol${patHint}. No strong participants, stay flat.` };
+          reason: `${isBull ? 'Bullish' : 'Bearish'} ${Math.abs(chg)}% on ${c.volume.mult}× vol${patHint}. No strong participants, stay flat.` });
       }
       const trendLabel = c.trend === 'uptrend' ? 'Uptrend intact' : c.trend === 'downtrend' ? 'Downtrend intact' : 'Market ranging';
-      return { type: 'quiet', action: 'OBSERVE',
+      return ret({ type: 'quiet', action: 'OBSERVE',
         headline: `${isBull ? '▲' : '▼'} ${Math.abs(chg)}% — waiting for a setup`,
-        reason: `${trendLabel}. Vol ${c.volume.mult}×${c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : ''}${patHint}.` };
+        reason: `${trendLabel}. Vol ${c.volume.mult}×${c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : ''}${patHint}.` });
     };
 
     // Exit a conflicting position via market order
@@ -3042,7 +3057,8 @@ function getNiftyLevelAlerts(indices) {
                 )}
 
                 {thirdEyeOpen && thirdEyeLive && isMarketHours() && (() => {
-                  const ln = buildNarrative(thirdEyeLive);
+                  const nObj = runBuildNarrative(thirdEyeLive, biasRef.current, lastEntryDirRef.current);
+                  const ln = nObj.narrative;
                   const liveIsBull = thirdEyeLive.topSetup?.pattern?.direction === 'bull';
                   const liveClose  = thirdEyeLive.candle?.close;
                   const liveSl     = thirdEyeLive.topSetup?.pattern?.sl;
@@ -3194,7 +3210,7 @@ function getNiftyLevelAlerts(indices) {
                     {displayLog.length === 0 ? (
                       <p className="px-4 py-6 text-slate-600 text-xs text-center">Waiting for next candle close…</p>
                     ) : displayLog.map((entry, i) => {
-                      const n       = buildNarrative(entry);
+                      const ln      = entry.narrative;
                       const isFirst = i === 0;
 
                       // Semi-auto action card: setup has semiAuto:true in config, score ≥ 6, Nifty chart, most recent candle only
@@ -3300,14 +3316,16 @@ function getNiftyLevelAlerts(indices) {
                         );
                       }
 
-                      const isEntry  = n.type === 'entry';
-                      const isExit   = n.type === 'exit';
-                      const isCaut   = n.type === 'caution';
-                      const nLong    = n.direction === 'bull';
-                      const isGo     = n.subType === 'fresh';
-                      const isCont   = n.subType === 'cont';
+                      if (!ln) return null;
 
-                      const isBosWatch = n.action === 'BOS WATCH';
+                      const isEntry  = ln.type === 'entry';
+                      const isExit   = ln.type === 'exit';
+                      const isCaut   = ln.type === 'caution';
+                      const nLong    = ln.direction === 'bull';
+                      const isGo     = ln.subType === 'fresh';
+                      const isCont   = ln.subType === 'cont';
+
+                      const isBosWatch = ln.action === 'BOS WATCH';
 
                       const badgeStyle =
                         (isEntry && isGo   && nLong)  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
@@ -3318,7 +3336,7 @@ function getNiftyLevelAlerts(indices) {
                         isBosWatch                    ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' :
                         (isCaut && nLong)             ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' :
                         isCaut                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                        n.type === 'watch'            ? 'bg-slate-500/10 text-slate-400 border-slate-500/20' :
+                        ln.type === 'watch'            ? 'bg-slate-500/10 text-slate-400 border-slate-500/20' :
                         'bg-slate-700/20 text-slate-600 border-slate-600/10';
 
                       const headlineStyle =
@@ -3329,18 +3347,18 @@ function getNiftyLevelAlerts(indices) {
                         isExit                        ? 'text-violet-300' :
                         isBosWatch                    ? 'text-yellow-300' :
                         isCaut                        ? 'text-amber-300' :
-                        n.type === 'watch'            ? 'text-slate-400' :
+                        ln.type === 'watch'            ? 'text-slate-400' :
                         'text-slate-500';
                       return (
                         <div key={i} className={`px-4 py-3 ${isFirst ? 'bg-white/[0.025]' : ''}`}>
                           <div className="flex items-center justify-between mb-1.5">
                             <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider ${badgeStyle}`}>
-                              {n.action}
+                              {ln.action}
                             </span>
                             <span className="text-[10px] text-slate-600 font-mono">{entry.time}</span>
                           </div>
-                          <p className={`text-[11px] font-semibold leading-snug mb-1 ${headlineStyle}`}>{n.headline}</p>
-                          <p className="text-[10px] text-slate-500 leading-relaxed">{n.reason}</p>
+                          <p className={`text-[11px] font-semibold leading-snug mb-1 ${headlineStyle}`}>{ln.headline}</p>
+                          <p className="text-[10px] text-slate-500 leading-relaxed">{ln.reason}</p>
                         </div>
                       );
                     })}
