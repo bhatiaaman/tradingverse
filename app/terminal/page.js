@@ -2486,6 +2486,13 @@ export default function TerminalPage() {
     } catch {}
   }, [symbol]);
 
+  // ── Continuously poll the Spot Price while a symbol is selected
+  useEffect(() => {
+    if (!symbol) return;
+    const iv = setInterval(() => { refreshSpotPrice(); }, 3000); // 3 sec polling
+    return () => clearInterval(iv);
+  }, [symbol, refreshSpotPrice]);
+
   // ── Auto-correct EQ for index symbols (EQ is not a valid type for indices)
   useEffect(() => {
     if (INDEX_SYMBOLS.includes(symbol) && instrumentType === 'EQ') setInstrumentType('CE');
