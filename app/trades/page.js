@@ -301,6 +301,9 @@ function getNiftyLevelAlerts(indices) {
       return mins >= 555 && mins <= 960; // 9:15 AM – 4:00 PM IST
     };
     const isVisible = usePageVisibility();
+    const isVisibleRef = useRef(isVisible);
+    useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
+
     const [commentary, setCommentary] = useState(null);
     const [commentaryLoading, setCommentaryLoading] = useState(true);
     const [commentaryRefreshedAt, setCommentaryRefreshedAt] = useState(null);
@@ -310,6 +313,21 @@ function getNiftyLevelAlerts(indices) {
     const [commentaryCollapsed, setCommentaryCollapsed] = useState(true);
     const prevCommentaryRef = useRef(null);
     const soundEnabledRef   = useRef(false); // only alert after first load
+
+    // Trigger instant refresh of commentary when tab is resumed
+    useEffect(() => {
+      if (isVisible && isMarketHours()) {
+        const fetchRegime = async () => {
+          try {
+            const r = await fetch('/api/market-regime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: 'NIFTY', type: 'intraday' }) });
+            const d = await r.json();
+            if (d.regime && d.regime !== 'INITIALIZING' && !d.error) setNiftyRegime(d);
+          } catch {}
+        };
+        fetchRegime();
+      }
+    }, [isVisible]);
+
     // Key levels bar — follows chartSymbol
     const [keyLevels, setKeyLevels] = useState(null);
     // Nifty-only levels — always NIFTY, used in commentary station alerts
@@ -414,7 +432,7 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       fetchMarketData();
-      const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchMarketData(); }, 60000);
+      const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchMarketData(); }, 60000);
       return () => clearInterval(interval);
     }, []);
 
@@ -536,7 +554,7 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       fetchSectorData();
-      const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchSectorData(); }, 300000);
+      const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchSectorData(); }, 300000);
       return () => clearInterval(interval);
     }, []);
 
@@ -581,7 +599,7 @@ function getNiftyLevelAlerts(indices) {
 
     useEffect(() => {
       fetchOptionChain();
-      const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchOptionChain(); }, 60000);
+      const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchOptionChain(); }, 60000);
       return () => clearInterval(interval);
     }, [optionUnderlying, optionExpiry, fetchOptionChain]);
 
@@ -645,6 +663,14 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       
+      // We ALSO bind this internal function to globally respond when visibility flips
+      const handleVisibilityReturn = () => {
+        if (isVisible && isMarketHours()) {
+          fetchCommentary();
+        }
+      };
+      handleVisibilityReturn();
+      
       // Fetch NIFTY intraday regime
       const fetchRegime = async () => {
         try {
@@ -667,7 +693,7 @@ function getNiftyLevelAlerts(indices) {
       let commentaryTimer;
       const scheduleCommentary = () => {
         commentaryTimer = setTimeout(() => {
-          if (isMarketHours() && isVisible) { fetchCommentary(); fetchRegime(); }
+          if (isMarketHours() && isVisibleRef.current) { fetchCommentary(); fetchRegime(); }
           scheduleCommentary();
         }, getCommentaryInterval());
       };
@@ -719,7 +745,7 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       fetchSentiment();
-      const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchSentiment(); }, 5 * 60 * 1000);
+      const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchSentiment(); }, 5 * 60 * 1000);
       return () => clearInterval(interval);
     }, [optionChainData?.pcr]);
 
