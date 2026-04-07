@@ -791,11 +791,13 @@ function getNiftyLevelAlerts(indices) {
         const body     = Math.abs(c.close - c.open);
         const range    = c.high - c.low;
         const bodyRatio = range > 0 ? body / range : 0;
-        const volMult   = hasVol ? (c.volume || 0) / avgVol : null;
-        const rangeMult = range / atr;
+        const volMult    = hasVol ? (c.volume || 0) / avgVol : null;
+        const rangeMult  = range / atr;
+        const upperWick  = range > 0 ? (c.close >= c.open ? c.high - c.close : c.high - c.open) / range : 1;
+        const lowerWick  = range > 0 ? (c.close >= c.open ? c.open - c.low  : c.close - c.low) / range : 1;
 
-        const passesVol = !hasVol || volMult >= 1.5;
-        if (bodyRatio >= 0.6 && rangeMult >= 1.5 && passesVol) {
+        const passesVol  = !hasVol || volMult >= 1.5;
+        if (bodyRatio >= 0.75 && upperWick <= 0.12 && lowerWick <= 0.12 && rangeMult >= 1.5 && passesVol) {
           results.push({
             time:      c.time,
             direction: c.close >= c.open ? 'bull' : 'bear',

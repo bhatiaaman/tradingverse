@@ -857,11 +857,13 @@ function getNiftyLevelAlerts(indices) {
         const body     = Math.abs(c.close - c.open);
         const range    = c.high - c.low;
         const bodyRatio = range > 0 ? body / range : 0;
-        const volMult   = hasVol ? (c.volume || 0) / avgVol : null;
-        const rangeMult = range / atr;
+        const volMult    = hasVol ? (c.volume || 0) / avgVol : null;
+        const rangeMult  = range / atr;
+        const upperWick  = range > 0 ? (c.close >= c.open ? c.high - c.close : c.high - c.open) / range : 1;
+        const lowerWick  = range > 0 ? (c.close >= c.open ? c.open - c.low  : c.close - c.low) / range : 1;
 
-        const passesVol = !hasVol || volMult >= 1.5;
-        if (bodyRatio >= 0.6 && rangeMult >= 1.5 && passesVol) {
+        const passesVol  = !hasVol || volMult >= 1.5;
+        if (bodyRatio >= 0.75 && upperWick <= 0.12 && lowerWick <= 0.12 && rangeMult >= 1.5 && passesVol) {
           results.push({
             time:      c.time,
             direction: c.close >= c.open ? 'bull' : 'bear',
@@ -1507,11 +1509,12 @@ function getNiftyLevelAlerts(indices) {
       const cBody    = Math.abs(candle.close - candle.open);
       const bodyRatio = cRange > 0 ? cBody / cRange : 0;
 
-      // ── Power candle: body ≥65% of range + range ≥1.5× ATR14 ───────────────
-      // ATR works for Nifty index (no volume data). Wicky candles with same range
-      // won't pass bodyRatio, so exhaustion candles aren't mislabelled.
-      const atr       = c.atr14;
-      const isPower   = bodyRatio >= 0.65 && atr != null && cRange >= atr * 1.5;
+      // ── Power candle: almost-marubozu body ≥75%, wicks ≤12%, range ≥1.5×ATR ─
+      // ATR works for index instruments (Nifty, BankNifty) — no volume needed.
+      const atr        = c.atr14;
+      const upperWick  = cRange > 0 ? (candle.close >= candle.open ? candle.high - candle.close : candle.high - candle.open) / cRange : 1;
+      const lowerWick  = cRange > 0 ? (candle.close >= candle.open ? candle.open - candle.low  : candle.close - candle.low) / cRange : 1;
+      const isPower    = bodyRatio >= 0.75 && upperWick <= 0.12 && lowerWick <= 0.12 && atr != null && cRange >= atr * 1.5;
 
       if (isPower) {
         const dir = isBull ? 'bull' : 'bear';
