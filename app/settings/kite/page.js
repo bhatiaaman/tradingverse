@@ -11,6 +11,7 @@ function KiteSettingsContent() {
     apiKey: '',
     apiSecret: '', // Only kept in memory, never saved to disk
     accessToken: '',
+    autoLogin: false,
   });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -53,6 +54,7 @@ function KiteSettingsContent() {
         setConfig(prev => ({
           ...prev,
           apiKey: data.config.apiKey || '',
+          autoLogin: data.config.autoLogin || false,
           // accessToken not fetched from server for security
         }));
         setTokenStatus(data.tokenValid ? 'valid' : 'invalid');
@@ -142,6 +144,30 @@ function KiteSettingsContent() {
       }
     } catch (error) {
       setMessage({ type: 'error', text: 'Failed to save: ' + error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleAutoLogin = async () => {
+    setLoading(true);
+    setMessage({ type: '', text: '' });
+    const newStatus = !config.autoLogin;
+    try {
+      const res = await fetch('/api/kite-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoLogin: newStatus }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setConfig(prev => ({ ...prev, autoLogin: newStatus }));
+        setMessage({ type: 'success', text: `Auto-login ${newStatus ? 'enabled' : 'disabled'} successfully!` });
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to toggle auto-login' });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Failed to update: ' + error.message });
     } finally {
       setLoading(false);
     }
@@ -373,10 +399,34 @@ function KiteSettingsContent() {
           </button>
         </div>
 
-        {/* Current Access Token */}
-        <div className={`bg-[#112240] border rounded-xl p-6 ${tokenStatus === 'invalid' ? 'border-red-500/50' : 'border-blue-800/40'}`}>
+        {/* Step 3: Zero-Touch Automation */}
+        <div className="bg-[#112240] border border-blue-800/40 rounded-xl p-6 mb-6">
           <h2 className="text-lg font-semibold text-blue-300 mb-4 flex items-center gap-2">
             <span className="w-6 h-6 rounded-full bg-blue-500 text-white text-sm flex items-center justify-center">3</span>
+            Auto-Login (Zero Touch)
+          </h2>
+          <p className="text-slate-400 text-sm mb-4">
+            Automatically log in and acquire your session token every weekday at 8:00 AM IST. Requires <code className="text-slate-300 bg-black/30 px-1 py-0.5 rounded text-xs mx-1">KITE_USER_ID</code>, <code className="text-slate-300 bg-black/30 px-1 py-0.5 rounded text-xs mx-1">KITE_PASSWORD</code>, and <code className="text-slate-300 bg-black/30 px-1 py-0.5 rounded text-xs mx-1">KITE_TOTP_SECRET</code> in your `.env.local`.
+          </p>
+          <div className="flex items-center justify-between p-4 bg-[#0a1628] rounded-xl border border-blue-800/30">
+            <div>
+              <p className="text-slate-200 font-semibold text-sm">Background Login Active</p>
+              <p className="text-slate-500 text-xs mt-0.5">Runs on Vercel Cron automatically</p>
+            </div>
+            <button
+               onClick={toggleAutoLogin}
+               disabled={loading}
+               className={`relative w-12 h-6 rounded-full transition-all duration-300 disabled:opacity-50 ${config.autoLogin ? 'bg-green-500' : 'bg-slate-600'}`}
+             >
+               <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-300 ${config.autoLogin ? 'left-7' : 'left-1'}`} />
+             </button>
+          </div>
+        </div>
+
+        {/* Step 4: Current Access Token */}
+        <div className={`bg-[#112240] border rounded-xl p-6 ${tokenStatus === 'invalid' ? 'border-red-500/50' : 'border-blue-800/40'}`}>
+          <h2 className="text-lg font-semibold text-blue-300 mb-4 flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-blue-500 text-white text-sm flex items-center justify-center">4</span>
             Current Access Token
             {tokenStatus === 'invalid' && config.accessToken && (
               <span className="ml-2 px-2 py-0.5 text-xs font-medium rounded bg-red-500/20 text-red-400 border border-red-500/30">

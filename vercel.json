@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/kite-login",
+      "schedule": "40 2 * * 1-5"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { KiteBroker } from '@/app/lib/providers/kite/KiteBroker.js';
-import { kiteRedisGet } from '@/app/lib/providers/kite/kite-redis.js';
+import { kiteRedisGet, kiteRedisSet } from '@/app/lib/providers/kite/kite-redis.js';
 import { invalidateCredentialsCache } from '@/app/lib/kite-credentials';
 import { requireOwner, unauthorized } from '@/app/lib/session';
 
@@ -8,13 +8,15 @@ export async function GET() {
   if (!await requireOwner()) return unauthorized();
 
   try {
-    const [redisApiKey, redisAccessToken, disconnected] = await Promise.all([
+    const [redisApiKey, redisAccessToken, disconnected, rawAutoLogin] = await Promise.all([
       kiteRedisGet('api_key'),
       kiteRedisGet('access_token'),
       kiteRedisGet('disconnected'),
+      kiteRedisGet('auto_login'),
     ]);
 
     const apiKey = redisApiKey || process.env.KITE_API_KEY || '';
+    const autoLogin = rawAutoLogin === '1';
 
     const accessToken = (disconnected === '1')
       ? ''
@@ -24,7 +26,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      config: { apiKey },
+      config: { apiKey, autoLogin },
       tokenValid,
       hasApiSecretInEnv: !!(process.env.KITE_SECRET || process.env.KITE_API_SECRET),
     });
@@ -39,17 +41,21 @@ export async function POST(request) {
 
   try {
     const body = await request.json();
-    const { apiKey, accessToken } = body;
+    const { apiKey, accessToken, autoLogin } = body;
 
     if (apiKey !== undefined) {
       await KiteBroker.saveApiKey(apiKey);
+    }
+    
+    if (autoLogin !== undefined) {
+      await kiteRedisSet('auto_login', autoLogin ? '1' : '0');
     }
 
     if (accessToken !== undefined) {
       await KiteBroker.saveAccessToken(accessToken);
     }
 
-    if (apiKey === undefined && accessToken === undefined) {
+    if (apiKey === undefined && accessToken === undefined && autoLogin === undefined) {
       return NextResponse.json({ success: false, error: 'No valid updates provided' }, { status: 400 });
     }
 
