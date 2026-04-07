@@ -72,7 +72,7 @@ function Chip({ label, active, value }) {
 }
 
 // ── Main Signal Card ──────────────────────────────────────────────────────────
-function SignalCard({ stock, enriched, quote, selected, onClick, onOrder, onChart, receivedAt, triggeredAt, isNew }) {
+function SignalCard({ stock, enriched, enriching, quote, selected, onClick, onOrder, onChart, receivedAt, triggeredAt, isNew }) {
   const e   = enriched;
   const sig = e?.signal;
   const ctx = e?.context;
@@ -194,7 +194,7 @@ function SignalCard({ stock, enriched, quote, selected, onClick, onOrder, onChar
         {!e && (
           <div className="mt-1.5 text-[10px] text-slate-600 flex items-center gap-1">
             <span className="inline-block w-1 h-1 rounded-full bg-slate-600 animate-pulse" />
-            Analysing…
+            {enriching ? 'Enriching…' : 'Analysing…'}
           </div>
         )}
 
@@ -282,6 +282,8 @@ export default function ScannerPage({ scanName, scanSlug }) {
 
   const [scans,        setScans]        = useState({ latest: null, history: [] });
   const [enriched,     setEnriched]     = useState(null);   // array of enriched per-stock data
+  const [enriching,    setEnriching]    = useState(false);  // on-demand enrichment in progress
+  const enrichedForRef = useRef(null);                      // scan id we last enriched for
   const [stockQuotes,  setStockQuotes]  = useState({});     // { [symbol]: { ltp, changePct } }
   const [loading,      setLoading]      = useState(true);
   const [lastUpdate,   setLastUpdate]   = useState(null);
@@ -457,6 +459,36 @@ export default function ScannerPage({ scanName, scanSlug }) {
     const interval = isVisible ? setInterval(fetchScans, 30000) : null;
     return () => clearInterval(interval);
   }, [selectedStock, lastAlertId, scannerLabel, scanSlug, isRefreshing, isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── On-demand enrichment: call /api/enrich-scan if enriched is missing ──────
+  useEffect(() => {
+    const latest = scans.latest;
+    if (!latest?.id || enriched || enriching) return;
+    if (enrichedForRef.current === latest.id) return; // already tried this scan
+
+    const rawStocks = Array.isArray(latest.stocks)
+      ? latest.stocks.map(s => String(s).trim())
+      : String(latest.stocks || '').split(',').map(s => s.trim()).filter(Boolean);
+    const rawPrices = Array.isArray(latest.trigger_prices)
+      ? latest.trigger_prices.map(p => String(p).trim())
+      : String(latest.trigger_prices || '').split(',').map(p => p.trim());
+    const stocks = rawStocks
+      .map((symbol, i) => ({ symbol, price: rawPrices[i] || '0' }))
+      .filter(s => s.symbol);
+    if (!stocks.length) return;
+
+    enrichedForRef.current = latest.id;
+    setEnriching(true);
+    fetch('/api/enrich-scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scanId: latest.id, stocks, scanName: latest.scan_name || '' }),
+    })
+      .then(r => r.json())
+      .then(d => { if (d.enriched) setEnriched(d.enriched); })
+      .catch(e => console.error('[scanner] on-demand enrichment failed:', e))
+      .finally(() => setEnriching(false));
+  }, [scans.latest, enriched, enriching]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Fetch live LTP for all stocks in the current scan ─────────────────────
   useEffect(() => {
@@ -716,6 +748,7 @@ export default function ScannerPage({ scanName, scanSlug }) {
                           key={idx}
                           stock={stock}
                           enriched={enrichedMap[stock.symbol] ?? null}
+                          enriching={enriching}
                           quote={stockQuotes[stock.symbol] ?? null}
                           selected={selectedStock === stock.symbol}
                           onClick={() => setSelectedStock(stock.symbol)}
