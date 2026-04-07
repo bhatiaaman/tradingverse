@@ -809,6 +809,7 @@ export default function OptionsPage() {
   const [symbol,    setSymbol]    = useState('NIFTY');
   const [expiry,    setExpiry]    = useState('weekly');
   const [chainData, setChainData] = useState(null);
+  const [liveSpot,  setLiveSpot]  = useState(null);
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState(null);
 
@@ -852,6 +853,24 @@ export default function OptionsPage() {
   }, [symbol, expiry]);
 
   useEffect(() => { fetchChain(); }, [fetchChain]);
+
+  // ── Instantly fetch Uncached Spot Price ─────────────────────────────────────
+  useEffect(() => {
+    let active = true;
+    const fetchSpot = async () => {
+      try {
+        const res  = await fetch(`/api/ltp?symbol=${symbol}`);
+        const data = await res.json();
+        if (active && data.success && data.ltp) {
+          setLiveSpot(data.ltp);
+        }
+      } catch {}
+    };
+    setLiveSpot(null); // clear instantly on switch so it drops to loading state
+    fetchSpot();
+    const iv = setInterval(fetchSpot, 5000); // 5 sec live polling
+    return () => { active = false; clearInterval(iv); };
+  }, [symbol]);
 
   // ── Fetch straddle chart when ATM changes ───────────────────────────────────
   useEffect(() => {
@@ -989,9 +1008,9 @@ export default function OptionsPage() {
         <div className="max-w-[1400px] mx-auto px-6 py-3">
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
             {[
-              { label: 'Spot',      value: spot?.toFixed(2),                color: 'text-amber-400' },
-              { label: 'ATM',       value: atm,                             color: 'text-white' },
-              { label: 'Straddle',  value: `₹${straddlePremium?.toFixed(0)}`, color: 'text-violet-400' },
+              { label: 'Spot',      value: (liveSpot || spot)?.toFixed(2) || '...', color: 'text-amber-400' },
+              { label: 'ATM',       value: atm || '...',                    color: 'text-white' },
+              { label: 'Straddle',  value: straddlePremium ? `₹${straddlePremium?.toFixed(0)}` : '...', color: 'text-violet-400' },
               { label: 'ATM IV',    value: fmtIV(atmIV),                   color: atmIV > (hv30 || 0) ? 'text-red-400' : 'text-emerald-400' },
               { label: 'HV30',      value: fmtIV(hv30),                    color: 'text-sky-400' },
               { label: 'IV/HV',     value: ivHvRatio != null ? ivHvRatio + 'x' : '—', color: ivHvRatio > 1.2 ? 'text-red-400' : 'text-emerald-400' },
