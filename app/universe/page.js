@@ -140,6 +140,10 @@ export default function UniversePage() {
           </div>
           <div className="flex items-center gap-8 text-sm font-medium tracking-wide text-slate-400">
             <Link href="/" className="hover:text-white transition-colors">Home Portal</Link>
+            <Link href="/logs" className="hover:text-white flex items-center gap-2 transition-colors">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse" />
+              Activity Logs
+            </Link>
             <button className="hover:text-white transition-colors">Settings</button>
             <div className="w-px h-4 bg-white/20" />
             <button className="text-white">Profile</button>

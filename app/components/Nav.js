@@ -97,16 +97,7 @@ export default function Nav({ fixed = false }) {
                 >
                   👁 Eye
                 </Link>
-                <Link
-                  href="/trades/order-log"
-                  className={`text-xs font-bold px-2.5 py-1 rounded-lg border transition-all ${
-                    isActive('/trades/order-log')
-                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
-                  }`}
-                >
-                  Orders
-                </Link>
+
                 <Link
                   href="/admin/users"
                   className="text-xs font-bold px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:bg-amber-500/20 transition-all"
@@ -183,9 +174,7 @@ export default function Nav({ fixed = false }) {
                     <Link href="/eye" className="py-2 px-3 rounded-lg text-sm font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20">
                       👁 Eye (Admin)
                     </Link>
-                    <Link href="/trades/order-log" className="py-2 px-3 rounded-lg text-sm font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">
-                      Order Log
-                    </Link>
+
                   </>
                 )}
                 <div className="flex items-center justify-between">

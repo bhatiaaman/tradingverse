@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import Nav from '@/app/components/Nav'
 
 function initials(name) {
@@ -165,21 +166,31 @@ export default function AdminUsersPage() {
           <p className="text-slate-500 text-sm">Manage users and access control</p>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 mb-8 bg-white/[0.03] border border-white/[0.06] rounded-xl p-1 w-fit">
-          {[{ id: 'users', label: 'Users' }, { id: 'access', label: 'Access Control' }].map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-                tab === t.id
-                  ? 'bg-white/10 text-white'
-                  : 'text-slate-500 hover:text-slate-300'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+        {/* Tabs & Quick Links */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
+          <div className="flex gap-1 bg-white/[0.03] border border-white/[0.06] rounded-xl p-1 w-fit">
+            {[{ id: 'users', label: 'Users' }, { id: 'access', label: 'Access Control' }].map(t => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+                  tab === t.id
+                    ? 'bg-white/10 text-white'
+                    : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-3">
+             <Link href="/trades/order-log" className="px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all">
+                All Orders Log
+             </Link>
+             <Link href="/logs" className="px-4 py-2 rounded-lg text-sm font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> System Logs
+             </Link>
+          </div>
         </div>
 
         {/* ── USERS TAB ─────────────────────────────────────────────────── */}

@@ -1040,13 +1040,36 @@ function getNiftyLevelAlerts(indices) {
               // (stale API cache hit returning an older bar than what's already logged)
               if (candleTimeStr > lastCandleTimeRef.current) {
                 lastCandleTimeRef.current = candleTimeStr;
+                const topSetup = heResult.strongSetups?.[0] ?? heResult.watchList?.[0] ?? null;
                 const entry = {
                   time:        candleTimeStr,
-                  topSetup:    heResult.strongSetups?.[0] ?? heResult.watchList?.[0] ?? null,
+                  topSetup,
                   context:     heResult.context,
                   candle:      { open: lastCandle.open, high: lastCandle.high, low: lastCandle.low, close: lastCandle.close },
                   rawPatterns: heResult.rawPatterns ?? [],
                 };
+
+                // Push to permanent system log if a setup was triggered
+                if (topSetup) {
+                  fetch('/api/logs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      category: 'setup',
+                      message: topSetup.name,
+                      data: {
+                        symbol: chartSymbol,
+                        timeframe: chartInterval,
+                        setupName: topSetup.name,
+                        setupId: topSetup.id,
+                        direction: topSetup.direction,
+                        strength: topSetup.strength,
+                        sl: topSetup.sl
+                      }
+                    })
+                  }).catch(e => console.error('Failed to log setup:', e));
+                }
+
                 setThirdEyeLog(prev => {
                   // Check first 3 entries — catches stale cache re-adds even if ref slipped
                   if (prev.slice(0, 3).some(e => e.time === candleTimeStr)) return prev;
