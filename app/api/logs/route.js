@@ -10,7 +10,11 @@ export async function GET(request) {
     
     let filteredLogs = allLogs;
     if (category) {
-      filteredLogs = allLogs.filter(log => log.category === category);
+      if (category === 'system') {
+        filteredLogs = allLogs.filter(log => ['system', 'cron', 'error', 'general'].includes(log.category));
+      } else {
+        filteredLogs = allLogs.filter(log => log.category === category);
+      }
     }
     
     // Sort descending by timestamp
