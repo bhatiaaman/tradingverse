@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/kite-login",
-      "schedule": "15 3 * * 1-5"
+      "schedule": "30 1 * * 1-5"
     }
   ]
 }
