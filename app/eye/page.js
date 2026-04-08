@@ -1074,22 +1074,23 @@ function getNiftyLevelAlerts(indices) {
                     setTimeout(checkPositionsAgainstBias, 0);
                   }
 
-                  // Push to permanent system log if a setup was triggered
-                  if (topSetup) {
+                  // Push to permanent system log only for STRONG setups.
+                  // `topSetup` here is the scored wrapper: { pattern, score, ... }.
+                  if (topSetup?.score >= 6 && topSetup?.pattern?.name) {
                     fetch('/api/logs', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
                         category: 'setup',
-                        message: topSetup.name,
+                        message: topSetup.pattern.name,
                         data: {
                           symbol: chartSymbol,
                           timeframe: chartInterval,
-                          setupName: topSetup.name,
-                          setupId: topSetup.id,
-                          direction: topSetup.direction,
-                          strength: topSetup.strength,
-                          sl: topSetup.sl
+                          setupName: topSetup.pattern.name,
+                          setupId: topSetup.pattern.id,
+                          direction: topSetup.pattern.direction,
+                          strength: topSetup.score,
+                          sl: topSetup.pattern.sl
                         }
                       })
                     }).catch(e => console.error('Failed to log setup:', e));
