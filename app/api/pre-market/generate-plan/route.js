@@ -266,53 +266,70 @@ function generateTemplatePlan(gapData, keyLevels, globalMarkets, calendar, optio
     const eo  = n(gapData.expectedOpen);
     const pc  = n(gapData.previousClose);
     const pts = Math.abs(n(gapData.gap.points));
+    
+    // Dynamically lock targets ahead of entry, bypassing R1/S1 if a large gap skipped them
+    const r1 = n(keyLevels?.standard?.r1);
+    const r2 = n(keyLevels?.standard?.r2);
+    const r3 = n(keyLevels?.standard?.r3);
+    const s1 = n(keyLevels?.standard?.s1);
+    const s2 = n(keyLevels?.standard?.s2);
+    const s3 = n(keyLevels?.standard?.s3);
+
+    const getUpT1 = (entry) => (r1 > entry ? r1 : r2 > entry ? r2 : r3 > entry ? r3 : entry + 50).toFixed(0);
+    const getUpT2 = (entry) => (r2 > entry + 30 ? r2 : r3 > entry + 30 ? r3 : entry + 100).toFixed(0);
+    const getDnT1 = (entry) => (s1 < entry && s1 > 0 ? s1 : s2 < entry && s2 > 0 ? s2 : s3 < entry && s3 > 0 ? s3 : entry - 50).toFixed(0);
 
     if (gapData.gap.type === 'GAP_UP') {
       if (gapData.gap.size === 'Large') {
+        const entryLong = eo - pts * 0.3;
         plan += `Gap Up Strategy (Large):\n`;
         plan += `  • Wait for profit booking (9:15-9:30 AM)\n`;
         plan += `  • Enter longs ONLY if holds above ${pc.toFixed(0)}\n`;
         plan += `  • Avoid chasing - let price come to you\n\n`;
         plan += `Entry Levels:\n`;
-        plan += `  • Long: ${(eo - pts * 0.3).toFixed(0)} (after pullback)\n`;
-        plan += `  • Target 1: ${keyLevels?.standard?.r1 || (eo + 50).toFixed(0)} (book 50%)\n`;
-        plan += `  • Target 2: ${keyLevels?.standard?.r2 || (eo + 100).toFixed(0)} (trail remaining)\n`;
+        plan += `  • Long: ${entryLong.toFixed(0)} (after pullback)\n`;
+        plan += `  • Target 1: ${getUpT1(entryLong)} (book 50%)\n`;
+        plan += `  • Target 2: ${getUpT2(entryLong)} (trail remaining)\n`;
         plan += `  • Stop Loss: ${(pc - 20).toFixed(0)} (below previous close)\n`;
       } else if (gapData.gap.size === 'Medium') {
+        const entryLong = eo - 15;
         plan += `Gap Up Strategy (Medium):\n`;
         plan += `  • Observe first 15 minutes for confirmation\n`;
         plan += `  • Buy dips if sustains above ${pc.toFixed(0)}\n\n`;
         plan += `Entry Levels:\n`;
-        plan += `  • Long: ${(eo - 15).toFixed(0)} (on minor dip)\n`;
-        plan += `  • Target 1: ${keyLevels?.standard?.r1 || (eo + 50).toFixed(0)}\n`;
-        plan += `  • Target 2: ${keyLevels?.standard?.r2 || (eo + 80).toFixed(0)}\n`;
+        plan += `  • Long: ${entryLong.toFixed(0)} (on minor dip)\n`;
+        plan += `  • Target 1: ${getUpT1(entryLong)}\n`;
+        plan += `  • Target 2: ${getUpT2(entryLong)}\n`;
         plan += `  • Stop Loss: ${(pc - 15).toFixed(0)}\n`;
       } else {
+        const entryLong = eo + 10;
         plan += `Gap Up Strategy (Small):\n`;
         plan += `  • Momentum trade - follow trend\n`;
         plan += `  • Buy on breakout above opening range high\n\n`;
         plan += `Entry Levels:\n`;
         plan += `  • Long: Opening high + 10 points\n`;
-        plan += `  • Target: ${keyLevels?.standard?.r1 || (eo + 50).toFixed(0)}\n`;
+        plan += `  • Target: ${getUpT1(entryLong)}\n`;
         plan += `  • Stop Loss: Opening low\n`;
       }
     } else if (gapData.gap.type === 'GAP_DOWN') {
       if (gapData.gap.size === 'Large') {
+        const entryLong = eo + pts * 0.5;
         plan += `Gap Down Strategy (Large):\n`;
         plan += `  • High probability of bounce - AVOID SHORTS initially\n`;
         plan += `  • Look for reversal signals\n`;
         plan += `  • Consider longs if reclaims ${pc.toFixed(0)}\n\n`;
         plan += `Entry Levels:\n`;
-        plan += `  • Long: ${(eo + pts * 0.5).toFixed(0)} (on bounce)\n`;
+        plan += `  • Long: ${entryLong.toFixed(0)} (on bounce)\n`;
         plan += `  • Target: ${pc.toFixed(0)} (gap fill)\n`;
         plan += `  • Stop Loss: ${(eo - 20).toFixed(0)}\n`;
       } else {
+        const entryShort = eo + 20;
         plan += `Gap Down Strategy:\n`;
         plan += `  • Weakness likely to continue\n`;
         plan += `  • Sell rallies if fails to reclaim ${pc.toFixed(0)}\n\n`;
         plan += `Entry Levels:\n`;
-        plan += `  • Short: ${(eo + 20).toFixed(0)} (on bounce)\n`;
-        plan += `  • Target: ${keyLevels?.standard?.s1 || (eo - 50).toFixed(0)}\n`;
+        plan += `  • Short: ${entryShort.toFixed(0)} (on bounce)\n`;
+        plan += `  • Target: ${getDnT1(entryShort)}\n`;
         plan += `  • Stop Loss: ${pc.toFixed(0)}\n`;
       }
     } else {
@@ -334,8 +351,10 @@ function generateTemplatePlan(gapData, keyLevels, globalMarkets, calendar, optio
     const pivot = n(keyLevels?.standard?.pivot);
     const r1    = n(keyLevels?.standard?.r1);
     const r2    = n(keyLevels?.standard?.r2);
+    const r3    = n(keyLevels?.standard?.r3);
     const s1    = n(keyLevels?.standard?.s1);
     const s2    = n(keyLevels?.standard?.s2);
+    const s3    = n(keyLevels?.standard?.s3);
     plan += `Pivot-Based Strategy:\n`;
     plan += `  • Wait for 9:30 AM to let opening range form\n`;
     plan += `  • Key decision level: Pivot ${pivot || '---'}\n\n`;
