@@ -1348,6 +1348,11 @@ function getNiftyLevelAlerts(indices) {
 
       const ret = (narrObj) => ({ narrative: narrObj, nextBias, nextDir, alertUI });
 
+      // Spot index "volume" is not comparable candle-to-candle (and often misleading in narrative).
+      // Futures do have meaningful traded volume, so keep volume tags for `*FUT`.
+      const isSpotIndexChart = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'SENSEX']
+        .includes(String(chartSymbol || '').toUpperCase());
+
       // ── Opening / closing session gates ───────────────────────────────────
       if (c.sessionTime === 'opening') {
         const biasNote = sysBias !== 'neutral' ? ` Bias: ${sysBias === 'bull' ? 'bullish' : 'bearish'}.` : '';
@@ -1431,7 +1436,7 @@ function getNiftyLevelAlerts(indices) {
           const parts = [s.pattern.name];
           if (c.vwap?.atVwap) parts.push('at VWAP');
           else if (c.vwap && Math.abs(c.vwap.distPct) < 0.3) parts.push('near VWAP');
-          if (c.volume.mult >= 1.5) parts.push(`${c.volume.mult}× vol`);
+          if (!isSpotIndexChart && c.volume.mult >= 1.5) parts.push(`${c.volume.mult}× vol`);
 
           if (s.score >= 8) {
             const holdingSide = sysBias === 'bull' ? 'longs' : 'shorts';
@@ -1471,15 +1476,23 @@ function getNiftyLevelAlerts(indices) {
         const subType  = (GO_IDS.has(id) || !hasPriorEntry) ? 'fresh' : 'cont';
         const subLabel = subType === 'fresh' ? '(Fresh)' : '(Reinforcing)';
 
+        // Build a *truthy* and human-friendly context line. Avoid adding tags that
+        // are technically present in context but not meaningfully "near" price.
         const parts = [s.pattern.name];
-        if (c.vwap?.atVwap) parts.push('at VWAP');
-        else if (c.vwap && Math.abs(c.vwap.distPct) < 0.3) parts.push('near VWAP');
-        if (c.bos) parts.push('near BOS');
-        if (c.orderBlock) parts.push('in OB zone');
-        if (c.volume.mult >= 1.5) parts.push(`${c.volume.mult}× vol`);
-        if (dir === 'bull' && c.rsi != null && c.rsi < 35) parts.push(`RSI oversold ${Math.round(c.rsi)}`);
-        if (dir === 'bear' && c.rsi != null && c.rsi > 65) parts.push(`RSI overbought ${Math.round(c.rsi)}`);
-        if (trendAligned && c.trend !== 'ranging') parts.push('trend aligned');
+
+        if (c.vwap?.atVwap) parts.push('VWAP area');
+        else if (c.vwap && c.vwap.distPct != null && c.vwap.distPct <= 0.3) parts.push(`near VWAP (${c.vwap.distPct}%)`);
+
+        // `c.bos` exists whenever any BOS was detected historically; only show if actually near.
+        if (c.bos?.distPct != null && c.bos.distPct <= 0.3) parts.push(`near BOS (${c.bos.distPct}%)`);
+
+        // `c.orderBlock` is already computed as "nearby" in `buildContext()`.
+        if (c.orderBlock) parts.push('order-block zone');
+
+        if (!isSpotIndexChart && c.volume?.mult >= 1.5) parts.push(`${c.volume.mult}× volume`);
+        if (dir === 'bull' && c.rsi != null && c.rsi < 35) parts.push(`RSI ${Math.round(c.rsi)} (oversold)`);
+        if (dir === 'bear' && c.rsi != null && c.rsi > 65) parts.push(`RSI ${Math.round(c.rsi)} (overbought)`);
+        if (trendAligned && c.trend !== 'ranging') parts.push(`trend aligned (${c.trend})`);
 
         nextDir = dir;
         const biasNote = sysBias !== 'neutral' ? ` Bias ${sysBias === 'bull' ? 'bullish' : 'bearish'} — setup confirming.` : '';
@@ -1488,8 +1501,8 @@ function getNiftyLevelAlerts(indices) {
           action: `${dir === 'bull' ? 'LONG' : 'SHORT'} ${subLabel}`,
           headline: subType === 'fresh'
             ? `${dir === 'bull' ? 'Let\'s go long' : 'Let\'s go short'} — setup supporting${biasNote}`
-            : `${dir === 'bull' ? 'Another long' : 'Another short'} confirming — staying with the bias`,
-          reason: `${parts.join(' · ')} · score ${s.score}/10`,
+            : `${dir === 'bull' ? 'Long bias still intact' : 'Short bias still intact'} — another setup confirming`,
+          reason: `${parts.join(' · ')} · strength ${s.score}/10`,
         });
       }
 
@@ -1498,7 +1511,7 @@ function getNiftyLevelAlerts(indices) {
         const dir = s.pattern.direction;
         const parts = [s.pattern.name];
         if (c.vwap?.atVwap) parts.push('at VWAP');
-        if (c.volume.mult >= 1.3) parts.push(`${c.volume.mult}× vol`);
+        if (!isSpotIndexChart && c.volume.mult >= 1.3) parts.push(`${c.volume.mult}× vol`);
 
         if (sysBias !== 'neutral' && dir !== sysBias) {
           return ret({
