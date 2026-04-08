@@ -1,28 +1,40 @@
-import fs from 'fs/promises';
-import path from 'path';
-
-const LOG_FILE = path.join(process.cwd(), 'data', 'system_logs.json');
+const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const NS          = process.env.REDIS_NAMESPACE || 'default';
+const LOG_KEY     = `${NS}:system:logs`;
 
 export async function ensureLogFile() {
-  const dir = path.dirname(LOG_FILE);
+  // No-op for Redis
+}
+
+export async function getRedisLogs() {
+  if (!REDIS_URL || !REDIS_TOKEN) return [];
   try {
-    await fs.access(dir);
-  } catch {
-    await fs.mkdir(dir, { recursive: true });
+    const res = await fetch(`${REDIS_URL}/get/${LOG_KEY}`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` }});
+    const data = await res.json();
+    return data.result ? JSON.parse(data.result) : [];
+  } catch (err) {
+    console.error('Error fetching redis logs:', err);
+    return [];
   }
+}
+
+async function setRedisLogs(logs) {
+  if (!REDIS_URL || !REDIS_TOKEN) return;
   try {
-    await fs.access(LOG_FILE);
-  } catch {
-    await fs.writeFile(LOG_FILE, '[]');
+    await fetch(`${REDIS_URL}/set/${LOG_KEY}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(logs)
+    });
+  } catch (e) {
+    console.error('Redis Set Error:', e);
   }
 }
 
 export async function addSystemLog({ category = 'general', message = '', data = {} }) {
   try {
-    await ensureLogFile();
-    
-    const fileData = await fs.readFile(LOG_FILE, 'utf-8');
-    let logs = JSON.parse(fileData || '[]');
+    let logs = await getRedisLogs();
 
     const newLog = {
       id: crypto.randomUUID(),
@@ -41,7 +53,7 @@ export async function addSystemLog({ category = 'general', message = '', data = 
       return logDate >= sevenDaysAgo;
     });
 
-    await fs.writeFile(LOG_FILE, JSON.stringify(logs, null, 2));
+    await setRedisLogs(logs);
     return newLog;
   } catch (err) {
     console.error('Error writing to system log:', err);

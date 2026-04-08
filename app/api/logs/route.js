@@ -1,15 +1,9 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs/promises';
-import path from 'path';
-import { ensureLogFile, addSystemLog } from '@/app/lib/logger';
-
-const LOG_FILE = path.join(process.cwd(), 'data', 'system_logs.json');
+import { addSystemLog, getRedisLogs } from '@/app/lib/logger';
 
 export async function GET(request) {
   try {
-    await ensureLogFile();
-    const data = await fs.readFile(LOG_FILE, 'utf-8');
-    const allLogs = JSON.parse(data || '[]');
+    const allLogs = await getRedisLogs();
 
     const url = new URL(request.url);
     const category = url.searchParams.get('category');
