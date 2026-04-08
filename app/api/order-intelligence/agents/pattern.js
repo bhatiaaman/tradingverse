@@ -139,6 +139,10 @@ export function detectPatterns(candles) {
 // ─────────────────────────────────────────────────────────────────────────────
 export function analyzeVolume(candles) {
   if (!candles || candles.length < 6) return null;
+  // Spot indices often come with `volume = 0` (or otherwise non-meaningful volume).
+  // In that case, skip volume narratives entirely rather than emitting misleading divergence lines.
+  const recentVolSum = candles.slice(-20).reduce((s, c) => s + (c.volume || 0), 0);
+  if (recentVolSum === 0) return null;
   const recent     = candles.slice(-5);
   const avgVol     = candles.slice(-20, -5).reduce((s, c) => s + c.volume, 0) / 15;
   const lastCandle = recent[recent.length - 1];
