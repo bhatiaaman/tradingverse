@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Nav from '../components/Nav';
 import { probAtTime, probTouch, lognormalPDF, expectedMove } from '@/app/lib/options/black-scholes';
+import { playWarningPing } from '@/app/lib/sounds';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt2(n)  { return n != null ? n.toFixed(2) : '—'; }
@@ -591,6 +592,54 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
   const [orderOk,    setOrderOk]    = useState(null);
   const [marginEst,  setMarginEst]  = useState(null); // { loading, error, data }
   const [deskOpen,   setDeskOpen]   = useState(true); // collapse buy+sell together
+  const lastBuyOpAlertRef = useRef(null); // string key to dedupe alerts
+  const alertTimerRef = useRef(null);
+
+  const triggerBuyOpAlert = useCallback(() => {
+    const fireOnce = () => {
+      try { playWarningPing(); } catch {}
+      try {
+        if ('speechSynthesis' in window) {
+          const u = new SpeechSynthesisUtterance('Attention Option Buy Alert');
+          u.rate = 1;
+          u.pitch = 1;
+          u.volume = 1;
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(u);
+        }
+      } catch {}
+    };
+
+    // Clear any pending second-beep from earlier triggers
+    if (alertTimerRef.current) {
+      clearTimeout(alertTimerRef.current);
+      alertTimerRef.current = null;
+    }
+
+    fireOnce();
+    alertTimerRef.current = setTimeout(() => {
+      fireOnce();
+      alertTimerRef.current = null;
+    }, 5000);
+  }, []);
+
+  // ── Sound/TTS alert: new BUY OP near ATM±1 ────────────────────────────────
+  useEffect(() => {
+    if (!buys?.length || atm == null || !resolvedExpiry) return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+
+    const step = symbol === 'BANKNIFTY' ? 100 : 50;
+    const near = buys
+      .filter(o => o?.strike != null && Math.abs(o.strike - atm) <= step)
+      .sort((a, b) => Math.abs(a.strike - atm) - Math.abs(b.strike - atm))[0];
+    if (!near) return;
+
+    const key = `${symbol}:${resolvedExpiry.slice(0, 10)}:${atm}:${near.strike}:${near.type}:${near.trigger ?? ''}`;
+    if (lastBuyOpAlertRef.current === key) return;
+    lastBuyOpAlertRef.current = key;
+
+    triggerBuyOpAlert();
+  }, [buys, atm, resolvedExpiry, symbol]);
 
   const REGIME_META = {
     breakout:  { label: 'BREAKOUT',       color: 'text-violet-400',  dot: 'bg-violet-400',  tip: 'Sharp directional momentum — buy the moving leg' },
@@ -983,6 +1032,16 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
         >
           {deskOpen ? 'Collapse Buy-Sell' : 'Expand Buy-Sell'}
         </button>
+        {process.env.NODE_ENV !== 'production' && (
+          <button
+            type="button"
+            onClick={triggerBuyOpAlert}
+            className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30 transition-colors"
+            title="Dev only: test buy OP alert"
+          >
+            Test Alert
+          </button>
+        )}
         {stats && (
           <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
             {(stats.expansionPct !== 0 || stats.decayPct !== 0) ? (
@@ -1346,6 +1405,11 @@ export default function OptionsPage() {
 
   useEffect(() => { fetchChain(); }, [fetchChain]);
 
+  // BANKNIFTY has no weekly options in our metadata — force monthly.
+  useEffect(() => {
+    if (symbol !== 'NIFTY' && expiry === 'weekly') setExpiry('monthly');
+  }, [symbol, expiry]);
+
   // ── Market bias (same source as Trades home) ────────────────────────────────
   useEffect(() => {
     let alive = true;
@@ -1492,11 +1556,34 @@ export default function OptionsPage() {
 
           {/* Expiry */}
           <div className="flex bg-[#0c1a2e] rounded-lg p-0.5">
-            {[
-              { val: 'weekly',  label: 'Weekly'  },
-              { val: 'monthly', label: 'Monthly' },
-              ...(expiries?.all?.slice(2, 4) || []).map(e => ({ val: e, label: e.slice(5) })),
-            ].map(opt => (
+            {(() => {
+              const opts = [];
+              if (symbol === 'NIFTY') opts.push({ val: 'weekly', label: 'Weekly' });
+              opts.push({ val: 'monthly', label: 'Monthly' });
+
+              const monthlyDates = expiries?.monthlyAll || (expiries?.monthly ? [expiries.monthly] : []);
+              const curWeekly = expiries?.weekly;
+              const nextWeekly = expiries?.all?.[1] || null;
+
+              const isMonthlyMode =
+                expiry === 'monthly' ||
+                (typeof expiry === 'string' && expiry.length >= 10 && monthlyDates.includes(expiry));
+
+              if (symbol === 'NIFTY' && !isMonthlyMode) {
+                // Weekly mode: show current + next weekly
+                if (curWeekly) opts.push({ val: curWeekly, label: `Cur ${curWeekly.slice(5)}` });
+                if (nextWeekly) opts.push({ val: nextWeekly, label: `Next ${nextWeekly.slice(5)}` });
+              }
+
+              if (isMonthlyMode) {
+                const m1 = monthlyDates?.[0] || expiries?.monthly || null;
+                const m2 = monthlyDates?.[1] || expiries?.nextMonthly || null;
+                if (m1) opts.push({ val: m1, label: `M ${m1.slice(5)}` });
+                if (m2 && m2 !== m1) opts.push({ val: m2, label: `NextM ${m2.slice(5)}` });
+              }
+
+              return opts;
+            })().map(opt => (
               <button key={opt.val} onClick={() => setExpiry(opt.val)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${expiry === opt.val ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>
                 {opt.label}

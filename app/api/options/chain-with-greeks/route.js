@@ -81,12 +81,14 @@ function getExpiries(instruments, name) {
 
   const weekly  = all[0];
   // Monthly = last expiry of each calendar month
-  const monthly = all.filter((e, _, arr) => {
+  const monthlyAll = all.filter((e, _, arr) => {
     const next = arr.find(x => new Date(x) > new Date(e));
     return !next || new Date(next).getMonth() !== new Date(e).getMonth();
-  })[0] || weekly;
+  });
+  const monthly = monthlyAll[0] || weekly;
+  const nextMonthly = monthlyAll[1] || monthly;
 
-  return { weekly, monthly, all: all.slice(0, 8) };
+  return { weekly, monthly, nextMonthly, monthlyAll: monthlyAll.slice(0, 6), all: all.slice(0, 8) };
 }
 
 // ── Fetch spot price via OHLC ─────────────────────────────────────────────────
