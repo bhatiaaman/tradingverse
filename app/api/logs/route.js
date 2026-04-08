@@ -1,23 +1,9 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
+import { ensureLogFile, addSystemLog } from '@/app/lib/logger';
 
 const LOG_FILE = path.join(process.cwd(), 'data', 'system_logs.json');
-
-// Ensure directory and file exist
-async function ensureLogFile() {
-  const dir = path.dirname(LOG_FILE);
-  try {
-    await fs.access(dir);
-  } catch {
-    await fs.mkdir(dir, { recursive: true });
-  }
-  try {
-    await fs.access(LOG_FILE);
-  } catch {
-    await fs.writeFile(LOG_FILE, '[]');
-  }
-}
 
 export async function GET(request) {
   try {
@@ -45,35 +31,12 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    await ensureLogFile();
     const payload = await request.json();
-    
-    // 1. Read existing
-    const data = await fs.readFile(LOG_FILE, 'utf-8');
-    let logs = JSON.parse(data || '[]');
-
-    // 2. Append new log
-    const newLog = {
-      id: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      category: payload.category || 'general',  
-      message: payload.message || '',           
-      data: payload.data || {},                 
-    };
-    logs.push(newLog);
-
-    // 3. Prune logs older than 7 days
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
-    logs = logs.filter(log => {
-      const logDate = new Date(log.timestamp);
-      return logDate >= sevenDaysAgo;
+    const newLog = await addSystemLog({
+      category: payload.category,
+      message: payload.message,
+      data: payload.data
     });
-
-    // 4. Write back
-    await fs.writeFile(LOG_FILE, JSON.stringify(logs, null, 2));
-
     return NextResponse.json({ success: true, log: newLog });
   } catch (err) {
     console.error('Error writing log:', err);

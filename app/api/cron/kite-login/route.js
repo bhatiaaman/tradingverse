@@ -3,6 +3,7 @@ import { TOTP } from 'totp-generator';
 import { kiteRedisGet } from '@/app/lib/providers/kite/kite-redis';
 import { KiteBroker } from '@/app/lib/providers/kite/KiteBroker';
 import { invalidateCredentialsCache } from '@/app/lib/kite-credentials';
+import { addSystemLog } from '@/app/lib/logger';
 
 export async function GET(request) {
   // 1. Security Check: Validate Cron Trigger
@@ -15,14 +16,22 @@ export async function GET(request) {
     // 2. Validate Auto Login is Enabled
     const autoLogin = await kiteRedisGet('auto_login');
     if (autoLogin !== '1') {
+      await addSystemLog({
+        category: 'cron',
+        message: 'Kite Auto-Login skipped (disabled in settings).',
+        data: { status: 'skipped' }
+      });
       return NextResponse.json({ success: false, message: 'Auto-login is disabled in settings.' });
     }
+
+    await addSystemLog({ category: 'cron', message: 'Kite Auto-Login started...', data: { phase: 'init' } });
 
     const { KITE_USER_ID, KITE_PASSWORD, KITE_TOTP_SECRET, KITE_API_KEY, KITE_API_SECRET, KITE_SECRET } = process.env;
     const apiKey = (await kiteRedisGet('api_key')) || KITE_API_KEY;
     const secret = KITE_SECRET || KITE_API_SECRET;
 
     if (!KITE_USER_ID || !KITE_PASSWORD || !KITE_TOTP_SECRET || !apiKey || !secret) {
+      await addSystemLog({ category: 'error', message: 'Kite Auto-Login aborted: Missing environment credentials', data: { status: 'failed' } });
       return NextResponse.json({ success: false, message: 'Missing environment credentials for Auto-Login.' }, { status: 400 });
     }
 
@@ -45,6 +54,7 @@ export async function GET(request) {
     const loginJson = await loginRes.json();
     if (loginJson.status !== 'success' || !loginJson.data?.request_id) {
       console.error('[CRON LOGIN] Login Failed:', loginJson);
+      await addSystemLog({ category: 'error', message: 'Kite Auto-Login Phase 1 internal login failed.', data: { error: loginJson } });
       return NextResponse.json({ success: false, message: 'Phase 1 internal login failed.' });
     }
 
@@ -78,6 +88,7 @@ export async function GET(request) {
     const twofaJson = await twofaRes.json();
     if (twofaJson.status !== 'success') {
       console.error('[CRON LOGIN] 2FA Failed:', twofaJson);
+      await addSystemLog({ category: 'error', message: 'Kite Auto-Login 2FA TOTP authentication failed.', data: { error: twofaJson } });
       return NextResponse.json({ success: false, message: 'Phase 2 TOTP authentication failed.' });
     }
 
@@ -113,6 +124,7 @@ export async function GET(request) {
     }
 
     if (!locationParams) {
+      await addSystemLog({ category: 'error', message: 'Kite Auto-Login missing location header in oauth redirect.', data: { status: connectRes.status } });
       return NextResponse.json({ success: false, message: 'Phase 3 missing location header param.', rawStatus: connectRes.status });
     }
 
@@ -122,6 +134,7 @@ export async function GET(request) {
 
     if (!requestToken) {
       console.error('[CRON LOGIN] Redirect URL missed token:', locationParams);
+      await addSystemLog({ category: 'error', message: 'Kite Auto-Login failed to extract request_token.', data: { url: locationParams } });
       return NextResponse.json({ success: false, message: 'Phase 3 failed to extract request token from redirect url.', receivedLocation: locationParams });
     }
 
@@ -138,14 +151,17 @@ export async function GET(request) {
       invalidateCredentialsCache();
       
       console.log('[CRON LOGIN] Daily Auto-Login Succeeded!');
+      await addSystemLog({ category: 'cron', message: 'Kite Auto-Login successfully connected for the day resolving valid access token!', data: { status: 'success' } });
       return NextResponse.json({ success: true, message: 'Auto-Login sequence completed perfectly.', time: new Date() });
     } else {
       console.error('[CRON LOGIN] Error in final exchange Phase 4:', tokenData);
+      await addSystemLog({ category: 'error', message: 'Kite Auto-Login Token Exchange failed!', data: { error: tokenData } });
       return NextResponse.json({ success: false, message: 'Phase 4 final request_token exchange failed.' });
     }
 
   } catch (error) {
     console.error('[CRON LOGIN] Fatal error:', error);
+    await addSystemLog({ category: 'error', message: 'Kite Auto-Login crashed via Fatal Error', data: { error: error.message } });
     return NextResponse.json({ success: false, message: 'Fatal server logic error occurred.', error: error.message }, { status: 500 });
   }
 }
