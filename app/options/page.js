@@ -568,9 +568,17 @@ function generateTradeDesk(chainData, straddleData) {
 }
 
 // ── Trade Desk Panel ──────────────────────────────────────────────────────────
-function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm }) {
+function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes, resolvedExpiry, marketBias, marketRegime }) {
   const [placing,   setPlacing]   = useState(null); // strike+type key
   const [results,   setResults]   = useState({});   // key → { ok, msg }
+  const [expanded,  setExpanded]  = useState(() => ({})); // key -> boolean (strike+side)
+  const [orderModal, setOrderModal] = useState(null); // { side, strike, type, ltp } | null
+  const [orderLotSize, setOrderLotSize] = useState(null);
+  const [orderForm,  setOrderForm]  = useState({ lots: '1', entryOrderType: 'LIMIT', limitPrice: '', triggerPrice: '' });
+  const [orderErr,   setOrderErr]   = useState(null);
+  const [orderOk,    setOrderOk]    = useState(null);
+  const [marginEst,  setMarginEst]  = useState(null); // { loading, error, data }
+  const [deskOpen,   setDeskOpen]   = useState(true); // collapse buy+sell together
 
   const REGIME_META = {
     breakout:  { label: 'BREAKOUT',       color: 'text-violet-400',  dot: 'bg-violet-400',  tip: 'Sharp directional momentum — buy the moving leg' },
@@ -580,6 +588,9 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm }) {
     neutral:   { label: 'NEUTRAL',        color: 'text-slate-400',   dot: 'bg-slate-500',   tip: 'No clear regime — wait for signal before entering' },
   };
   const rm = REGIME_META[regime] || REGIME_META.neutral;
+  const marketRegimeKey = marketRegime?.regime && marketRegime.regime !== 'INITIALIZING' ? marketRegime.regime : null;
+  const marketRegimeLabel = marketRegimeKey ? marketRegimeKey.replace(/_/g, ' ') : '—';
+  const marketRegimeConf  = marketRegime?.confidence || null;
 
   const CONF = {
     HIGH:   { bars: 3, color: 'bg-emerald-500', label: 'HIGH' },
@@ -587,39 +598,360 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm }) {
     LOW:    { bars: 1, color: 'bg-slate-500',   label: 'LOW'  },
   };
 
-  async function handleQuickBuy(opp) {
-    const key = `${opp.strike}-${opp.type}`;
-    if (placing === key) return;
-    setPlacing(key);
+  const strikeStep = symbol === 'BANKNIFTY' ? 100 : 50;
+  const strikeRows = [atm + strikeStep, atm, atm - strikeStep].filter(Boolean);
+
+  // Use the same market bias source as Trades home (market-data sentiment),
+  // rather than deriving bias from spot-vs-ATM heuristics.
+  const biasLabel = String(marketBias || 'Neutral').toUpperCase().includes('BULL') ? 'BULLISH'
+    : String(marketBias || 'Neutral').toUpperCase().includes('BEAR') ? 'BEARISH'
+    : 'NEUTRAL';
+
+  // Default commentary (used when a strike/leg has no specific opportunity reasons).
+  // Keeps ATM card informative on both buy/sell sides.
+  const baseWhy = (() => {
+    const out = [];
+    if (stats?.pcr != null) out.push(`PCR ${stats.pcr.toFixed(2)} — positioning bias context`);
+    if (stats?.expansionPct != null && stats.expansionPct > 8) out.push(`Straddle +${stats.expansionPct.toFixed(0)}% vs open — volatility expansion`);
+    if (stats?.decayPct != null && stats.decayPct > 8) out.push(`Straddle -${stats.decayPct.toFixed(0)}% vs open — theta decay`);
+    return out;
+  })();
+
+  const findBuyOpp = (strike, type) => {
+    const exact = buys.find(o => o.strike === strike && o.type === type);
+    if (exact) return exact;
+    // Some signals are generic (CE/PE) at ATM — treat as applicable to both legs.
+    const generic = buys.find(o => o.strike === strike && o.type === 'CE/PE');
+    return generic ?? null;
+  };
+
+  const findSellOpp = (strike, type) => sells.find(o => o.strike === strike && o.type === type) ?? null;
+
+  const chartHref = (strike, type) => {
+    // Deprecated: we now open the main chart (`/chart`) for the resolved option tradingsymbol
+    // so the user lands directly on the correct contract (same as OrderModal).
+    return null;
+  };
+
+  const openOptionChart = async ({ strike, type }) => {
+    if (!resolvedExpiry) {
+      window.open('/chart?symbol=' + encodeURIComponent(symbol), '_blank', 'noopener,noreferrer');
+      return;
+    }
     try {
-      const res  = await fetch('/api/options/atm-quick-order', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, price: spot, optionType: opp.type === 'CE' ? 'CE' : 'PE', qty: null }),
+      const qs = new URLSearchParams({
+        action: 'tradingsymbol',
+        symbol: String(symbol).toUpperCase(),
+        expiry: resolvedExpiry.slice(0, 10),
+        strike: String(strike),
+        type: String(type).toUpperCase(),
+        bust: '0',
+      });
+      const r = await fetch(`/api/option-meta?${qs.toString()}`, { cache: 'no-store' });
+      const d = await r.json();
+      const ts = d?.tradingSymbol;
+      if (!ts) throw new Error(d?.error || 'Symbol not found');
+      // `/api/chart-data` expects NFO tradingsymbol without `NFO:` prefix for token resolution.
+      window.open('/chart?theme=dark&symbol=' + encodeURIComponent(ts), '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      window.alert(`Chart open failed: ${e.message}`);
+    }
+  };
+
+  const openOrderModal = ({ side, strike, type, ltp }) => {
+    const isBuy = side === 'buy';
+    const buf = (ltp != null ? (ltp < 25 ? 0.5 : ltp < 80 ? 1 : 2) : 1);
+    const defLimit = ltp != null ? (isBuy ? ltp + buf : ltp - buf) : '';
+    const defTrig  = ltp != null ? (isBuy ? ltp + buf : ltp - buf) : '';
+    const defSLim  = ltp != null ? (isBuy ? defTrig + buf : defTrig - buf) : '';
+    setOrderModal({ side, strike, type, ltp });
+    setOrderErr(null); setOrderOk(null);
+    setMarginEst(null);
+    setOrderForm({
+      lots: '1',
+      entryOrderType: 'LIMIT',
+      limitPrice: defLimit !== '' ? String(Math.round(defLimit * 20) / 20) : '',
+      triggerPrice: defTrig !== '' ? String(Math.round(defTrig * 20) / 20) : '',
+      // for SL entry we reuse limitPrice as "SL limit", keep default filled
+      slLimitFallback: defSLim !== '' ? String(Math.round(defSLim * 20) / 20) : '',
+    });
+
+    // Fetch lot size for display + quantity derivation (lots × lotSize).
+    fetch(`/api/option-meta?action=lotsize&symbol=${encodeURIComponent(symbol)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        const lot = d?.lotSize;
+        if (!lot) return;
+        setOrderLotSize(lot);
+      })
+      .catch(() => {});
+  };
+
+  const estOrderAmount = (() => {
+    if (!orderModal) return null;
+    const lots = Math.max(1, parseInt(orderForm.lots || '1') || 1);
+    const qty  = orderLotSize ? lots * orderLotSize : null;
+    const px   = orderForm.limitPrice ? parseFloat(orderForm.limitPrice) : null;
+    if (!qty || !px || isNaN(px)) return null;
+    return { qty, px, total: qty * px };
+  })();
+
+  // Margin estimator (SELL only) — runs when modal inputs change.
+  useEffect(() => {
+    if (!orderModal) return;
+    if (orderModal.side !== 'sell') return;
+    if (!resolvedExpiry) return;
+    if (!orderLotSize) return;
+    const lots = Math.max(1, parseInt(orderForm.lots || '1') || 1);
+    const quantity = lots * orderLotSize;
+    const order_type = orderForm.entryOrderType;
+    const price = orderForm.limitPrice ? parseFloat(orderForm.limitPrice) : null;
+    const trigger_price = orderForm.entryOrderType === 'SL' && orderForm.triggerPrice ? parseFloat(orderForm.triggerPrice) : null;
+    if (!price || isNaN(price)) return;
+
+    let cancelled = false;
+    setMarginEst({ loading: true, error: null, data: null });
+
+    const run = async () => {
+      try {
+        // Resolve tradingsymbol via option-meta (same as chart/order modal).
+        const qs = new URLSearchParams({
+          action: 'tradingsymbol',
+          symbol: String(symbol).toUpperCase(),
+          expiry: resolvedExpiry.slice(0, 10),
+          strike: String(orderModal.strike),
+          type: String(orderModal.type).toUpperCase(),
+          bust: '0',
+        });
+        const tsRes = await fetch(`/api/option-meta?${qs.toString()}`, { cache: 'no-store' });
+        const tsData = await tsRes.json();
+        const tradingsymbol = tsData?.tradingSymbol;
+        if (!tradingsymbol) throw new Error(tsData?.error || 'Could not resolve tradingsymbol');
+
+        const res = await fetch('/api/options/margin-estimate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            exchange: 'NFO',
+            tradingsymbol,
+            transaction_type: 'SELL',
+            order_type,
+            product: 'MIS',
+            quantity,
+            price,
+            trigger_price,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || 'Margin estimate failed');
+        if (cancelled) return;
+        setMarginEst({ loading: false, error: null, data });
+      } catch (e) {
+        if (cancelled) return;
+        setMarginEst({ loading: false, error: e.message, data: null });
+      }
+    };
+
+    const t = setTimeout(run, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [orderModal, orderForm.lots, orderForm.entryOrderType, orderForm.limitPrice, orderForm.triggerPrice, orderLotSize, resolvedExpiry, symbol]);
+
+  const placeQuickOrder = async () => {
+    if (!orderModal || !resolvedExpiry) return;
+    const isBuy = orderModal.side === 'buy';
+    const transaction_type = isBuy ? 'BUY' : 'SELL';
+    const entryOrderType = orderForm.entryOrderType;
+    const lots = parseInt(orderForm.lots || '0') || 1;
+    const qty = orderLotSize ? lots * orderLotSize : null;
+    const limitPrice = orderForm.limitPrice ? parseFloat(orderForm.limitPrice) : null;
+    const triggerPrice = orderForm.triggerPrice ? parseFloat(orderForm.triggerPrice) : null;
+
+    setOrderErr(null); setOrderOk(null);
+    setPlacing('modal');
+    try {
+      const res = await fetch('/api/options/quick-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol,
+          expiry: resolvedExpiry.slice(0, 10),
+          strike: orderModal.strike,
+          type: orderModal.type,
+          exchange: 'NFO',
+          qty,
+          transaction_type,
+          entryOrderType,
+          entryLimitPrice: limitPrice,
+          entryTriggerPrice: entryOrderType === 'SL' ? triggerPrice : null,
+        }),
       });
       const data = await res.json();
-      setResults(r => ({ ...r, [key]: data.ok
-        ? { ok: true,  msg: `✓ ${opp.type} @ ₹${data.entryLimit} · SL ₹${data.slTrigger}` }
-        : { ok: false, msg: `✕ ${data.error}` },
-      }));
+      if (!res.ok || data?.ok === false) {
+        setOrderErr(data?.error || 'Order failed');
+      } else {
+        setOrderOk(`✓ ${transaction_type} ${orderModal.strike} ${orderModal.type} (${entryOrderType})`);
+        setTimeout(() => { setOrderModal(null); }, 900);
+      }
     } catch (e) {
-      setResults(r => ({ ...r, [key]: { ok: false, msg: `✕ ${e.message}` } }));
+      setOrderErr(e.message);
     } finally {
       setPlacing(null);
-      setTimeout(() => setResults(r => { const n = { ...r }; delete n[key]; return n; }), 8000);
     }
+  };
+
+  function CardHeader({ side, strike, hasOpp }) {
+    const sideCls = side === 'buy'
+      ? { text: 'text-emerald-300', border: 'border-emerald-900/40', bg: 'bg-[#071a10]' }
+      : { text: 'text-red-300',     border: 'border-red-900/40',     bg: 'bg-[#1a0a0a]' };
+    const exp = resolvedExpiry ? resolvedExpiry.slice(5, 10) : '—';
+    const k = `${side}:${strike}`;
+    const isOpen = !!expanded[k];
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(e => ({ ...e, [k]: !e[k] }))}
+        className="w-full flex items-center justify-between gap-3"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {hasOpp && (
+            <span className={`text-[10px] font-extrabold tracking-widest ${side === 'buy' ? 'text-emerald-300' : 'text-rose-300'}`}>
+              OP
+            </span>
+          )}
+          {strike === atm && (
+            <span className="text-[10px] font-extrabold tracking-widest text-amber-300">
+              ATM
+            </span>
+          )}
+          <span className={`text-sm font-bold ${sideCls.text}`}>{strike}</span>
+          <span className="text-[10px] text-slate-500 font-mono truncate">{symbol} · Exp {exp}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="text-[10px] text-slate-500 font-mono">Desk {rm.label}</span>
+          <span className="text-[10px] text-slate-500 font-mono">
+            Market {marketRegimeLabel}{marketRegimeConf ? ` (${marketRegimeConf})` : ''}
+          </span>
+          <span className={`text-[10px] font-mono ${biasLabel === 'BULLISH' ? 'text-emerald-400' : biasLabel === 'BEARISH' ? 'text-red-400' : 'text-slate-400'}`}>
+            Bias {biasLabel}
+          </span>
+          <span className="text-slate-500 text-xs">{isOpen ? '▾' : '▸'}</span>
+        </div>
+      </button>
+    );
   }
+
+  function LegRow({ side, strike, type }) {
+    const isBuy = side === 'buy';
+    const opp   = isBuy ? findBuyOpp(strike, type) : findSellOpp(strike, type);
+    const isAtm = strike === atm;
+    const showLevels = !!opp || isAtm;
+    const key = `${side}:${strike}:${type}`;
+    const res = results[`${strike}-${type}`];
+
+    const conf = opp?.confidence ? (CONF[opp.confidence] || CONF.MEDIUM) : null;
+    const rowLtp = strikes?.find(s => s.strike === strike)?.[type.toLowerCase()]?.ltp ?? null;
+    const entry = opp?.ltp ?? rowLtp ?? null;
+
+    return (
+      <div className={`rounded-lg border ${
+        opp
+          ? (isBuy ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-rose-500/40 bg-rose-500/10')
+          : 'border-white/[0.06] bg-white/[0.02]'
+      }`}>
+        <div className="flex items-center justify-between gap-3 px-3 py-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-xs font-bold ${type === 'CE' ? 'text-sky-400' : 'text-rose-400'}`}>{type}</span>
+              {opp && (
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                  isBuy ? 'border-emerald-500/30 text-emerald-300 bg-emerald-500/10' : 'border-rose-500/30 text-rose-300 bg-rose-500/10'
+                }`}>
+                  Recommended
+                </span>
+              )}
+              {conf && (
+                <span className={`text-[9px] font-bold ${conf.bars === 3 ? (isBuy ? 'text-emerald-400' : 'text-rose-400') : 'text-amber-400'}`}>
+                  {conf.label}
+                </span>
+              )}
+            </div>
+            <div className="mt-0.5 flex items-center gap-3 text-[11px] font-mono text-slate-300">
+              {entry != null && <span className="text-white">{isBuy ? 'Buy' : 'Sell'} @ ₹{typeof entry === 'number' ? entry.toFixed(0) : entry}</span>}
+              {showLevels && opp?.sl && <span className="text-red-400">SL ₹{opp.sl}</span>}
+              {showLevels && opp?.target && <span className="text-emerald-400">T ₹{opp.target}</span>}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => openOptionChart({ strike, type })}
+            className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            View chart ↗
+          </button>
+            <button
+              onClick={() => {
+                openOrderModal({ side, strike, type, ltp: rowLtp ?? null });
+              }}
+              disabled={!!placing}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors disabled:opacity-40 ${
+                isBuy ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-red-600 hover:bg-red-500 text-white'
+              }`}
+            >
+              {placing ? 'Placing…' : (isBuy ? 'Buy' : 'Sell')}
+            </button>
+            {isBuy && res && (
+              <span className={`text-[10px] font-mono ${res.ok ? 'text-emerald-400' : 'text-red-400'}`}>{res.msg}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Collapsible commentary ("Why") */}
+        {(opp?.reasons?.length || (isAtm && baseWhy.length)) ? (
+          <details className="border-t border-white/[0.06] px-3 py-2" open={!!opp?.reasons?.length}>
+            <summary className="cursor-pointer select-none text-[10px] font-mono text-slate-500 hover:text-slate-300">
+              Why ({(opp?.reasons?.length || 0) + (isAtm ? baseWhy.length : 0)})
+            </summary>
+            <ul className="mt-2 space-y-0.5">
+              {(opp?.reasons?.length ? opp.reasons : []).map((r, j) => (
+                <li key={j} className="flex items-start gap-1.5 text-[11px] text-slate-300">
+                  <span className={isBuy ? 'text-emerald-600 mt-0.5 flex-shrink-0' : 'text-red-700 mt-0.5 flex-shrink-0'}>•</span>{r}
+                </li>
+              ))}
+              {isAtm && baseWhy.map((r, j) => (
+                <li key={`base_${j}`} className="flex items-start gap-1.5 text-[11px] text-slate-300">
+                  <span className={isBuy ? 'text-emerald-600 mt-0.5 flex-shrink-0' : 'text-red-700 mt-0.5 flex-shrink-0'}>•</span>{r}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+      </div>
+    );
+  }
+
+  // (Old atm-quick-order flow removed in favor of /api/options/quick-order + modal.)
 
   const noBuys  = buys.length  === 0;
   const noSells = sells.length === 0;
 
   return (
-    <div className="max-w-[1400px] mx-auto px-6 pb-4">
+    <div className={`max-w-[1400px] mx-auto px-6 ${deskOpen ? 'pb-4' : 'pb-0'}`}>
       {/* Regime strip */}
-      <div className="flex items-center gap-3 mb-3">
+      <div className={`flex items-center gap-3 ${deskOpen ? 'mb-3' : 'mb-0'}`}>
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${rm.dot}`} />
         <span className={`text-[11px] font-bold tracking-widest ${rm.color}`}>{rm.label}</span>
         <span className="text-[11px] text-slate-500">{rm.tip}</span>
         <div className="flex-1 h-px bg-white/[0.05]" />
+        <button
+          type="button"
+          onClick={() => setDeskOpen(o => !o)}
+          className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white/5 border border-white/10 text-slate-400 hover:text-slate-200 hover:bg-white/10 transition-colors"
+          title={deskOpen ? 'Collapse opportunities' : 'Expand opportunities'}
+        >
+          {deskOpen ? 'Collapse Buy-Sell' : 'Expand Buy-Sell'}
+        </button>
         {stats && (
           <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
             {(stats.expansionPct !== 0 || stats.decayPct !== 0) ? (
@@ -633,121 +965,199 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm }) {
       </div>
 
       {/* Two columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      {deskOpen && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
 
-        {/* ── BUY ZONE ── */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] font-bold tracking-widest text-emerald-400">⚡ BUY OPPORTUNITIES</span>
-            <div className="flex-1 h-px bg-emerald-900/40" />
-          </div>
-          {noBuys ? (
+          {/* ── BUY ZONE ── */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] font-bold tracking-widest text-emerald-400">⚡ BUY OPPORTUNITIES</span>
+              <div className="flex-1 h-px bg-emerald-900/40" />
+            </div>
+          {noBuys && (
             <div className="rounded-xl border border-white/[0.05] bg-[#0a0e18] px-4 py-3 text-[11px] text-slate-500">
               No buying edge detected — {regime === 'range' ? 'range day, sellers in control. Wait for expansion.' : 'wait for straddle expansion or momentum breakout.'}
             </div>
-          ) : buys.map((opp, i) => {
-            const key  = `${opp.strike}-${opp.type}`;
-            const conf = CONF[opp.confidence] || CONF.MEDIUM;
-            const res  = results[key];
+          )}
+
+          {strikeRows.map((strike) => {
+            const hasOpp = !!findBuyOpp(strike, 'CE') || !!findBuyOpp(strike, 'PE') || !!findBuyOpp(strike, 'CE/PE');
+            const k = `buy:${strike}`;
             return (
-              <div key={i} className="rounded-xl border border-emerald-900/40 bg-[#071a10] px-4 py-3 space-y-2">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-emerald-300">{atm} {opp.type}</span>
-                    <span className="text-[10px] text-slate-500 font-mono">{symbol}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className={`text-[9px] font-bold ${conf.color === 'bg-emerald-500' ? 'text-emerald-400' : 'text-amber-400'}`}>{conf.label}</span>
-                    <div className="flex gap-0.5">{[0,1,2].map(b => (
-                      <span key={b} className={`w-3 h-1.5 rounded-sm ${b < conf.bars ? conf.color : 'bg-slate-700'}`} />
-                    ))}</div>
-                  </div>
-                </div>
-                {/* Reasons */}
-                <ul className="space-y-0.5">
-                  {opp.reasons.map((r, j) => (
-                    <li key={j} className="flex items-start gap-1.5 text-[11px] text-slate-300">
-                      <span className="text-emerald-600 mt-0.5 flex-shrink-0">•</span>{r}
-                    </li>
-                  ))}
-                </ul>
-                {/* Numbers + action */}
-                <div className="flex items-center justify-between pt-1 border-t border-white/[0.05]">
-                  <div className="flex items-center gap-3 text-[11px] font-mono">
-                    {opp.ltp && <span className="text-white">LTP ₹{opp.ltp.toFixed(0)}</span>}
-                    {opp.sl  && <span className="text-red-400">SL ₹{opp.sl}</span>}
-                  </div>
-                  {opp.type !== 'CE/PE' && (
-                    <div className="flex items-center gap-2">
-                      {res && <span className={`text-[10px] font-mono ${res.ok ? 'text-emerald-400' : 'text-red-400'}`}>{res.msg}</span>}
-                      <button
-                        onClick={() => handleQuickBuy(opp)}
-                        disabled={!!placing}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40 transition-colors"
-                      >
-                        {placing === key ? <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : '⚡'}
-                        {placing === key ? 'Placing…' : 'Quick Buy'}
-                      </button>
-                    </div>
-                  )}
+              <div key={k} className={`rounded-xl border border-emerald-900/40 bg-[#071a10] px-4 py-3 space-y-2 ${hasOpp ? 'ring-1 ring-emerald-500/30' : ''}`}>
+                <CardHeader side="buy" strike={strike} hasOpp={hasOpp} />
+                <div className="space-y-2 pt-2">
+                  <LegRow side="buy" strike={strike} type="CE" />
+                  <LegRow side="buy" strike={strike} type="PE" />
                 </div>
               </div>
             );
           })}
-        </div>
-
-        {/* ── SELL ZONE ── */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] font-bold tracking-widest text-red-400">⊕ SELL OPPORTUNITIES</span>
-            <div className="flex-1 h-px bg-red-900/40" />
           </div>
-          {noSells ? (
+
+          {/* ── SELL ZONE ── */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] font-bold tracking-widest text-red-400">⊕ SELL OPPORTUNITIES</span>
+              <div className="flex-1 h-px bg-red-900/40" />
+            </div>
+          {noSells && (
             <div className="rounded-xl border border-white/[0.05] bg-[#0a0e18] px-4 py-3 text-[11px] text-slate-500">
               No clear selling setup — {regime === 'expansion' ? 'expansion day, avoid selling premium.' : 'wait for high IV or clear OI wall to form.'}
             </div>
-          ) : sells.map((opp, i) => {
-            const conf = CONF[opp.confidence] || CONF.MEDIUM;
+          )}
+
+          {strikeRows.map((strike) => {
+            const hasOpp = !!findSellOpp(strike, 'CE') || !!findSellOpp(strike, 'PE');
+            const k = `sell:${strike}`;
             return (
-              <div key={i} className="rounded-xl border border-red-900/40 bg-[#1a0a0a] px-4 py-3 space-y-2">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-red-300">{opp.strike} {opp.type}</span>
-                    <span className="text-[10px] text-slate-500 font-mono">{symbol} · {opp.strategy}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className={`text-[9px] font-bold ${conf.bars === 3 ? 'text-red-400' : 'text-amber-400'}`}>{conf.label}</span>
-                    <div className="flex gap-0.5">{[0,1,2].map(b => (
-                      <span key={b} className={`w-3 h-1.5 rounded-sm ${b < conf.bars ? (conf.bars === 3 ? 'bg-red-500' : 'bg-amber-500') : 'bg-slate-700'}`} />
-                    ))}</div>
-                  </div>
-                </div>
-                {/* Reasons */}
-                <ul className="space-y-0.5">
-                  {opp.reasons.map((r, j) => (
-                    <li key={j} className="flex items-start gap-1.5 text-[11px] text-slate-300">
-                      <span className="text-red-700 mt-0.5 flex-shrink-0">•</span>{r}
-                    </li>
-                  ))}
-                </ul>
-                {/* Numbers */}
-                <div className="flex items-center justify-between pt-1 border-t border-white/[0.05]">
-                  <div className="flex items-center gap-3 text-[11px] font-mono">
-                    {opp.ltp    && <span className="text-white">Sell @ ₹{typeof opp.ltp === 'number' ? opp.ltp.toFixed(0) : opp.ltp}</span>}
-                    {opp.target && <span className="text-emerald-400">T ₹{opp.target}</span>}
-                    {opp.sl     && <span className="text-red-400">SL ₹{opp.sl}</span>}
-                  </div>
-                  <a href="/options/chart" className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors">
-                    View chart ↗
-                  </a>
+              <div key={k} className={`rounded-xl border border-red-900/40 bg-[#1a0a0a] px-4 py-3 space-y-2 ${hasOpp ? 'ring-1 ring-rose-500/30' : ''}`}>
+                <CardHeader side="sell" strike={strike} hasOpp={hasOpp} />
+                <div className="space-y-2 pt-2">
+                  <LegRow side="sell" strike={strike} type="CE" />
+                  <LegRow side="sell" strike={strike} type="PE" />
                 </div>
               </div>
             );
           })}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Quick order modal */}
+      {orderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#07101d] shadow-2xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between">
+              <div>
+                <div className="text-sm font-bold text-white">
+                  {orderModal.side === 'buy' ? 'Buy' : 'Sell'} {symbol} {orderModal.strike} {orderModal.type}
+                </div>
+                <div className="text-[11px] text-slate-500 font-mono">Expiry {resolvedExpiry?.slice(0, 10) ?? '—'} · LTP {orderModal.ltp != null ? `₹${orderModal.ltp.toFixed(2)}` : '—'}</div>
+              </div>
+              <button onClick={() => setOrderModal(null)} className="text-slate-400 hover:text-white text-xl leading-none">×</button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 w-20">Type</span>
+                <div className="flex bg-[#0c1a2e] rounded-lg p-0.5">
+                  {['LIMIT', 'SL'].map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setOrderForm(f => ({ ...f, entryOrderType: t }))}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                        orderForm.entryOrderType === t ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 w-20">Lots</span>
+                <input
+                  value={orderForm.lots}
+                  onChange={e => setOrderForm(f => ({ ...f, lots: e.target.value }))}
+                  placeholder="1"
+                  className="flex-1 bg-[#060b14] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                />
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setOrderForm(f => {
+                      const cur = Math.max(1, parseInt(f.lots || '1') || 1);
+                      return { ...f, lots: String(Math.max(1, cur - 1)) };
+                    })}
+                    className="px-2 py-1 rounded-md text-[11px] font-bold border bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 transition-colors"
+                    title="Decrease lots"
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderForm(f => {
+                      const cur = Math.max(1, parseInt(f.lots || '1') || 1);
+                      return { ...f, lots: String(cur + 1) };
+                    })}
+                    className="px-2 py-1 rounded-md text-[11px] font-bold border bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 transition-colors"
+                    title="Increase lots"
+                  >
+                    +
+                  </button>
+                </div>
+                <span className="text-[11px] text-slate-500 font-mono">{orderLotSize ? `×${orderLotSize} = ${Math.max(1, parseInt(orderForm.lots || '1') || 1) * orderLotSize}` : ''}</span>
+              </div>
+
+              {orderForm.entryOrderType === 'SL' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 w-20">Trigger</span>
+                  <input
+                    value={orderForm.triggerPrice}
+                    onChange={e => setOrderForm(f => ({ ...f, triggerPrice: e.target.value }))}
+                    className="flex-1 bg-[#060b14] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 w-20">{orderForm.entryOrderType === 'SL' ? 'Limit' : 'Price'}</span>
+                <input
+                  value={orderForm.limitPrice}
+                  onChange={e => setOrderForm(f => ({ ...f, limitPrice: e.target.value }))}
+                  className="flex-1 bg-[#060b14] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              {estOrderAmount && (
+                <div className="text-[11px] text-slate-400 font-mono">
+                  Est. {orderModal.side === 'buy' ? 'debit' : 'credit'}: ₹{Math.round(estOrderAmount.total).toLocaleString('en-IN')} ({estOrderAmount.qty} × ₹{estOrderAmount.px.toFixed(2)})
+                </div>
+              )}
+
+              {orderModal.side === 'sell' && (
+                <div className="text-[11px] text-slate-400 font-mono">
+                  {marginEst?.loading
+                    ? 'Est. margin: …'
+                    : marginEst?.error
+                      ? `Est. margin: — (${marginEst.error})`
+                      : (() => {
+                          const row = Array.isArray(marginEst?.data?.margins?.data)
+                            ? marginEst.data.margins.data[0]
+                            : null;
+                          const total = row?.total ?? row?.total_margin ?? null;
+                          return total != null
+                            ? `Est. margin: ₹${Math.round(total).toLocaleString('en-IN')}`
+                            : 'Est. margin: —';
+                        })()
+                  }
+                </div>
+              )}
+
+              {orderErr && <div className="text-sm text-red-400">{orderErr}</div>}
+              {orderOk && <div className="text-sm text-emerald-400">{orderOk}</div>}
+            </div>
+
+            <div className="px-4 py-3 border-t border-white/[0.06] flex items-center justify-end gap-2">
+              <button
+                onClick={() => setOrderModal(null)}
+                className="px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={placeQuickOrder}
+                disabled={!!placing}
+                className="px-3 py-2 rounded-lg text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 transition-colors"
+              >
+                {placing ? 'Placing…' : 'Place order'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -812,6 +1222,8 @@ export default function OptionsPage() {
   const [liveSpot,  setLiveSpot]  = useState(null);
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState(null);
+  const [marketBias, setMarketBias] = useState(null); // from /api/market-data (same as Trades home)
+  const [marketRegime, setMarketRegime] = useState(null); // from /api/market-regime (NIFTY/BANKNIFTY)
 
   // Straddle / Strangle chart
   const [chartMode,       setChartMode]       = useState('straddle'); // 'straddle' | 'strangle'
@@ -853,6 +1265,43 @@ export default function OptionsPage() {
   }, [symbol, expiry]);
 
   useEffect(() => { fetchChain(); }, [fetchChain]);
+
+  // ── Market bias (same source as Trades home) ────────────────────────────────
+  useEffect(() => {
+    let alive = true;
+    const run = async () => {
+      try {
+        const r = await fetch('/api/market-data');
+        const d = await r.json();
+        if (!alive) return;
+        setMarketBias(d?.sentiment?.bias ?? null);
+      } catch { /* non-fatal */ }
+    };
+    run();
+    const t = setInterval(run, 60_000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  // ── Market regime (same route used elsewhere) ───────────────────────────────
+  useEffect(() => {
+    let alive = true;
+    const run = async () => {
+      try {
+        const sym = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
+        const r = await fetch('/api/market-regime', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: sym, type: 'intraday' }),
+        });
+        const d = await r.json();
+        if (!alive) return;
+        setMarketRegime(d);
+      } catch { /* non-fatal */ }
+    };
+    run();
+    const t = setInterval(run, 5 * 60_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [symbol]);
 
   // ── Instantly fetch Uncached Spot Price ─────────────────────────────────────
   useEffect(() => {
@@ -1031,7 +1480,7 @@ export default function OptionsPage() {
         return (
           <TradeDeskPanel
             buys={buys} sells={sells} regime={regime} stats={stats}
-            symbol={symbol} spot={spot} atm={atm}
+            symbol={symbol} spot={spot} atm={atm} strikes={strikes} resolvedExpiry={resolvedExpiry} marketBias={marketBias} marketRegime={marketRegime}
           />
         );
       })()}

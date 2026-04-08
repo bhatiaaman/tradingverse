@@ -114,6 +114,7 @@ function ChartPageInner() {
   const symbol    = params.get('symbol') || 'NIFTY';
   const atParam   = params.get('at')    || null;   // Unix sec from scanner — highlights signal candle
   const atDirParam= params.get('atdir') || 'bull'; // 'bull' | 'bear' — arrow direction
+  const themeParam = params.get('theme');          // 'dark' | 'light'
 
   const [chartInterval, setChartInterval] = useState(params.get('interval') || '5minute');
   const [candles, setCandles]             = useState([]);
@@ -126,7 +127,7 @@ function ChartPageInner() {
   const [intelligence, setIntelligence]   = useState(null);
   const [hoverOHLC, setHoverOHLC]         = useState(null);
   const [isMobile, setIsMobile]           = useState(false);
-  const [chartTheme, setChartTheme]       = useState('dark');
+  const [chartTheme, setChartTheme]       = useState(themeParam === 'light' ? 'light' : 'dark');
   const [chartRsiH, setChartRsiH]         = useState(80);
   const [lastPriceY, setLastPriceY]         = useState(null);
   const [atRightEdge, setAtRightEdge]       = useState(true);
@@ -169,9 +170,11 @@ function ChartPageInner() {
     } catch {}
     try {
       const saved = localStorage.getItem('tv_chart_theme');
-      if (saved && saved !== 'dark') setChartTheme(saved);
+      // URL param wins for initial launch; user can still toggle later.
+      if (themeParam === 'dark' || themeParam === 'light') setChartTheme(themeParam);
+      else if (saved && saved !== 'dark') setChartTheme(saved);
     } catch {}
-  }, []);
+  }, [themeParam]);
 
   // ── Fetch all data ──────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {

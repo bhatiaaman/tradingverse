@@ -88,6 +88,27 @@ export class KiteBroker {
     return res.json();
   }
 
+  // ── Margin estimation ───────────────────────────────────────────────────────
+  // Wrapper over Kite margins endpoint for orders.
+  // https://kite.trade/docs/connect/v3/margins/#order-margins
+  async getOrderMargins(orders) {
+    const payload = Array.isArray(orders) ? orders : [orders];
+    const res = await fetch('https://api.kite.trade/margins/orders', {
+      method: 'POST',
+      headers: {
+        'Authorization': `token ${this._apiKey}:${this._accessToken}`,
+        'X-Kite-Version': '3',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Kite margin error: ${err}`);
+    }
+    return res.json();
+  }
+
   // ── Static auth helpers (no live token needed) ───────────────────────────────
 
   static async getConnectionStatus(apiKey, accessToken) {
