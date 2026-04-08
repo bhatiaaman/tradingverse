@@ -490,16 +490,28 @@ function generateTradeDesk(chainData, straddleData) {
       trigger: 'recovery', reasons, ltp, sl: ltp ? (ltp * 0.60).toFixed(0) : null });
   }
 
-  // 3. Cheap IV — pre-catalyst accumulation (also fires when no straddle data)
-  if (iv < 0.85 && buys.length === 0) {
+  // 3. Cheap IV — only when *something* is moving.
+  // We do NOT want "cheap IV" to spam ATM buy OPs on quiet range days.
+  // Gate it behind intraday participation signals.
+  const cheapIvGate =
+    hasStraddle && (
+      // directional or volatility pickup
+      expansionPct > 6 ||
+      recoveryPct  > 12 ||
+      ceSpike      > 10 ||
+      peSpike      > 10
+    );
+
+  if (iv < 0.85 && buys.length === 0 && cheapIvGate) {
     const ltp = atmCe?.ltp;
     buys.push({ strike: atm, type: 'CE/PE', confidence: 'MEDIUM', trigger: 'cheap_iv',
       reasons: [
         `IV/HV ${iv.toFixed(2)}× — options priced below realized volatility`,
         `Mathematical buyer edge: historical vol suggests bigger moves than priced`,
+        `But: only act when expansion/momentum starts (today is showing early pickup).`,
         pcr < 0.8 ? `PCR ${pcr.toFixed(2)} — put writers dominant, reversal risk` :
         pcr > 1.3 ? `PCR ${pcr.toFixed(2)} — extreme, contrarian buy signal` :
-        `Accumulate before catalyst or session expansion`,
+        `PCR ${pcr.toFixed(2)} — positioning context`,
       ], ltp, sl: ltp ? (ltp * 0.60).toFixed(0) : null });
   }
 
@@ -599,7 +611,18 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
   };
 
   const strikeStep = symbol === 'BANKNIFTY' ? 100 : 50;
-  const strikeRows = [atm + strikeStep, atm, atm - strikeStep].filter(Boolean);
+  const baseStrikeRows = [atm + strikeStep, atm, atm - strikeStep].filter(Boolean);
+
+  // Also show OP strikes even if outside ATM±1
+  const buyOppStrikes  = [...new Set((buys  || []).map(o => o.strike).filter(Boolean))];
+  const sellOppStrikes = [...new Set((sells || []).map(o => o.strike).filter(Boolean))];
+  const extraBuyStrikes  = buyOppStrikes.filter(s => !baseStrikeRows.includes(s));
+  const extraSellStrikes = sellOppStrikes.filter(s => !baseStrikeRows.includes(s));
+
+  // Keep base rows first; append extra OP strikes by closeness to ATM.
+  const sortByAtm = (a, b) => Math.abs(a - atm) - Math.abs(b - atm);
+  extraBuyStrikes.sort(sortByAtm);
+  extraSellStrikes.sort(sortByAtm);
 
   // Use the same market bias source as Trades home (market-data sentiment),
   // rather than deriving bias from spot-vs-ATM heuristics.
@@ -626,6 +649,13 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
   };
 
   const findSellOpp = (strike, type) => sells.find(o => o.strike === strike && o.type === type) ?? null;
+
+  const closestBuyOpp = buys?.length
+    ? buys.slice().sort((a, b) => Math.abs(a.strike - atm) - Math.abs(b.strike - atm))[0]
+    : null;
+  const closestSellOpp = sells?.length
+    ? sells.slice().sort((a, b) => Math.abs(a.strike - atm) - Math.abs(b.strike - atm))[0]
+    : null;
 
   const chartHref = (strike, type) => {
     // Deprecated: we now open the main chart (`/chart`) for the resolved option tradingsymbol
@@ -806,6 +836,7 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
     const exp = resolvedExpiry ? resolvedExpiry.slice(5, 10) : '—';
     const k = `${side}:${strike}`;
     const isOpen = !!expanded[k];
+    const nearAtm = atm != null && Math.abs(strike - atm) <= strikeStep;
     return (
       <button
         type="button"
@@ -814,7 +845,7 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
       >
         <div className="flex items-center gap-2 min-w-0">
           {hasOpp && (
-            <span className={`text-[10px] font-extrabold tracking-widest ${side === 'buy' ? 'text-emerald-300' : 'text-rose-300'}`}>
+            <span className={`text-[10px] font-extrabold tracking-widest ${side === 'buy' ? 'text-emerald-300' : 'text-rose-300'} ${nearAtm ? 'animate-pulse' : ''}`}>
               OP
             </span>
           )}
@@ -974,17 +1005,42 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
               <span className="text-[10px] font-bold tracking-widest text-emerald-400">⚡ BUY OPPORTUNITIES</span>
               <div className="flex-1 h-px bg-emerald-900/40" />
             </div>
+            {buys?.length > 0 && (
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-[11px] text-emerald-200">
+                Buy edge detected: <span className="font-bold">+{buys.length}</span>. Closest: <span className="font-mono font-bold">{closestBuyOpp?.strike} {closestBuyOpp?.type}</span>.
+                <span className="text-emerald-300/80"> OP tags near ATM pulse.</span>
+              </div>
+            )}
           {noBuys && (
             <div className="rounded-xl border border-white/[0.05] bg-[#0a0e18] px-4 py-3 text-[11px] text-slate-500">
               No buying edge detected — {regime === 'range' ? 'range day, sellers in control. Wait for expansion.' : 'wait for straddle expansion or momentum breakout.'}
             </div>
           )}
 
-          {strikeRows.map((strike) => {
+          {baseStrikeRows.map((strike) => {
             const hasOpp = !!findBuyOpp(strike, 'CE') || !!findBuyOpp(strike, 'PE') || !!findBuyOpp(strike, 'CE/PE');
             const k = `buy:${strike}`;
             return (
               <div key={k} className={`rounded-xl border border-emerald-900/40 bg-[#071a10] px-4 py-3 space-y-2 ${hasOpp ? 'ring-1 ring-emerald-500/30' : ''}`}>
+                <CardHeader side="buy" strike={strike} hasOpp={hasOpp} />
+                <div className="space-y-2 pt-2">
+                  <LegRow side="buy" strike={strike} type="CE" />
+                  <LegRow side="buy" strike={strike} type="PE" />
+                </div>
+              </div>
+            );
+          })}
+
+          {extraBuyStrikes.length > 0 && (
+            <div className="pt-1">
+              <div className="text-[10px] text-slate-500 font-mono px-1">Other OP strikes</div>
+            </div>
+          )}
+          {extraBuyStrikes.map((strike) => {
+            const hasOpp = true;
+            const k = `buy:op:${strike}`;
+            return (
+              <div key={k} className="rounded-xl border border-emerald-500/30 bg-[#071a10] px-4 py-3 space-y-2 ring-1 ring-emerald-500/20">
                 <CardHeader side="buy" strike={strike} hasOpp={hasOpp} />
                 <div className="space-y-2 pt-2">
                   <LegRow side="buy" strike={strike} type="CE" />
@@ -1001,17 +1057,41 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
               <span className="text-[10px] font-bold tracking-widest text-red-400">⊕ SELL OPPORTUNITIES</span>
               <div className="flex-1 h-px bg-red-900/40" />
             </div>
+            {sells?.length > 0 && (
+              <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-2 text-[11px] text-rose-200">
+                Sell edge detected: <span className="font-bold">+{sells.length}</span>. Closest: <span className="font-mono font-bold">{closestSellOpp?.strike} {closestSellOpp?.type}</span>.
+              </div>
+            )}
           {noSells && (
             <div className="rounded-xl border border-white/[0.05] bg-[#0a0e18] px-4 py-3 text-[11px] text-slate-500">
               No clear selling setup — {regime === 'expansion' ? 'expansion day, avoid selling premium.' : 'wait for high IV or clear OI wall to form.'}
             </div>
           )}
 
-          {strikeRows.map((strike) => {
+          {baseStrikeRows.map((strike) => {
             const hasOpp = !!findSellOpp(strike, 'CE') || !!findSellOpp(strike, 'PE');
             const k = `sell:${strike}`;
             return (
               <div key={k} className={`rounded-xl border border-red-900/40 bg-[#1a0a0a] px-4 py-3 space-y-2 ${hasOpp ? 'ring-1 ring-rose-500/30' : ''}`}>
+                <CardHeader side="sell" strike={strike} hasOpp={hasOpp} />
+                <div className="space-y-2 pt-2">
+                  <LegRow side="sell" strike={strike} type="CE" />
+                  <LegRow side="sell" strike={strike} type="PE" />
+                </div>
+              </div>
+            );
+          })}
+
+          {extraSellStrikes.length > 0 && (
+            <div className="pt-1">
+              <div className="text-[10px] text-slate-500 font-mono px-1">Other OP strikes</div>
+            </div>
+          )}
+          {extraSellStrikes.map((strike) => {
+            const hasOpp = true;
+            const k = `sell:op:${strike}`;
+            return (
+              <div key={k} className="rounded-xl border border-rose-500/30 bg-[#1a0a0a] px-4 py-3 space-y-2 ring-1 ring-rose-500/20">
                 <CardHeader side="sell" strike={strike} hasOpp={hasOpp} />
                 <div className="space-y-2 pt-2">
                   <LegRow side="sell" strike={strike} type="CE" />
