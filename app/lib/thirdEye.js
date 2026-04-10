@@ -796,22 +796,18 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
     }
   }
 
-  // ── S9: S/R Flip ─────────────────────────────────────────────────────────
-  // BOS level that had 2+ prior touches before breaking — clean resistance-to-support flip.
-  // Touch proximity tightened to 0.15% to reduce false touch counts.
+  // ── S9: S/R Flip Retest ───────────────────────────────────────────────────
+  // BOS level that had 3+ prior touches before breaking — clean resistance-to-support flip.
+  // REQUIRES a rejection candle at the level (wick rejection or body inside zone).
+  // Without a reaction candle this is just "price near a level" — not a setup.
   if (en('s9') && pre.bosLevels.length) {
-    // Use the most recently BROKEN BOS (breakIdx) — that's the level being retested.
     const recentBOS9  = pre.bosLevels.reduce((a, b) => (b.breakIdx ?? 0) > (a.breakIdx ?? 0) ? b : a);
     const dist9       = Math.abs((c0.close - recentBOS9.price) / recentBOS9.price * 100);
-    const s9Dist      = t('s9', 'distPct', 0.3);
-    const s9Touches   = t('s9', 'touchCount', 2);
-    // Directional validation: price must be approaching from the correct side.
-    // Bear BOS (SHORT retest): close must be AT or BELOW the resistance — if price already
-    //   closed above it the level is reclaimed and the short setup is invalidated.
-    // Bull BOS (LONG retest): close must be AT or ABOVE the support level.
-    const validSide = recentBOS9.type === 'bear'
-      ? c0.close <= recentBOS9.price * 1.002   // at/below resistance (SHORT)
-      : c0.close >= recentBOS9.price * 0.998;  // at/above support (LONG)
+    const s9Dist      = t('s9', 'distPct', 0.2);
+    const s9Touches   = t('s9', 'touchCount', 3);
+    const validSide   = recentBOS9.type === 'bear'
+      ? c0.close <= recentBOS9.price * 1.002
+      : c0.close >= recentBOS9.price * 0.998;
     if (dist9 <= s9Dist && validSide && recentBOS9.breakIdx !== undefined && recentBOS9.breakIdx >= 5) {
       const preBOSSlice = candles.slice(0, recentBOS9.breakIdx);
       const touchCount  = preBOSSlice.filter(c => {
@@ -820,10 +816,31 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
           : Math.abs(c.low  - recentBOS9.price) / recentBOS9.price * 100;
         return pct <= 0.25;
       }).length;
-      if (touchCount >= s9Touches)
-        setups.push({ id: 's9_sr_flip', name: 'S/R Flip Retest', direction: recentBOS9.type, strength: 4,
-          sl: recentBOS9.type === 'bull' ? recentBOS9.price * 0.997 : recentBOS9.price * 1.003, target: null,
-          details: { flipPrice: recentBOS9.price, touchCount, distPct: parseFloat(dist9.toFixed(2)) } });
+      if (touchCount >= s9Touches) {
+        // ── Rejection candle check (the new gate) ─────────────────────────
+        // For a BULL flip (support retest): candle must show a lower wick ≥40% of range,
+        //   meaning price dipped into the level and bounced — a genuine support test.
+        // For a BEAR flip (resistance retest): candle must show an upper wick ≥40% of range,
+        //   meaning price rallied into resistance and got rejected.
+        const cRange9  = c0.high - c0.low;
+        const hasRange = cRange9 > 0;
+        let hasRejection = false;
+        if (hasRange) {
+          if (recentBOS9.type === 'bull') {
+            // Lower wick = close/open (whichever higher) minus low
+            const lowerWick = Math.min(c0.close, c0.open) - c0.low;
+            hasRejection = lowerWick / cRange9 >= 0.4;
+          } else {
+            // Upper wick = high minus close/open (whichever lower)
+            const upperWick = c0.high - Math.max(c0.close, c0.open);
+            hasRejection = upperWick / cRange9 >= 0.4;
+          }
+        }
+        if (hasRejection)
+          setups.push({ id: 's9_sr_flip', name: 'S/R Flip Retest', direction: recentBOS9.type, strength: 4,
+            sl: recentBOS9.type === 'bull' ? recentBOS9.price * 0.997 : recentBOS9.price * 1.003, target: null,
+            details: { flipPrice: recentBOS9.price, touchCount, distPct: parseFloat(dist9.toFixed(2)) } });
+      }
     }
   }
 

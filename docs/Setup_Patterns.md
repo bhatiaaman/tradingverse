@@ -294,3 +294,14 @@ The environment toggle determines agent validation — not which setups fire.
 | Light | ≥ 5 | No agents — fires directly |
 | Medium | ≥ 6 | 2 of 4 agents must approve |
 | Tight | ≥ 7 | 3 of 4 must approve (Structure + Risk are hard vetoes) |
+
+---
+
+## Why "Top Setup" Cards Are Rare (AI Constraint Behavior)
+
+The Third Eye commentary engine separates the noise of standard candlestick patterns from structurally tradeable signals using a strict two-tier gating system.
+
+1. **Layer 2 (Base Patterns):** Hundreds of common patterns (Doijs, Hammers, Engulfings) occur daily. The engine aggregates these into a `rawPatterns` list. They are **deliberately suppressed from generating Action Cards**. Instead, these base patterns are injected silently into the psychological "Observe / Hold" narrative text to provide context.
+2. **Layer 4 (Structural Setups):** Only mathematical alignments matching `S1` through `S21` (e.g. crossing exactly at the VWAP band on a >1.4x volume climax) can be promoted to the `topSetup` array.
+
+Because the system requires `topSetup !== null` and a `score >= 6` to print a formal setup alert in the log interface, the UI will often stay quietly in "Observe" or "Hold Bias" phases for extended periods during choppy markets. The system is designed to mathematically veto anything that lacks structural and volumetric alignment to prevent false-positive whipsaw alerts.
