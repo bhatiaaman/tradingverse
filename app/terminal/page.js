@@ -2161,6 +2161,8 @@ export default function TerminalPage() {
   const [showFormDropdown, setShowFormDropdown] = useState(false);
   const formSearchTimer                     = useRef(null);
   const lastIntelRunKey                     = useRef(null); // prevents re-run on price poll ticks
+  const spotPriceRef                        = useRef(null); // always-current price, without triggering re-renders
+  const lastAtmStrikeRef                    = useRef(null); // last strike for which analysis was cleared
 
   // Order placement
   const [orderPlacing, setOrderPlacing]     = useState(false);
@@ -2486,6 +2488,9 @@ export default function TerminalPage() {
     } catch {}
   }, [symbol]);
 
+  // Keep spotPriceRef current so callbacks can read it without being in their dep arrays
+  useEffect(() => { spotPriceRef.current = spotPrice; }, [spotPrice]);
+
   // ── Continuously poll the Spot Price while a symbol is selected
   useEffect(() => {
     if (!symbol) return;
@@ -2565,9 +2570,10 @@ export default function TerminalPage() {
 
   // ── ATM option auto-fetch
   const fetchOptionDetails = useCallback(async () => {
-    if (!symbol || !spotPrice) return;
+    const currentSpot = spotPriceRef.current;
+    if (!symbol || !currentSpot) return;
     try {
-      const r = await fetch(`/api/option-details?${new URLSearchParams({ symbol, spotPrice, instrumentType, expiryType })}`);
+      const r = await fetch(`/api/option-details?${new URLSearchParams({ symbol, spotPrice: currentSpot, instrumentType, expiryType })}`);
       const d = await r.json();
       if (d.optionSymbol) {
         setOptionSymbol(d.optionSymbol);
@@ -2578,37 +2584,43 @@ export default function TerminalPage() {
         setOptionProbOTM(d.probOTM ?? null);
         if (d.step) setStrikeStep(d.step);
         setQuantity(lotSize || 1);
-        setStrikeAnalysis(null);
+        // Only wipe analysis when ATM strike actually changed — avoids flicker on price ticks
+        if (d.strike !== lastAtmStrikeRef.current) {
+          lastAtmStrikeRef.current = d.strike;
+          setStrikeAnalysis(null);
+        }
       }
     } catch {}
-  }, [symbol, spotPrice, instrumentType, expiryType, lotSize]);
+  }, [symbol, instrumentType, expiryType, lotSize]);
 
   useEffect(() => {
-    if ((instrumentType === 'CE' || instrumentType === 'PE') && symbol && spotPrice) {
+    if ((instrumentType === 'CE' || instrumentType === 'PE') && symbol && spotPriceRef.current) {
       fetchOptionDetails();
     } else {
       setOptionSymbol(''); setOptionTvSymbol(''); setOptionLtp(null); setOptionStrike(null); setOptionExpiry(''); setOptionProbOTM(null);
       setStrikeAnalysis(null);
+      lastAtmStrikeRef.current = null;
     }
-  }, [instrumentType, symbol, spotPrice, expiryType]);
+  }, [instrumentType, symbol, expiryType, fetchOptionDetails]); // spotPrice removed — price ticks no longer trigger re-fetch
 
   // ── Strike analysis
   const fetchStrikeAnalysis = useCallback(async () => {
-    if (!optionStrike || !symbol || !spotPrice) return;
+    const currentSpot = spotPriceRef.current;
+    if (!optionStrike || !symbol || !currentSpot) return;
     setAnalysisLoading(true);
-    setStrikeAnalysis(null);
+    // Don't clear existing data — silently refresh to avoid flicker
     try {
-      const p = new URLSearchParams({ symbol, strike: optionStrike, type: instrumentType, expiryType, strikeGap: strikeStep, spotPrice });
+      const p = new URLSearchParams({ symbol, strike: optionStrike, type: instrumentType, expiryType, strikeGap: strikeStep, spotPrice: currentSpot });
       const r = await fetch(`/api/strike-analysis?${p}`);
       const d = await r.json();
       if (!d.error) setStrikeAnalysis(d);
     } catch {}
     finally { setAnalysisLoading(false); }
-  }, [symbol, optionStrike, instrumentType, expiryType, strikeStep, spotPrice]);
+  }, [symbol, optionStrike, instrumentType, expiryType, strikeStep]); // spotPrice removed — read via ref
 
   // Auto-run when strike loads
   useEffect(() => {
-    if (optionStrike && symbol && spotPrice) fetchStrikeAnalysis();
+    if (optionStrike && symbol && spotPriceRef.current) fetchStrikeAnalysis();
   }, [optionStrike, fetchStrikeAnalysis]);
 
   // ── Intelligence helpers
@@ -2618,9 +2630,9 @@ export default function TerminalPage() {
     return {
       symbol,
       exchange: (instrumentType === 'CE' || instrumentType === 'PE' || instrumentType === 'FUT') ? 'NFO' : 'NSE',
-      instrumentType, transactionType, spotPrice, productType, marketRegime, ...extras,
+      instrumentType, transactionType, spotPrice: spotPriceRef.current, productType, marketRegime, ...extras,
     };
-  }, [symbol, instrumentType, transactionType, spotPrice, productType, regimeData]);
+  }, [symbol, instrumentType, transactionType, productType, regimeData]); // spotPrice via ref — no re-creation on every price tick
 
   const runIntelligence = useCallback(async () => {
     if (!symbol) return;
@@ -2668,11 +2680,11 @@ export default function TerminalPage() {
   }, [symbol, buildIntelBody]);
 
   // Auto-run all agents when symbol/type changes — but only once spotPrice is loaded.
-  // Without the spotPrice guard, agents fire immediately on symbol change with spotPrice=null
-  // (LTP fetch is async), returning a generic fallback. All symbols look identical on first load.
-  // The ref prevents re-running on every price poll tick once agents have run for this combo.
+  // Run agents when symbol/type changes, but only once LTP has loaded (checked via ref).
+  // spotPrice state is NOT in the dep array — prevents re-firing every 3s on price ticks.
+  // Instead we watch spotPrice only to trigger the first run after LTP arrives.
   useEffect(() => {
-    if (!symbol || !spotPrice) return; // wait for LTP to load before running agents
+    if (!symbol || !spotPriceRef.current) return; // wait for LTP before running agents
     const key = `${symbol}|${transactionType}|${instrumentType}`;
     if (lastIntelRunKey.current === key) return; // already ran for this exact combo
     lastIntelRunKey.current = key;
@@ -2686,7 +2698,7 @@ export default function TerminalPage() {
     runStructureAnalysis();
     runPatternAnalysis();
     if (OI_SYMBOLS.includes(symbol)) runOIAnalysis();
-  }, [symbol, transactionType, instrumentType, spotPrice]);
+  }, [symbol, transactionType, instrumentType, spotPrice]); // spotPrice kept to trigger once LTP arrives; ref guard prevents re-runs
 
   // ── Watchlist handlers
   const addToWatchlist = (sym) => {
