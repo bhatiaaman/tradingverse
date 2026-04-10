@@ -1301,6 +1301,16 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
   );
 }
 
+// Returns true if current IST time is within NSE market hours (Mon-Fri, 9:15-15:30)
+function isMarketHours() {
+  const now = new Date();
+  const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
+  const day = ist.getUTCDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
+  const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  return mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
+}
+
 // ── Straddle / Strangle Chart (line, reuses our canvas module) ───────────────
 function StraddleChart({ data, color = '#818cf8', label = 'Straddle' }) {
   const ref    = useRef(null);
@@ -1334,11 +1344,16 @@ function StraddleChart({ data, color = '#818cf8', label = 'Straddle' }) {
     return () => { chartR.current?.destroy(); chartR.current = null; };
   }, [data, color]);
 
-  if (!data?.length) return (
-    <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">
-      No intraday {label.toLowerCase()} data available
-    </div>
-  );
+  if (!data?.length) {
+    const msg = isMarketHours()
+      ? `No ${label.toLowerCase()} data yet — builds as the session progresses`
+      : 'Market closed — intraday data available Mon–Fri, 9:15 AM – 3:30 PM IST';
+    return (
+      <div className="flex-1 flex items-center justify-center text-slate-500 text-[11px] text-center px-4">
+        {msg}
+      </div>
+    );
+  }
 
   return (
     <div ref={ref} className="flex-1 relative min-h-[180px]">

@@ -93,32 +93,36 @@ export async function GET(request) {
 
     if (!ce || !pe) return NextResponse.json({ error: `Options not found for ${symbol} ${expiry} ${strike}` }, { status: 404 });
 
-    // Fetch today's intraday data for both legs
+    // Fetch today's intraday data for both legs via REST (more reliable than SDK for options)
     const now   = new Date();
     const ist   = new Date(now.getTime() + 5.5 * 3600 * 1000);
     const pad   = n => n.toString().padStart(2, '0');
     const today = `${ist.getFullYear()}-${pad(ist.getMonth() + 1)}-${pad(ist.getDate())}`;
-    const from  = `${today} 09:15:00`;
-    const to    = `${today} 15:30:00`;
+    const from  = encodeURIComponent(`${today} 09:15:00`);
+    const to    = encodeURIComponent(`${today} 15:30:00`);
 
-    const [ceData, peData] = await Promise.all([
-      dp.getHistoricalData(ce.token, interval, from, to),
-      dp.getHistoricalData(pe.token, interval, from, to),
+    const [ceRaw, peRaw] = await Promise.all([
+      dp.getHistoricalRaw(ce.token, interval, from, to),
+      dp.getHistoricalRaw(pe.token, interval, from, to),
     ]);
 
-    if (!ceData?.length && !peData?.length) {
+    const ceCandles = ceRaw?.data?.candles || [];
+    const peCandles = peRaw?.data?.candles || [];
+
+    if (!ceCandles.length && !peCandles.length) {
+      console.log('[straddle-chart] no data:', symbol, expiry, ceStrike, today);
       return NextResponse.json({ candles: [], ceSymbol: ce.symbol, peSymbol: pe.symbol });
     }
 
-    // Merge CE + PE by Unix-second timestamp (avoids string format mismatches)
-    const peMap = new Map((peData || []).map(c => [Math.floor(new Date(c.date).getTime() / 1000), c.close]));
-    const candles = (ceData || []).map(c => {
-      const ts      = Math.floor(new Date(c.date).getTime() / 1000);
+    // Merge CE + PE by Unix-second timestamp. Raw format: [isoTime, o, h, l, close, vol]
+    const peMap = new Map(peCandles.map(c => [Math.floor(new Date(c[0]).getTime() / 1000), c[4]]));
+    const candles = ceCandles.map(c => {
+      const ts      = Math.floor(new Date(c[0]).getTime() / 1000);
       const peClose = peMap.get(ts) || 0;
       return {
         time:  ts,
-        value: parseFloat((c.close + peClose).toFixed(2)),
-        ce:    parseFloat(c.close.toFixed(2)),
+        value: parseFloat((c[4] + peClose).toFixed(2)),
+        ce:    parseFloat(c[4].toFixed(2)),
         pe:    parseFloat(peClose.toFixed(2)),
       };
     }).filter(c => c.value > 0);

@@ -49,7 +49,10 @@ export class KiteDataProvider {
         },
       }
     );
-    if (!res.ok) throw new Error(`Kite historical error: ${res.status}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.message || `Kite historical error: ${res.status}`);
+    }
     return res.json();
   }
 
