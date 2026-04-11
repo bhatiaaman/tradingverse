@@ -25,33 +25,18 @@ function extractCookies(response) {
 }
 
 async function nseSession() {
+  // Only hit the homepage — the second page (/market-data/fii-dii-activity)
+  // returns 404 since NSE reorganised their URLs. Homepage cookies are sufficient.
   const home = await fetch('https://www.nseindia.com/', {
     headers: {
       'User-Agent': UA,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.5',
+      'Cache-Control': 'no-cache',
     },
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(10000),
   });
-  const c1 = extractCookies(home);
-
-  const page = await fetch('https://www.nseindia.com/market-data/fii-dii-activity', {
-    headers: {
-      'User-Agent': UA,
-      'Accept': 'text/html,*/*',
-      'Cookie': c1,
-      'Referer': 'https://www.nseindia.com/',
-    },
-    signal: AbortSignal.timeout(8000),
-  });
-  const c2 = extractCookies(page);
-
-  const merged = {};
-  for (const c of [...c1.split('; '), ...c2.split('; ')]) {
-    const idx = c.indexOf('=');
-    if (idx > 0) merged[c.slice(0, idx).trim()] = c.slice(idx + 1);
-  }
-  return Object.entries(merged).map(([k, v]) => `${k}=${v}`).join('; ');
+  return extractCookies(home);
 }
 
 // Parse NSE date "20-Mar-2025" → Date object for sorting
@@ -137,11 +122,21 @@ export async function GET(req) {
 
     const payload = { data, date: today, nseBlocked: false, cached: false };
     const ttl = isMarketHours() ? TTL_MARKET : TTL_AFTER;
-    await redis.set(cacheKey, JSON.stringify(payload), { ex: ttl });
+    await Promise.all([
+      redis.set(cacheKey, JSON.stringify(payload), { ex: ttl }),
+      // Keep a long-lived fallback so weekend / blocked requests still show data
+      redis.set(`${NS}:fii-dii:last-known`, JSON.stringify(payload), { ex: 7 * 24 * 3600 }),
+    ]);
 
     return NextResponse.json(payload);
   } catch (err) {
     console.error('[fii-dii] error:', err.message);
+    // Serve last-known data rather than empty screen
+    const fallback = await redis.get(`${NS}:fii-dii:last-known`);
+    if (fallback) {
+      const parsed = typeof fallback === 'string' ? JSON.parse(fallback) : fallback;
+      return NextResponse.json({ ...parsed, cached: true, nseBlocked: true });
+    }
     return NextResponse.json({
       nseBlocked: true,
       data: [],
