@@ -41,3 +41,6 @@ weekly-plan-feature.md
 HumanEye.md
 Setup_Patterns.md
 
+# app-generated data files
+data/system_logs.json
+

@@ -54,15 +54,18 @@ const EMA_COLORS = {
   ema9W: '#fb923c',
 };
 
+// Preset color palette for EMA line pickers
+const EMA_LINE_PALETTE = ['#22d3ee','#f97316','#e879f9','#fb923c','#22c55e','#f59e0b','#ef4444','#ffffff','#94a3b8','#000000'];
+
 const OVERLAY_DEFS = [
   { key: 'showVwap',   label: 'VWAP',         color: '#f59e0b',          intradayOnly: true,  dailyOnly: false },
   { key: 'showOrBand', label: 'OR Band',      color: '#3b82f6',          intradayOnly: true,  dailyOnly: false },
   { key: 'showSR',     label: 'S/R Zones',   color: '#94a3b8',          intradayOnly: false, dailyOnly: false },
-  { key: 'showEma9',   label: 'EMA 9',        color: EMA_COLORS.ema9,   intradayOnly: false, dailyOnly: false },
-  { key: 'showEma21',  label: 'EMA 21',       color: EMA_COLORS.ema21,  intradayOnly: false, dailyOnly: false },
-  { key: 'showEma50',  label: 'EMA 50',       color: EMA_COLORS.ema50,  intradayOnly: false, dailyOnly: false },
-  { key: 'showEma9D',  label: 'EMA 9 Daily',  color: EMA_COLORS.ema9D,  intradayOnly: true,  dailyOnly: false },
-  { key: 'showEma9W',  label: 'EMA 9 Weekly', color: EMA_COLORS.ema9W,  intradayOnly: false, dailyOnly: true  },
+  { key: 'showEma9',   label: 'EMA 9',        color: EMA_COLORS.ema9,   intradayOnly: false, dailyOnly: false, hasStyle: true, colorKey: 'ema9Color',  widthKey: 'ema9Width'  },
+  { key: 'showEma21',  label: 'EMA 21',       color: EMA_COLORS.ema21,  intradayOnly: false, dailyOnly: false, hasStyle: true, colorKey: 'ema21Color', widthKey: 'ema21Width' },
+  { key: 'showEma50',  label: 'EMA 50',       color: EMA_COLORS.ema50,  intradayOnly: false, dailyOnly: false, hasStyle: true, colorKey: 'ema50Color', widthKey: 'ema50Width' },
+  { key: 'showEma9D',  label: 'EMA 9 Daily',  color: EMA_COLORS.ema9D,  intradayOnly: true,  dailyOnly: false, hasStyle: true, colorKey: 'ema9DColor', widthKey: 'ema9DWidth' },
+  { key: 'showEma9W',  label: 'EMA 9 Weekly', color: EMA_COLORS.ema9W,  intradayOnly: false, dailyOnly: true,  hasStyle: true, colorKey: 'ema9WColor', widthKey: 'ema9WWidth' },
   { key: 'showVolume', label: 'Volume',       color: '#475569',          intradayOnly: false, dailyOnly: false },
   { key: 'showSMC',    label: 'SMC  (BOS · OB · FVG)', color: '#6366f1', intradayOnly: false, dailyOnly: false },
   { key: 'showCPR',    label: 'CPR  (TC · P · BC)',    color: '#6366f1', intradayOnly: false, dailyOnly: false },
@@ -90,6 +93,17 @@ const DEFAULT_SETTINGS = {
   rsiMAPeriod:   5,
   bbLength:      20,
   bbMult:        2.0,
+  // EMA line styles
+  ema9Color:     EMA_COLORS.ema9,
+  ema9Width:     2,
+  ema21Color:    EMA_COLORS.ema21,
+  ema21Width:    2,
+  ema50Color:    EMA_COLORS.ema50,
+  ema50Width:    2,
+  ema9DColor:    EMA_COLORS.ema9D,
+  ema9DWidth:    2,
+  ema9WColor:    EMA_COLORS.ema9W,
+  ema9WWidth:    2,
 };
 
 function fmtVol(v) {
@@ -367,27 +381,54 @@ function ChartPageInner() {
     }
 
     // ── EMA lines ─────────────────────────────────────────────────────────
-    if (settings.showEma9)  chart.setLine('ema9',  { data: computeEMA(candles, 9),  color: EMA_COLORS.ema9,  width: 2 });
+    if (settings.showEma9)  chart.setLine('ema9',  { data: computeEMA(candles, 9),  color: settings.ema9Color  ?? EMA_COLORS.ema9,  width: settings.ema9Width  ?? 2 });
     else                    chart.clearLine('ema9');
-    if (settings.showEma21) chart.setLine('ema21', { data: computeEMA(candles, 21), color: EMA_COLORS.ema21, width: 2 });
+    if (settings.showEma21) chart.setLine('ema21', { data: computeEMA(candles, 21), color: settings.ema21Color ?? EMA_COLORS.ema21, width: settings.ema21Width ?? 2 });
     else                    chart.clearLine('ema21');
-    if (settings.showEma50) chart.setLine('ema50', { data: computeEMA(candles, 50), color: EMA_COLORS.ema50, width: 2 });
+    if (settings.showEma50) chart.setLine('ema50', { data: computeEMA(candles, 50), color: settings.ema50Color ?? EMA_COLORS.ema50, width: settings.ema50Width ?? 2 });
     else                    chart.clearLine('ema50');
 
-    // ── EMA 9 Daily — flat zone line on intraday ──────────────────────────
+    // ── EMA 9 Daily — stepped line on intraday (one value per day, TV-style) ──
+    chart.clearZone('ema9d'); // clear old flat-zone if any
     if (settings.showEma9D && isIntraday && dailyCandles.length >= 9) {
-      const val = computeEMA(dailyCandles, 9).at(-1)?.value;
-      if (val) chart.setZone({ id: 'ema9d', price: val, color: 'rgba(232,121,249,0.85)', label: 'D·EMA9', style: 'solid', width: 2.5, inline: true });
+      const IST_OFF = 5.5 * 3600;
+      const dailyEmaVals = computeEMA(dailyCandles, 9);
+      const dateToEma = {};
+      for (const dv of dailyEmaVals) {
+        const dk = new Date((dv.time + IST_OFF) * 1000).toISOString().slice(0, 10);
+        dateToEma[dk] = dv.value;
+      }
+      const ema9dData = candles.flatMap(c => {
+        const dk = new Date((c.time + IST_OFF) * 1000).toISOString().slice(0, 10);
+        return dateToEma[dk] !== undefined ? [{ time: c.time, value: dateToEma[dk] }] : [];
+      });
+      if (ema9dData.length) chart.setLine('ema9d', { data: ema9dData, color: settings.ema9DColor ?? EMA_COLORS.ema9D, width: settings.ema9DWidth ?? 2 });
+      else chart.clearLine('ema9d');
     } else {
-      chart.clearZone('ema9d');
+      chart.clearLine('ema9d');
     }
 
-    // ── EMA 9 Weekly — flat zone line on daily chart only ────────────────
+    // ── EMA 9 Weekly — stepped line on daily chart (one value per week) ──────
+    chart.clearZone('ema9w'); // clear old flat-zone if any
     if (settings.showEma9W && chartInterval === 'day' && dailyCandles.length >= 9) {
-      const val = computeEMA(aggregateWeekly(dailyCandles), 9).at(-1)?.value;
-      if (val) chart.setZone({ id: 'ema9w', price: val, color: 'rgba(251,146,60,0.85)', label: 'W·EMA9', style: 'solid', width: 2.5, inline: true });
+      const weeklyCandles = aggregateWeekly(dailyCandles);
+      const weeklyEmaVals = computeEMA(weeklyCandles, 9);
+      // Build monday-timestamp → ema value map
+      const weekToEma = {};
+      for (const dv of weeklyEmaVals) weekToEma[dv.time] = dv.value;
+      // Map each daily candle to its week's EMA
+      const ema9wData = dailyCandles.flatMap(c => {
+        const d   = new Date(c.time * 1000);
+        const day = d.getUTCDay();
+        const daysToMon = day === 0 ? -6 : 1 - day;
+        const monTime = c.time + daysToMon * 86400;
+        const val = weekToEma[monTime];
+        return val !== undefined ? [{ time: c.time, value: val }] : [];
+      });
+      if (ema9wData.length) chart.setLine('ema9w', { data: ema9wData, color: settings.ema9WColor ?? EMA_COLORS.ema9W, width: settings.ema9WWidth ?? 2 });
+      else chart.clearLine('ema9w');
     } else {
-      chart.clearZone('ema9w');
+      chart.clearLine('ema9w');
     }
 
     // ── SMC overlays (BOS · OB · FVG) ────────────────────────────────────
@@ -973,28 +1014,28 @@ function ChartPageInner() {
         {anyEma && (
           <div className="hidden sm:flex absolute top-2 left-1/2 -translate-x-1/2 z-10 items-center gap-4 pointer-events-none select-none bg-[#0a0e1a]/70 border border-white/[0.06] px-3 py-1 rounded-full">
             {settings.showEma9 && (
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: EMA_COLORS.ema9 }}>
-                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: EMA_COLORS.ema9 }} /> EMA 9
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: settings.ema9Color ?? EMA_COLORS.ema9 }}>
+                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: settings.ema9Color ?? EMA_COLORS.ema9 }} /> EMA 9
               </span>
             )}
             {settings.showEma21 && (
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: EMA_COLORS.ema21 }}>
-                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: EMA_COLORS.ema21 }} /> EMA 21
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: settings.ema21Color ?? EMA_COLORS.ema21 }}>
+                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: settings.ema21Color ?? EMA_COLORS.ema21 }} /> EMA 21
               </span>
             )}
             {settings.showEma50 && (
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: EMA_COLORS.ema50 }}>
-                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: EMA_COLORS.ema50 }} /> EMA 50
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: settings.ema50Color ?? EMA_COLORS.ema50 }}>
+                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: settings.ema50Color ?? EMA_COLORS.ema50 }} /> EMA 50
               </span>
             )}
             {settings.showEma9D && isIntraday && (
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: EMA_COLORS.ema9D }}>
-                <span className="w-5 h-px rounded-full inline-block" style={{ backgroundColor: EMA_COLORS.ema9D }} /> D·EMA9
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: settings.ema9DColor ?? EMA_COLORS.ema9D }}>
+                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: settings.ema9DColor ?? EMA_COLORS.ema9D }} /> D·EMA9
               </span>
             )}
             {settings.showEma9W && !isIntraday && (
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: EMA_COLORS.ema9W }}>
-                <span className="w-5 h-px rounded-full inline-block" style={{ backgroundColor: EMA_COLORS.ema9W }} /> W·EMA9
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold font-mono" style={{ color: settings.ema9WColor ?? EMA_COLORS.ema9W }}>
+                <span className="w-5 h-0.5 rounded-full inline-block" style={{ backgroundColor: settings.ema9WColor ?? EMA_COLORS.ema9W }} /> W·EMA9
               </span>
             )}
           </div>
@@ -1048,19 +1089,41 @@ function ChartPageInner() {
                 </div>
               ))}
               <div className="grid grid-cols-2 gap-1">
-                {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams }) => {
-                  const disabled = (intradayOnly && !isIntraday) || (dailyOnly && chartInterval !== 'day');
-                  const on       = settings[key] && !disabled;
+                {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams, hasStyle, colorKey, widthKey }) => {
+                  const disabled  = (intradayOnly && !isIntraday) || (dailyOnly && chartInterval !== 'day');
+                  const on        = settings[key] && !disabled;
+                  const liveColor = hasStyle ? (settings[colorKey] ?? color) : color;
                   return (
-                    <div key={key} className={`${hasParams && on ? 'col-span-2' : ''}`}>
+                    <div key={key} className={`${(hasParams || hasStyle) && on ? 'col-span-2' : ''}`}>
                       <button onClick={() => !disabled && toggle(key)} disabled={disabled}
                         className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-colors text-left w-full ${
                           disabled ? 'opacity-25 cursor-not-allowed' : on ? 'bg-slate-700' : 'hover:bg-white/[0.06]'
                         }`}
                       >
-                        <span className="w-4 h-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: color, opacity: on ? 1 : 0.3 }} />
+                        <span className="w-4 h-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: liveColor, opacity: on ? 1 : 0.3 }} />
                         <span className={`text-sm flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
                       </button>
+                      {hasStyle && on && (
+                        <div className="flex items-center gap-1.5 px-3 pb-2.5">
+                          {EMA_LINE_PALETTE.map(c => (
+                            <button key={c} onClick={() => setSetting(colorKey, c)}
+                              className="w-4 h-4 rounded-full flex-shrink-0 transition-all"
+                              style={{ backgroundColor: c, border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : 'none',
+                                outline: (settings[colorKey] ?? color) === c ? '2px solid #fff' : 'none', outlineOffset: '1px' }}
+                            />
+                          ))}
+                          <label className="w-4 h-4 rounded-full cursor-pointer flex-shrink-0 flex items-center justify-center bg-white/10 text-[9px] text-slate-400 hover:bg-white/20 relative">
+                            +<input type="color" value={settings[colorKey] ?? color} onChange={e => setSetting(colorKey, e.target.value)} className="absolute opacity-0 w-0 h-0" />
+                          </label>
+                          <div className="flex items-center gap-1 ml-auto">
+                            {[[1,'—'],[2,'━'],[3,'━━']].map(([w, glyph]) => (
+                              <button key={w} onClick={() => setSetting(widthKey, w)}
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${(settings[widthKey] ?? 2) === w ? 'bg-indigo-500 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                              >{glyph}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {hasParams && on && key === 'showBB' && (
                         <div className="flex items-center gap-3 px-3 py-1.5 text-xs text-slate-400">
                           <label className="flex items-center gap-1.5">Length
@@ -1108,9 +1171,10 @@ function ChartPageInner() {
             >
               <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-2 px-1">Chart Overlays</div>
               <div className="space-y-0.5">
-                {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams }) => {
-                  const disabled = (intradayOnly && !isIntraday) || (dailyOnly && chartInterval !== 'day');
-                  const on       = settings[key] && !disabled;
+                {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams, hasStyle, colorKey, widthKey }) => {
+                  const disabled    = (intradayOnly && !isIntraday) || (dailyOnly && chartInterval !== 'day');
+                  const on          = settings[key] && !disabled;
+                  const liveColor   = hasStyle ? (settings[colorKey] ?? color) : color;
                   return (
                     <div key={key}>
                       <button onClick={() => !disabled && toggle(key)} disabled={disabled}
@@ -1119,13 +1183,34 @@ function ChartPageInner() {
                         }`}
                       >
                         <span className="flex items-center w-5 flex-shrink-0">
-                          <span className="w-full h-0.5 rounded-full block" style={{ backgroundColor: color, opacity: on ? 1 : 0.2 }} />
+                          <span className="w-full h-0.5 rounded-full block" style={{ backgroundColor: liveColor, opacity: on ? 1 : 0.2 }} />
                         </span>
                         <span className={`text-xs flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
                         <span className={`text-[10px] font-bold w-5 text-right ${on ? 'text-indigo-500' : 'text-slate-400'}`}>
                           {on ? 'ON' : 'OFF'}
                         </span>
                       </button>
+                      {hasStyle && on && (
+                        <div className="flex items-center gap-1.5 px-2 pb-1.5">
+                          {EMA_LINE_PALETTE.map(c => (
+                            <button key={c} onClick={() => setSetting(colorKey, c)}
+                              className="w-3.5 h-3.5 rounded-full flex-shrink-0 transition-all"
+                              style={{ backgroundColor: c, border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : 'none',
+                                outline: (settings[colorKey] ?? color) === c ? '2px solid #fff' : 'none', outlineOffset: '1px' }}
+                            />
+                          ))}
+                          <label className="w-3.5 h-3.5 rounded-full cursor-pointer flex-shrink-0 flex items-center justify-center bg-white/10 text-[7px] text-slate-400 hover:bg-white/20 relative">
+                            +<input type="color" value={settings[colorKey] ?? color} onChange={e => setSetting(colorKey, e.target.value)} className="absolute opacity-0 w-0 h-0" />
+                          </label>
+                          <div className="flex items-center gap-0.5 ml-auto">
+                            {[[1,'—'],[2,'━'],[3,'━━']].map(([w, glyph]) => (
+                              <button key={w} onClick={() => setSetting(widthKey, w)}
+                                className={`px-1 py-0.5 rounded text-[9px] font-mono transition-colors ${(settings[widthKey] ?? 2) === w ? 'bg-indigo-500 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                              >{glyph}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {hasParams && on && key === 'showBB' && (
                         <div className="flex items-center gap-2 px-2 pb-1.5 text-[10px] text-slate-400">
                           <span>Len</span>

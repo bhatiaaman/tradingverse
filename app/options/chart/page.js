@@ -164,11 +164,25 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
     if (ov.ema21) chart.setLine('ema21', { data: computeEMA(candles, 21), color: EMA_COLORS.ema21, width: 2 }); else chart.clearLine('ema21');
     if (ov.ema50) chart.setLine('ema50', { data: computeEMA(candles, 50), color: EMA_COLORS.ema50, width: 2 }); else chart.clearLine('ema50');
 
-    // EMA 9 Daily flat line (option charts are always intraday)
+    // EMA 9 Daily — stepped line (option charts are always intraday)
+    chart.clearZone('ema9d');
     if (ov.ema9D && dailyCandles?.length >= 9) {
-      const val = computeEMA(dailyCandles, 9).at(-1)?.value;
-      if (val) chart.setZone({ id: 'ema9d', price: val, color: 'rgba(232,121,249,0.85)', label: 'D·EMA9', style: 'solid', width: 2.5, inline: true });
-    } else { chart.clearZone('ema9d'); }
+      const IST_OFF = 5.5 * 3600;
+      const dailyEmaVals = computeEMA(dailyCandles, 9);
+      const dateToEma = {};
+      for (const dv of dailyEmaVals) {
+        const dk = new Date((dv.time + IST_OFF) * 1000).toISOString().slice(0, 10);
+        dateToEma[dk] = dv.value;
+      }
+      const ema9dData = candles.flatMap(c => {
+        const dk = new Date((c.time + IST_OFF) * 1000).toISOString().slice(0, 10);
+        return dateToEma[dk] !== undefined ? [{ time: c.time, value: dateToEma[dk] }] : [];
+      });
+      if (ema9dData.length) chart.setLine('ema9d', { data: ema9dData, color: EMA_COLORS.ema9D, width: 2 });
+      else chart.clearLine('ema9d');
+    } else {
+      chart.clearLine('ema9d');
+    }
 
     // SMC — memoize by candle count (computeSMC is O(n²))
     if (ov.smc && candles.length > 10) {
