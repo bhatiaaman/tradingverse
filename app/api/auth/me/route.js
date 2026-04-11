@@ -1,36 +1,26 @@
-import { Redis } from '@upstash/redis'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
-})
-
-const NS = process.env.REDIS_NAMESPACE || 'tradingverse'
+import { sql } from '@/app/lib/db'
 
 export async function GET() {
   const cookieStore = await cookies()
   const token = cookieStore.get('tv_session')?.value
+  if (!token) return NextResponse.json({ user: null })
 
-  if (!token) {
-    return NextResponse.json({ user: null })
-  }
+  const sessions = await sql`
+    SELECT s.email, u.name, u.plan, u.google_id
+    FROM sessions s
+    JOIN users u ON u.email = s.email
+    WHERE s.token = ${token} AND s.expires_at > now()
+    LIMIT 1
+  `
+  if (!sessions.length) return NextResponse.json({ user: null })
 
-  const email = await redis.get(`${NS}:session:${token}`)
-  if (!email) {
-    return NextResponse.json({ user: null })
-  }
-
-  const raw = await redis.get(`${NS}:user:${email}`)
-  if (!raw) {
-    return NextResponse.json({ user: null })
-  }
-
-  const user = typeof raw === 'string' ? JSON.parse(raw) : raw
+  const { email, name, plan } = sessions[0]
   const ownerEmail = process.env.OWNER_EMAIL?.toLowerCase().trim()
-  const isOwner = ownerEmail && email.toLowerCase() === ownerEmail
-  const role = isOwner ? 'admin' : 'user'
-  const plan = isOwner ? 'pro' : (user.plan || 'free')
-  return NextResponse.json({ user: { name: user.name, email: user.email, role, plan, provider: user.provider || 'email' } })
+  const isOwner    = ownerEmail && email.toLowerCase() === ownerEmail
+  const role       = isOwner ? 'admin' : 'user'
+  const resolvedPlan = isOwner ? 'pro' : (plan || 'free')
+
+  return NextResponse.json({ user: { name, email, role, plan: resolvedPlan } })
 }

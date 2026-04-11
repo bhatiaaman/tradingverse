@@ -1,6 +1,6 @@
 // FII/DII data is fetched by the VPS worker (fii-dii-fetcher.js, Indian IP)
 // and stored in Redis. This route only reads from Redis — never hits NSE directly.
-// VPS cron: Mon-Fri 6:30 PM IST via pm2.
+// VPS cron: Mon-Fri 9:00 PM IST via pm2.
 
 import { NextResponse } from 'next/server';
 import { redis } from '@/app/lib/redis';
@@ -24,7 +24,7 @@ export async function GET() {
       data: [],
       date: today,
       cached: false,
-      message: 'No data yet — VPS worker runs Mon-Fri at 6:30 PM IST',
+      message: 'No data yet — VPS worker runs Mon-Fri at 9 PM IST',
     });
   }
 

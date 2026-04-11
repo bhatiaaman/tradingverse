@@ -1,108 +1,85 @@
-import { redis } from "./redis";
+import { sql } from '@/app/lib/db';
 
-const KEY_LATEST = "latest_scan";
-const KEY_HISTORY = "scan_history";
-const MAX_HISTORY = 20;
-
-const KEY_SCANNER_LATEST_PREFIX = "scanner_latest:";
-const KEY_SCANNER_HISTORY_PREFIX = "scanner_history:";
-
-function getDedupeKey(scan) {
-  const alert = (scan?.alert_name || "").trim().toLowerCase();
-  const trig = (scan?.triggered_at || "").trim().toLowerCase();
-  return `${alert}__${trig}`;
-}
-
-export async function setLatestScan(scan) {
-  // Always store latest
-  await redis.set(KEY_LATEST, scan);
-
-  const history = (await redis.get(KEY_HISTORY)) || [];
-
-  // New scan always goes first
-  const combined = [scan, ...history].filter(Boolean);
-
-  // Dedupe by alert_name + triggered_at
-  const seen = new Set();
-  const deduped = [];
-
-  for (const item of combined) {
-    const key = getDedupeKey(item);
-
-    // If missing fields, don't dedupe too aggressively
-    if (!item?.alert_name || !item?.triggered_at) {
-      deduped.push(item);
-      continue;
-    }
-
-    if (!seen.has(key)) {
-      seen.add(key);
-      deduped.push(item);
-    }
-  }
-
-  // Keep only last 20
-  const finalHistory = deduped.slice(0, MAX_HISTORY);
-
-  await redis.set(KEY_HISTORY, finalHistory);
-}
-
-//getScannerSlug
 function getScannerSlug(scanOrSlug) {
   if (!scanOrSlug) return '';
-  const raw = typeof scanOrSlug === 'string' ? scanOrSlug : (scanOrSlug.scan_url || scanOrSlug.scan_name || scanOrSlug.alert_name || '');
+  const raw = typeof scanOrSlug === 'string'
+    ? scanOrSlug
+    : (scanOrSlug.scan_url || scanOrSlug.scan_name || scanOrSlug.alert_name || '');
   return String(raw).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
+
+// Reconstruct the original scan payload from the row.
+// The 'raw' column holds the full original payload — fall back to reassembling from columns.
+function rowToScan(r) {
+  if (!r) return null;
+  const base = r.raw ?? {};
+  return {
+    ...base,
+    id:           base.id           ?? r.id,
+    scan_name:    base.scan_name    ?? r.scan_name,
+    alert_name:   base.alert_name   ?? r.alert_name,
+    slug:         r.slug,
+    stocks:       base.stocks       ?? r.stocks,
+    triggered_at: base.triggered_at ?? r.triggered_at,
+  };
 }
 
 export async function setScannerScan(scan) {
   const slug = getScannerSlug(scan);
   if (!slug) return;
-
-  const latestKey = KEY_SCANNER_LATEST_PREFIX + slug;
-  const historyKey = KEY_SCANNER_HISTORY_PREFIX + slug;
-
-  await redis.set(latestKey, scan);
-
-  const history = (await redis.get(historyKey)) || [];
-  const combined = [scan, ...history].filter(Boolean);
-
-  const seen = new Set();
-  const deduped = [];
-
-  for (const item of combined) {
-    const key = getDedupeKey(item);
-
-    if (!item?.alert_name || !item?.triggered_at) {
-      deduped.push(item);
-      continue;
-    }
-
-    if (!seen.has(key)) {
-      seen.add(key);
-      deduped.push(item);
-    }
+  // Use the original numeric id (Date.now()) as part of the PK so the page can use it
+  const id = `${slug}__${scan.id ?? scan.triggered_at ?? Date.now()}`;
+  try {
+    await sql`
+      INSERT INTO scans (id, scan_name, alert_name, slug, stocks, raw, triggered_at)
+      VALUES (
+        ${id},
+        ${scan.scan_name  ?? null},
+        ${scan.alert_name ?? null},
+        ${slug},
+        ${JSON.stringify(scan.stocks ?? [])},
+        ${JSON.stringify(scan)},
+        ${scan.triggered_at ? new Date(scan.triggered_at) : new Date()}
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        raw          = EXCLUDED.raw,
+        stocks       = EXCLUDED.stocks,
+        triggered_at = EXCLUDED.triggered_at
+    `;
+  } catch (err) {
+    console.error('[scanStore] setScannerScan failed:', err.message);
   }
-
-  const finalHistory = deduped.slice(0, MAX_HISTORY);
-  await redis.set(historyKey, finalHistory);
 }
 
 export async function getScannerLatest(slug) {
   if (!slug) return null;
-  const key = KEY_SCANNER_LATEST_PREFIX + getScannerSlug(slug);
-  return await redis.get(key);
+  const s = getScannerSlug(slug);
+  const rows = await sql`
+    SELECT * FROM scans WHERE slug = ${s} ORDER BY triggered_at DESC LIMIT 1
+  `;
+  return rows[0] ? rowToScan(rows[0]) : null;
 }
 
 export async function getScannerHistory(slug) {
   if (!slug) return [];
-  const key = KEY_SCANNER_HISTORY_PREFIX + getScannerSlug(slug);
-  return (await redis.get(key)) || [];
+  const s = getScannerSlug(slug);
+  const rows = await sql`
+    SELECT * FROM scans WHERE slug = ${s} ORDER BY triggered_at DESC LIMIT 20
+  `;
+  return rows.map(rowToScan);
+}
+
+// Legacy API — kept for backward compat with existing callers
+export async function setLatestScan(scan) {
+  return setScannerScan(scan);
 }
 
 export async function getLatestScan() {
-  return await redis.get(KEY_LATEST);
+  const rows = await sql`SELECT * FROM scans ORDER BY triggered_at DESC LIMIT 1`;
+  return rows[0] ? rowToScan(rows[0]) : null;
 }
 
 export async function getAllScans() {
-  return (await redis.get(KEY_HISTORY)) || [];
+  const rows = await sql`SELECT * FROM scans ORDER BY triggered_at DESC LIMIT 20`;
+  return rows.map(rowToScan);
 }

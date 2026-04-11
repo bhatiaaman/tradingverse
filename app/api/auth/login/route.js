@@ -1,15 +1,10 @@
-import { Redis } from '@upstash/redis'
 import bcrypt from 'bcryptjs'
 import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { authLimiter, checkLimit } from '@/app/lib/rate-limit'
+import { sql } from '@/app/lib/db'
 
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
-})
-
-const NS = process.env.REDIS_NAMESPACE || 'tradingverse'
+const SESSION_TTL_DAYS = 30;
 
 export async function POST(req) {
   const rl = await checkLimit(authLimiter, req)
@@ -18,32 +13,31 @@ export async function POST(req) {
   }
 
   const { email, password } = await req.json()
-
   if (!email || !password) {
     return NextResponse.json({ error: 'Email and password are required' }, { status: 400 })
   }
 
-  const userKey = `${NS}:user:${email.toLowerCase()}`
-  const raw = await redis.get(userKey)
-  if (!raw) {
+  const rows = await sql`SELECT * FROM users WHERE email = ${email.toLowerCase()} LIMIT 1`
+  const user = rows[0]
+  if (!user || !user.hash) {
     return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
   }
 
-  const user = typeof raw === 'string' ? JSON.parse(raw) : raw
   const valid = await bcrypt.compare(password, user.hash)
   if (!valid) {
     return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
   }
 
-  const token = randomBytes(32).toString('hex')
-  await redis.set(`${NS}:session:${token}`, email.toLowerCase(), { ex: 60 * 60 * 24 * 30 })
+  const token     = randomBytes(32).toString('hex')
+  const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 3600 * 1000)
+  await sql`INSERT INTO sessions (token, email, expires_at) VALUES (${token}, ${user.email}, ${expiresAt})`
 
   const res = NextResponse.json({ ok: true, name: user.name })
   res.cookies.set('tv_session', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: 60 * 60 * 24 * 30,
+    maxAge: SESSION_TTL_DAYS * 24 * 3600,
     path: '/',
   })
   return res

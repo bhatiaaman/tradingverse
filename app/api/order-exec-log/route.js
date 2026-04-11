@@ -1,22 +1,20 @@
 import { NextResponse } from 'next/server';
 import { requireSession, unauthorized, forbidden } from '@/app/lib/session';
-import { redis } from '@/app/lib/redis';
-
-const EXEC_LOG_KEY = 'tradingverse:order_exec_log';
+import { sql } from '@/app/lib/db';
 
 export async function GET() {
   const session = await requireSession();
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
-  try {
-    const raw     = await redis.lrange(EXEC_LOG_KEY, 0, -1);
-    const entries = raw.map(r => typeof r === 'string' ? JSON.parse(r) : r).reverse();
-    return NextResponse.json({ entries });
-  } catch (e) {
-    console.error('[order-exec-log] read error:', e);
-    return NextResponse.json({ entries: [] });
-  }
+  const rows = await sql`
+    SELECT id, ts, event, data, created_at
+    FROM order_exec_log
+    ORDER BY ts DESC NULLS LAST
+    LIMIT 500
+  `;
+  const entries = rows.map(r => ({ ts: Number(r.ts), event: r.event, ...r.data }));
+  return NextResponse.json({ entries });
 }
 
 export async function DELETE() {
@@ -24,10 +22,6 @@ export async function DELETE() {
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
-  try {
-    await redis.del(EXEC_LOG_KEY);
-    return NextResponse.json({ ok: true });
-  } catch (e) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
-  }
+  await sql`DELETE FROM order_exec_log`;
+  return NextResponse.json({ ok: true });
 }

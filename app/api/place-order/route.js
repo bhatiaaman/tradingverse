@@ -3,17 +3,12 @@ import { getBroker, getDataProvider } from '@/app/lib/providers';
 import { orderLimiter, checkLimit } from '@/app/lib/rate-limit';
 import { requireOwner, requireSession, unauthorized, forbidden } from '@/app/lib/session';
 import { redis } from '@/app/lib/redis';
+import { sql } from '@/app/lib/db';
 
-// ─── Redis keys ───────────────────────────────────────────────────────────────
-const QUEUE_KEY    = 'tradingverse:order_queue';
-const STATUS_PFX   = 'tradingverse:order_status:';
-const DEDUP_PFX    = 'tradingverse:order_dedup:';
-const EXEC_LOG_KEY = 'tradingverse:order_exec_log';
-const EXEC_LOG_MAX = 500;
-
-// Legacy order log (kept for order-log page compatibility)
-const ORDER_LOG_KEY = 'tradingverse:order_log';
-const ORDER_LOG_MAX = 200;
+// ─── Redis keys (queue + status only — logs moved to Neon) ────────────────────
+const QUEUE_KEY  = 'tradingverse:order_queue';
+const STATUS_PFX = 'tradingverse:order_status:';
+const DEDUP_PFX  = 'tradingverse:order_dedup:';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function genOrderId() {
@@ -23,19 +18,23 @@ function genOrderId() {
 
 async function writeExecLog(entry) {
   try {
-    await redis.rpush(EXEC_LOG_KEY, JSON.stringify(entry));
-    await redis.ltrim(EXEC_LOG_KEY, -EXEC_LOG_MAX, -1);
+    await sql`INSERT INTO order_exec_log (ts, event, data) VALUES (${entry.ts ?? Date.now()}, ${entry.event}, ${JSON.stringify(entry)})`;
   } catch (e) {
-    console.error('[place-order] exec log write failed:', e);
+    console.error('[place-order] exec log write failed:', e.message);
   }
 }
 
-async function writeLegacyLog(entry) {
+async function writeOrderLog(entry) {
   try {
-    await redis.rpush(ORDER_LOG_KEY, JSON.stringify(entry));
-    await redis.ltrim(ORDER_LOG_KEY, -ORDER_LOG_MAX, -1);
+    await sql`
+      INSERT INTO orders (order_id, paper, symbol, exchange, transaction_type, order_type, product, quantity, fill_price, status, ts, raw)
+      VALUES (${entry.order_id ?? null}, false, ${entry.symbol}, ${entry.exchange},
+              ${entry.transaction_type}, ${entry.order_type}, ${entry.product},
+              ${entry.quantity}, ${entry.price ?? null}, ${entry.status},
+              ${entry.ts}, ${JSON.stringify(entry)})
+    `;
   } catch (e) {
-    console.error('[place-order] legacy log write failed:', e);
+    console.error('[place-order] order log write failed:', e.message);
   }
 }
 
@@ -130,32 +129,26 @@ export async function POST(request) {
   }
 
   // ── Paper trade branch — direct execution, no queue ───────────────────────
-  const PAPER_LOG_KEY = 'tradingverse:paper_orders';
-  const PAPER_LOG_MAX = 500;
   if (body.paper) {
     try {
       const { params } = buildOrderParams(body);
       let fillPrice = body.price ? parseFloat(body.price) : 0;
       if (!fillPrice || params.order_type === 'MARKET') {
         try {
-          const dp   = await getDataProvider();
-          const exch = params.exchange;
-          const sym  = `${exch}:${params.tradingsymbol}`;
+          const dp      = await getDataProvider();
+          const sym     = `${params.exchange}:${params.tradingsymbol}`;
           const ltpData = await dp.getLTP(sym);
           fillPrice = ltpData?.data?.[sym]?.last_price ?? fillPrice;
         } catch { /* keep fillPrice as-is */ }
       }
       const paperId = `paper_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-      const entry   = {
-        order_id: paperId, paper: true, ts: Date.now(), status: 'COMPLETE',
-        symbol: params.tradingsymbol, exchange: params.exchange,
-        transaction_type: params.transaction_type, order_type: params.order_type,
-        product: params.product, quantity: params.quantity,
-        fill_price: fillPrice, price: params.price ?? null,
-        trigger_price: params.trigger_price ?? null,
-      };
-      await redis.rpush(PAPER_LOG_KEY, JSON.stringify(entry));
-      await redis.ltrim(PAPER_LOG_KEY, -PAPER_LOG_MAX, -1);
+      await sql`
+        INSERT INTO orders (order_id, paper, symbol, exchange, transaction_type, order_type, product, quantity, fill_price, status, ts, raw)
+        VALUES (${paperId}, true, ${params.tradingsymbol}, ${params.exchange},
+                ${params.transaction_type}, ${params.order_type}, ${params.product},
+                ${params.quantity}, ${fillPrice}, 'COMPLETE', ${Date.now()},
+                ${JSON.stringify({ price: params.price ?? null, trigger_price: params.trigger_price ?? null })})
+      `;
       return NextResponse.json({
         success: true, paper: true, order_id: paperId, fill_price: fillPrice,
         message: `Paper ${params.transaction_type} executed at ₹${fillPrice}`,
@@ -202,7 +195,7 @@ export async function POST(request) {
   const result = await pollStatus(orderId);
 
   if (result.status === 'SUCCESS') {
-    await writeLegacyLog({
+    await writeOrderLog({
       ts, status: 'success', order_id: result.kiteOrderId, orderId,
       symbol: params.tradingsymbol, exchange: params.exchange,
       transaction_type: params.transaction_type, order_type: params.order_type,
@@ -226,7 +219,7 @@ export async function POST(request) {
 
   // FAILED or REJECTED
   const errMsg = result.error || 'Order failed';
-  await writeLegacyLog({
+  await writeOrderLog({
     ts, status: 'failed', order_id: null, orderId,
     symbol: params.tradingsymbol, exchange: params.exchange,
     transaction_type: params.transaction_type, order_type: params.order_type,

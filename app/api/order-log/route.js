@@ -1,29 +1,37 @@
 import { NextResponse } from 'next/server';
 import { requireSession, unauthorized, forbidden } from '@/app/lib/session';
-import { redis } from '@/app/lib/redis';
-
-const ORDER_LOG_KEY = 'tradingverse:order_log';
+import { sql } from '@/app/lib/db';
 
 export async function GET() {
   const session = await requireSession();
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
-  try {
-    const raw = await redis.lrange(ORDER_LOG_KEY, 0, -1);
-    const entries = raw
-      .map(item => {
-        try { return typeof item === 'string' ? JSON.parse(item) : item; }
-        catch { return null; }
-      })
-      .filter(Boolean)
-      .reverse(); // newest first
-
-    return NextResponse.json({ entries });
-  } catch (e) {
-    console.error('order log read failed:', e);
-    return NextResponse.json({ error: 'Failed to read order log' }, { status: 500 });
-  }
+  const rows = await sql`
+    SELECT id, order_id, paper, symbol, exchange, transaction_type,
+           order_type, product, quantity, fill_price, status, ts, raw, created_at
+    FROM orders
+    WHERE paper = false
+    ORDER BY ts DESC NULLS LAST
+    LIMIT 200
+  `;
+  // Normalise shape to match what the frontend expects
+  const entries = rows.map(r => ({
+    ts:               Number(r.ts),
+    status:           r.status,
+    order_id:         r.order_id,
+    symbol:           r.symbol,
+    exchange:         r.exchange,
+    transaction_type: r.transaction_type,
+    order_type:       r.order_type,
+    product:          r.product,
+    quantity:         r.quantity,
+    price:            r.raw?.price ?? null,
+    trigger_price:    r.raw?.trigger_price ?? null,
+    error:            r.raw?.error ?? null,
+    ...r.raw,
+  }));
+  return NextResponse.json({ entries });
 }
 
 export async function DELETE() {
@@ -31,10 +39,6 @@ export async function DELETE() {
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
-  try {
-    await redis.del(ORDER_LOG_KEY);
-    return NextResponse.json({ success: true });
-  } catch (e) {
-    return NextResponse.json({ error: 'Failed to clear log' }, { status: 500 });
-  }
+  await sql`DELETE FROM orders WHERE paper = false`;
+  return NextResponse.json({ success: true });
 }

@@ -2,16 +2,13 @@
 // GET /api/auth/google/callback?code=...&state=...
 
 import { NextResponse } from 'next/server'
-import { Redis } from '@upstash/redis'
 import { randomBytes } from 'crypto'
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
-})
+import { sql } from '@/app/lib/db'
+import { redis } from '@/app/lib/redis'
 
 const NS      = process.env.REDIS_NAMESPACE || 'tradingverse'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://tradingverse.in'
+const SESSION_TTL_DAYS = 30
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url)
@@ -25,19 +22,15 @@ export async function GET(req) {
     return NextResponse.redirect(`${loginUrl}?error=google_cancelled`)
   }
 
-  // Verify state and recover the post-login redirect target
+  // State lives in Redis (short-lived OAuth CSRF token — correct use of Redis)
   const storedNext = await redis.get(`${NS}:oauth-state:${state}`)
-  if (!storedNext) {
-    return NextResponse.redirect(`${loginUrl}?error=invalid_state`)
-  }
+  if (!storedNext) return NextResponse.redirect(`${loginUrl}?error=invalid_state`)
   await redis.del(`${NS}:oauth-state:${state}`)
 
   const safeNext = typeof storedNext === 'string' && storedNext.startsWith('/') && !storedNext.startsWith('//')
-    ? storedNext
-    : '/trades'
+    ? storedNext : '/trades'
 
   try {
-    // Exchange code for access token
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -52,7 +45,6 @@ export async function GET(req) {
     if (!tokenRes.ok) throw new Error(`Token exchange failed: ${tokenRes.status}`)
     const { access_token } = await tokenRes.json()
 
-    // Fetch Google user profile
     const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${access_token}` },
     })
@@ -62,42 +54,27 @@ export async function GET(req) {
     const email    = profile.email?.toLowerCase()
     const name     = profile.name || email?.split('@')[0] || 'User'
     const googleId = profile.id
-
     if (!email) throw new Error('No email returned from Google')
 
-    // Find or create user in Redis
-    const userKey = `${NS}:user:${email}`
-    const raw     = await redis.get(userKey)
+    // Upsert user
+    await sql`
+      INSERT INTO users (email, name, google_id, plan)
+      VALUES (${email}, ${name}, ${googleId}, 'free')
+      ON CONFLICT (email) DO UPDATE
+        SET google_id  = COALESCE(users.google_id, EXCLUDED.google_id),
+            updated_at = now()
+    `
 
-    if (!raw) {
-      // New user — create account (no hash; Google is the auth provider)
-      const user = { name, email, createdAt: Date.now(), provider: 'google', googleId, plan: 'free' }
-      await redis.set(userKey, JSON.stringify(user))
-    } else {
-      // Existing user (password or Google) — link Google ID if not already set
-      const user = typeof raw === 'string' ? JSON.parse(raw) : raw
-      const updates = {}
-      if (!user.googleId) updates.googleId = googleId
-      if (!user.plan)     updates.plan = 'free'
-      if (Object.keys(updates).length) {
-        await redis.set(userKey, JSON.stringify({ ...user, ...updates }))
-      }
-    }
-    // Always ensure email is in the user index (sadd is idempotent)
-    try { await redis.sadd(`${NS}:users:all`, email) } catch (e) {
-      console.error('[google-callback] sadd users:all failed:', e.message)
-    }
-
-    // Create 30-day session
-    const token = randomBytes(32).toString('hex')
-    await redis.set(`${NS}:session:${token}`, email, { ex: 60 * 60 * 24 * 30 })
+    const token     = randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 3600 * 1000)
+    await sql`INSERT INTO sessions (token, email, expires_at) VALUES (${token}, ${email}, ${expiresAt})`
 
     const res = NextResponse.redirect(`${APP_URL}${safeNext}`)
     res.cookies.set('tv_session', token, {
       httpOnly: true,
       secure:   process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge:   60 * 60 * 24 * 30,
+      maxAge:   SESSION_TTL_DAYS * 24 * 3600,
       path:     '/',
     })
     return res

@@ -1,62 +1,41 @@
-const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const NS          = process.env.REDIS_NAMESPACE || 'default';
-const LOG_KEY     = `${NS}:system:logs`;
+import { sql } from '@/app/lib/db';
 
 export async function ensureLogFile() {
-  // No-op for Redis
+  // No-op — Neon table created via /api/db-migrate
 }
 
 export async function getRedisLogs() {
-  if (!REDIS_URL || !REDIS_TOKEN) return [];
   try {
-    const res = await fetch(`${REDIS_URL}/get/${LOG_KEY}`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` }});
-    const data = await res.json();
-    return data.result ? JSON.parse(data.result) : [];
+    const rows = await sql`
+      SELECT log_id, category, message, data, created_at
+      FROM system_logs
+      WHERE created_at > now() - interval '7 days'
+      ORDER BY created_at DESC
+      LIMIT 500
+    `;
+    return rows.map(r => ({
+      id:        r.log_id,
+      timestamp: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+      category:  r.category,
+      message:   r.message,
+      data:      r.data || {},
+    }));
   } catch (err) {
-    console.error('Error fetching redis logs:', err);
+    console.error('[logger] getRedisLogs failed:', err.message);
     return [];
   }
 }
 
-async function setRedisLogs(logs) {
-  if (!REDIS_URL || !REDIS_TOKEN) return;
-  try {
-    await fetch(`${REDIS_URL}/set/${LOG_KEY}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(logs)
-    });
-  } catch (e) {
-    console.error('Redis Set Error:', e);
-  }
-}
-
 export async function addSystemLog({ category = 'general', message = '', data = {} }) {
+  const log_id = crypto.randomUUID();
   try {
-    let logs = await getRedisLogs();
-
-    const newLog = {
-      id: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      category,
-      message,
-      data,
-    };
-    logs.push(newLog);
-
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
-    logs = logs.filter(log => {
-      const logDate = new Date(log.timestamp);
-      return logDate >= sevenDaysAgo;
-    });
-
-    await setRedisLogs(logs);
-    return newLog;
+    await sql`
+      INSERT INTO system_logs (log_id, category, message, data)
+      VALUES (${log_id}, ${category}, ${message}, ${JSON.stringify(data)})
+    `;
   } catch (err) {
-    console.error('Error writing to system log:', err);
+    console.error('[logger] addSystemLog failed:', err.message);
     throw err;
   }
+  return { id: log_id, timestamp: new Date().toISOString(), category, message, data };
 }
