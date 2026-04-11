@@ -81,6 +81,16 @@ export function playSentiment50Cross(direction) {
 }
 
 /**
+ * Short covering setup activated — 3 ascending punchy tones (urgent bullish alert)
+ * Distinct from playReversalAlert (which is a warning triple-pulse)
+ */
+export function playShortCoveringAlert() {
+  playTone({ freq: 440, duration: 0.10, gain: 0.28, type: 'square', delay: 0.00 })  // A4
+  playTone({ freq: 554, duration: 0.10, gain: 0.30, type: 'square', delay: 0.13 })  // C#5
+  playTone({ freq: 659, duration: 0.18, gain: 0.34, type: 'square', delay: 0.26 })  // E5 — sustained
+}
+
+/**
  * Order executed (COMPLETE) — loud, distinct three-tone confirmation
  * High gain so it cuts through even with speakers at medium volume
  */

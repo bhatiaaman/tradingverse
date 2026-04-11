@@ -5,7 +5,7 @@
   import { RefreshCw, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
   import Nav from '../components/Nav';
   import { usePageVisibility } from '@/app/hooks/usePageVisibility';
-  import { playBullishFlip, playBearishFlip, playReversalAlert, playWarningPing, playReversalBuilding, playSentiment50Cross } from '../lib/sounds';
+  import { playBullishFlip, playBearishFlip, playReversalAlert, playWarningPing, playReversalBuilding, playSentiment50Cross, playShortCoveringAlert } from '../lib/sounds';
 
   // ── Determine directional bias of an open position ────────────────────────
   // Options: short PE = bullish, short CE = bearish, long PE = bearish, long CE = bullish
@@ -335,6 +335,16 @@ function getNiftyLevelAlerts(indices) {
     const [powerCandleDismissed, setPowerCandleDismissed] = useState(null); // dismissed candle time
     const candleDataRef = useRef([]);
 
+    // Short Covering setup state
+    const [scData,          setScData]          = useState(null);
+    const [scDismissed,     setScDismissed]     = useState(false);
+    const [scConfirming,    setScConfirming]    = useState(false);
+    const [scPlacing,       setScPlacing]       = useState(false);
+    const [scOrderResult,   setScOrderResult]   = useState(null);
+    const scPrevActiveRef   = useRef(false);
+    const scNotifSentRef    = useRef(false); // prevent repeat notifications on same activation
+    const scOrderTimerRef   = useRef(null);
+
     // Position alert state — fetched every 30s, shown when bias conflicts with open positions
     const [openPositions,     setOpenPositions]     = useState([]);
     const [positionAlert,     setPositionAlert]     = useState(null); // { bias, conflicting: [...] }
@@ -406,6 +416,90 @@ function getNiftyLevelAlerts(indices) {
       const interval = setInterval(checkPositionsAgainstBias, 30_000);
       return () => clearInterval(interval);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── Short Covering: poll + sound + browser notification ──────────────────
+    useEffect(() => {
+      const fetchSC = async () => {
+        try {
+          const r = await fetch('/api/short-covering');
+          const d = await r.json();
+          if (!d.error) {
+            setScData(d);
+            const wasActive = scPrevActiveRef.current;
+            const isActive  = d.active === true;
+            // Transition: inactive → active
+            if (isActive && !wasActive) {
+              scNotifSentRef.current = false; // reset so notification fires
+            }
+            if (isActive && !scNotifSentRef.current) {
+              setScDismissed(false); // re-show card when a new signal fires
+              try { playShortCoveringAlert(); } catch {}
+              try {
+                if (typeof window !== 'undefined' && 'Notification' in window) {
+                  const grant = Notification.permission === 'granted'
+                    ? 'granted'
+                    : await Notification.requestPermission();
+                  if (grant === 'granted') {
+                    const trade = d.trade;
+                    const body  = trade
+                      ? `Score ${d.score}/${d.maxScore} · NIFTY ${trade.strike} CE ₹${trade.entryLtp} · SL ₹${trade.sl?.cePremium}`
+                      : `Score ${d.score}/${d.maxScore} · Spot ${d.context?.spot?.toFixed(0)}`;
+                    new Notification('⚡ Short Covering Active', { body, icon: '/favicon.ico' });
+                    scNotifSentRef.current = true;
+                  }
+                }
+              } catch {}
+            }
+            if (!isActive) scNotifSentRef.current = false;
+            scPrevActiveRef.current = isActive;
+          }
+        } catch { /* silent */ }
+      };
+      fetchSC();
+      const iv = setInterval(() => {
+        const ist  = new Date(Date.now() + 5.5 * 3600 * 1000);
+        const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+        const day  = ist.getUTCDay();
+        if (day !== 0 && day !== 6 && mins >= 555 && mins <= 930) fetchSC();
+      }, 60_000);
+      return () => clearInterval(iv);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // SC order result auto-clear
+    useEffect(() => {
+      if (scOrderResult) {
+        clearTimeout(scOrderTimerRef.current);
+        scOrderTimerRef.current = setTimeout(() => setScOrderResult(null), 8000);
+      }
+      return () => clearTimeout(scOrderTimerRef.current);
+    }, [scOrderResult]);
+
+    const handleScPlaceOrder = async () => {
+      if (!scData?.trade) return;
+      setScPlacing(true);
+      try {
+        const r = await fetch('/api/place-order', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tradingsymbol:    scData.trade.symbol,
+            exchange:         'NFO',
+            transaction_type: 'BUY',
+            order_type:       'MARKET',
+            product:          'MIS',
+            quantity:         75,
+          }),
+        });
+        const result = await r.json();
+        if (!r.ok || result.error) throw new Error(result.error || 'Order failed');
+        setScOrderResult({ ok: true,  msg: `Placed · ID ${result.order_id}` });
+        setScConfirming(false);
+      } catch (e) {
+        setScOrderResult({ ok: false, msg: e.message });
+      } finally {
+        setScPlacing(false);
+      }
+    };
 
     // Load setup config on mount
     useEffect(() => {
@@ -1723,6 +1817,91 @@ function getNiftyLevelAlerts(indices) {
     return (
       <div className="min-h-screen bg-[#060b14] text-slate-100">
         <Nav />
+
+        {/* ── Short Covering Setup Card ─────────────────────────────────────── */}
+        {scData?.active && !scDismissed && (() => {
+          const trade = scData.trade;
+          const score = scData.score;
+          const max   = scData.maxScore;
+          return (
+            <div className="border-b border-emerald-500/30 bg-emerald-950/60 backdrop-blur-sm">
+              <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3">
+                {!scConfirming ? (
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    {/* Left: label + score + signals */}
+                    <div className="flex items-start gap-3 min-w-0">
+                      <span className="text-emerald-400 text-base leading-none mt-0.5 flex-shrink-0">⚡</span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-emerald-300 font-bold text-sm">Short Covering Active</span>
+                          <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full">{score}/{max}</span>
+                          {scData.context?.spot && (
+                            <span className="text-[11px] text-slate-400 font-mono">
+                              NIFTY <span className="text-white">{scData.context.spot.toFixed(0)}</span>
+                              {scData.context.vwap ? <> · VWAP <span className={scData.context.spot > scData.context.vwap ? 'text-emerald-400' : 'text-red-400'}>{scData.context.vwap.toFixed(0)}</span></> : null}
+                              {scData.context.ceWall ? <> · Wall <span className="text-red-400">{scData.context.ceWall}</span></> : null}
+                            </span>
+                          )}
+                        </div>
+                        {/* Top 3 hit signals */}
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                          {Object.entries(scData.signals ?? {}).filter(([, s]) => s.hit).slice(0, 3).map(([k, s]) => (
+                            <span key={k} className="text-[10px] text-emerald-400/80">✓ {s.detail}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Right: trade info + action buttons */}
+                    <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                      {trade && (
+                        <div className="text-[11px] font-mono text-right">
+                          <div className="text-white font-bold">NIFTY {trade.strike} CE · ₹{trade.entryLtp}</div>
+                          <div className="text-red-400">SL ₹{trade.sl.cePremium} <span className="text-slate-500">(−{trade.sl.pctRisk}%)</span></div>
+                          <div className="text-emerald-400">T1 ₹{trade.targets[0]?.cePremium} · T2 ₹{trade.targets[1]?.cePremium}</div>
+                        </div>
+                      )}
+                      {trade && kiteAuth.isLoggedIn && !scOrderResult?.ok && (
+                        <button onClick={() => setScConfirming(true)}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors">
+                          Buy CE ▶
+                        </button>
+                      )}
+                      {scOrderResult && (
+                        <span className={`text-[11px] font-medium px-2 py-1 rounded-lg ${scOrderResult.ok ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-400'}`}>
+                          {scOrderResult.ok ? '✅ ' : '❌ '}{scOrderResult.msg}
+                        </span>
+                      )}
+                      <button onClick={() => setScDismissed(true)}
+                        className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors text-xs" title="Dismiss">
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* Inline confirm */
+                  <div className="flex flex-wrap items-center gap-4">
+                    <span className="text-emerald-300 font-bold text-sm">⚡ Confirm Buy</span>
+                    <div className="text-[11px] font-mono flex items-center gap-3 flex-wrap">
+                      <span className="text-white">NIFTY {trade?.strike} CE · MARKET · MIS · 75 qty</span>
+                      <span className="text-emerald-400">~₹{trade ? (trade.entryLtp * 75).toLocaleString('en-IN') : '—'}</span>
+                      <span className="text-red-400">SL ₹{trade?.sl.cePremium}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setScConfirming(false)} disabled={scPlacing}
+                        className="px-3 py-1.5 rounded-lg border border-white/10 text-slate-400 text-xs font-medium hover:bg-white/5 disabled:opacity-40 transition-colors">
+                        Cancel
+                      </button>
+                      <button onClick={handleScPlaceOrder} disabled={scPlacing}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold disabled:opacity-40 transition-colors flex items-center gap-1.5">
+                        {scPlacing ? 'Placing…' : '✓ Place Order'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Position Conflict Banner ───────────────────────────────────────── */}
         {positionAlert && positionAlertDismissedBias !== positionAlert.bias && (

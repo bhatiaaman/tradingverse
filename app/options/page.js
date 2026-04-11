@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Nav from '../components/Nav';
 import { probAtTime, probTouch, lognormalPDF, expectedMove } from '@/app/lib/options/black-scholes';
-import { playWarningPing } from '@/app/lib/sounds';
+import { playWarningPing, playShortCoveringAlert } from '@/app/lib/sounds';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt2(n)  { return n != null ? n.toFixed(2) : '—'; }
@@ -581,7 +581,7 @@ function generateTradeDesk(chainData, straddleData) {
 }
 
 // ── Trade Desk Panel ──────────────────────────────────────────────────────────
-function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes, resolvedExpiry, marketBias, marketRegime }) {
+function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes, resolvedExpiry, marketBias, marketRegime, scTrade, scScore, scMax }) {
   const [placing,   setPlacing]   = useState(null); // strike+type key
   const [results,   setResults]   = useState({});   // key → { ok, msg }
   const [expanded,  setExpanded]  = useState(() => ({})); // key -> boolean (strike+side)
@@ -1064,6 +1064,40 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
               <span className="text-[10px] font-bold tracking-widest text-emerald-400">⚡ BUY OPPORTUNITIES</span>
               <div className="flex-1 h-px bg-emerald-900/40" />
             </div>
+
+            {/* ── Short Covering CE card — pinned top of buy zone when active ── */}
+            {scTrade && (
+              <div className="rounded-xl border border-emerald-400/40 bg-emerald-950/40 ring-1 ring-emerald-500/20 px-4 py-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-emerald-400 tracking-widest">⚡ SHORT COVERING</span>
+                    <span className="text-[9px] font-mono bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full">{scScore}/{scMax}</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono">{scTrade.expiry}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-bold text-white">NIFTY {scTrade.strike} CE</div>
+                    <div className="text-[10px] text-slate-400">Entry LTP · ATM call</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-bold text-emerald-300 font-mono">₹{scTrade.entryLtp}</div>
+                    <div className="text-[10px] text-red-400 font-mono">SL ₹{scTrade.sl.cePremium} <span className="text-slate-500">−{scTrade.sl.pctRisk}%</span></div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  {scTrade.targets.map((t, i) => (
+                    <div key={i} className="rounded-lg bg-white/[0.04] px-2 py-1 text-center">
+                      <div className="text-[9px] text-slate-500">T{i + 1} · {t.indexLevel}</div>
+                      <div className="text-[11px] font-mono text-emerald-400">₹{t.cePremium}</div>
+                      <div className="text-[9px] text-slate-500">{t.rr}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-[10px] text-slate-500 italic">{scTrade.note}</div>
+              </div>
+            )}
+
             {buys?.length > 0 && (
               <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-[11px] text-emerald-200">
                 Buy edge detected: <span className="font-bold">+{buys.length}</span>. Closest: <span className="font-mono font-bold">{closestBuyOpp?.strike} {closestBuyOpp?.type}</span>.
@@ -1379,6 +1413,16 @@ export default function OptionsPage() {
   const [marketBias, setMarketBias] = useState(null); // from /api/market-data (same as Trades home)
   const [marketRegime, setMarketRegime] = useState(null); // from /api/market-regime (NIFTY/BANKNIFTY)
 
+  // Short Covering setup
+  const [scData,        setScData]        = useState(null);
+  const [scDismissed,   setScDismissed]   = useState(false);
+  const [scConfirming,  setScConfirming]  = useState(false);
+  const [scPlacing,     setScPlacing]     = useState(false);
+  const [scOrderResult, setScOrderResult] = useState(null);
+  const scPrevActiveRef  = useRef(false);
+  const scNotifSentRef   = useRef(false);
+  const scOrderTimerRef  = useRef(null);
+
   // Straddle / Strangle chart
   const [chartMode,       setChartMode]       = useState('straddle'); // 'straddle' | 'strangle'
   const [straddleData,    setStraddleData]    = useState(null);
@@ -1461,6 +1505,87 @@ export default function OptionsPage() {
     const t = setInterval(run, 5 * 60_000);
     return () => { alive = false; clearInterval(t); };
   }, [symbol]);
+
+  // ── Short Covering: poll + sound + browser notification ──────────────────────
+  useEffect(() => {
+    const fetchSC = async () => {
+      try {
+        const r = await fetch('/api/short-covering');
+        const d = await r.json();
+        if (!d.error) {
+          setScData(d);
+          const wasActive = scPrevActiveRef.current;
+          const isActive  = d.active === true;
+          if (isActive && !wasActive) scNotifSentRef.current = false;
+          if (isActive && !scNotifSentRef.current) {
+            setScDismissed(false);
+            try { playShortCoveringAlert(); } catch {}
+            try {
+              if (typeof window !== 'undefined' && 'Notification' in window) {
+                const grant = Notification.permission === 'granted'
+                  ? 'granted'
+                  : await Notification.requestPermission();
+                if (grant === 'granted') {
+                  const trade = d.trade;
+                  const body  = trade
+                    ? `Score ${d.score}/${d.maxScore} · NIFTY ${trade.strike} CE ₹${trade.entryLtp} · SL ₹${trade.sl?.cePremium}`
+                    : `Score ${d.score}/${d.maxScore} · Spot ${d.context?.spot?.toFixed(0)}`;
+                  new Notification('⚡ Short Covering Active', { body, icon: '/favicon.ico' });
+                  scNotifSentRef.current = true;
+                }
+              }
+            } catch {}
+          }
+          if (!isActive) scNotifSentRef.current = false;
+          scPrevActiveRef.current = isActive;
+        }
+      } catch { /* silent */ }
+    };
+    fetchSC();
+    const iv = setInterval(() => {
+      const ist  = new Date(Date.now() + 5.5 * 3600 * 1000);
+      const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+      const day  = ist.getUTCDay();
+      if (day !== 0 && day !== 6 && mins >= 555 && mins <= 930) fetchSC();
+    }, 60_000);
+    return () => clearInterval(iv);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // SC order result auto-clear
+  useEffect(() => {
+    if (scOrderResult) {
+      clearTimeout(scOrderTimerRef.current);
+      scOrderTimerRef.current = setTimeout(() => setScOrderResult(null), 8000);
+    }
+    return () => clearTimeout(scOrderTimerRef.current);
+  }, [scOrderResult]);
+
+  const handleScPlaceOrder = async () => {
+    if (!scData?.trade) return;
+    setScPlacing(true);
+    try {
+      const r = await fetch('/api/place-order', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tradingsymbol:    scData.trade.symbol,
+          exchange:         'NFO',
+          transaction_type: 'BUY',
+          order_type:       'MARKET',
+          product:          'MIS',
+          quantity:         75,
+        }),
+      });
+      const result = await r.json();
+      if (!r.ok || result.error) throw new Error(result.error || 'Order failed');
+      setScOrderResult({ ok: true,  msg: `Placed · ID ${result.order_id}` });
+      setScConfirming(false);
+    } catch (e) {
+      setScOrderResult({ ok: false, msg: e.message });
+    } finally {
+      setScPlacing(false);
+    }
+  };
 
   // ── Instantly fetch Uncached Spot Price ─────────────────────────────────────
   useEffect(() => {
@@ -1553,6 +1678,83 @@ export default function OptionsPage() {
   return (
     <div className="min-h-screen bg-[#060b14] text-slate-100">
       <Nav />
+
+      {/* ── Short Covering Setup Banner ───────────────────────────────────── */}
+      {scData?.active && !scDismissed && (() => {
+        const trade = scData.trade;
+        return (
+          <div className="border-b border-emerald-500/30 bg-emerald-950/60 backdrop-blur-sm">
+            <div className="max-w-[1400px] mx-auto px-6 py-3">
+              {!scConfirming ? (
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <span className="text-emerald-400 text-base leading-none mt-0.5 flex-shrink-0">⚡</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-emerald-300 font-bold text-sm">Short Covering Active</span>
+                        <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full">{scData.score}/{scData.maxScore}</span>
+                        {scData.context?.spot && (
+                          <span className="text-[11px] text-slate-400 font-mono">
+                            NIFTY <span className="text-white">{scData.context.spot.toFixed(0)}</span>
+                            {scData.context.vwap ? <> · VWAP <span className={scData.context.spot > scData.context.vwap ? 'text-emerald-400' : 'text-red-400'}>{scData.context.vwap.toFixed(0)}</span></> : null}
+                            {scData.context.ceWall ? <> · Wall <span className="text-red-400">{scData.context.ceWall}</span></> : null}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                        {Object.entries(scData.signals ?? {}).filter(([, s]) => s.hit).slice(0, 3).map(([k, s]) => (
+                          <span key={k} className="text-[10px] text-emerald-400/80">✓ {s.detail}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                    {trade && (
+                      <div className="text-[11px] font-mono text-right">
+                        <div className="text-white font-bold">NIFTY {trade.strike} CE · ₹{trade.entryLtp}</div>
+                        <div className="text-red-400">SL ₹{trade.sl.cePremium} <span className="text-slate-500">(−{trade.sl.pctRisk}%)</span></div>
+                        <div className="text-emerald-400">T1 ₹{trade.targets[0]?.cePremium} · T2 ₹{trade.targets[1]?.cePremium}</div>
+                      </div>
+                    )}
+                    {trade && !scOrderResult?.ok && (
+                      <button onClick={() => setScConfirming(true)}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors">
+                        Buy CE ▶
+                      </button>
+                    )}
+                    {scOrderResult && (
+                      <span className={`text-[11px] font-medium px-2 py-1 rounded-lg ${scOrderResult.ok ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-400'}`}>
+                        {scOrderResult.ok ? '✅ ' : '❌ '}{scOrderResult.msg}
+                      </span>
+                    )}
+                    <button onClick={() => setScDismissed(true)}
+                      className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors text-xs">✕</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-4">
+                  <span className="text-emerald-300 font-bold text-sm">⚡ Confirm Buy</span>
+                  <div className="text-[11px] font-mono flex items-center gap-3 flex-wrap">
+                    <span className="text-white">NIFTY {trade?.strike} CE · MARKET · MIS · 75 qty</span>
+                    <span className="text-emerald-400">~₹{trade ? (trade.entryLtp * 75).toLocaleString('en-IN') : '—'}</span>
+                    <span className="text-red-400">SL ₹{trade?.sl.cePremium}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setScConfirming(false)} disabled={scPlacing}
+                      className="px-3 py-1.5 rounded-lg border border-white/10 text-slate-400 text-xs font-medium hover:bg-white/5 disabled:opacity-40 transition-colors">
+                      Cancel
+                    </button>
+                    <button onClick={handleScPlaceOrder} disabled={scPlacing}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold disabled:opacity-40 transition-colors">
+                      {scPlacing ? 'Placing…' : '✓ Place Order'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Controls ── */}
       <div className="max-w-[1400px] mx-auto px-6 pt-4 pb-2">
@@ -1663,6 +1865,7 @@ export default function OptionsPage() {
           <TradeDeskPanel
             buys={buys} sells={sells} regime={regime} stats={stats}
             symbol={symbol} spot={spot} atm={atm} strikes={strikes} resolvedExpiry={resolvedExpiry} marketBias={marketBias} marketRegime={marketRegime}
+            scTrade={scData?.active ? scData.trade : null} scScore={scData?.score} scMax={scData?.maxScore}
           />
         );
       })()}
