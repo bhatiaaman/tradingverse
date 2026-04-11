@@ -139,7 +139,7 @@ export default function FiiDiiPage() {
                 NSE Data
               </span>
               {data?.stale && (
-                <span className="text-[9px] font-medium text-amber-500">showing prev day — updates 6:30 PM IST</span>
+                <span className="text-[9px] font-medium text-amber-500">showing prev day — updates 9 PM IST</span>
               )}
             </div>
             <h1 className="text-3xl font-black mb-2">FII / DII Activity</h1>
