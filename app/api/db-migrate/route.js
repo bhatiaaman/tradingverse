@@ -7,8 +7,12 @@ import { requireOwner } from '@/app/lib/session';
 import { migrateSchema } from '@/app/lib/db';
 
 export async function POST(req) {
-  const session = await requireOwner(req);
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const secret = new URL(req.url).searchParams.get('secret');
+  const validSecret = process.env.MIGRATE_SECRET && secret === process.env.MIGRATE_SECRET;
+  if (!validSecret) {
+    const session = await requireOwner(req);
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   try {
     await migrateSchema();
