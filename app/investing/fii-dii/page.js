@@ -138,8 +138,8 @@ export default function FiiDiiPage() {
               <span className="text-[9px] font-bold tracking-[0.2em] uppercase text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800/50 px-2 py-0.5 rounded-full">
                 NSE Data
               </span>
-              {data?.cached && (
-                <span className="text-[9px] font-medium text-slate-400 dark:text-slate-600">cached</span>
+              {data?.stale && (
+                <span className="text-[9px] font-medium text-amber-500">showing prev day — updates 6:30 PM IST</span>
               )}
             </div>
             <h1 className="text-3xl font-black mb-2">FII / DII Activity</h1>
