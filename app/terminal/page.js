@@ -1520,6 +1520,290 @@ function StrikeAnalysisPanel({ analysis, loading, onRefresh, type }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ShortCoveringPanel
+// ─────────────────────────────────────────────────────────────────────────────
+const SC_SIGNAL_LABELS = {
+  vwapReclaim: { label: 'VWAP Reclaim',   max: 2 },
+  futuresOI:   { label: 'Futures OI ↓',  max: 4 },
+  optionsOI:   { label: 'Options OI ↓',  max: 1 },
+  volumeSpike: { label: 'Volume Spike',   max: 2 },
+  straddle:    { label: 'Straddle Crush', max: 3 },
+  pcrSpike:    { label: 'PCR Spike',      max: 1 },
+};
+
+function ShortCoveringPanel({ kiteConnected }) {
+  const [data,        setData]        = useState(null);
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState(null);
+  const [lastFetch,   setLastFetch]   = useState(null);
+  // Inline order confirm state
+  const [confirming,  setConfirming]  = useState(false);
+  const [placing,     setPlacing]     = useState(false);
+  const [orderResult, setOrderResult] = useState(null); // { ok, msg }
+  const orderTimerRef = useRef(null);
+
+  const fetchSC = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch('/api/short-covering');
+      const d = await r.json();
+      if (d.error && !d.active) setError(d.error);
+      else setData(d);
+      setLastFetch(new Date());
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Poll every 60s during market hours
+  useEffect(() => {
+    fetchSC();
+    const iv = setInterval(() => {
+      const ist  = new Date(Date.now() + 5.5 * 3600 * 1000);
+      const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+      const day  = ist.getUTCDay();
+      if (day !== 0 && day !== 6 && mins >= 555 && mins <= 930) fetchSC();
+    }, 60_000);
+    return () => clearInterval(iv);
+  }, [fetchSC]);
+
+  // Clear order result after 8s
+  useEffect(() => {
+    if (orderResult) {
+      clearTimeout(orderTimerRef.current);
+      orderTimerRef.current = setTimeout(() => setOrderResult(null), 8000);
+    }
+    return () => clearTimeout(orderTimerRef.current);
+  }, [orderResult]);
+
+  const handlePlaceOrder = async () => {
+    if (!data?.trade) return;
+    setPlacing(true);
+    try {
+      const r = await fetch('/api/place-order', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tradingsymbol:    data.trade.symbol,
+          exchange:         'NFO',
+          transaction_type: 'BUY',
+          order_type:       'MARKET',
+          product:          'MIS',
+          quantity:         75,
+        }),
+      });
+      const result = await r.json();
+      if (!r.ok || result.error) throw new Error(result.error || 'Order failed');
+      setOrderResult({ ok: true,  msg: `✅ Order placed · ID ${result.order_id}` });
+      setConfirming(false);
+    } catch (e) {
+      setOrderResult({ ok: false, msg: `❌ ${e.message}` });
+    } finally {
+      setPlacing(false);
+    }
+  };
+
+  const score     = data?.score ?? 0;
+  const maxScore  = data?.maxScore ?? 13;
+  const active    = data?.active ?? false;
+  const pct       = Math.round((score / maxScore) * 100);
+  const signals   = data?.signals ?? {};
+  const trade     = data?.trade;
+  const ctx       = data?.context;
+
+  const barColor  = active           ? 'bg-emerald-500'
+                  : score >= 5       ? 'bg-amber-500'
+                  : 'bg-slate-600';
+  const badgeText = active           ? '🟢 SETUP ACTIVE'
+                  : score >= 5       ? '🟡 BUILDING'
+                  : '⚪ WATCHING';
+  const borderCls = active           ? 'border-emerald-500/30 dark:border-emerald-500/25'
+                  : score >= 5       ? 'border-amber-500/30'
+                  : 'border-white/10';
+
+  return (
+    <div className="h-full overflow-y-auto p-3 space-y-3">
+      {/* Header card */}
+      <div className={`rounded-xl border ${borderCls} bg-slate-900/60 p-3`}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-white">⚡ Short Covering</span>
+            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+              active ? 'bg-emerald-500/15 text-emerald-400' : score >= 5 ? 'bg-amber-500/15 text-amber-400' : 'bg-slate-700 text-slate-400'
+            }`}>{badgeText}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono text-slate-400">{score}/{maxScore}</span>
+            <button onClick={fetchSC} disabled={loading}
+              className="p-1 hover:bg-white/5 rounded transition-colors disabled:opacity-40">
+              <RefreshCw size={11} className={`text-slate-400 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* Score bar */}
+        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden mb-3">
+          <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
+        </div>
+
+        {/* Signals grid */}
+        <div className="space-y-1">
+          {Object.entries(SC_SIGNAL_LABELS).map(([key, { label, max }]) => {
+            const sig = signals[key];
+            if (!sig) return null;
+            return (
+              <div key={key} className="flex items-center gap-2 text-[11px]">
+                <span className={sig.hit ? 'text-emerald-400' : 'text-slate-600'}>
+                  {sig.hit ? '✅' : '✗ '}
+                </span>
+                <span className={`w-28 flex-shrink-0 ${sig.hit ? 'text-slate-200' : 'text-slate-500'}`}>{label}</span>
+                <span className={`w-5 font-mono font-bold flex-shrink-0 ${sig.hit ? 'text-emerald-400' : 'text-slate-600'}`}>
+                  +{sig.score}
+                </span>
+                <span className="text-slate-500 text-[10px] truncate">{sig.detail}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Context row */}
+        {ctx && (
+          <div className="flex items-center gap-3 mt-3 pt-2 border-t border-white/[0.07] text-[10px] font-mono">
+            <span className="text-slate-400">NIFTY <span className="text-white font-bold">{ctx.spot?.toFixed(0)}</span></span>
+            {ctx.vwap && <span className="text-slate-400">VWAP <span className={ctx.spot > ctx.vwap ? 'text-emerald-400' : 'text-red-400'}>{ctx.vwap?.toFixed(0)}</span></span>}
+            {ctx.pcr  && <span className="text-slate-400">PCR <span className="text-white">{ctx.pcr}</span></span>}
+            {ctx.ceWall && <span className="text-slate-400">Wall <span className="text-red-400">{ctx.ceWall}</span></span>}
+          </div>
+        )}
+
+        {/* Last updated */}
+        {lastFetch && (
+          <div className="text-[9px] text-slate-600 mt-1.5 text-right">
+            Updated {lastFetch.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            {data?.snapshotAge && ` · snap ${data.snapshotAge}s old`}
+          </div>
+        )}
+      </div>
+
+      {/* Error state */}
+      {error && (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-[11px] text-red-400">{error}</div>
+      )}
+
+      {/* Trade suggestion card */}
+      {active && trade && !confirming && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3 space-y-2">
+          <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">CE Buy Setup</div>
+
+          {/* Symbol + entry */}
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-bold text-white">NIFTY {trade.strike} CE</div>
+              <div className="text-[10px] text-slate-400">{trade.expiry} · 75 qty · MIS</div>
+            </div>
+            <div className="text-right">
+              <div className="text-sm font-bold text-white">₹{trade.entryLtp}</div>
+              <div className="text-[10px] text-slate-400">entry LTP</div>
+            </div>
+          </div>
+
+          {/* SL */}
+          <div className="flex items-center justify-between rounded-lg bg-red-500/10 border border-red-500/20 px-2 py-1.5">
+            <span className="text-[11px] text-red-400 font-semibold">SL</span>
+            <span className="text-[11px] text-white font-mono">CE ₹{trade.sl.cePremium}</span>
+            <span className="text-[10px] text-slate-400">idx {trade.sl.indexLevel}</span>
+            <span className="text-[10px] text-red-400">−{trade.sl.pctRisk}%</span>
+          </div>
+
+          {/* Targets */}
+          <div className="space-y-1">
+            {trade.targets.map((t, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg bg-white/[0.03] px-2 py-1">
+                <span className="text-[10px] text-slate-400 w-4">T{i + 1}</span>
+                <span className="text-[10px] text-slate-300 font-mono flex-1 text-center">{t.indexLevel}</span>
+                <span className="text-[10px] text-emerald-400 font-mono w-12 text-right">₹{t.cePremium}</span>
+                <span className="text-[10px] text-emerald-300 w-8 text-right">{t.pts}</span>
+                <span className="text-[10px] text-slate-500 w-10 text-right">{t.rr}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Note */}
+          <div className="text-[10px] text-slate-500 italic">{trade.note}</div>
+
+          {/* Order result */}
+          {orderResult && (
+            <div className={`text-[11px] font-medium px-2 py-1.5 rounded-lg ${orderResult.ok ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+              {orderResult.msg}
+            </div>
+          )}
+
+          {/* Quick Buy button */}
+          {kiteConnected && !orderResult?.ok && (
+            <button
+              onClick={() => setConfirming(true)}
+              className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-colors"
+            >
+              Quick Buy CE ▶
+            </button>
+          )}
+          {!kiteConnected && (
+            <div className="text-[10px] text-slate-500 text-center">Connect Kite to place order</div>
+          )}
+        </div>
+      )}
+
+      {/* Inline confirm overlay */}
+      {active && trade && confirming && (
+        <div className="rounded-xl border border-white/20 bg-slate-800 p-4 space-y-3">
+          <div className="text-xs font-bold text-white text-center">⚡ Confirm Order</div>
+          <div className="space-y-1 text-[11px]">
+            <div className="flex justify-between"><span className="text-slate-400">Symbol</span><span className="text-white font-mono">NIFTY {trade.strike} CE</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Type</span><span className="text-white">MARKET · MIS</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Quantity</span><span className="text-white">75 (1 lot)</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Est. Entry</span><span className="text-emerald-400 font-mono">₹{trade.entryLtp} · ~₹{(trade.entryLtp * 75).toLocaleString('en-IN')}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">SL</span><span className="text-red-400 font-mono">₹{trade.sl.cePremium} (−{trade.sl.pctRisk}%)</span></div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setConfirming(false)} disabled={placing}
+              className="py-2 rounded-xl border border-white/10 text-slate-400 text-sm font-medium hover:bg-white/5 transition-colors disabled:opacity-40">
+              Cancel
+            </button>
+            <button onClick={handlePlaceOrder} disabled={placing}
+              className="py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-colors disabled:opacity-40 flex items-center justify-center gap-1.5">
+              {placing ? <><Loader2 size={13} className="animate-spin" /> Placing…</> : '✓ Place Order'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Not active state */}
+      {!active && !error && data && (
+        <div className="rounded-xl border border-white/[0.06] bg-slate-900/40 p-4 text-center space-y-1.5">
+          <div className="text-slate-400 text-xs">No setup yet — watching for signals</div>
+          <div className="text-[10px] text-slate-600">Score {score}/{maxScore} · need {data.threshold} to activate</div>
+          <div className="text-[10px] text-slate-600 mt-1">Strongest missing signal: {
+            Object.entries(signals)
+              .filter(([, s]) => !s.hit)
+              .sort(([a], [b]) => (SC_SIGNAL_LABELS[b]?.max ?? 0) - (SC_SIGNAL_LABELS[a]?.max ?? 0))
+              .at(0)?.[0]
+              ? SC_SIGNAL_LABELS[Object.entries(signals).filter(([,s]) => !s.hit).sort(([a],[b]) => (SC_SIGNAL_LABELS[b]?.max??0)-(SC_SIGNAL_LABELS[a]?.max??0)).at(0)?.[0]]?.label
+              : '—'
+          }</div>
+        </div>
+      )}
+
+      {!data && !loading && !error && (
+        <div className="text-[10px] text-slate-600 text-center py-4">Market closed or Kite disconnected</div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PlaceOrderTab
 // ─────────────────────────────────────────────────────────────────────────────
 function PlaceOrderTab({
@@ -2848,11 +3132,13 @@ export default function TerminalPage() {
         <div className={`${mobileTab !== 'trade' ? 'hidden md:flex' : 'flex'} flex-1 flex-col overflow-hidden border-l border-gray-200 dark:border-white/10`}>
           {/* Tab bar */}
           <div className="flex border-b border-gray-200 dark:border-white/10 flex-shrink-0 bg-white dark:bg-slate-900/40">
-            {[{ id: 'positions', label: 'Positions' }, { id: 'placeOrder', label: 'Place Order' }].map(tab => (
+            {[{ id: 'positions', label: 'Positions' }, { id: 'placeOrder', label: 'Place Order' }, { id: 'scSetup', label: '⚡ SC Setup' }].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600 dark:text-white'
+                    ? tab.id === 'scSetup'
+                      ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                      : 'border-blue-500 text-blue-600 dark:text-white'
                     : 'border-transparent text-gray-400 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/70'
                 }`}
               >{tab.label}</button>
@@ -2862,6 +3148,7 @@ export default function TerminalPage() {
           {/* Tab content */}
           <div className="flex-1 overflow-hidden">
             {activeTab === 'positions' && <PositionsTab positions={positions} openOrders={panelOrders} loading={positionsLoading} onRefresh={fetchPositions} />}
+            {activeTab === 'scSetup'    && <ShortCoveringPanel kiteConnected={kiteConnected} />}
             {activeTab === 'placeOrder' && (
               <PlaceOrderTab
                 symbol={symbol} formSearch={formSearch} setFormSearch={setFormSearch}
