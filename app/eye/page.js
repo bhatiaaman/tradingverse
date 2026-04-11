@@ -1099,7 +1099,13 @@ function getNiftyLevelAlerts(indices) {
               chart.clearLine('vwap');
             }
 
-            // Third Eye scan (after VWAP is populated in the ref)
+            // Third Eye scan — only meaningful during live market hours
+            if (!isMarketHours()) {
+              setThirdEyeData(null);
+              setThirdEyeLive(null);
+            }
+            if (!isMarketHours()) return; // skip scan + live card outside hours
+
             try {
               const { runThirdEye } = await import('@/app/lib/thirdEye.js');
               const vwapForHE  = customVwapDataRef.current;
