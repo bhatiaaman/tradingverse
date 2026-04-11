@@ -157,9 +157,9 @@ function calcMACD(closes) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Kite 5-minute intraday candles (today only)
+// Intraday candles — interval-aware (default 5minute)
 // ─────────────────────────────────────────────────────────────────────
-async function fetchIntradayCandles(dp) {
+async function fetchIntradayCandles(dp, interval = '5minute') {
   try {
     const toDate   = new Date();
     const fromDate = new Date();
@@ -173,7 +173,7 @@ async function fetchIntradayCandles(dp) {
     const fromStr = encodeURIComponent(fmt(fromDate));
     const toStr = encodeURIComponent(fmt(toDate));
 
-    const data = await dp.getHistoricalRaw(NIFTY_TOKEN, '5minute', fromStr, toStr);
+    const data = await dp.getHistoricalRaw(NIFTY_TOKEN, interval, fromStr, toStr);
     if (!data?.data?.candles?.length) return null;
 
     const allCandles = data.data.candles.map(([time, open, high, low, close, volume]) => ({
@@ -1333,9 +1333,12 @@ function generatePreMarketCommentary(marketData, optionChain) {
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const refresh = searchParams.get('refresh') === '1';
+    const refresh  = searchParams.get('refresh') === '1';
+    const interval = ['5minute', '15minute', '1minute'].includes(searchParams.get('interval'))
+      ? searchParams.get('interval')
+      : '5minute';
 
-    const CACHE_KEY    = `${NS}:market-commentary`;
+    const CACHE_KEY    = `${NS}:market-commentary:${interval}`;
     const marketIsOpen = isMarketOpen();
 
     if (!refresh) {
@@ -1372,7 +1375,7 @@ export async function GET(request) {
         const dp = await getDataProvider();
         if (dp.isConnected()) {
           const [id, db, fb] = await Promise.all([
-            fetchIntradayCandles(dp),
+            fetchIntradayCandles(dp, interval),
             fetchDailyBias(dp).catch(() => null),
             fetchFifteenMinBias(dp).catch(() => null),
           ]);
@@ -1452,6 +1455,7 @@ export async function GET(request) {
       dailyBias,
       fifteenMinBias,
       method:       'rule-based',
+      interval,
       marketStatus: marketIsOpen ? 'OPEN' : 'PRE_MARKET',
       timestamp:    new Date().toISOString(),
     };

@@ -417,12 +417,19 @@ function getNiftyLevelAlerts(indices) {
       return () => clearInterval(interval);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // ── Request browser notification permission on mount ─────────────────────
+    // ── Browser notification permission ──────────────────────────────────────
+    const [notifPermission, setNotifPermission] = useState('default'); // 'default' | 'granted' | 'denied'
     useEffect(() => {
-      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {});
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        setNotifPermission(Notification.permission);
       }
     }, []);
+    const requestNotifPermission = async () => {
+      try {
+        const result = await Notification.requestPermission();
+        setNotifPermission(result);
+      } catch {}
+    };
 
     // ── Short Covering: poll + sound + browser notification ──────────────────
     useEffect(() => {
@@ -689,9 +696,31 @@ function getNiftyLevelAlerts(indices) {
     const fetchCommentaryNow = useCallback(async (forceRefresh = false) => {
       setCommentaryLoading(true);
       try {
-        const response = await fetch(`/api/market-commentary${forceRefresh ? '?refresh=1' : ''}`);
+        const params = new URLSearchParams({ interval: chartInterval });
+        if (forceRefresh) params.set('refresh', '1');
+        const response = await fetch(`/api/market-commentary?${params}`);
         const data = await response.json();
         const next = data.commentary;
+        const prev = prevCommentaryRef.current;
+
+        if (soundEnabledRef.current && next && prev) {
+          const biasChanged  = next.bias !== prev.bias;
+          const newReversal  = next.reversal?.reversalZone && !prev.reversal?.reversalZone;
+          const highConf     = next.reversal?.confidence === 'HIGH';
+          const prevWarnings = (prev.warnings || []).length;
+          const nextWarnings = (next.warnings || []).length;
+          if (biasChanged) {
+            if (next.bias === 'BULLISH') playBullishFlip();
+            else if (next.bias === 'BEARISH') playBearishFlip();
+          } else if (newReversal && highConf) {
+            playReversalAlert();
+          } else if (newReversal && !highConf) {
+            playReversalBuilding();
+          } else if (nextWarnings > prevWarnings) {
+            playWarningPing();
+          }
+        }
+
         prevCommentaryRef.current = next;
         soundEnabledRef.current   = true;
         setCommentary(next);
@@ -703,7 +732,7 @@ function getNiftyLevelAlerts(indices) {
       } finally {
         setCommentaryLoading(false);
       }
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [chartInterval]); // re-fetch when TF changes
 
     // Fetch option chain data
     const fetchOptionChain = useCallback(async (forceRefresh = false) => {
@@ -749,47 +778,8 @@ function getNiftyLevelAlerts(indices) {
       return () => clearInterval(interval);
     }, []);
 
-    // Add fetch function (around line 150)
+    // Commentary polling — re-runs when chartInterval changes (fetchCommentaryNow depends on it)
     useEffect(() => {
-      const fetchCommentary = async () => {
-        try {
-          const response = await fetch('/api/market-commentary');
-          const data = await response.json();
-          const next = data.commentary;
-          const prev = prevCommentaryRef.current;
-
-          if (soundEnabledRef.current && next && prev) {
-            const biasChanged  = next.bias !== prev.bias
-            const newReversal  = next.reversal?.reversalZone && !prev.reversal?.reversalZone
-            const highConf     = next.reversal?.confidence === 'HIGH'
-            const prevWarnings = (prev.warnings || []).length
-            const nextWarnings = (next.warnings || []).length
-
-            if (biasChanged) {
-              if (next.bias === 'BULLISH') playBullishFlip()
-              else if (next.bias === 'BEARISH') playBearishFlip()
-            } else if (newReversal && highConf) {
-              playReversalAlert()
-            } else if (newReversal && !highConf) {
-              playReversalBuilding()
-            } else if (nextWarnings > prevWarnings) {
-              playWarningPing()
-            }
-          }
-
-          prevCommentaryRef.current = next
-          soundEnabledRef.current   = true
-          setCommentary(next);
-          setCommentaryRefreshedAt(new Date());
-          if (data.dailyBias)       setDailyBias(data.dailyBias);
-          if (data.fifteenMinBias)  setFifteenMinBias(data.fifteenMinBias);
-        } catch (error) {
-          console.error('Failed to fetch commentary:', error);
-        } finally {
-          setCommentaryLoading(false);
-        }
-      };
-      
       // Fetch NIFTY intraday regime
       const fetchRegime = async () => {
         try {
@@ -800,7 +790,7 @@ function getNiftyLevelAlerts(indices) {
       };
 
       // Only fetch on mount during market hours — outside hours commentary is stale/meaningless
-      if (isMarketHours()) { fetchCommentary(); fetchRegime(); }
+      if (isMarketHours()) { fetchCommentaryNow(); fetchRegime(); }
       else setCommentaryLoading(false);
 
       // Refresh every 3 min during 1:30–3:30 PM IST (high short-covering activity window), 5 min otherwise
@@ -812,14 +802,14 @@ function getNiftyLevelAlerts(indices) {
       let commentaryTimer;
       const scheduleCommentary = () => {
         commentaryTimer = setTimeout(() => {
-          if (isMarketHours() && isVisible) { fetchCommentary(); fetchRegime(); }
+          if (isMarketHours() && isVisible) { fetchCommentaryNow(); fetchRegime(); }
           scheduleCommentary();
         }, getCommentaryInterval());
       };
       scheduleCommentary();
 
       return () => clearTimeout(commentaryTimer);
-    }, []);
+    }, [fetchCommentaryNow]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Fetch sentiment data
     useEffect(() => {
@@ -1977,6 +1967,17 @@ function getNiftyLevelAlerts(indices) {
         {/* Sub-bar: Kite status + quick links */}
         <div className="border-b border-white/5 bg-[#060b14]">
           <div className="max-w-[1400px] mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between">
+            {/* Notification permission button — shown until granted */}
+            {notifPermission !== 'granted' && notifPermission !== 'denied' && (
+              <button
+                onClick={requestNotifPermission}
+                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors"
+                title="Allow browser notifications for SC alerts"
+              >
+                🔔 Enable alerts
+              </button>
+            )}
+
             {/* Kite status — admin only */}
             {userRole === 'admin' ? (
               <button
