@@ -160,7 +160,8 @@ function ChartPageInner() {
   // Tracks which candles/interval/theme the current chart was created with.
   // If these haven't changed, only overlays need updating — no destroy/recreate.
   const chartCreatedForRef = useRef({ candles: null, interval: null, theme: null });
-  const candlesRef = useRef(null);  // Track latest candles without triggering React re-runs
+  const candlesRef  = useRef(null);  // Track latest candles without triggering React re-runs
+  const smcCacheRef = useRef({ len: -1, result: null }); // memoize computeSMC — O(n²), only rerun on new candles
 
   // ── Restore persisted settings + theme after mount (avoids SSR hydration mismatch) ─
   useEffect(() => {
@@ -391,7 +392,11 @@ function ChartPageInner() {
 
     // ── SMC overlays (BOS · OB · FVG) ────────────────────────────────────
     if (settings.showSMC && candles.length > 10) {
-      const smc = computeSMC(candles);
+      // computeSMC is O(n²) — memoize by candle count so overlay toggles don't re-scan
+      if (smcCacheRef.current.len !== candles.length) {
+        smcCacheRef.current = { len: candles.length, result: computeSMC(candles) };
+      }
+      const smc = smcCacheRef.current.result;
       if (smc) chart.setSMC(smc);
       else chart.clearSMC();
     } else {

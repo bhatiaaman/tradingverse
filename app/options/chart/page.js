@@ -70,6 +70,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
   const chartRef     = useRef(null);
   const chartCreatedForRef = useRef({ el: null, interval: null });
   const candlesRef   = useRef(null);
+  const smcCacheRef  = useRef({ len: -1, result: null }); // memoize computeSMC
   const dailyCandlesRef = useRef(null);
   const tradingSymbolRef = useRef(null);
 
@@ -169,9 +170,12 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
       if (val) chart.setZone({ id: 'ema9d', price: val, color: 'rgba(232,121,249,0.85)', label: 'D·EMA9', style: 'solid', width: 2.5, inline: true });
     } else { chart.clearZone('ema9d'); }
 
-    // SMC
+    // SMC — memoize by candle count (computeSMC is O(n²))
     if (ov.smc && candles.length > 10) {
-      const smc = computeSMC(candles);
+      if (smcCacheRef.current.len !== candles.length) {
+        smcCacheRef.current = { len: candles.length, result: computeSMC(candles) };
+      }
+      const smc = smcCacheRef.current.result;
       if (smc) chart.setSMC(smc); else chart.clearSMC();
     } else { chart.clearSMC(); }
 

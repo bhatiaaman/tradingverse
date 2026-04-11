@@ -411,7 +411,9 @@ export async function GET(request) {
     // Don't cache zero-OI responses during market hours — retry next request
     const cacheTTL = (isExpiryDayZeroOI && isMarketHours()) ? 0 : (isMarketHours() ? CACHE_TTL : 3600);
     if (cacheTTL > 0) await redisSet(cacheKey, response, cacheTTL);
-    return NextResponse.json(response);
+    return NextResponse.json(response, {
+      headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=30' },
+    });
 
   } catch (error) {
     console.error('Error fetching option chain:', error.message);

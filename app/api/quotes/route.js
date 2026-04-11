@@ -80,7 +80,9 @@ export async function GET(request) {
 
     const payload = { quotes, timestamp: new Date().toISOString() };
     await redisSet(cacheKey, payload, CACHE_TTL);
-    return NextResponse.json(payload);
+    return NextResponse.json(payload, {
+      headers: { 'Cache-Control': 's-maxage=15, stale-while-revalidate=10' },
+    });
   } catch (err) {
     console.error('Quotes error:', err);
     return NextResponse.json({ quotes: [], error: 'Internal server error' });

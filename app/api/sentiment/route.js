@@ -339,33 +339,19 @@ async function fetchMultiSymbolSentiment(symbols) {
 }
 
 // ─────────────────────────────────────────────
-// FII/DII
+// FII/DII — read from Redis (written by VPS worker at 9 PM IST)
+// Never hit NSE directly from Vercel (US IP gets blocked)
 // ─────────────────────────────────────────────
 async function fetchFIIDIIData() {
   try {
-    const res = await fetch('https://www.nseindia.com/api/fiidiiTradeReact', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-        'Referer': 'https://www.nseindia.com/reports-indices-equities',
-      },
-      next: { revalidate: 0 },
-    });
-    if (!res.ok) throw new Error('Primary failed');
-    return await res.json();
-  } catch {
-    try {
-      const alt = await fetch('https://www.nseindia.com/api/fiiAndDiiData', {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': 'application/json',
-          'Referer': 'https://www.nseindia.com/',
-        },
-      });
-      if (!alt.ok) return null;
-      return await alt.json();
-    } catch { return null; }
-  }
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const raw = await redis.get(`${NS}:fii-dii:${today}`)
+             ?? await redis.get(`${NS}:fii-dii:last-known`);
+    if (!raw) return null;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    // VPS stores { data: [...], date } — extract the array
+    return parsed?.data ?? parsed;
+  } catch { return null; }
 }
 
 function analyzeFIIDII(data) {
@@ -454,12 +440,12 @@ export async function GET(request) {
     const cacheKey   = `${NS}:sentiment:market`;
     const historyKey = `${NS}:sentiment:intraday-history`;
 
-    // Always read current intraday history (live list, always fresh)
-    const rawHistory = await redis.lrange(historyKey, 0, -1).catch(() => []);
+    // Fetch history (last 10) and cache in parallel — saves one round-trip
+    const [rawHistory, cached] = await Promise.all([
+      redis.lrange(historyKey, -10, -1).catch(() => []),
+      redis.get(cacheKey).catch(() => null),
+    ]);
     const intradayHistory = rawHistory.map(r => (typeof r === 'string' ? JSON.parse(r) : r));
-
-    // Serve cache unless explicitly force-refreshed
-    const cached = await redis.get(cacheKey).catch(() => null);
 
     // Don't serve a "Login to Kite" cached response if Kite is now connected
     let skipCacheDueToKite = false;
@@ -477,12 +463,12 @@ export async function GET(request) {
     if (cached && !forceRefresh && !skipCacheDueToKite) {
       if (!isMarketHours() && cached) cached.offMarketHours = true;
       if (symbols.length > 0) {
-        const stockKey = `${NS}:sentiment:stocks:${symbols.join(',')}`;
+        const stockKey  = `${NS}:sentiment:stocks:${symbols.join(',')}`;
         let stockSentiment = await redis.get(stockKey).catch(() => null);
         if (!stockSentiment) {
           const tvSymbols = symbols.map(s => s.includes(':') ? s : `NSE:${s}`);
           stockSentiment = await fetchMultiSymbolSentiment(tvSymbols);
-          await redis.set(stockKey, stockSentiment, { ex: 300 }).catch(() => {});
+          redis.set(stockKey, stockSentiment, { ex: 300 }).catch(() => {}); // fire-and-forget
         }
         return NextResponse.json({ ...cached, intradayHistory, stocks: stockSentiment, cached: true });
       }
@@ -535,14 +521,19 @@ export async function GET(request) {
     }
 
     const cacheTTL = isMarketHours() ? 300 : 1800;
-    await redis.set(cacheKey, result, { ex: cacheTTL }).catch(() => {});
 
     if (symbols.length > 0) {
       const tvSymbols = symbols.map(s => s.includes(':') ? s : `NSE:${s}`);
-      const stockSentiment = await fetchMultiSymbolSentiment(tvSymbols);
-      const stockKey = `${NS}:sentiment:stocks:${symbols.join(',')}`;
-      await redis.set(stockKey, stockSentiment, { ex: 300 }).catch(() => {});
+      const stockKey  = `${NS}:sentiment:stocks:${symbols.join(',')}`;
+      // Fire cache write + stock fetch in parallel
+      const [, stockSentiment] = await Promise.all([
+        redis.set(cacheKey, result, { ex: cacheTTL }).catch(() => {}),
+        fetchMultiSymbolSentiment(tvSymbols),
+      ]);
+      redis.set(stockKey, stockSentiment, { ex: 300 }).catch(() => {});
       result.stocks = stockSentiment;
+    } else {
+      redis.set(cacheKey, result, { ex: cacheTTL }).catch(() => {}); // fire-and-forget
     }
 
     return NextResponse.json({ ...result, intradayHistory });

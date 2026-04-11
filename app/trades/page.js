@@ -431,10 +431,13 @@ function getNiftyLevelAlerts(indices) {
           console.error('Failed to fetch market data:', error);
         }
       };
-      fetchMarketData();
+      fetchMarketData(); // immediate
       const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchMarketData(); }, 60000);
       return () => clearInterval(interval);
     }, []);
+
+    // NOTE: intentional stagger — each poller below uses a small setTimeout on first run
+    // so all pollers don't fire simultaneously on page load.
 
     // Fetch key levels — re-fetch when chart symbol changes
     useEffect(() => {
@@ -553,9 +556,9 @@ function getNiftyLevelAlerts(indices) {
           if (firstLoad) { setSectorLoading(false); firstLoad = false; }
         }
       };
-      fetchSectorData();
+      const t = setTimeout(fetchSectorData, 2000); // stagger 2s after market-data
       const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchSectorData(); }, 300000);
-      return () => clearInterval(interval);
+      return () => { clearTimeout(t); clearInterval(interval); };
     }, []);
 
     // Fetch commentary (used by both interval and manual refresh button)
@@ -617,9 +620,9 @@ function getNiftyLevelAlerts(indices) {
           setNewsLoading(false);
         }
       };
-      fetchNewsAndEvents();
+      const t = setTimeout(fetchNewsAndEvents, 4000); // stagger 4s after load
       const interval = setInterval(fetchNewsAndEvents, 5 * 60 * 1000);
-      return () => clearInterval(interval);
+      return () => { clearTimeout(t); clearInterval(interval); };
     }, []);
 
     // Add fetch function (around line 150)
@@ -744,9 +747,9 @@ function getNiftyLevelAlerts(indices) {
           setSentimentLoading(false);
         }
       };
-      fetchSentiment();
+      const t = setTimeout(fetchSentiment, 6000); // stagger 6s — heaviest call, last
       const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchSentiment(); }, 5 * 60 * 1000);
-      return () => clearInterval(interval);
+      return () => { clearTimeout(t); clearInterval(interval); };
     }, [optionChainData?.pcr]);
 
 

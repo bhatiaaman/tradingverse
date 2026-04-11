@@ -623,7 +623,9 @@ export async function GET() {
 
     await redisSet(CACHE_KEY, marketData, CACHE_TTL);
 
-    return Response.json(marketData);
+    return Response.json(marketData, {
+      headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=30' },
+    });
 
   } catch (error) {
     console.error('Market data API error:', error);
