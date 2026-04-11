@@ -2190,10 +2190,15 @@ export default function TerminalPage() {
 
   // ── Init watchlists from localStorage
   useEffect(() => {
-    const s1 = localStorage.getItem('bv-watchlist-1');
-    setWatchlist1(s1 ? JSON.parse(s1) : DEFAULT_WATCHLIST_1);
-    const s2 = localStorage.getItem('bv-watchlist-2');
-    setWatchlist2(s2 ? JSON.parse(s2) : DEFAULT_WATCHLIST_2);
+    try {
+      const s1 = localStorage.getItem('bv-watchlist-1');
+      setWatchlist1(s1 ? JSON.parse(s1) : DEFAULT_WATCHLIST_1);
+      const s2 = localStorage.getItem('bv-watchlist-2');
+      setWatchlist2(s2 ? JSON.parse(s2) : DEFAULT_WATCHLIST_2);
+    } catch {
+      setWatchlist1(DEFAULT_WATCHLIST_1);
+      setWatchlist2(DEFAULT_WATCHLIST_2);
+    }
   }, []);
 
   useEffect(() => { if (watchlist1.length > 0) localStorage.setItem('bv-watchlist-1', JSON.stringify(watchlist1)); }, [watchlist1]);

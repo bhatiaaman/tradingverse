@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, TrendingUp, TrendingDown, Loader2, RefreshCw, LogIn, Brain, AlertTriangle, Target, ChevronDown, BarChart2 } from 'lucide-react';
 import { nseStrikeSteps } from '@/app/lib/nseStrikeSteps';
 import { useProviderStatus } from '@/app/lib/use-provider-status';
@@ -317,7 +317,7 @@ function DepthPanel({ depth, loading, onRefresh, transactionType, orderType }) {
   const { buy, sell, bestBid, bestAsk, spread, spreadPct, totalBuyQty, totalSellQty, buyPct } = depth;
 
   // Max qty across all levels for bar scaling
-  const maxQty = Math.max(1, ...buy.map(l => l?.qty ?? 0), ...sell.map(l => l?.qty ?? 0));
+  const maxQty = Math.max(1, ...(buy ?? []).map(l => l?.qty ?? 0), ...(sell ?? []).map(l => l?.qty ?? 0));
 
   const fmtQty = (q) => q == null ? '—' : q >= 10000 ? `${(q / 1000).toFixed(1)}k` : q.toLocaleString('en-IN');
   const fmtPx  = (p) => p == null ? '—' : p.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -480,6 +480,7 @@ export default function OrderModal({
   const [selectedExpiryDate, setSelectedExpiryDate] = useState(null);
   const [loadingExpiries, setLoadingExpiries] = useState(false);
 
+  const closeTimerRef = useRef(null); // tracked so we can cancel if modal reopens
   const [avgDownAlert, setAvgDownAlert] = useState(null); // Averaging down warning
   const [positions, setPositions] = useState([]);
   const [activeTab, setActiveTab] = useState('order');
@@ -495,6 +496,8 @@ export default function OrderModal({
       checkKiteAuth();
       fetchPositions();
     }
+    // Cancel any pending auto-close from a previous order placement
+    return () => clearTimeout(closeTimerRef.current);
   }, [isOpen]);
 
   const fetchPositions = async () => {
@@ -857,7 +860,8 @@ export default function OrderModal({
       if (onOrderPlaced) {
         onOrderPlaced(result);
       }
-      setTimeout(() => {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = setTimeout(() => {
         onClose();
       }, 2000);
     } catch (err) {
@@ -870,7 +874,7 @@ export default function OrderModal({
   if (!isOpen) return null;
 
   const displayPrice = optionType ? (optionLtp || 0) : (price || 0);
-  const estimatedValue = quantity * (parseFloat(limitPrice) || displayPrice);
+  const estimatedValue = quantity * (limitPrice !== '' ? (parseFloat(limitPrice) || 0) : displayPrice);
 
   // ─── VERDICT CONFIG ───────────────────────────────────────────────────
   const getVerdictColor = (verdict) => {
