@@ -1506,6 +1506,13 @@ export default function OptionsPage() {
     return () => { alive = false; clearInterval(t); };
   }, [symbol]);
 
+  // ── Request browser notification permission on mount ──────────────────────
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
   // ── Short Covering: poll + sound + browser notification ──────────────────────
   useEffect(() => {
     const fetchSC = async () => {

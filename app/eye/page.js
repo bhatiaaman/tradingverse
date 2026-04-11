@@ -313,7 +313,7 @@ function getNiftyLevelAlerts(indices) {
 
     // Chart state
     const [chartSymbol, setChartSymbol] = useState('NIFTY');
-    const [chartInterval, setChartInterval] = useState('15minute');
+    const [chartInterval, setChartInterval] = useState('5minute');
     const [emaPeriods, setEmaPeriods] = useState([9,21]);
     const [showVwap, setShowVwap] = useState(true);
     const [showZoneLines, setShowZoneLines] = useState(true);
@@ -416,6 +416,13 @@ function getNiftyLevelAlerts(indices) {
       const interval = setInterval(checkPositionsAgainstBias, 30_000);
       return () => clearInterval(interval);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── Request browser notification permission on mount ─────────────────────
+    useEffect(() => {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+    }, []);
 
     // ── Short Covering: poll + sound + browser notification ──────────────────
     useEffect(() => {
@@ -792,9 +799,9 @@ function getNiftyLevelAlerts(indices) {
         } catch {}
       };
 
-      // Always fetch on mount so summary section is always populated
-      fetchCommentary();
-      fetchRegime();
+      // Only fetch on mount during market hours — outside hours commentary is stale/meaningless
+      if (isMarketHours()) { fetchCommentary(); fetchRegime(); }
+      else setCommentaryLoading(false);
 
       // Refresh every 3 min during 1:30–3:30 PM IST (high short-covering activity window), 5 min otherwise
       const getCommentaryInterval = () => {
