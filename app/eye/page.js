@@ -383,10 +383,15 @@ function getNiftyLevelAlerts(indices) {
         .then(r => r.json())
         .then(d => {
           if (d.entries?.length) {
-            setThirdEyeLog(d.entries);
-            // Seed the dedup ref with the most recent logged bar so we don't
-            // re-log the same candle immediately after a page refresh
-            if (d.entries[0]?.time) lastCandleTimeRef.current = d.entries[0].time;
+            // Only show entries from today's IST session — discard previous day's log
+            const IST_OFF = 5.5 * 3600;
+            const todayIST = new Date(Date.now() + IST_OFF * 1000).toISOString().slice(0, 10);
+            const todayEntries = d.entries.filter(e => {
+              if (!e.time) return false;
+              return new Date((e.time + IST_OFF) * 1000).toISOString().slice(0, 10) === todayIST;
+            });
+            setThirdEyeLog(todayEntries);
+            if (todayEntries[0]?.time) lastCandleTimeRef.current = todayEntries[0].time;
           }
         })
         .catch(() => {});
