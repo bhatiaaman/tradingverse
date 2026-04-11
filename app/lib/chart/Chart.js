@@ -503,6 +503,13 @@ export function createChart(container, options = {}) {
       markDirty();
     },
 
+    // Fit the last n bars into view — same as the double-click reset for intraday charts.
+    fitRecent(n) {
+      vp.fitRecent(candles, n);
+      vp.invalidateScale();
+      markDirty();
+    },
+
     // Scroll so a specific unix-second timestamp is centred in the viewport.
     // If exact candle not found, snaps to the nearest candle within 2 hours.
     scrollToTime(unixSec) {

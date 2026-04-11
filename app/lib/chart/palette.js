@@ -12,17 +12,17 @@ export const DARK = {
   dateSepLine:   'rgba(148,163,184,0.15)',
   rsiPaneBg:     '#070b13',
   rsiPaneBorder: '#1e3a5f',
-  bosLabelBg:    'rgba(6,11,20,0.75)',
-  // BOS / CHoCH line colours
-  bullBos:   '#22c55e',
-  bearBos:   '#ef4444',
-  bullChoch: '#86efac',
-  bearChoch: '#fca5a5',
-  // Zone fills — TV-style: blue for bull, red for bear (matches TradingView dark theme)
-  fvgFill:   { bull: 'rgba(41,98,255,0.08)',   bear: 'rgba(242,54,69,0.08)'  },
-  fvgBorder: { bull: 'rgba(41,98,255,0.35)',   bear: 'rgba(242,54,69,0.35)' },
-  obFill:    { bull: 'rgba(41,98,255,0.15)',   bear: 'rgba(242,54,69,0.15)' },
-  obBorder:  { bull: 'rgba(41,98,255,0.55)',   bear: 'rgba(242,54,69,0.55)' },
+  bosLabelBg:    'rgba(6,11,20,0.85)',
+  // BOS / CHoCH — TV signature teal/red
+  bullBos:   '#089981',
+  bearBos:   '#F23645',
+  bullChoch: '#26a69a',
+  bearChoch: '#ef5350',
+  // OB fills — TV blue/red, very subtle
+  fvgFill:   { bull: 'rgba(41,98,255,0.06)',  bear: 'rgba(242,54,69,0.06)'  },
+  fvgBorder: { bull: 'rgba(41,98,255,0.25)',  bear: 'rgba(242,54,69,0.25)'  },
+  obFill:    { bull: 'rgba(41,98,255,0.12)',  bear: 'rgba(242,54,69,0.12)'  },
+  obBorder:  { bull: 'rgba(41,98,255,0.45)',  bear: 'rgba(242,54,69,0.45)'  },
 };
 
 // LIGHT uses TradingView's signature SMC palette:

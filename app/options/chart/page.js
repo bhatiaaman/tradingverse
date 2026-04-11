@@ -260,6 +260,14 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
 
       chart.setCandles(candles);
 
+      // Scroll to today's session — find first candle of today (IST) and show from there
+      const todayDateIST = new Date(Date.now() + IST_OFFSET_S * 1000).toISOString().slice(0, 10);
+      const firstTodayIdx = candles.findIndex(c =>
+        new Date((c.time + IST_OFFSET_S) * 1000).toISOString().slice(0, 10) === todayDateIST
+      );
+      const barsFromToday = firstTodayIdx >= 0 ? candles.length - firstTodayIdx + 5 : 85;
+      chart.fitRecent(Math.max(barsFromToday, 20));
+
       // Restore drawings
       try {
         const saved = localStorage.getItem(drawingKey(kiteTs, interval));
