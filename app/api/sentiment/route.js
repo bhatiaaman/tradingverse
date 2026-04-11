@@ -414,12 +414,16 @@ function calculateOverallMood(fiiDii, tradingView, optionsPCR) {
   totalScore += tvScore * 0.35;
   factors.push({ name: 'Technical (Daily)', score: tvScore, weight: 35, detail: (tradingView?.overall ?? 'neutral').replace(/_/g, ' ') });
 
+  // NSE PCR interpretation: high PCR = institutions writing puts = floor support = BULLISH.
+  // PCR > 1.2 → bullish | 1.0–1.2 → slightly bullish | 0.9–1.0 → neutral
+  // 0.75–0.9 → slightly bearish | < 0.75 → bearish
   let pcrScore = 50;
   if (optionsPCR != null) {
-    if      (optionsPCR >= 0.8 && optionsPCR <= 1.0)  pcrScore = 70;
-    else if (optionsPCR > 1.0 && optionsPCR <= 1.3)   pcrScore = 55;
-    else if (optionsPCR > 1.3)                         pcrScore = 40;
-    else if (optionsPCR < 0.7)                         pcrScore = 35;
+    if      (optionsPCR > 1.2)                        pcrScore = 70;
+    else if (optionsPCR > 1.0)                        pcrScore = 58;
+    else if (optionsPCR >= 0.9)                       pcrScore = 50;
+    else if (optionsPCR >= 0.75)                      pcrScore = 40;
+    else                                              pcrScore = 30;
   }
   totalScore += pcrScore * 0.25;
   factors.push({ name: 'Options PCR', score: pcrScore, weight: 25, detail: optionsPCR != null ? optionsPCR.toFixed(2) : '—' });
