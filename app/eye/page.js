@@ -789,9 +789,9 @@ function getNiftyLevelAlerts(indices) {
         } catch {}
       };
 
-      // Only fetch on mount during market hours — outside hours commentary is stale/meaningless
+      // Only fetch during market hours — outside hours clear stale state and show closed message
       if (isMarketHours()) { fetchCommentaryNow(); fetchRegime(); }
-      else setCommentaryLoading(false);
+      else { setCommentary(null); setCommentaryLoading(false); }
 
       // Refresh every 3 min during 1:30–3:30 PM IST (high short-covering activity window), 5 min otherwise
       const getCommentaryInterval = () => {
@@ -803,6 +803,7 @@ function getNiftyLevelAlerts(indices) {
       const scheduleCommentary = () => {
         commentaryTimer = setTimeout(() => {
           if (isMarketHours() && isVisible) { fetchCommentaryNow(); fetchRegime(); }
+          else if (!isMarketHours()) { setCommentary(null); setCommentaryLoading(false); }
           scheduleCommentary();
         }, getCommentaryInterval());
       };
@@ -1968,14 +1969,27 @@ function getNiftyLevelAlerts(indices) {
         <div className="border-b border-white/5 bg-[#060b14]">
           <div className="max-w-[1400px] mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between">
             {/* Notification permission button — shown until granted */}
-            {notifPermission !== 'granted' && notifPermission !== 'denied' && (
-              <button
-                onClick={requestNotifPermission}
-                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors"
-                title="Allow browser notifications for SC alerts"
-              >
-                🔔 Enable alerts
-              </button>
+            {notifPermission !== 'granted' && (
+              notifPermission === 'denied' ? (
+                <a
+                  href="chrome://settings/content/notifications"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-lg border border-slate-600/50 bg-slate-800/60 text-slate-500 hover:text-slate-400 transition-colors"
+                  title="Notifications blocked — open Chrome settings to allow"
+                  onClick={e => { e.preventDefault(); window.open('chrome://settings/content/notifications'); }}
+                >
+                  🔔 Notifications blocked
+                </a>
+              ) : (
+                <button
+                  onClick={requestNotifPermission}
+                  className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors"
+                  title="Allow browser notifications for SC alerts"
+                >
+                  🔔 Enable alerts
+                </button>
+              )
             )}
 
             {/* Kite status — admin only */}
