@@ -750,8 +750,9 @@ function TopBar({ indices, kiteConnected, user, setUser, regimeData }) {
 
   return (
     <div className="h-11 flex items-center justify-between px-4 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-white/10 flex-shrink-0">
-      <Link href="/trades" className="text-xs font-bold text-gray-500 dark:text-white/50 tracking-widest uppercase hover:text-gray-800 dark:hover:text-white/80 transition-colors">
-        Terminal
+      <Link href="/trades" className="text-xs font-bold text-gray-500 dark:text-white/50 tracking-widest uppercase hover:text-gray-800 dark:hover:text-white/80 transition-colors flex items-center gap-1">
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
+        Back to Trades
       </Link>
 
       <div className="flex items-center gap-3 sm:gap-6 overflow-hidden">
