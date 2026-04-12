@@ -286,13 +286,14 @@ function ScannerMiniChart({ data, boTimestamp, showPDHL, showCDHL }) {
     const dpr  = window.devicePixelRatio || 1;
     const W    = canvas.parentElement?.clientWidth || 600;
 
-    // Layout
-    const PAD_L = 8, PAD_R = 60, PAD_T = 16;
-    const PH  = Math.round(W * 0.4);   // price panel
-    const GAP = 5;                      // gap between price & volume
-    const VH  = Math.round(PH * 0.26); // volume panel
-    const TL  = 18;                     // timeline row height
-    const H   = PH + GAP + VH + TL;
+    // Layout — DAY_H is the date header strip at the very top
+    const PAD_L = 8, PAD_R = 62;
+    const DAY_H = 18;                    // date header (shows "9 Apr" / "10 Apr")
+    const PH    = Math.round(W * 0.38); // price panel
+    const GAP   = 5;                     // gap price→vol
+    const VH    = Math.round(PH * 0.25);// volume panel
+    const TL    = 16;                    // timeline (HH:MM)
+    const H     = DAY_H + PH + GAP + VH + TL;
 
     canvas.width  = W * dpr;
     canvas.height = H * dpr;
@@ -302,126 +303,131 @@ function ScannerMiniChart({ data, boTimestamp, showPDHL, showCDHL }) {
 
     const { candles, todayStartIdx, pdh, pdl, cdh, cdl } = data;
     const N = candles.length;
+    const hasPrevDay = todayStartIdx > 0 && todayStartIdx < N;
 
     // Slot / bar geometry
     const chartW = W - PAD_L - PAD_R;
     const slotW  = chartW / N;
     const barW   = Math.max(1, Math.floor(slotW * 0.65));
-    const xOf    = i => PAD_L + i * slotW + (slotW - barW) / 2; // bar left edge
-    const cxOf   = i => PAD_L + i * slotW + slotW / 2;          // bar centre
+    const xOf    = i => PAD_L + i * slotW + (slotW - barW) / 2;
+    const cxOf   = i => PAD_L + i * slotW + slotW / 2;
 
-    // Price Y — add 4% margin so candles don't touch edges
-    const hiP = Math.max(...candles.map(c => c.h));
-    const loP = Math.min(...candles.map(c => c.l));
-    const margin = (hiP - loP) * 0.04 || 1;
-    const pLo = loP - margin, pHi = hiP + margin;
-    const yP = v => PAD_T + (PH - PAD_T - 2) * (1 - (v - pLo) / (pHi - pLo));
+    // Price Y — 5% padding so candles never touch edges
+    const hiP    = Math.max(...candles.map(c => c.h));
+    const loP    = Math.min(...candles.map(c => c.l));
+    const pad5   = (hiP - loP) * 0.05 || 1;
+    const pLo    = loP - pad5, pHi = hiP + pad5;
+    const priceTop = DAY_H + 4, priceBot = DAY_H + PH - 2;
+    const yP     = v => priceTop + (priceBot - priceTop) * (1 - (v - pLo) / (pHi - pLo));
 
-    // Volume Y (inside volume strip)
-    const volTop = PH + GAP;
-    const maxV = Math.max(...candles.map(c => c.v)) || 1;
-    const yV = v => volTop + VH * (1 - v / maxV);
+    // Volume Y
+    const volTop = DAY_H + PH + GAP;
+    const maxV   = Math.max(...candles.map(c => c.v)) || 1;
+    const yV     = v => volTop + VH * (1 - v / maxV);
 
-    // IST helper (client-side, mirrors server toIST)
-    const IST_MS = 5.5 * 60 * 60 * 1000;
-    const toIST = ms => {
-      const d = new Date(ms + IST_MS);
-      const hh = d.getUTCHours(), mm = d.getUTCMinutes();
+    // IST helper
+    const IST_MS    = 5.5 * 60 * 60 * 1000;
+    const MONTHS    = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const toIST     = ms => {
+      const d  = new Date(ms + IST_MS);
       const mo = d.getUTCMonth() + 1, dy = d.getUTCDate();
+      const hh = d.getUTCHours(), mm = d.getUTCMinutes();
       return {
         h: hh, m: mm,
-        dateStr: `${d.getUTCFullYear()}-${String(mo).padStart(2,'0')}-${String(dy).padStart(2,'0')}`,
-        label: `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`,
-        dayLabel: `${dy} ${['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][mo]}`,
+        label:    `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`,
+        dayLabel: `${dy} ${MONTHS[mo]}`,
       };
     };
 
-    // ── Background ──────────────────────────────────────────────────────────
+    // Separator X between prev/today
+    const sepX = hasPrevDay ? PAD_L + todayStartIdx * slotW : null;
+
+    // ── 1. Background ────────────────────────────────────────────────────────
     ctx.fillStyle = '#060b14';
     ctx.fillRect(0, 0, W, H);
 
-    // ── Faint horizontal grid lines ──────────────────────────────────────────
+    // ── 2. Day header bands ───────────────────────────────────────────────────
+    if (hasPrevDay) {
+      // Prev day band (left half)
+      ctx.fillStyle = '#0a1220';
+      ctx.fillRect(0, 0, sepX, DAY_H);
+      ctx.fillStyle = '#0d1628';
+      ctx.fillRect(sepX, 0, W - PAD_R - sepX, DAY_H);
+      // Divider
+      ctx.strokeStyle = '#2a4a7f'; ctx.lineWidth = 1; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(sepX, 0); ctx.lineTo(sepX, DAY_H); ctx.stroke();
+      // Date labels
+      const prevLabel  = toIST(candles[0].t * 1000).dayLabel;
+      const todayLabel = toIST(candles[todayStartIdx].t * 1000).dayLabel;
+      ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = '#64748b';
+      ctx.fillText(prevLabel,  PAD_L + (sepX - PAD_L) / 2, DAY_H - 5);
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(todayLabel, sepX + (W - PAD_R - sepX) / 2, DAY_H - 5);
+    } else {
+      // Single day — just show date
+      ctx.fillStyle = '#0d1628';
+      ctx.fillRect(0, 0, W - PAD_R, DAY_H);
+      if (N > 0) {
+        const lbl = toIST(candles[0].t * 1000).dayLabel;
+        ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(lbl, (W - PAD_R) / 2, DAY_H - 5);
+      }
+    }
+
+    // ── 3. Prev-day chart area tint ───────────────────────────────────────────
+    if (hasPrevDay) {
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(PAD_L, DAY_H, sepX - PAD_L, PH + GAP + VH);
+    }
+
+    // ── 4. Faint grid lines ───────────────────────────────────────────────────
     ctx.strokeStyle = '#0d1b2e'; ctx.lineWidth = 1; ctx.setLineDash([]);
     [0.25, 0.5, 0.75].forEach(f => {
-      const y = PAD_T + (PH - PAD_T - 2) * f;
+      const y = priceTop + (priceBot - priceTop) * f;
       ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
     });
 
-    // ── Day separator ────────────────────────────────────────────────────────
-    if (todayStartIdx > 0 && todayStartIdx < N) {
-      const sx = PAD_L + todayStartIdx * slotW;
-      ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-      ctx.beginPath(); ctx.moveTo(sx, PAD_T - 4); ctx.lineTo(sx, volTop + VH); ctx.stroke();
+    // ── 5. Day separator line through price+volume panels ────────────────────
+    if (hasPrevDay) {
+      ctx.strokeStyle = '#2a4a7f'; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(sepX, DAY_H); ctx.lineTo(sepX, volTop + VH); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillStyle = '#2d4a6b';
-      if (todayStartIdx > 3) ctx.fillText('Prev', PAD_L + (sx - PAD_L) / 2, PAD_T - 5);
-      ctx.fillText('Today', sx + (W - PAD_R - sx) / 2, PAD_T - 5);
     }
 
-    // ── Level lines (PDH/PDL/CDH/CDL) ────────────────────────────────────────
-    // Drawn before candles so candles render on top
-    const drawnLabelYs = []; // track y positions to prevent label overlap
-    const drawLevel = (val, color, label) => {
-      if (val == null) return;
-      const y = yP(val);
-      if (y < PAD_T || y > PH) return; // outside price panel — skip
-      // Line
-      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
-      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
-      ctx.setLineDash([]);
-      // Right-side label — nudge if overlapping a previous label
-      ctx.font = 'bold 8.5px monospace';
-      const lbl = `${label} ${val.toFixed(1)}`;
-      let ly = y;
-      drawnLabelYs.forEach(prevY => { if (Math.abs(ly - prevY) < 11) ly = prevY + 11; });
-      drawnLabelYs.push(ly);
-      // BG chip
-      ctx.fillStyle = color + '22';
-      ctx.fillRect(W - PAD_R + 2, ly - 8, PAD_R - 3, 13);
-      // Border
-      ctx.strokeStyle = color + '55'; ctx.lineWidth = 0.75;
-      ctx.strokeRect(W - PAD_R + 2, ly - 8, PAD_R - 3, 13);
-      // Text
-      ctx.fillStyle = color; ctx.textAlign = 'left';
-      ctx.fillText(lbl, W - PAD_R + 4, ly + 3);
-    };
-    if (showPDHL) { drawLevel(pdh, '#f59e0b', 'PDH'); drawLevel(pdl, '#f59e0b', 'PDL'); }
-    if (showCDHL) { drawLevel(cdh, '#34d399', 'CDH'); drawLevel(cdl, '#f87171', 'CDL'); }
-
-    // ── VWAP (today candles only) ─────────────────────────────────────────────
-    const todaySlice = todayStartIdx >= 0 ? candles.slice(todayStartIdx) : candles;
-    let lastVwapY = null;
+    // ── 6. VWAP line (today only, drawn before candles so candles sit on top) ─
+    const todaySlice = hasPrevDay ? candles.slice(todayStartIdx) : candles;
+    const vwapStartI = hasPrevDay ? todayStartIdx : 0;
+    let   vwapPts    = [];
     if (todaySlice.length > 1) {
       let cumTV = 0, cumV = 0;
-      const pts = todaySlice.map((c, i) => {
+      vwapPts = todaySlice.map((c, i) => {
         const tp = (c.h + c.l + c.c) / 3;
         cumTV += tp * c.v; cumV += c.v;
-        return { i: todayStartIdx + i, vwap: cumV > 0 ? cumTV / cumV : tp };
+        return { i: vwapStartI + i, vwap: cumV > 0 ? cumTV / cumV : tp };
       });
-      ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 1.5; ctx.setLineDash([]);
+      ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5; ctx.setLineDash([]);
       ctx.beginPath();
-      pts.forEach((pt, j) => {
+      vwapPts.forEach((pt, j) => {
         const x = cxOf(pt.i), y = yP(pt.vwap);
         j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       });
       ctx.stroke();
-      const last = pts[pts.length - 1];
-      lastVwapY = yP(last.vwap);
     }
 
-    // ── Candles ───────────────────────────────────────────────────────────────
+    // ── 7. Candles + volume bars ──────────────────────────────────────────────
     candles.forEach((c, i) => {
-      const isPrev = todayStartIdx > 0 && i < todayStartIdx;
-      const isBO   = boTimestamp && c.t === boTimestamp;
+      const isPrev = hasPrevDay && i < todayStartIdx;
+      const isBO   = boTimestamp != null && c.t === boTimestamp;
       const isBull = c.c >= c.o;
 
       let bodyColor, wickColor;
       if (isBO) {
         bodyColor = '#eab308'; wickColor = '#fbbf24';
       } else if (isPrev) {
-        bodyColor = isBull ? 'rgba(52,211,153,0.28)' : 'rgba(248,113,113,0.28)';
-        wickColor = 'rgba(100,116,139,0.35)';
+        bodyColor = isBull ? 'rgba(52,211,153,0.25)' : 'rgba(248,113,113,0.25)';
+        wickColor = 'rgba(100,116,139,0.3)';
       } else {
         bodyColor = isBull ? '#34d399' : '#f87171';
         wickColor = isBull ? '#34d399' : '#f87171';
@@ -432,9 +438,9 @@ function ScannerMiniChart({ data, boTimestamp, showPDHL, showCDHL }) {
       const top = Math.min(yO, yC), bot = Math.max(yO, yC);
       const bodyH = Math.max(1, bot - top);
 
-      // BO candle: amber halo
+      // BO amber glow ring
       if (isBO) {
-        ctx.strokeStyle = 'rgba(234,179,8,0.35)'; ctx.lineWidth = 4; ctx.setLineDash([]);
+        ctx.strokeStyle = 'rgba(234,179,8,0.4)'; ctx.lineWidth = 5; ctx.setLineDash([]);
         ctx.strokeRect(x - 1, top - 2, barW + 2, bodyH + 4);
       }
 
@@ -444,77 +450,97 @@ function ScannerMiniChart({ data, boTimestamp, showPDHL, showCDHL }) {
       ctx.fillStyle = bodyColor;
       ctx.fillRect(x, top, barW, bodyH);
 
-      // Volume bar
-      ctx.fillStyle = isBO ? 'rgba(234,179,8,0.65)' : isPrev ? 'rgba(100,116,139,0.22)' : (isBull ? 'rgba(52,211,153,0.42)' : 'rgba(248,113,113,0.42)');
+      ctx.fillStyle = isBO
+        ? 'rgba(234,179,8,0.6)'
+        : isPrev ? 'rgba(100,116,139,0.2)'
+        : (isBull ? 'rgba(52,211,153,0.4)' : 'rgba(248,113,113,0.4)');
       const vy = yV(c.v);
       ctx.fillRect(x, vy, barW, volTop + VH - vy);
     });
 
-    // ── VWAP right-axis label (drawn after candles) ───────────────────────────
-    if (lastVwapY !== null) {
-      const todayLast = todaySlice[todaySlice.length - 1];
-      const tp = (todayLast.h + todayLast.l + todayLast.c) / 3; // approx vwap end value
-      ctx.font = 'bold 8px monospace';
-      const lbl = `VWAP`;
-      let ly = lastVwapY;
-      drawnLabelYs.forEach(prevY => { if (Math.abs(ly - prevY) < 11) ly = prevY + 11; });
-      ctx.fillStyle = '#1a2e4a';
-      ctx.fillRect(W - PAD_R + 2, ly - 7, PAD_R - 3, 12);
-      ctx.fillStyle = '#60a5fa'; ctx.textAlign = 'left';
-      ctx.fillText(lbl, W - PAD_R + 4, ly + 3);
+    // ── 8. Level lines drawn AFTER candles (always on top) ───────────────────
+    const usedLabelYs = [];
+    const safeLy = y => {
+      let ly = y;
+      usedLabelYs.forEach(py => { if (Math.abs(ly - py) < 12) ly = py + 12; });
+      usedLabelYs.push(ly);
+      return ly;
+    };
+
+    const drawLevel = (val, lineColor, labelColor, label) => {
+      if (val == null) return;
+      const y = yP(val);
+      // Draw even if slightly outside — clip gracefully
+      const clipped = y < DAY_H + 2 || y > priceBot + 2;
+      if (clipped) return;
+      // Dashed line — white-ish for PDH/PDL, green/red for CDH/CDL
+      ctx.strokeStyle = lineColor; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
+      ctx.setLineDash([]);
+      // Right axis chip
+      ctx.font = 'bold 8.5px monospace';
+      const lbl = `${label} ${val.toFixed(1)}`;
+      const ly  = safeLy(y);
+      ctx.fillStyle = '#060b14';
+      ctx.fillRect(W - PAD_R + 1, ly - 8, PAD_R - 2, 14);
+      ctx.strokeStyle = lineColor + '66'; ctx.lineWidth = 0.75;
+      ctx.strokeRect(W - PAD_R + 1, ly - 8, PAD_R - 2, 14);
+      ctx.fillStyle = labelColor; ctx.textAlign = 'left';
+      ctx.fillText(lbl, W - PAD_R + 3, ly + 3);
+    };
+
+    if (showPDHL) {
+      drawLevel(pdh, '#e2e8f0', '#f1f5f9', 'PDH');
+      drawLevel(pdl, '#e2e8f0', '#f1f5f9', 'PDL');
+    }
+    if (showCDHL) {
+      drawLevel(cdh, '#34d399', '#6ee7b7', 'CDH');
+      drawLevel(cdl, '#f87171', '#fca5a5', 'CDL');
     }
 
-    // ── Last price label ──────────────────────────────────────────────────────
+    // ── 9. VWAP right-axis label ──────────────────────────────────────────────
+    if (vwapPts.length) {
+      const lastVwap = vwapPts[vwapPts.length - 1].vwap;
+      const ly = safeLy(yP(lastVwap));
+      ctx.font = 'bold 8px monospace';
+      ctx.fillStyle = '#0d1f3c';
+      ctx.fillRect(W - PAD_R + 1, ly - 8, PAD_R - 2, 14);
+      ctx.strokeStyle = '#3b82f666'; ctx.lineWidth = 0.75;
+      ctx.strokeRect(W - PAD_R + 1, ly - 8, PAD_R - 2, 14);
+      ctx.fillStyle = '#60a5fa'; ctx.textAlign = 'left';
+      ctx.fillText('VWAP', W - PAD_R + 3, ly + 3);
+    }
+
+    // ── 10. Last price label ──────────────────────────────────────────────────
     const lastC = candles[candles.length - 1];
     const lpy   = yP(lastC.c);
     ctx.fillStyle = '#1e293b';
     ctx.fillRect(W - PAD_R + 1, lpy - 8, PAD_R - 2, 15);
-    ctx.strokeStyle = '#334155'; ctx.lineWidth = 0.75;
+    ctx.strokeStyle = '#475569'; ctx.lineWidth = 0.75;
     ctx.strokeRect(W - PAD_R + 1, lpy - 8, PAD_R - 2, 15);
-    ctx.fillStyle = '#f1f5f9'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'left';
+    ctx.fillStyle = '#f8fafc'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'left';
     ctx.fillText(lastC.c.toFixed(1), W - PAD_R + 3, lpy + 3);
 
-    // ── Timeline (x-axis) ─────────────────────────────────────────────────────
-    const tlBase = PH + GAP + VH; // top of timeline strip
+    // ── 11. Timeline (x-axis) ─────────────────────────────────────────────────
+    const tlY = volTop + VH; // top of timeline strip
     ctx.fillStyle = '#060b14';
-    ctx.fillRect(0, tlBase, W, TL);
-    // Separator line
-    ctx.strokeStyle = '#0d1b2e'; ctx.lineWidth = 1; ctx.setLineDash([]);
-    ctx.beginPath(); ctx.moveTo(PAD_L, tlBase); ctx.lineTo(W - PAD_R, tlBase); ctx.stroke();
+    ctx.fillRect(0, tlY, W, TL);
+    ctx.strokeStyle = '#0f1f35'; ctx.lineWidth = 1; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(PAD_L, tlY); ctx.lineTo(W - PAD_R, tlY); ctx.stroke();
 
-    // Draw time labels at round hours (10:00, 11:00 …) and market open (9:15)
-    // Also draw day-start date at first candle of each day
     let lastTlX = -999;
-    const MIN_LBL_GAP = 38;
-
+    const MIN_TL_GAP = 40;
     candles.forEach((c, i) => {
       const ist = toIST(c.t * 1000);
-      const isOpen = ist.h === 9 && ist.m === 15;
-      const isHour = ist.m === 0;
-      if (!isOpen && !isHour) return;
+      if (ist.m !== 0 && !(ist.h === 9 && ist.m === 15)) return;
       const x = cxOf(i);
-      if (x - lastTlX < MIN_LBL_GAP) return;
+      if (x - lastTlX < MIN_TL_GAP) return;
       lastTlX = x;
-      // Tick
       ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(x, tlBase); ctx.lineTo(x, tlBase + 3); ctx.stroke();
-      // Label
+      ctx.beginPath(); ctx.moveTo(x, tlY); ctx.lineTo(x, tlY + 3); ctx.stroke();
       ctx.font = '8px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#475569';
-      ctx.fillText(ist.label, x, tlBase + TL - 3);
+      ctx.fillText(ist.label, x, tlY + TL - 2);
     });
-
-    // Day labels: show short date at start of each day segment
-    const showDayLabel = (startIdx, endIdx) => {
-      if (startIdx >= N) return;
-      const ist = toIST(candles[startIdx].t * 1000);
-      const segMidX = cxOf(Math.floor((startIdx + Math.min(endIdx - 1, N - 1)) / 2));
-      ctx.font = '7.5px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#2d4a6b';
-      ctx.fillText(ist.dayLabel, segMidX, tlBase + TL - 3);
-    };
-    if (todayStartIdx > 0) {
-      showDayLabel(0, todayStartIdx);
-      showDayLabel(todayStartIdx, N);
-    }
 
   }, [data, boTimestamp, showPDHL, showCDHL]);
 
