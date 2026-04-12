@@ -21,75 +21,110 @@ function probColour(pct) {
 }
 
 // ── Rules-based straddle commentary ──────────────────────────────────────────
-// Derives time-aware trading insights from live straddle data + chain stats.
-function getStraddleCommentary(candles, chainData) {
+// Each line uses live session data — no static time-bucket text.
+// scData: from /api/short-covering (futures OI signal)
+function getStraddleCommentary(candles, chainData, scData) {
   if (!candles?.length || !chainData) return [];
-  const { spot, atm, atmIV, hv30, ivHvRatio, straddlePremium, expectedMove: expMove } = chainData;
+  const { spot, atm, ivHvRatio, straddlePremium, strikes } = chainData;
   const lines = [];
 
-  // Time-of-day in IST
-  const now     = new Date();
-  const istMins = ((now.getUTCHours() * 60 + now.getUTCMinutes()) + 5 * 60 + 30) % (24 * 60);
-  const minsFromOpen = istMins - (9 * 60 + 15);
-
-  // Opening vs current premium
+  // ── 1. Straddle dynamics vs open ─────────────────────────────────────────
   const openPremium = candles[0]?.value;
   const curPremium  = candles[candles.length - 1]?.value;
-  const decayPct    = openPremium > 0 ? ((openPremium - curPremium) / openPremium * 100) : 0;
+  const dayLow      = candles.length > 1 ? Math.min(...candles.map(d => d.value)) : curPremium;
+  const decayPct    = openPremium > 0 ? (openPremium - curPremium) / openPremium * 100 : 0;
+  const recoveryPct = dayLow > 0 && dayLow < curPremium ? (curPremium - dayLow) / dayLow * 100 : 0;
 
   if (openPremium && curPremium) {
     if (decayPct > 30) {
-      lines.push({ key: 'decay', icon: '↓', color: 'text-emerald-400', text: `Premium has decayed ${decayPct.toFixed(0)}% from open (₹${openPremium.toFixed(0)} → ₹${curPremium.toFixed(0)}). Strong theta — sellers in control all session.` });
+      lines.push({ key: 'decay', icon: '↓', color: 'text-emerald-400',
+        text: `Straddle down ${decayPct.toFixed(0)}% from open ₹${openPremium.toFixed(0)} → ₹${curPremium.toFixed(0)}. Sellers in full control all session — avoid buying premium until a strong breakout candle forms.` });
     } else if (decayPct > 12) {
-      lines.push({ key: 'decay', icon: '↓', color: 'text-slate-300', text: `Premium down ${decayPct.toFixed(0)}% from ₹${openPremium.toFixed(0)} open. Normal intraday decay; sellers have maintained edge.` });
+      lines.push({ key: 'decay', icon: '↓', color: 'text-slate-300',
+        text: `Premium down ${decayPct.toFixed(0)}% from ₹${openPremium.toFixed(0)}. Sellers ahead — watch for recovery above ₹${(dayLow * 1.12).toFixed(0)} as a reversal trigger.` });
     } else if (decayPct < -20) {
-      lines.push({ key: 'spike', icon: '↑', color: 'text-rose-400', text: `Premium has spiked ${Math.abs(decayPct).toFixed(0)}% above open (₹${openPremium.toFixed(0)} → ₹${curPremium.toFixed(0)}). Volatility expansion — likely news or directional breakout. Avoid fresh sells.` });
+      lines.push({ key: 'spike', icon: '↑', color: 'text-rose-400',
+        text: `Straddle up ${Math.abs(decayPct).toFixed(0)}% above open (₹${openPremium.toFixed(0)} → ₹${curPremium.toFixed(0)}). Sellers trapped — buyer momentum in control. Avoid fresh sells.` });
     } else if (decayPct < -8) {
-      lines.push({ key: 'spike', icon: '↑', color: 'text-amber-400', text: `Premium is ${Math.abs(decayPct).toFixed(0)}% above the opening level. IV expanding — buyers gaining edge.` });
-    }
-  }
-
-  // IV vs HV bias
-  if (ivHvRatio != null) {
-    if (ivHvRatio > 1.3) {
-      lines.push({ key: 'ivhv', icon: '⊕', color: 'text-emerald-400', text: `IV/HV ${ivHvRatio.toFixed(2)}× — options are expensive vs realised vol. Statistical edge for sellers (iron condors, straddle sells).` });
-    } else if (ivHvRatio > 1.1) {
-      lines.push({ key: 'ivhv', icon: '≈', color: 'text-slate-300', text: `IV/HV ${ivHvRatio.toFixed(2)}× — slightly elevated. Mild seller edge; size positions conservatively.` });
-    } else if (ivHvRatio < 0.85) {
-      lines.push({ key: 'ivhv', icon: '⊖', color: 'text-violet-400', text: `IV/HV ${ivHvRatio.toFixed(2)}× — options are cheap vs historical vol. Buyer edge: consider buying before a catalyst.` });
-    }
-  }
-
-  // Time-based session context
-  if (minsFromOpen >= 0) {
-    if (minsFromOpen < 30) {
-      lines.push({ key: 'time', icon: '⏱', color: 'text-slate-400', text: 'Opening 30 min: Premium is unstable. Wait for the first directional candle before initiating straddle positions.' });
-    } else if (minsFromOpen < 120) {
-      lines.push({ key: 'time', icon: '⏱', color: 'text-slate-400', text: 'Morning session: Theta decay is moderate. Watch for a trend forming before noon; avoid mid-range entries.' });
-    } else if (minsFromOpen < 225) {
-      lines.push({ key: 'time', icon: '⏱', color: 'text-slate-400', text: 'Post-noon: Theta decay accelerating. Selling premium here captures maximum time value with less gamma risk.' });
+      lines.push({ key: 'spike', icon: '↑', color: 'text-amber-400',
+        text: `Premium ${Math.abs(decayPct).toFixed(0)}% above open ₹${openPremium.toFixed(0)}. IV expanding — buyers gaining edge; sellers should tighten stops.` });
+    } else if (recoveryPct > 12 && decayPct > 0) {
+      lines.push({ key: 'recovery', icon: '↗', color: 'text-amber-400',
+        text: `Decayed to ₹${dayLow.toFixed(0)} then recovered ${recoveryPct.toFixed(0)}% (now ₹${curPremium.toFixed(0)}). Seller exhaustion forming — watch for directional breakout.` });
     } else {
-      lines.push({ key: 'time', icon: '⚡', color: 'text-amber-400', text: 'Final hour: Gamma spikes near ATM. Short straddles have high pin risk — avoid new positions after 3 PM.' });
+      lines.push({ key: 'flat', icon: '–', color: 'text-slate-500',
+        text: `Straddle near flat (₹${openPremium.toFixed(0)} → ₹${curPremium.toFixed(0)}). No edge yet — wait for premium to expand or decay decisively before entering.` });
     }
   }
 
-  // Breakeven check
+  // ── 2. Futures OI signal ─────────────────────────────────────────────────
+  const futOISig = scData?.signals?.futuresOI;
+  if (futOISig?.detail && !futOISig.detail.includes('No OI snapshot') && !futOISig.detail.includes('Insufficient')) {
+    if (futOISig.hit) {
+      lines.push({ key: 'futoi', icon: '⚡', color: 'text-emerald-400',
+        text: `Short covering confirmed — ${futOISig.detail}. Futures OI falling while spot rises means trapped shorts exiting; CE buyers have structural tailwind.` });
+    } else {
+      lines.push({ key: 'futoi', icon: '◈', color: 'text-slate-400',
+        text: `Futures OI: ${futOISig.detail}. No short-covering divergence — directional move not yet confirmed by OI.` });
+    }
+  }
+
+  // ── 3. OI flow: net CE vs PE build/unwind ────────────────────────────────
+  if (strikes?.length) {
+    const ceDelta = strikes.reduce((s, r) => s + (r.ce?.oiChange || 0), 0);
+    const peDelta = strikes.reduce((s, r) => s + (r.pe?.oiChange || 0), 0);
+    if (Math.abs(ceDelta) > 75000 || Math.abs(peDelta) > 75000) {
+      const fmt   = n => `${n >= 0 ? '+' : ''}${(n / 100000).toFixed(1)}L`;
+      const ceDir = ceDelta > 75000 ? 'building' : ceDelta < -75000 ? 'unwinding' : 'flat';
+      const peDir = peDelta > 75000 ? 'building' : peDelta < -75000 ? 'unwinding' : 'flat';
+      let interp  = '';
+      if      (ceDir === 'building'  && peDir === 'unwinding') interp = 'Call writers adding, put shorts covering — bearish lean.';
+      else if (ceDir === 'unwinding' && peDir === 'building')  interp = 'Call shorts covering, puts being sold — bullish lean.';
+      else if (ceDir === 'unwinding' && peDir === 'unwinding') interp = 'Both sides lightening — positioning clearing up, breakout risk rising.';
+      else if (ceDir === 'building'  && peDir === 'building')  interp = 'Both sides adding — range play, sellers on both legs.';
+      else if (ceDir === 'unwinding')                          interp = 'CE OI shrinking — call shorts covering, bullish squeeze risk.';
+      else                                                     interp = 'PE building — put sellers actively defending support.';
+      lines.push({ key: 'oiflow', icon: '⇅', color: 'text-slate-300',
+        text: `OI today — CE ${fmt(ceDelta)} (${ceDir}), PE ${fmt(peDelta)} (${peDir}). ${interp}` });
+    }
+  }
+
+  // ── 4. PCR interpretation ────────────────────────────────────────────────
+  if (strikes?.length) {
+    const totalCe = strikes.reduce((s, r) => s + (r.ce?.oi || 0), 0);
+    const totalPe = strikes.reduce((s, r) => s + (r.pe?.oi || 0), 0);
+    const pcr     = totalCe > 0 ? totalPe / totalCe : null;
+    if (pcr != null) {
+      let text = '', color = '';
+      if      (pcr > 1.5) { color = 'text-emerald-400'; text = `PCR ${pcr.toFixed(2)} — extreme put loading. Contrarian bullish; market makers likely defend against a large fall.`; }
+      else if (pcr > 1.2) { color = 'text-emerald-400'; text = `PCR ${pcr.toFixed(2)} — put sellers confident. Defined floor below current spot; mild bullish bias.`; }
+      else if (pcr > 0.9) { color = 'text-slate-400';   text = `PCR ${pcr.toFixed(2)} — balanced. Neither side dominant; wait for OI to skew before reading direction.`; }
+      else if (pcr > 0.7) { color = 'text-amber-400';   text = `PCR ${pcr.toFixed(2)} — call-skewed. Sellers building resistance above — CE momentum faces a wall.`; }
+      else                { color = 'text-rose-400';    text = `PCR ${pcr.toFixed(2)} — heavy call loading. Bears positioning aggressively; CE buyers need a strong catalyst.`; }
+      lines.push({ key: 'pcr', icon: '⊗', color, text });
+    }
+  }
+
+  // ── 5. IV vs HV (no dead zone) ──────────────────────────────────────────
+  if (ivHvRatio != null) {
+    if      (ivHvRatio > 1.3) lines.push({ key: 'ivhv', icon: '⊕', color: 'text-emerald-400', text: `IV/HV ${ivHvRatio.toFixed(2)}× — options overpriced vs realized vol. Strong seller edge; premium likely to mean-revert unless a macro event hits.` });
+    else if (ivHvRatio > 1.1) lines.push({ key: 'ivhv', icon: '≈', color: 'text-slate-300',   text: `IV/HV ${ivHvRatio.toFixed(2)}× — mild seller edge. Size conservatively; IV can normalize without triggering your stops.` });
+    else if (ivHvRatio > 0.9) lines.push({ key: 'ivhv', icon: '≈', color: 'text-slate-400',   text: `IV/HV ${ivHvRatio.toFixed(2)}× — fairly priced. No vol edge; let price direction drive the trade.` });
+    else                      lines.push({ key: 'ivhv', icon: '⊖', color: 'text-violet-400',  text: `IV/HV ${ivHvRatio.toFixed(2)}× — options cheap vs realized vol. Buyer edge when a catalyst is visible; straddle buys are asymmetric here.` });
+  }
+
+  // ── 6. Spot vs nearest breakeven (distance + urgency) ───────────────────
   if (straddlePremium > 0 && atm > 0 && spot > 0) {
     const upperBE = atm + straddlePremium;
     const lowerBE = atm - straddlePremium;
-    const distPct = Math.abs((spot - atm) / atm * 100).toFixed(1);
-    lines.push({ key: 'be', icon: '⇔', color: 'text-slate-300', text: `Breakeven ₹${lowerBE.toFixed(0)} / ₹${upperBE.toFixed(0)}. Spot ₹${spot.toFixed(0)} is ${distPct}% from ATM.` });
-  }
-
-  // Expected move vs premium
-  if (expMove?.points > 0 && straddlePremium > 0) {
-    const em = expMove.points;
-    if (em > straddlePremium * 1.1) {
-      lines.push({ key: 'em', icon: '→', color: 'text-violet-400', text: `1σ expected move ±${em}pts exceeds premium ₹${straddlePremium.toFixed(0)}. Market is pricing a smaller range than IV implies — potential long straddle setup.` });
-    } else if (em < straddlePremium * 0.9) {
-      lines.push({ key: 'em', icon: '→', color: 'text-emerald-400', text: `Premium ₹${straddlePremium.toFixed(0)} exceeds 1σ expected move ±${em}pts. Market may be over-pricing the move — sellers have mathematical edge.` });
-    } else {
-      lines.push({ key: 'em', icon: '→', color: 'text-slate-400', text: `Premium ₹${straddlePremium.toFixed(0)} is fairly priced vs 1σ expected move ±${em}pts. Neither buyers nor sellers have a clear edge from pricing alone.` });
+    const nearBE  = spot > atm ? upperBE : lowerBE;
+    const ptsAway = Math.abs(nearBE - spot);
+    const distPct = Math.abs((spot - atm) / atm * 100);
+    if (distPct > 0.2) {
+      const side       = spot > atm ? 'upper' : 'lower';
+      const imminent   = ptsAway < straddlePremium * 0.35;
+      lines.push({ key: 'be', icon: '⇔', color: imminent ? 'text-amber-400' : 'text-slate-400',
+        text: `${ptsAway.toFixed(0)}pts from ${side} breakeven ₹${nearBE.toFixed(0)}.${imminent ? ' Breach imminent — gamma accelerating, move likely to extend.' : ' Sellers still inside profit range.'}` });
     }
   }
 
@@ -1506,13 +1541,6 @@ export default function OptionsPage() {
     return () => { alive = false; clearInterval(t); };
   }, [symbol]);
 
-  // ── Request browser notification permission on mount ──────────────────────
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {});
-    }
-  }, []);
-
   // ── Short Covering: poll + sound + browser notification ──────────────────────
   useEffect(() => {
     const fetchSC = async () => {
@@ -1927,7 +1955,8 @@ export default function OptionsPage() {
             {(() => {
               const commentary = getStraddleCommentary(
                 chartMode === 'straddle' ? straddleData : strangleData,
-                chainData
+                chainData,
+                scData
               );
               if (!commentary.length) return null;
               return (
