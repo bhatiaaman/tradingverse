@@ -4,6 +4,7 @@
   import Link from 'next/link';
   import { RefreshCw, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
   import Nav from '../components/Nav';
+  import OptionsAnalysisPanel from '../components/OptionsAnalysisPanel';
   import { usePageVisibility } from '@/app/hooks/usePageVisibility';
   import { useProviderStatus } from '@/app/lib/use-provider-status';
   import { playBullishFlip, playBearishFlip, playReversalAlert, playWarningPing, playReversalBuilding, playSentiment50Cross } from '../lib/sounds';
@@ -255,6 +256,7 @@ function getNiftyLevelAlerts(indices) {
     const [optionLoading, setOptionLoading] = useState(true);
     const [optionUnderlying, setOptionUnderlying] = useState('NIFTY');
     const [optionExpiry, setOptionExpiry] = useState('weekly');
+    const [scData, setScData] = useState(null);
 
     // Helper: check if today is in last week of expiry (after 2nd last Tuesday to last Thursday)
     function isLastWeekOfExpiry(date = new Date()) {
@@ -605,6 +607,20 @@ function getNiftyLevelAlerts(indices) {
       const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchOptionChain(); }, 60000);
       return () => clearInterval(interval);
     }, [optionUnderlying, optionExpiry, fetchOptionChain]);
+
+    // Fetch short-covering data for futures OI signal
+    useEffect(() => {
+      const fetchSC = async () => {
+        try {
+          const r = await fetch('/api/short-covering');
+          const d = await r.json();
+          if (!d.error) setScData(d);
+        } catch {}
+      };
+      fetchSC();
+      const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchSC(); }, 5 * 60 * 1000);
+      return () => clearInterval(interval);
+    }, []);
 
     // Fetch market news and events
     useEffect(() => {
@@ -2705,280 +2721,16 @@ function getNiftyLevelAlerts(indices) {
             </div>
             
             {/* Options Analysis */}
-            <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-blue-300 flex items-center gap-2 flex-wrap">
-                  <span className="w-1 h-5 bg-blue-500 rounded flex-shrink-0"></span>
-                  Options Analysis
-                  {optionChainData?.marketActivity?.activity && optionChainData.marketActivity.activity !== 'Unknown' && (
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex items-center gap-1 ${
-                      ['Long Buildup', 'Short Covering'].includes(optionChainData.marketActivity.activity)
-                        ? 'bg-green-500/15 text-green-400 border border-green-500/30'
-                        : ['Short Buildup', 'Long Unwinding'].includes(optionChainData.marketActivity.activity)
-                        ? 'bg-red-500/15 text-red-400 border border-red-500/30'
-                        : optionChainData.marketActivity.activity === 'Consolidation'
-                        ? 'bg-slate-700/50 text-slate-400 border border-slate-600/30'
-                        : 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30'
-                    }`}>
-                      {optionChainData.marketActivity.emoji} {optionChainData.marketActivity.activity}
-                    </span>
-                  )}
-                </h2>
-                <div className="flex gap-2 items-center">
-                  <button
-                    onClick={() => fetchOptionChain(true)}
-                    disabled={optionLoading}
-                    title="Force refresh OI data"
-                    className="p-1.5 hover:bg-blue-800/40 rounded transition-colors disabled:opacity-40"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${optionLoading ? 'animate-spin' : ''}`} />
-                  </button>
-                  <div className="flex bg-[#0a1628] rounded-lg p-0.5">
-                    {['NIFTY', 'BANKNIFTY'].map((u) => (
-                      <button
-                        key={u}
-                        onClick={() => setOptionUnderlying(u)}
-                        className={`px-3 py-1 text-xs rounded-md transition-colors ${optionUnderlying === u ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-                      >
-                        {u === 'BANKNIFTY' ? 'Bank Nifty' : 'Nifty'}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex bg-[#0a1628] rounded-lg p-0.5">
-                    {['weekly', 'monthly'].map((e) => {
-                      const isDisabled = optionUnderlying === 'BANKNIFTY' && e === 'weekly';
-                      return (
-                        <button
-                          key={e}
-                          onClick={() => !isDisabled && setOptionExpiry(e)}
-                          className={`px-3 py-1 text-xs rounded-md transition-colors ${optionExpiry === e ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'} ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-                          disabled={isDisabled}
-                        >
-                          {e === 'weekly' ? 'Weekly' : 'Monthly'}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {optionLoading ? (
-                <div className="text-slate-400 text-center py-8">Loading options data...</div>
-              ) : optionChainData?.error ? (
-                <div className="text-red-400 text-center py-4">{optionChainData.error}</div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-4 gap-3">
-                    <div className="bg-[#0a1628] rounded-lg p-3">
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Spot / ATM</div>
-                      <div className="text-lg font-mono text-slate-200 mt-1">{parseFloat(optionChainData?.spotPrice || 0).toLocaleString()}</div>
-                      <div className="text-xs text-slate-400">ATM: {optionChainData?.atmStrike?.toLocaleString()}</div>
-                    </div>
-                    <div className="bg-[#0a1628] rounded-lg p-3">
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">PCR</div>
-                      {(optionChainData && (optionChainData.totalCallOI === 0 || optionChainData.totalPutOI === 0)) ? (
-                        <>
-                          <div className="text-lg font-mono mt-1 text-slate-500">N/A</div>
-                          <div className="text-xs text-slate-500">
-                            {optionChainData.offMarketHours ? 'Market Closed' : 'OI Unavailable — retrying'}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className={`text-lg font-mono mt-1 ${optionChainData?.pcr > 1.2 ? 'text-green-400' : optionChainData?.pcr < 0.8 ? 'text-red-400' : 'text-yellow-400'}`}>
-                            {optionChainData?.pcr?.toFixed(2) || '—'}
-                          </div>
-                          <div className="text-xs text-slate-400">{optionChainData?.pcr > 1.2 ? 'Bullish' : optionChainData?.pcr < 0.8 ? 'Bearish' : 'Neutral'}</div>
-                        </>
-                      )}
-                    </div>
-                    <div className="bg-[#0a1628] rounded-lg p-3">
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Max Pain</div>
-                      <div className="text-lg font-mono text-orange-400 mt-1">{optionChainData?.maxPain?.toLocaleString() || '—'}</div>
-                      <div className="text-xs text-slate-400">
-                        {optionChainData?.maxPain && optionChainData?.spotPrice
-                          ? `${((optionChainData.maxPain - parseFloat(optionChainData.spotPrice)) / parseFloat(optionChainData.spotPrice) * 100).toFixed(1)}% from spot`
-                          : '—'}
-                      </div>
-                    </div>
-                    <div className="bg-[#0a1628] rounded-lg p-3">
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Expiry / DTE</div>
-                      <div className="text-lg font-mono text-slate-200 mt-1">
-                        {optionChainData?.expiry ? new Date(optionChainData.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        {optionChainData?.expiry
-                          ? (() => { const d = Math.ceil((new Date(optionChainData.expiry) - new Date()) / 86400000); return `${d}d left · ${optionChainData?.expiryType || ''}`; })()
-                          : '—'}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* ATM Premiums + Straddle */}
-                  {optionChainData?.atmStrike && optionChainData?.optionChain?.length > 0 && (() => {
-                    const atm = optionChainData.atmStrike;
-                    const atmCE = optionChainData.optionChain.find(o => o.strike === atm && o.type === 'CE');
-                    const atmPE = optionChainData.optionChain.find(o => o.strike === atm && o.type === 'PE');
-                    if (!atmCE && !atmPE) return null;
-                    const straddle = (atmCE?.ltp || 0) + (atmPE?.ltp || 0);
-                    return (
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="bg-[#0a1628] rounded-lg p-3 border-l-2 border-red-500/40">
-                          <div className="text-[10px] text-slate-500 uppercase tracking-wider">{atm} CE (ATM Call)</div>
-                          <div className="text-lg font-mono text-red-400 mt-1">₹{atmCE?.ltp?.toFixed(2) || '—'}</div>
-                          <div className="text-xs text-slate-500">Premium</div>
-                        </div>
-                        <div className="bg-[#0a1628] rounded-lg p-3 border-l-2 border-green-500/40">
-                          <div className="text-[10px] text-slate-500 uppercase tracking-wider">{atm} PE (ATM Put)</div>
-                          <div className="text-lg font-mono text-green-400 mt-1">₹{atmPE?.ltp?.toFixed(2) || '—'}</div>
-                          <div className="text-xs text-slate-500">Premium</div>
-                        </div>
-                        <div className="bg-[#0a1628] rounded-lg p-3">
-                          <div className="text-[10px] text-slate-500 uppercase tracking-wider">Straddle Value</div>
-                          <div className="text-lg font-mono text-amber-400 mt-1">₹{straddle.toFixed(2)}</div>
-                          <div className="text-xs text-slate-500">Expected move ±</div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* OI Distribution — mini bar chart per strike */}
-                  {(() => {
-                    const chain = optionChainData?.optionChain;
-                    if (!chain?.length) return null;
-                    const atm = optionChainData.atmStrike;
-                    const gap = optionUnderlying === 'BANKNIFTY' ? 100 : 50;
-                    // Build rows for ATM ± 4 strikes, sorted high → low
-                    const rows = [];
-                    for (let i = 4; i >= -4; i--) {
-                      const strike = atm + i * gap;
-                      const ce = chain.find(o => o.strike === strike && o.type === 'CE');
-                      const pe = chain.find(o => o.strike === strike && o.type === 'PE');
-                      rows.push({ strike, cOI: ce?.oi || 0, pOI: pe?.oi || 0, isATM: i === 0 });
-                    }
-                    // Scale to 90th-percentile OI so one huge wall doesn't squash the rest
-                    const allOIs = rows.flatMap(r => [r.cOI, r.pOI]).filter(v => v > 0).sort((a, b) => a - b);
-                    const p90 = allOIs[Math.floor(allOIs.length * 0.9)] || 1;
-                    const pct = v => Math.min(100, Math.round((v / p90) * 100));
-                    return (
-                      <div className="bg-[#0a1628] rounded-lg p-3">
-                        <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 flex justify-between">
-                          <span className="text-green-400">← Put OI</span>
-                          <span>Strike</span>
-                          <span className="text-red-400">Call OI →</span>
-                        </div>
-                        <div className="space-y-px">
-                          {rows.map(({ strike, cOI, pOI, isATM }) => {
-                            const putPct = pct(pOI);
-                            const callPct = pct(cOI);
-                            const isS1 = strike === optionChainData?.support;
-                            const isR1 = strike === optionChainData?.resistance;
-                            return (
-                              <div key={strike} className={`flex items-center gap-1 h-6 px-1 rounded ${isATM ? 'bg-blue-500/10 ring-1 ring-blue-500/20' : ''}`}>
-                                {/* Put OI bar — grows left from center */}
-                                <div className="flex-1 flex justify-end items-center gap-1.5">
-                                  <span className="text-[9px] text-slate-600 font-mono w-8 text-right tabular-nums">{pOI > 0 ? (pOI/100000).toFixed(1)+'L' : ''}</span>
-                                  <div className="w-20 h-3 flex justify-end rounded-sm overflow-hidden">
-                                    <div className={`h-full rounded-l ${isS1 ? 'bg-green-400/70' : 'bg-green-500/35'}`} style={{ width: `${putPct}%` }} />
-                                  </div>
-                                </div>
-                                {/* Strike label */}
-                                <div className="w-16 flex-shrink-0 text-center">
-                                  <span className={`text-xs font-mono ${isATM ? 'text-blue-300 font-bold' : isS1 ? 'text-green-400' : isR1 ? 'text-red-400' : 'text-slate-400'}`}>
-                                    {strike.toLocaleString()}
-                                  </span>
-                                  {isATM && <span className="text-[8px] text-blue-500 ml-0.5">ATM</span>}
-                                  {isS1 && !isATM && <span className="text-[8px] text-green-500 ml-0.5">S1</span>}
-                                  {isR1 && !isATM && <span className="text-[8px] text-red-500 ml-0.5">R1</span>}
-                                </div>
-                                {/* Call OI bar — grows right from center */}
-                                <div className="flex-1 flex items-center gap-1.5">
-                                  <div className="w-20 h-3 rounded-sm overflow-hidden">
-                                    <div className={`h-full rounded-r ${isR1 ? 'bg-red-400/70' : 'bg-red-500/35'}`} style={{ width: `${callPct}%` }} />
-                                  </div>
-                                  <span className="text-[9px] text-slate-600 font-mono w-8 tabular-nums">{cOI > 0 ? (cOI/100000).toFixed(1)+'L' : ''}</span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        {/* S/R summary */}
-                        <div className="mt-2 pt-2 border-t border-slate-800/40 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                          <div className="flex justify-between">
-                            <span className="text-red-400 font-medium">R1 {optionChainData?.resistance?.toLocaleString()}</span>
-                            <span className="text-slate-500">{(optionChainData?.resistanceOI/100000).toFixed(1)}L</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-green-400 font-medium">S1 {optionChainData?.support?.toLocaleString()}</span>
-                            <span className="text-slate-500">{(optionChainData?.supportOI/100000).toFixed(1)}L</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-red-300">R2 {optionChainData?.resistance2?.toLocaleString()}</span>
-                            <span className="text-slate-500">{(optionChainData?.resistance2OI/100000).toFixed(1)}L</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-green-300">S2 {optionChainData?.support2?.toLocaleString()}</span>
-                            <span className="text-slate-500">{(optionChainData?.support2OI/100000).toFixed(1)}L</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  <div className="bg-[#0a1628] rounded-lg p-3 space-y-2.5">
-                    {/* Activity + description narrative */}
-                    {optionChainData?.marketActivity?.activity ? (
-                      <p className="text-sm leading-relaxed">
-                        <span className="mr-1">{optionChainData.marketActivity.emoji}</span>
-                        <span className={`font-semibold ${
-                          ['Long Buildup', 'Short Covering'].includes(optionChainData.marketActivity.activity) ? 'text-green-400'
-                          : ['Short Buildup', 'Long Unwinding'].includes(optionChainData.marketActivity.activity) ? 'text-red-400'
-                          : 'text-slate-300'
-                        }`}>{optionChainData.marketActivity.activity}</span>
-                        {optionChainData.marketActivity.description ? (
-                          <span className="text-slate-400"> — {optionChainData.marketActivity.description}.</span>
-                        ) : null}
-                        {optionChainData.marketActivity.actionable ? (
-                          <span className="text-blue-400"> {optionChainData.marketActivity.actionable}.</span>
-                        ) : null}
-                        {optionChainData?.marketActivity?.strength > 0 && (
-                          <span className="ml-2 inline-flex items-center gap-0.5 align-middle">
-                            {[...Array(Math.min(5, Math.ceil(optionChainData.marketActivity.strength / 2)))].map((_, i) => (
-                              <span key={i} className="inline-block w-1 h-2.5 bg-blue-500/70 rounded-full"></span>
-                            ))}
-                          </span>
-                        )}
-                      </p>
-                    ) : (
-                      <p className="text-sm text-slate-500">Analyzing market activity...</p>
-                    )}
-
-                    {/* Synthesized insights */}
-                    {optionChainData?.actionableInsights?.length > 0 && (
-                      <div className="space-y-2 pt-2 border-t border-blue-800/20">
-                        {optionChainData.actionableInsights.slice(0, 3).map((insight, idx) => (
-                          <p key={idx} className={`text-xs leading-relaxed ${insight.type === 'setup' ? 'text-amber-300 font-medium' : 'text-slate-300'}`}>
-                            <span className="mr-1">{insight.emoji}</span>
-                            {insight.message}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex justify-between text-xs text-slate-400 pt-2 border-t border-blue-800/40">
-                    <span>Total Call OI: <span className="text-red-400 font-mono">{(optionChainData?.totalCallOI / 100000).toFixed(1)}L</span></span>
-                    <span>Total Put OI: <span className="text-green-400 font-mono">{(optionChainData?.totalPutOI / 100000).toFixed(1)}L</span></span>
-                    <span className="text-slate-500">
-                      Last updated: {optionChainData?.timestamp ? new Date(optionChainData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}
-                    </span>
-                  </div>
-                  <div className="text-[9px] text-slate-600 pt-1">
-                    OI data reflects NSE end-of-day positions — intraday OI changes may lag by 5–15 min
-                  </div>
-                </div>
-              )}
-            </div>
+            <OptionsAnalysisPanel
+              chainData={optionChainData}
+              scData={scData}
+              loading={optionLoading}
+              underlying={optionUnderlying}
+              expiry={optionExpiry}
+              onRefresh={() => fetchOptionChain(true)}
+              onUnderlyingChange={setOptionUnderlying}
+              onExpiryChange={setOptionExpiry}
+            />
        
 
           </div>
