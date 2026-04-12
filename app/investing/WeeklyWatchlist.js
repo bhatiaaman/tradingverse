@@ -121,7 +121,7 @@ Correct Examples: Use "ELGIEQUIP" instead of "ElgiEquipments", "GET&D" instead o
     if (activeTab === 'expertsResearch') {
        return `${base}I have already selected the following specific stocks based on my own research:\n\nSTOCKS: [ ${userStocks || 'INFY, TCS'} ]\n\nFor EACH of the specific stocks listed above, provide a comprehensive swing-trading setup analysis using daily and weekly data up to the most recent Friday close.\nDo not find other stocks. Only analyze the ones provided.\n\n${constraints}`;
     } else {
-       return `${base}I need you to find up to 10 stocks for next week's watchlist with the highest probability of follow-through. Use data up to Friday's close and build the watchlist for the upcoming week starting Monday.\n\nPreferences: Liquid stocks, daily volume >2x 20-day avg, clean breakout/momentum continuation, high relative strength.\n\n${constraints}`;
+       return `${base}I need you to find up to 15 stocks for next week's watchlist with the highest probability of follow-through. Use data up to Friday's close and build the watchlist for the upcoming week starting Monday.\n\nPreferences: Liquid stocks, daily volume >2x 20-day avg, clean breakout/momentum continuation, high relative strength.\n\n${constraints}`;
     }
   };
 
