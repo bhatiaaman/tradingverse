@@ -100,17 +100,24 @@ export async function GET(req) {
     const token = await getToken(symbol, dp);
     if (!token) return NextResponse.json({ error: `No token for ${symbol}` }, { status: 404 });
 
-    // Date range: prev trading day 9:15 AM IST → now IST
+    // Date range: prev trading day + effective today (handles weekends/holidays)
     const nowEpoch   = Date.now();
     const nowISTInfo = toIST(nowEpoch);
 
-    // Previous trading day epoch
-    const prevDayEpoch   = prevTradingDayEpoch(nowEpoch);
+    // Effective today = last trading day (stays as-is on trading days, rolls back on weekends)
+    const isTodayTrading     = isTradingIST(nowISTInfo);
+    const effectiveTodayEpoch = isTodayTrading ? nowEpoch : prevTradingDayEpoch(nowEpoch);
+    const effectiveTodayIST  = toIST(effectiveTodayEpoch);
+
+    // Prev day = trading day before effective today
+    const prevDayEpoch   = prevTradingDayEpoch(effectiveTodayEpoch);
     const prevDayISTInfo = toIST(prevDayEpoch);
 
     // Format for Kite API: "YYYY-MM-DD HH:MM:SS" in IST
     const fromStr = `${prevDayISTInfo.dateStr} 09:15:00`;
-    const toStr   = `${nowISTInfo.dateStr} ${pad(nowISTInfo.hour)}:${pad(nowISTInfo.min)}:00`;
+    const toStr   = isTodayTrading
+      ? `${effectiveTodayIST.dateStr} ${pad(nowISTInfo.hour)}:${pad(nowISTInfo.min)}:00`
+      : `${effectiveTodayIST.dateStr} 15:30:00`;
 
     const raw = await dp.getHistoricalData(token, kiteInterval, fromStr, toStr);
     if (!raw?.length) return NextResponse.json({ error: 'No candles returned', candles: [] });
@@ -121,8 +128,8 @@ export async function GET(req) {
       o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume,
     }));
 
-    // Find prev day boundary — first candle on today's IST date
-    const todayDateStr  = nowISTInfo.dateStr;
+    // Find prev day boundary — first candle on effective today's IST date
+    const todayDateStr  = effectiveTodayIST.dateStr;
     const todayStartIdx = candles.findIndex(c => toIST(c.t * 1000).dateStr === todayDateStr);
 
     // CDH/CDL from today's candles

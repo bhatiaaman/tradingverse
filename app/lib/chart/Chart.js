@@ -22,6 +22,7 @@ import { renderVolume }      from './renderers/volume.js';
 import { renderCrosshair }   from './renderers/crosshair.js';
 import { renderMarkers }     from './renderers/markers.js';
 import { renderSMC }        from './renderers/smc.js';
+import { renderSLClusters } from './renderers/slClusters.js';
 import { renderCPR }        from './renderers/cpr.js';
 import { renderBB }         from './renderers/bb.js';
 import { renderRSIPane }    from './renderers/rsi-pane.js';
@@ -63,6 +64,7 @@ export function createChart(container, options = {}) {
   const lineMap     = new Map();          // id → { values: number[], color, width }
   let   zones       = [];                 // [{ id, price, color, label, style }]
   let   smcData     = null;               // { bosLevels, orderBlocks, fvgs }
+  let   slClustersData = null;            // { topBSLZones, topSSLZones }
   let   cprData     = null;               // { tc, p, bc, r1, r2, s1, s2 }
   let   bbData      = null;               // { basis: number[], upper: number[], lower: number[] }
   let   markers     = [];                 // [{ index, direction: 'bull'|'bear' }]
@@ -112,6 +114,7 @@ export function createChart(container, options = {}) {
     renderAxes(ctx, vp, candles, interval, palette);
     if (showVolume) renderVolume(ctx, vp, candles);
     if (smcData)   renderSMC(ctx, vp, smcData, palette);
+    if (slClustersData) renderSLClusters(ctx, vp, slClustersData, crosshair, candles);
     if (cprData)   renderCPR(ctx, vp, cprData, crosshair);
     if (bbData)    renderBB(ctx, vp, bbData);
     renderZones(ctx, vp, zones, crosshair);
@@ -381,6 +384,16 @@ export function createChart(container, options = {}) {
 
     clearSMC() {
       smcData = null;
+      markDirty();
+    },
+
+    setSLClusters(data) {
+      slClustersData = data ?? null;
+      markDirty();
+    },
+
+    clearSLClusters() {
+      slClustersData = null;
       markDirty();
     },
 

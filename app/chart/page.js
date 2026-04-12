@@ -69,6 +69,7 @@ const OVERLAY_DEFS = [
   { key: 'showVolume', label: 'Volume',       color: '#475569',          intradayOnly: false, dailyOnly: false },
   { key: 'showSMC',    label: 'SMC  (BOS · OB · FVG)', color: '#6366f1', intradayOnly: false, dailyOnly: false },
   { key: 'showCPR',    label: 'CPR  (TC · P · BC)',    color: '#6366f1', intradayOnly: false, dailyOnly: false },
+  { key: 'showSL',     label: 'SL Clusters',           color: '#ef4444', intradayOnly: false, dailyOnly: false },
   { key: 'showBB',     label: 'Bollinger Bands', color: '#2962ff',        intradayOnly: false, dailyOnly: false, hasParams: true },
   { key: 'showRSI',    label: 'RSI',          color: '#818cf8',          intradayOnly: false, dailyOnly: false, hasParams: true },
 ];
@@ -85,6 +86,7 @@ const DEFAULT_SETTINGS = {
   showVolume:    true,
   showSMC:       true,
   showCPR:       false,
+  showSL:        false,
   showBB:        false,
   showRSI:       false,
   bullColor:     '#22c55e',
@@ -139,6 +141,7 @@ function ChartPageInner() {
   const [showSettings, setShowSettings]   = useState(false);
   const [dropdownPos, setDropdownPos]     = useState(null);
   const [intelligence, setIntelligence]   = useState(null);
+  const [slData, setSlData]               = useState(null);
   const [hoverOHLC, setHoverOHLC]         = useState(null);
   const [isMobile, setIsMobile]           = useState(false);
   const [chartTheme, setChartTheme]       = useState(themeParam === 'light' ? 'light' : 'dark');
@@ -175,7 +178,7 @@ function ChartPageInner() {
   // If these haven't changed, only overlays need updating — no destroy/recreate.
   const chartCreatedForRef = useRef({ candles: null, interval: null, theme: null });
   const candlesRef  = useRef(null);  // Track latest candles without triggering React re-runs
-  const smcCacheRef = useRef({ len: -1, result: null }); // memoize computeSMC — O(n²), only rerun on new candles
+  const smcCacheRef = useRef({ key: null, result: null }); // memoize computeSMC — O(n²), only rerun on new candles
 
   // ── Restore persisted settings + theme after mount (avoids SSR hydration mismatch) ─
   useEffect(() => {
@@ -228,6 +231,9 @@ function ChartPageInner() {
         `/api/intelligence?symbol=${encodeURIComponent(symbol)}&interval=${intelInterval}`
       );
       if (intelRes.ok) setIntelligence(await intelRes.json());
+
+      const slRes = await fetch(`/api/analysis/stop-loss-zones?symbol=${encodeURIComponent(symbol)}`);
+      if (slRes.ok) setSlData(await slRes.json());
     } catch { /* non-fatal */ }
     setLoading(false);
   }, [symbol, chartInterval]);
@@ -434,14 +440,22 @@ function ChartPageInner() {
     // ── SMC overlays (BOS · OB · FVG) ────────────────────────────────────
     if (settings.showSMC && candles.length > 10) {
       // computeSMC is O(n²) — memoize by candle count so overlay toggles don't re-scan
-      if (smcCacheRef.current.len !== candles.length) {
-        smcCacheRef.current = { len: candles.length, result: computeSMC(candles) };
+      const cacheKey = `${symbol}_${chartInterval}_${candles.length}`;
+      if (smcCacheRef.current.key !== cacheKey) {
+        smcCacheRef.current = { key: cacheKey, result: computeSMC(candles) };
       }
       const smc = smcCacheRef.current.result;
       if (smc) chart.setSMC(smc);
       else chart.clearSMC();
     } else {
       chart.clearSMC();
+    }
+
+    // ── SL Clusters ──────────────────────────────────────────────────────
+    if (settings.showSL && slData) {
+      chart.setSLClusters(slData);
+    } else {
+      chart.clearSLClusters();
     }
 
     // ── CPR (Central Pivot Range) — per-day segments ─────────────────────
@@ -478,7 +492,7 @@ function ChartPageInner() {
     } else {
       chart.clearRSIPane();
     }
-  }, [settings, dailyCandles, intelligence, chartInterval]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [settings, dailyCandles, intelligence, slData, chartInterval]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Build / rebuild chart, or just update overlays if data hasn't changed ────
   // Key invariant: chart is destroyed+recreated (resetting viewport) ONLY when
@@ -572,7 +586,7 @@ function ChartPageInner() {
         }
       }
     });
-  }, [candles, dailyCandles, chartInterval, chartTheme, intelligence, settings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candles, dailyCandles, chartInterval, chartTheme, intelligence, settings, slData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Destroy chart only on unmount — NOT on every effect re-run.
   // Putting destroy() in the main effect cleanup was the root cause of viewport resets:

@@ -1187,21 +1187,32 @@ export default function ScannerPage({ scanName, scanSlug }) {
                                   boTimestamp={(() => {
                                     const triggeredAt = latestData?.triggeredAt;
                                     if (!triggeredAt) return null;
-                                    // Reuse buildSignalUnixSec logic
+                                    const candles = chartCandles?.candles;
+                                    if (!candles?.length) return null;
+                                    // Derive the trading day date from the candle data
+                                    // (handles weekends: candles are from last trading day, not today)
+                                    const todayIdx = chartCandles.todayStartIdx >= 0 ? chartCandles.todayStartIdx : 0;
+                                    const IST_MS = 5.5 * 60 * 60 * 1000;
+                                    const d = new Date(candles[todayIdx].t * 1000 + IST_MS);
+                                    const p = n => String(n).padStart(2,'0');
+                                    const tradingDateStr = `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())}`;
+                                    const intervalMs = 15 * 60 * 1000;
                                     const match = String(triggeredAt).match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
                                     if (match) {
                                       let h = parseInt(match[1]), m = parseInt(match[2]);
                                       if (match[3].toLowerCase() === 'pm' && h !== 12) h += 12;
                                       if (match[3].toLowerCase() === 'am' && h === 12) h = 0;
-                                      const now = new Date();
-                                      const ist = new Date(now.getTime() + (now.getTimezoneOffset() + 330) * 60000);
-                                      const p = n => String(n).padStart(2,'0');
-                                      const iso = `${ist.getFullYear()}-${p(ist.getMonth()+1)}-${p(ist.getDate())}T${p(h)}:${p(m)}:00+05:30`;
+                                      const iso = `${tradingDateStr}T${p(h)}:${p(m)}:00+05:30`;
                                       const ms = new Date(iso).getTime();
-                                      const snapped = Math.floor(ms / (15*60000)) * (15*60000);
-                                      return Math.floor((snapped - 15*60000) / 1000);
+                                      if (!ms || isNaN(ms)) return null;
+                                      const snapped = Math.floor(ms / intervalMs) * intervalMs;
+                                      return Math.floor((snapped - intervalMs) / 1000);
                                     }
-                                    return null;
+                                    // ISO string fallback
+                                    const ms = new Date(triggeredAt).getTime();
+                                    if (!ms || isNaN(ms)) return null;
+                                    const snapped = Math.floor(ms / intervalMs) * intervalMs;
+                                    return Math.floor((snapped - intervalMs) / 1000);
                                   })()}
                                   showPDHL={showPDHL}
                                   showCDHL={showCDHL}

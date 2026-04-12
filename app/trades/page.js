@@ -350,9 +350,13 @@ function getNiftyLevelAlerts(indices) {
     const [showZoneLines, setShowZoneLines] = useState(true);
     const [showVolume, setShowVolume] = useState(true);
     const [showBOS, setShowBOS] = useState(true);
+    const [showSLZones, setShowSLZones] = useState(false);
+    const [slZonesData, setSlZonesData] = useState(null);
     const [showChartSettings, setShowChartSettings] = useState(false);
     const chartSettingsRef = useRef(null);
     const showBOSRef = useRef(true);
+    const showSLZonesRef = useRef(false);
+    useEffect(() => { showSLZonesRef.current = showSLZones; }, [showSLZones]);
     const keyLevelsForZoneRef = useRef(null);
     const showZoneLinesRef = useRef(true);
     const customChartRef = useRef(null);      // our chart instance
@@ -440,6 +444,21 @@ function getNiftyLevelAlerts(indices) {
 
     // NOTE: intentional stagger — each poller below uses a small setTimeout on first run
     // so all pollers don't fire simultaneously on page load.
+
+    // Fetch SL Zones
+    useEffect(() => {
+      const fetchSLZones = async () => {
+        try {
+          const res = await fetch(`/api/analysis/stop-loss-zones?symbol=${encodeURIComponent(chartSymbol)}`);
+          const data = await res.json();
+          if (!data.error) setSlZonesData(data);
+        } catch { /* ignore */ }
+      };
+      setSlZonesData(null); // clear exactly like keyLevels
+      fetchSLZones();
+      const interval = setInterval(fetchSLZones, 300000); // refresh 5 min
+      return () => clearInterval(interval);
+    }, [chartSymbol]);
 
     // Fetch key levels — re-fetch when chart symbol changes
     useEffect(() => {
@@ -1139,6 +1158,17 @@ function getNiftyLevelAlerts(indices) {
         }
       }
     }, [showBOS]);
+
+    // Sync SL Zones when toggle changes or data updates
+    useEffect(() => {
+      const chart = customChartRef.current;
+      if (!chart) return;
+      if (showSLZones && slZonesData) {
+        chart.setSLClusters(slZonesData);
+      } else {
+        chart.clearSLClusters();
+      }
+    }, [showSLZones, slZonesData]);
 
     // Helper: bias to emoji
     const biasEmoji = (bias) => {
@@ -2423,6 +2453,7 @@ function getNiftyLevelAlerts(indices) {
                                 { id: 'vwap',  label: 'VWAP', sub: 'intraday only', val: showVwap,      set: setShowVwap,      disabled: chartInterval !== '5minute' && chartInterval !== '15minute' },
                                 { id: 'zone',  label: 'Zone Lines', sub: 'S/R levels',  val: showZoneLines, set: setShowZoneLines },
                                 { id: 'bos',   label: 'BOS',  sub: 'Break of Structure', val: showBOS,  set: setShowBOS },
+                                { id: 'sl',    label: 'SL Clusters', sub: 'Liquidity Zones', val: showSLZones,  set: setShowSLZones },
                               ].map(({ id, label, sub, val, set, disabled }) => (
                                 <label key={id} className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-40' : ''}`}>
                                   <div
