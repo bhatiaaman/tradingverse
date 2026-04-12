@@ -285,9 +285,15 @@ function ScannerMiniChart({ data, boTimestamp, showPDHL, showCDHL }) {
     const ctx  = canvas.getContext('2d');
     const dpr  = window.devicePixelRatio || 1;
     const W    = canvas.parentElement?.clientWidth || 600;
-    const PH   = Math.round(W * 0.38); // price panel height
-    const VH   = Math.round(PH * 0.28); // volume panel height
-    const H    = PH + VH + 8;          // total
+
+    // Layout
+    const PAD_L = 8, PAD_R = 60, PAD_T = 16;
+    const PH  = Math.round(W * 0.4);   // price panel
+    const GAP = 5;                      // gap between price & volume
+    const VH  = Math.round(PH * 0.26); // volume panel
+    const TL  = 18;                     // timeline row height
+    const H   = PH + GAP + VH + TL;
+
     canvas.width  = W * dpr;
     canvas.height = H * dpr;
     canvas.style.width  = W + 'px';
@@ -296,76 +302,112 @@ function ScannerMiniChart({ data, boTimestamp, showPDHL, showCDHL }) {
 
     const { candles, todayStartIdx, pdh, pdl, cdh, cdl } = data;
     const N = candles.length;
-    const PAD_L = 8, PAD_R = 56, PAD_T = 12, PAD_B = 4;
 
-    // Price range
-    const priceCandles = candles;
-    const hiP = Math.max(...priceCandles.map(c => c.h));
-    const loP = Math.min(...priceCandles.map(c => c.l));
-    const pRange = hiP - loP || 1;
-    const yP = v => PAD_T + (PH - PAD_T - PAD_B) * (1 - (v - loP) / pRange);
-
-    // Volume range
-    const maxV = Math.max(...candles.map(c => c.v)) || 1;
-    const yV = v => PH + 8 + VH * (1 - v / maxV);
-
-    // Bar width
+    // Slot / bar geometry
     const chartW = W - PAD_L - PAD_R;
-    const barW   = Math.max(1, Math.floor(chartW / N) - 1);
-    const xOf    = i => PAD_L + i * (chartW / N) + (chartW / N - barW) / 2;
+    const slotW  = chartW / N;
+    const barW   = Math.max(1, Math.floor(slotW * 0.65));
+    const xOf    = i => PAD_L + i * slotW + (slotW - barW) / 2; // bar left edge
+    const cxOf   = i => PAD_L + i * slotW + slotW / 2;          // bar centre
+
+    // Price Y — add 4% margin so candles don't touch edges
+    const hiP = Math.max(...candles.map(c => c.h));
+    const loP = Math.min(...candles.map(c => c.l));
+    const margin = (hiP - loP) * 0.04 || 1;
+    const pLo = loP - margin, pHi = hiP + margin;
+    const yP = v => PAD_T + (PH - PAD_T - 2) * (1 - (v - pLo) / (pHi - pLo));
+
+    // Volume Y (inside volume strip)
+    const volTop = PH + GAP;
+    const maxV = Math.max(...candles.map(c => c.v)) || 1;
+    const yV = v => volTop + VH * (1 - v / maxV);
+
+    // IST helper (client-side, mirrors server toIST)
+    const IST_MS = 5.5 * 60 * 60 * 1000;
+    const toIST = ms => {
+      const d = new Date(ms + IST_MS);
+      const hh = d.getUTCHours(), mm = d.getUTCMinutes();
+      const mo = d.getUTCMonth() + 1, dy = d.getUTCDate();
+      return {
+        h: hh, m: mm,
+        dateStr: `${d.getUTCFullYear()}-${String(mo).padStart(2,'0')}-${String(dy).padStart(2,'0')}`,
+        label: `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`,
+        dayLabel: `${dy} ${['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][mo]}`,
+      };
+    };
 
     // ── Background ──────────────────────────────────────────────────────────
     ctx.fillStyle = '#060b14';
     ctx.fillRect(0, 0, W, H);
 
+    // ── Faint horizontal grid lines ──────────────────────────────────────────
+    ctx.strokeStyle = '#0d1b2e'; ctx.lineWidth = 1; ctx.setLineDash([]);
+    [0.25, 0.5, 0.75].forEach(f => {
+      const y = PAD_T + (PH - PAD_T - 2) * f;
+      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
+    });
+
     // ── Day separator ────────────────────────────────────────────────────────
     if (todayStartIdx > 0 && todayStartIdx < N) {
-      const sx = xOf(todayStartIdx) - (chartW / N) * 0.5;
-      ctx.strokeStyle = '#1e3a5f';
-      ctx.lineWidth   = 1;
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath(); ctx.moveTo(sx, PAD_T); ctx.lineTo(sx, PH); ctx.stroke();
+      const sx = PAD_L + todayStartIdx * slotW;
+      ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(sx, PAD_T - 4); ctx.lineTo(sx, volTop + VH); ctx.stroke();
       ctx.setLineDash([]);
-      // "Prev" / "Today" labels
-      ctx.fillStyle = '#334155'; ctx.font = `${9 * dpr / dpr}px sans-serif`; ctx.textAlign = 'center';
-      ctx.fillText('Prev', PAD_L + (sx - PAD_L) / 2, PAD_T - 3);
-      ctx.fillText('Today', sx + (W - PAD_R - sx) / 2, PAD_T - 3);
+      ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = '#2d4a6b';
+      if (todayStartIdx > 3) ctx.fillText('Prev', PAD_L + (sx - PAD_L) / 2, PAD_T - 5);
+      ctx.fillText('Today', sx + (W - PAD_R - sx) / 2, PAD_T - 5);
     }
 
-    // ── PDH / PDL ────────────────────────────────────────────────────────────
+    // ── Level lines (PDH/PDL/CDH/CDL) ────────────────────────────────────────
+    // Drawn before candles so candles render on top
+    const drawnLabelYs = []; // track y positions to prevent label overlap
     const drawLevel = (val, color, label) => {
       if (val == null) return;
       const y = yP(val);
-      ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+      if (y < PAD_T || y > PH) return; // outside price panel — skip
+      // Line
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
       ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = color; ctx.font = '9px monospace'; ctx.textAlign = 'left';
-      ctx.fillText(`${label} ${val.toFixed(1)}`, W - PAD_R + 3, y + 3);
+      // Right-side label — nudge if overlapping a previous label
+      ctx.font = 'bold 8.5px monospace';
+      const lbl = `${label} ${val.toFixed(1)}`;
+      let ly = y;
+      drawnLabelYs.forEach(prevY => { if (Math.abs(ly - prevY) < 11) ly = prevY + 11; });
+      drawnLabelYs.push(ly);
+      // BG chip
+      ctx.fillStyle = color + '22';
+      ctx.fillRect(W - PAD_R + 2, ly - 8, PAD_R - 3, 13);
+      // Border
+      ctx.strokeStyle = color + '55'; ctx.lineWidth = 0.75;
+      ctx.strokeRect(W - PAD_R + 2, ly - 8, PAD_R - 3, 13);
+      // Text
+      ctx.fillStyle = color; ctx.textAlign = 'left';
+      ctx.fillText(lbl, W - PAD_R + 4, ly + 3);
     };
     if (showPDHL) { drawLevel(pdh, '#f59e0b', 'PDH'); drawLevel(pdl, '#f59e0b', 'PDL'); }
     if (showCDHL) { drawLevel(cdh, '#34d399', 'CDH'); drawLevel(cdl, '#f87171', 'CDL'); }
 
-    // ── VWAP (today only) ────────────────────────────────────────────────────
+    // ── VWAP (today candles only) ─────────────────────────────────────────────
     const todaySlice = todayStartIdx >= 0 ? candles.slice(todayStartIdx) : candles;
+    let lastVwapY = null;
     if (todaySlice.length > 1) {
       let cumTV = 0, cumV = 0;
-      const vwapPts = todaySlice.map((c, i) => {
+      const pts = todaySlice.map((c, i) => {
         const tp = (c.h + c.l + c.c) / 3;
         cumTV += tp * c.v; cumV += c.v;
         return { i: todayStartIdx + i, vwap: cumV > 0 ? cumTV / cumV : tp };
       });
       ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 1.5; ctx.setLineDash([]);
       ctx.beginPath();
-      vwapPts.forEach((pt, j) => {
-        const x = xOf(pt.i) + barW / 2;
-        const y = yP(pt.vwap);
+      pts.forEach((pt, j) => {
+        const x = cxOf(pt.i), y = yP(pt.vwap);
         j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       });
       ctx.stroke();
-      // VWAP label
-      const lastVwap = vwapPts[vwapPts.length - 1];
-      ctx.fillStyle = '#60a5fa'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
-      ctx.fillText(`VWAP ${lastVwap.vwap.toFixed(1)}`, W - PAD_R + 3, yP(lastVwap.vwap) + 3);
+      const last = pts[pts.length - 1];
+      lastVwapY = yP(last.vwap);
     }
 
     // ── Candles ───────────────────────────────────────────────────────────────
@@ -376,60 +418,103 @@ function ScannerMiniChart({ data, boTimestamp, showPDHL, showCDHL }) {
 
       let bodyColor, wickColor;
       if (isBO) {
-        bodyColor = '#eab308'; wickColor = '#ca8a04';
+        bodyColor = '#eab308'; wickColor = '#fbbf24';
       } else if (isPrev) {
-        bodyColor = isBull ? 'rgba(52,211,153,0.35)' : 'rgba(248,113,113,0.35)';
-        wickColor = isPrev ? 'rgba(100,116,139,0.4)' : (isBull ? '#34d399' : '#f87171');
+        bodyColor = isBull ? 'rgba(52,211,153,0.28)' : 'rgba(248,113,113,0.28)';
+        wickColor = 'rgba(100,116,139,0.35)';
       } else {
         bodyColor = isBull ? '#34d399' : '#f87171';
         wickColor = isBull ? '#34d399' : '#f87171';
       }
 
-      const x    = xOf(i);
-      const cx   = x + barW / 2;
-      const yO   = yP(c.o), yC = yP(c.c), yH = yP(c.h), yL = yP(c.l);
-      const top  = Math.min(yO, yC), bot = Math.max(yO, yC);
+      const x = xOf(i), cx = cxOf(i);
+      const yO = yP(c.o), yC = yP(c.c), yH = yP(c.h), yL = yP(c.l);
+      const top = Math.min(yO, yC), bot = Math.max(yO, yC);
       const bodyH = Math.max(1, bot - top);
 
-      // Wick
-      ctx.strokeStyle = wickColor; ctx.lineWidth = 1;
+      // BO candle: amber halo
+      if (isBO) {
+        ctx.strokeStyle = 'rgba(234,179,8,0.35)'; ctx.lineWidth = 4; ctx.setLineDash([]);
+        ctx.strokeRect(x - 1, top - 2, barW + 2, bodyH + 4);
+      }
+
+      ctx.strokeStyle = wickColor; ctx.lineWidth = 1; ctx.setLineDash([]);
       ctx.beginPath(); ctx.moveTo(cx, yH); ctx.lineTo(cx, top); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(cx, bot); ctx.lineTo(cx, yL); ctx.stroke();
-
-      // Body
       ctx.fillStyle = bodyColor;
       ctx.fillRect(x, top, barW, bodyH);
 
       // Volume bar
-      const vColor = isBO ? '#eab308' : isPrev ? 'rgba(100,116,139,0.3)' : (isBull ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)');
-      ctx.fillStyle = vColor;
+      ctx.fillStyle = isBO ? 'rgba(234,179,8,0.65)' : isPrev ? 'rgba(100,116,139,0.22)' : (isBull ? 'rgba(52,211,153,0.42)' : 'rgba(248,113,113,0.42)');
       const vy = yV(c.v);
-      ctx.fillRect(x, vy, barW, PH + 8 + VH - vy);
+      ctx.fillRect(x, vy, barW, volTop + VH - vy);
     });
 
-    // ── Right-axis price labels ───────────────────────────────────────────────
+    // ── VWAP right-axis label (drawn after candles) ───────────────────────────
+    if (lastVwapY !== null) {
+      const todayLast = todaySlice[todaySlice.length - 1];
+      const tp = (todayLast.h + todayLast.l + todayLast.c) / 3; // approx vwap end value
+      ctx.font = 'bold 8px monospace';
+      const lbl = `VWAP`;
+      let ly = lastVwapY;
+      drawnLabelYs.forEach(prevY => { if (Math.abs(ly - prevY) < 11) ly = prevY + 11; });
+      ctx.fillStyle = '#1a2e4a';
+      ctx.fillRect(W - PAD_R + 2, ly - 7, PAD_R - 3, 12);
+      ctx.fillStyle = '#60a5fa'; ctx.textAlign = 'left';
+      ctx.fillText(lbl, W - PAD_R + 4, ly + 3);
+    }
+
+    // ── Last price label ──────────────────────────────────────────────────────
     const lastC = candles[candles.length - 1];
-    ctx.fillStyle = '#e2e8f0'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'left';
-    ctx.fillRect(W - PAD_R + 1, yP(lastC.c) - 7, PAD_R - 3, 13);
-    ctx.fillStyle = '#060b14';
-    ctx.fillText(lastC.c.toFixed(1), W - PAD_R + 3, yP(lastC.c) + 3);
+    const lpy   = yP(lastC.c);
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(W - PAD_R + 1, lpy - 8, PAD_R - 2, 15);
+    ctx.strokeStyle = '#334155'; ctx.lineWidth = 0.75;
+    ctx.strokeRect(W - PAD_R + 1, lpy - 8, PAD_R - 2, 15);
+    ctx.fillStyle = '#f1f5f9'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'left';
+    ctx.fillText(lastC.c.toFixed(1), W - PAD_R + 3, lpy + 3);
 
-    // ── Legend ────────────────────────────────────────────────────────────────
-    const legendItems = [
-      { color: '#60a5fa', label: 'VWAP' },
-      ...(showPDHL ? [{ color: '#f59e0b', label: 'PDH/PDL' }] : []),
-      ...(showCDHL ? [{ color: '#34d399', label: 'CDH' }, { color: '#f87171', label: 'CDL' }] : []),
-      { color: '#eab308', label: 'BO candle' },
-    ];
-    ctx.font = '8px sans-serif'; ctx.textAlign = 'left';
-    let lx = PAD_L + 4;
-    legendItems.forEach(({ color, label }) => {
-      ctx.fillStyle = color;
-      ctx.fillRect(lx, H - 10, 8, 4);
-      ctx.fillStyle = '#64748b';
-      ctx.fillText(label, lx + 10, H - 7);
-      lx += ctx.measureText(label).width + 24;
+    // ── Timeline (x-axis) ─────────────────────────────────────────────────────
+    const tlBase = PH + GAP + VH; // top of timeline strip
+    ctx.fillStyle = '#060b14';
+    ctx.fillRect(0, tlBase, W, TL);
+    // Separator line
+    ctx.strokeStyle = '#0d1b2e'; ctx.lineWidth = 1; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(PAD_L, tlBase); ctx.lineTo(W - PAD_R, tlBase); ctx.stroke();
+
+    // Draw time labels at round hours (10:00, 11:00 …) and market open (9:15)
+    // Also draw day-start date at first candle of each day
+    let lastTlX = -999;
+    const MIN_LBL_GAP = 38;
+
+    candles.forEach((c, i) => {
+      const ist = toIST(c.t * 1000);
+      const isOpen = ist.h === 9 && ist.m === 15;
+      const isHour = ist.m === 0;
+      if (!isOpen && !isHour) return;
+      const x = cxOf(i);
+      if (x - lastTlX < MIN_LBL_GAP) return;
+      lastTlX = x;
+      // Tick
+      ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, tlBase); ctx.lineTo(x, tlBase + 3); ctx.stroke();
+      // Label
+      ctx.font = '8px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#475569';
+      ctx.fillText(ist.label, x, tlBase + TL - 3);
     });
+
+    // Day labels: show short date at start of each day segment
+    const showDayLabel = (startIdx, endIdx) => {
+      if (startIdx >= N) return;
+      const ist = toIST(candles[startIdx].t * 1000);
+      const segMidX = cxOf(Math.floor((startIdx + Math.min(endIdx - 1, N - 1)) / 2));
+      ctx.font = '7.5px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#2d4a6b';
+      ctx.fillText(ist.dayLabel, segMidX, tlBase + TL - 3);
+    };
+    if (todayStartIdx > 0) {
+      showDayLabel(0, todayStartIdx);
+      showDayLabel(todayStartIdx, N);
+    }
 
   }, [data, boTimestamp, showPDHL, showCDHL]);
 
