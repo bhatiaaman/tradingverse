@@ -715,10 +715,8 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
       const s4Max = t('s4', 'pullbackMax', 65);
 
       if (pullbackPct >= s4Min && pullbackPct <= s4Max) {
-        // Re-entry: candle in same direction AND close exceeds prior candle's high/low
-        const c1 = candles[n - 2];
-        const exceedsPrior = pc.direction === 'bull' ? c0.close > c1.high : c0.close < c1.low;
-        const reEntry = exceedsPrior && ((pc.direction === 'bull' && isBull0) || (pc.direction === 'bear' && !isBull0));
+        // Re-entry: candle in same direction as power candle
+        const reEntry = (pc.direction === 'bull' && isBull0) || (pc.direction === 'bear' && !isBull0);
         if (reEntry) {
           // Volume: expanding vs prior 2 candles avg
           const priorVolAvg = ((candles[n - 2]?.volume || 0) + (candles[n - 3]?.volume || 0)) / 2;
@@ -803,8 +801,8 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   if (en('s9') && pre.bosLevels.length) {
     const recentBOS9  = pre.bosLevels.reduce((a, b) => (b.breakIdx ?? 0) > (a.breakIdx ?? 0) ? b : a);
     const dist9       = Math.abs((c0.close - recentBOS9.price) / recentBOS9.price * 100);
-    const s9Dist      = t('s9', 'distPct', 0.2);
-    const s9Touches   = t('s9', 'touchCount', 3);
+    const s9Dist      = t('s9', 'distPct', 0.35);
+    const s9Touches   = t('s9', 'touchCount', 2);
     const validSide   = recentBOS9.type === 'bear'
       ? c0.close <= recentBOS9.price * 1.002
       : c0.close >= recentBOS9.price * 0.998;
@@ -829,11 +827,11 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
           if (recentBOS9.type === 'bull') {
             // Lower wick = close/open (whichever higher) minus low
             const lowerWick = Math.min(c0.close, c0.open) - c0.low;
-            hasRejection = lowerWick / cRange9 >= 0.4;
+            hasRejection = lowerWick / cRange9 >= 0.25;
           } else {
             // Upper wick = high minus close/open (whichever lower)
             const upperWick = c0.high - Math.max(c0.close, c0.open);
-            hasRejection = upperWick / cRange9 >= 0.4;
+            hasRejection = upperWick / cRange9 >= 0.25;
           }
         }
         if (hasRejection)
@@ -897,10 +895,10 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   }
 
   // ── S12: VWAP + Key Level Confluence (VWAP fallback: EMA21) ─────────────────────────
-  // Within 0.15% of VWAP (or EMA21 if no VWAP) AND within 0.2% of BOS level simultaneously.
+  // Within 0.3% of VWAP (or EMA21 if no VWAP) AND within 0.4% of BOS level simultaneously.
   {
-    const s12VwapDist = t('s12', 'vwapDistPct', 0.15);
-    const s12BosDist  = t('s12', 'bosDistPct', 0.2);
+    const s12VwapDist = t('s12', 'vwapDistPct', 0.3);
+    const s12BosDist  = t('s12', 'bosDistPct', 0.4);
     const atVwapOrEma = pre.vwap ? pre.vwap.distPct <= s12VwapDist
                                   : (pre.ema?.atEma21 || pre.ema?.atEma50);
     const anchorSl    = pre.vwap ? pre.vwap.price : (pre.ema?.ema21 ?? null);
@@ -958,35 +956,30 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   }
 
   // ── S15: OTE Fibonacci (62–79% retracement) ───────────────────────────────
-  // BOS with impulse ≥ 2.5% (raised from 2% — tighter anchor), price retraces into
-  // 62–79% zone, PA confirmation. BOS must be recent (within last 30 candles).
+  // BOS with impulse ≥ 1.5%, price retraces into 62–79% zone.
+  // BOS must be recent (within last 50 candles).
   if (en('s15') && pre.bosLevels.length) {
     const bos15 = pre.bosLevels.reduce((a, b) => b.idx > a.idx ? b : a);
-    if (bos15.breakIdx !== undefined && (n - 1 - bos15.breakIdx) <= 30) {
+    if (bos15.breakIdx !== undefined && (n - 1 - bos15.breakIdx) <= 50) {
       const iS = candles[bos15.idx], iE = candles[bos15.breakIdx];
       if (iS && iE) {
         const iH = bos15.type === 'bull' ? iE.high : iS.high;
         const iL = bos15.type === 'bull' ? iS.low  : iE.low;
         const iR = iH - iL;
         const movePct = iR / iL * 100;
-        if (movePct >= t('s15', 'minMovePct', 2.5)) {
+        if (movePct >= t('s15', 'minMovePct', 1.5)) {
           const ote62 = bos15.type === 'bull' ? iH - iR * 0.62 : iL + iR * 0.62;
           const ote79 = bos15.type === 'bull' ? iH - iR * 0.79 : iL + iR * 0.79;
           const inOTE = bos15.type === 'bull'
             ? c0.close >= ote79 && c0.close <= ote62
             : c0.close >= ote62 && c0.close <= ote79;
           if (inOTE) {
-            const confIds = ['hammer','bull_pin','shooting_star','bear_pin',
-                             'bull_engulfing','bear_engulfing','doji','morning_star','evening_star'];
-            const hasConf = patterns.some(p => confIds.includes(p.id) && (p.direction === bos15.type || p.direction === 'neutral'));
-            if (hasConf) {
-              // Target: 127% extension of impulse beyond the impulse high/low
-              const ext127 = bos15.type === 'bull' ? iL + iR * 1.27 : iH - iR * 1.27;
-              setups.push({ id: `s15_ote_${bos15.type}`, name: 'OTE Retracement', direction: bos15.type, strength: 4,
-                sl: bos15.type === 'bull' ? ote79 * 0.999 : ote79 * 1.001,
-                target: parseFloat(ext127.toFixed(2)),
-                details: { ote62: parseFloat(ote62.toFixed(2)), ote79: parseFloat(ote79.toFixed(2)), movePct: parseFloat(movePct.toFixed(2)), iH: parseFloat(iH.toFixed(2)), iL: parseFloat(iL.toFixed(2)) } });
-            }
+            // Target: 127% extension of impulse beyond the impulse high/low
+            const ext127 = bos15.type === 'bull' ? iL + iR * 1.27 : iH - iR * 1.27;
+            setups.push({ id: `s15_ote_${bos15.type}`, name: 'OTE Retracement', direction: bos15.type, strength: 4,
+              sl: bos15.type === 'bull' ? ote79 * 0.999 : ote79 * 1.001,
+              target: parseFloat(ext127.toFixed(2)),
+              details: { ote62: parseFloat(ote62.toFixed(2)), ote79: parseFloat(ote79.toFixed(2)), movePct: parseFloat(movePct.toFixed(2)), iH: parseFloat(iH.toFixed(2)), iL: parseFloat(iL.toFixed(2)) } });
           }
         }
       }
@@ -1013,7 +1006,7 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
     }
   }
 
-  // ── S17: Confluence Stack (4+ independent factors) ────────────────────────
+  // ── S17: Confluence Stack (3+ independent factors) ────────────────────────
   // No dominant pattern needed — multiple independent signals at same price.
   if (en('s17')) {
     let factors = 0, stackDir = null;
@@ -1032,7 +1025,7 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
         Math.abs(c0.close - pre.tradingRange.low)  / pre.tradingRange.low  * 100 <= 0.2;
       if (atBoundary) factors++;
     }
-    if (factors >= t('s17', 'minFactors', 4) && stackDir) {
+    if (factors >= t('s17', 'minFactors', 3) && stackDir) {
       const hasConf = patterns.some(p => p.direction === stackDir || p.direction === 'neutral');
       if (hasConf)
         setups.push({ id: `s17_confluence_${stackDir}`, name: 'Confluence Stack', direction: stackDir, strength: 5,
