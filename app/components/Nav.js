@@ -88,17 +88,6 @@ export default function Nav({ fixed = false }) {
             {user.role === 'admin' && (
               <>
                 <Link
-                  href="/eye"
-                  className={`text-xs font-bold px-2.5 py-1 rounded-lg border transition-all ${
-                    isActive('/eye')
-                      ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
-                      : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/20'
-                  }`}
-                >
-                  👁 Eye
-                </Link>
-
-                <Link
                   href="/admin/users"
                   className="text-xs font-bold px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:bg-amber-500/20 transition-all"
                 >
@@ -171,10 +160,6 @@ export default function Nav({ fixed = false }) {
               <div className="flex flex-col gap-2">
                 {user.role === 'admin' && (
                   <>
-                    <Link href="/eye" className="py-2 px-3 rounded-lg text-sm font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20">
-                      👁 Eye (Admin)
-                    </Link>
-
                   </>
                 )}
                 <div className="flex items-center justify-between">

@@ -130,6 +130,7 @@ function ChartPageInner() {
   const symbol    = params.get('symbol') || 'NIFTY';
   const atParam   = params.get('at')    || null;   // Unix sec from scanner — highlights signal candle
   const atDirParam= params.get('atdir') || 'bull'; // 'bull' | 'bear' — arrow direction
+  const backParam = params.get('back');            // dynamic back navigation
   const themeParam = params.get('theme');          // 'dark' | 'light'
 
   const [chartInterval, setChartInterval] = useState(params.get('interval') || '5minute');
@@ -701,14 +702,14 @@ function ChartPageInner() {
         {/* Row 1: back · symbol · price · [desktop: intervals + controls] */}
         <div className="px-3 h-11 flex items-center gap-2">
 
-          <a href="/terminal"
+          <a href={backParam || "/terminal"}
             className="flex items-center gap-1.5 text-slate-400 hover:text-slate-200 transition-colors text-sm"
-            title="Back to terminal"
+            title={backParam ? "Go Back" : "Back to terminal"}
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
             </svg>
-            <span className="hidden sm:inline">Terminal</span>
+            <span className="hidden sm:inline">{backParam ? 'Back' : 'Terminal'}</span>
           </a>
 
           <span className="w-px h-4 bg-white/10" />

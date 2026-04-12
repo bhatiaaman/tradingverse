@@ -4,6 +4,20 @@ import MarketPhaseSection from './MarketPhaseSection'
 
 const TOOLS = [
   {
+    href: '/investing/weekly-watchlist',
+    tag: 'AI Vision',
+    tagColor: 'text-fuchsia-600 dark:text-fuchsia-400 bg-fuchsia-100 dark:bg-fuchsia-900/30 border-fuchsia-200 dark:border-fuchsia-800/50',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+      </svg>
+    ),
+    title: 'Weekly Setup Watchlist',
+    description: 'High-probability setups for the upcoming week natively ranked by swing trajectory, risk/reward, and execution likelihood.',
+    features: ['Options/Equity Swing Setups', 'Entry Zone + Risk-Reward', 'Stop Loss Levels', 'Confidence Ranking'],
+    available: true,
+  },
+  {
     href: '/investing/strategic-view',
     tag: 'AI Macro',
     tagColor: 'text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/30 border-violet-200 dark:border-violet-800/50',
@@ -163,7 +177,7 @@ export default function InvestingPage() {
       </div>
 
       {/* Tools grid */}
-      <div className="max-w-5xl mx-auto px-6 pb-20">
+      <div className="max-w-5xl mx-auto px-6 pb-20 mt-14">
         <div className="grid md:grid-cols-3 gap-5">
           {TOOLS.map(tool => (
             <div key={tool.title}

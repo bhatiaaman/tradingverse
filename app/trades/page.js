@@ -1476,6 +1476,12 @@ function getNiftyLevelAlerts(indices) {
 
             {/* Quick links */}
             <div className="hidden sm:flex items-center gap-1">
+              {userRole === 'admin' && (
+                <Link href="/eye"
+                  className="px-3 py-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-200 border border-transparent hover:border-indigo-500/20 rounded-lg transition-all">
+                  👁 Eye
+                </Link>
+              )}
               {[
                 { href: '/terminal',       label: 'Terminal'    },
                 { href: '/trades/pre-market', label: 'Pre-Market' },
