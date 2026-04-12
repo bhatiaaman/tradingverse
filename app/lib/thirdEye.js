@@ -1114,44 +1114,49 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   }
 
   // ── S21: VWAP Reclaim ─────────────────────────────────────────────────────
-  // Price extended 35–90pts from VWAP, momentum fading, reclaim candle fires
+  // Previous candle was 15–90pts away from VWAP; current candle actually
+  // crosses and closes on the other side of VWAP (true reclaim/rejection).
   if (en('s21') && pre.vwap && candles.length >= 20) {
-    const s21c1     = candles[candles.length - 2]; // previous candle
-    const vwapPrice = pre.vwap.price;
-    const dist      = c0.close - vwapPrice;
-    const absDist   = Math.abs(dist);
-    const r0        = c0.high - c0.low;
-    const r1        = s21c1.high - s21c1.low;
+    const s21c1      = candles[candles.length - 2]; // previous candle
+    const vwapPrice  = pre.vwap.price;
+    const prevDist   = s21c1.close - vwapPrice;  // how far prev candle was from VWAP
+    const absPrevDist = Math.abs(prevDist);
+    const r0         = c0.high - c0.low;
+    const r1         = s21c1.high - s21c1.low;
+    const bullClose  = c0.close > c0.open;        // current candle is green
+    const bearClose  = c0.close < c0.open;        // current candle is red
 
-    // 35–90pts from VWAP + momentum fading (current candle range < previous)
-    if (absDist >= 35 && absDist <= 90 && r0 < r1 * 1.1) {
+    // Prev candle must have been 15–90pts from VWAP (extended but not extreme)
+    if (absPrevDist >= 15 && absPrevDist <= 90) {
 
-      // LONG: price was below VWAP, reclaim candle closes above prev candle high
-      if (dist < 0 && c0.close > s21c1.high) {
+      // BULL RECLAIM: prev candle closed below VWAP, current candle closes above VWAP
+      // + green candle + range not blowing out (not a runaway move)
+      if (prevDist < 0 && c0.close > vwapPrice && bullClose && r0 < r1 * 1.5) {
         const sl  = parseFloat((Math.min(c0.low, s21c1.low) - 10).toFixed(2));
         const rng = c0.close - sl;
-        if (rng <= 45) {
+        if (rng >= 5 && rng <= 60) {
           setups.push({
             id: 's21_vwap_reclaim_bull', name: 'VWAP Reclaim', direction: 'bull', strength: 4,
             sl,
-            target: parseFloat((vwapPrice + 30).toFixed(2)),
+            target: parseFloat((vwapPrice + Math.max(rng * 1.5, 30)).toFixed(2)),
             lifecycle: { slType: 'trailing', trailIndicator: 'ema9' },
-            details: { vwap: parseFloat(vwapPrice.toFixed(2)), distFromVwap: parseFloat(absDist.toFixed(1)) },
+            details: { vwap: parseFloat(vwapPrice.toFixed(2)), prevDistFromVwap: parseFloat(absPrevDist.toFixed(1)) },
           });
         }
       }
 
-      // SHORT: price was above VWAP, rejection candle closes below prev candle low
-      if (dist > 0 && c0.close < s21c1.low) {
+      // BEAR REJECTION: prev candle closed above VWAP, current candle closes below VWAP
+      // + red candle + range not blowing out
+      if (prevDist > 0 && c0.close < vwapPrice && bearClose && r0 < r1 * 1.5) {
         const sl  = parseFloat((Math.max(c0.high, s21c1.high) + 10).toFixed(2));
         const rng = sl - c0.close;
-        if (rng <= 45) {
+        if (rng >= 5 && rng <= 60) {
           setups.push({
             id: 's21_vwap_reclaim_bear', name: 'VWAP Reclaim', direction: 'bear', strength: 4,
             sl,
-            target: parseFloat((vwapPrice - 30).toFixed(2)),
+            target: parseFloat((vwapPrice - Math.max(rng * 1.5, 30)).toFixed(2)),
             lifecycle: { slType: 'trailing', trailIndicator: 'ema9' },
-            details: { vwap: parseFloat(vwapPrice.toFixed(2)), distFromVwap: parseFloat(absDist.toFixed(1)) },
+            details: { vwap: parseFloat(vwapPrice.toFixed(2)), prevDistFromVwap: parseFloat(absPrevDist.toFixed(1)) },
           });
         }
       }
