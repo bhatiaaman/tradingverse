@@ -62,10 +62,14 @@ export async function GET(request) {
   const interval        = searchParams.get('interval') || '15minute';
   const currentPriceStr = searchParams.get('currentPrice');
 
-  // Tighter proximity window for intraday charts — daily pivots far away aren't relevant on a 5m chart
-  const maxDistancePct = ['5minute','15minute'].includes(interval) ? 0.02
-                       : interval === '60minute'                   ? 0.04
-                       : 0.08; // day / week
+  // Per-interval config:
+  //   isIntraday   — 5m/15m: use 15m+1H data, skip daily dominance
+  //   isHourly     — 1H: use 1H+daily data, skip 15m noise
+  //   isDaily      — day/week: use daily data only, long lookback
+  const isIntraday = ['5minute', '15minute'].includes(interval);
+  const isHourly   = interval === '60minute';
+
+  const maxDistancePct = isIntraday ? 0.02 : isHourly ? 0.04 : 0.08;
 
   const cacheKey = `${NS}:sl-clusters:${symbol}:${interval}`;
   const cached   = await redisGet(cacheKey);
@@ -82,7 +86,6 @@ export async function GET(request) {
       return NextResponse.json({ error: `Token not found for symbol: ${symbol}` }, { status: 400 });
     }
 
-    // Resolve current price — prefer query param, fall back to LTP
     async function resolvePrice() {
       if (currentPriceStr) return parseFloat(currentPriceStr);
       try {
@@ -95,19 +98,31 @@ export async function GET(request) {
     }
 
     const toStr = istDateStr(0);
-    const [raw15m, raw1H, raw1D, resolvedPrice] = await Promise.all([
-      dp.getHistoricalData(token, '15minute', istDateStr(-15),  toStr),
-      dp.getHistoricalData(token, '60minute', istDateStr(-30),  toStr),
-      dp.getHistoricalData(token, 'day',      istDateStr(-100), toStr),
-      resolvePrice(),
-    ]);
 
-    const currentPrice = resolvedPrice ?? 22500; // fallback only if LTP unavailable (market closed)
+    // Fetch only data relevant to the chart interval — avoids daily pivots dominating 5m charts
+    let raw15m = [], raw1H = [], raw1D = [];
+    if (isIntraday) {
+      [raw15m, raw1H] = await Promise.all([
+        dp.getHistoricalData(token, '15minute', istDateStr(-20), toStr),
+        dp.getHistoricalData(token, '60minute', istDateStr(-40), toStr),
+      ]);
+    } else if (isHourly) {
+      [raw1H, raw1D] = await Promise.all([
+        dp.getHistoricalData(token, '60minute', istDateStr(-60), toStr),
+        dp.getHistoricalData(token, 'day',      istDateStr(-150), toStr),
+      ]);
+    } else {
+      // day / week — use only daily candles with a long lookback
+      raw1D = await dp.getHistoricalData(token, 'day', istDateStr(-365), toStr);
+    }
+
+    const resolvedPrice = await resolvePrice();
+    const currentPrice  = resolvedPrice ?? 22500;
 
     const prox    = Math.max(1, currentPrice * 0.000625);
     const maxRng  = Math.max(2, currentPrice * 0.00208);
     let roundStep = 500;
-    if (currentPrice < 250)   roundStep = 5;
+    if (currentPrice < 250)        roundStep = 5;
     else if (currentPrice < 1000)  roundStep = 10;
     else if (currentPrice < 4000)  roundStep = 50;
     else if (currentPrice < 15000) roundStep = 100;
@@ -119,21 +134,34 @@ export async function GET(request) {
       open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume,
     }));
 
-    const clusters = engine.buildClusters({
+    const allClusters = engine.buildClusters({
       currentPrice,
       maxDistancePct,
       data15m: mapCandles(raw15m),
       data1H:  mapCandles(raw1H),
       data1D:  mapCandles(raw1D),
-      optionsData: [], // hookable to /api/option-chain later
+      optionsData: [],
     });
 
-    const bslClusters = clusters.filter(c => c.side === 'BSL');
-    const sslClusters = clusters.filter(c => c.side === 'SSL');
+    // Split by side, then sort each by distance to current price (nearest first)
+    // so the most immediately relevant zones are returned, not just the highest-scored ones
+    const byDist = c => Math.abs((c.range.min + c.range.max) / 2 - currentPrice);
+
+    const bslClusters = allClusters
+      .filter(c => c.side === 'BSL')
+      .sort((a, b) => byDist(a) - byDist(b));
+
+    const sslClusters = allClusters
+      .filter(c => c.side === 'SSL')
+      .sort((a, b) => byDist(a) - byDist(b));
 
     const result = {
-      symbol, currentPrice,
-      metrics: { totalClustersIdentified: clusters.length, bslCount: bslClusters.length, sslCount: sslClusters.length },
+      symbol, currentPrice, interval,
+      metrics: {
+        totalClustersIdentified: allClusters.length,
+        bslCount: bslClusters.length,
+        sslCount: sslClusters.length,
+      },
       topBSLZones: bslClusters.slice(0, 3),
       topSSLZones: sslClusters.slice(0, 3),
     };
