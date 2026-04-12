@@ -76,7 +76,7 @@ export async function GET(request) {
   // minDistancePct: ignore clusters too close to current price (they're noise, not S/R ahead).
   const minDistancePct = isIntraday ? 0.002 : isHourly ? 0.004 : 0.006;
 
-  const cacheKey = `${NS}:sl-clusters:v4:${symbol}:${interval}`;
+  const cacheKey = `${NS}:sl-clusters:v5:${symbol}:${interval}`;
   const cached   = await redisGet(cacheKey);
   if (cached) return NextResponse.json(cached);
 
