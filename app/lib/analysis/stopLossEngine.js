@@ -76,9 +76,10 @@ export class StopLossEngine {
 
     /**
      * Main analysis method. Combines all levels and forms scored clusters.
+     * maxDistancePct: only return clusters within this % of currentPrice (e.g. 0.03 = 3%)
      */
     buildClusters(params) {
-        const { currentPrice, data15m = [], data1H = [], data1D = [], optionsData = [] } = params;
+        const { currentPrice, data15m = [], data1H = [], data1D = [], optionsData = [], maxDistancePct = 0.05 } = params;
         
         let allLevels = [];
 
@@ -138,8 +139,12 @@ export class StopLossEngine {
              cluster.score = this._calculateScore(cluster);
         });
 
-        // Filter out very weak standalone clusters and sort by score descending
-        return clusters.filter(c => c.score >= 15).sort((a, b) => b.score - a.score);
+        // Filter: min score + proximity to current price
+        const maxDist = currentPrice * maxDistancePct;
+        return clusters
+            .filter(c => c.score >= 15)
+            .filter(c => Math.abs((c.range.min + c.range.max) / 2 - currentPrice) <= maxDist)
+            .sort((a, b) => b.score - a.score);
     }
 
     _clusterize(levels) {

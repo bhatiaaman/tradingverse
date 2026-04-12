@@ -241,7 +241,7 @@ function ChartPageInner() {
   // ── SL Clusters — fetch only when toggle is on ───────────────────────────────
   useEffect(() => {
     if (!settings.showSL) { setSlData(null); return; }
-    fetch(`/api/analysis/stop-loss-zones?symbol=${encodeURIComponent(symbol)}`)
+    fetch(`/api/analysis/stop-loss-zones?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(chartInterval)}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d && !d.error) setSlData(d); })
       .catch(() => {});

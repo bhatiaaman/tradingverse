@@ -59,9 +59,15 @@ async function redisSet(key, value) {
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const symbol          = (searchParams.get('symbol') || 'NIFTY').toUpperCase().trim();
+  const interval        = searchParams.get('interval') || '15minute';
   const currentPriceStr = searchParams.get('currentPrice');
 
-  const cacheKey = `${NS}:sl-clusters:${symbol}`;
+  // Tighter proximity window for intraday charts — daily pivots far away aren't relevant on a 5m chart
+  const maxDistancePct = ['5minute','15minute'].includes(interval) ? 0.02
+                       : interval === '60minute'                   ? 0.04
+                       : 0.08; // day / week
+
+  const cacheKey = `${NS}:sl-clusters:${symbol}:${interval}`;
   const cached   = await redisGet(cacheKey);
   if (cached) return NextResponse.json(cached);
 
@@ -115,6 +121,7 @@ export async function GET(request) {
 
     const clusters = engine.buildClusters({
       currentPrice,
+      maxDistancePct,
       data15m: mapCandles(raw15m),
       data1H:  mapCandles(raw1H),
       data1D:  mapCandles(raw1D),
