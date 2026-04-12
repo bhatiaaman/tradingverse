@@ -767,12 +767,8 @@ export default function ExpiryPage() {
     <div className="min-h-screen bg-[#060b14] text-slate-100">
       <Nav />
 
-      {/* Back link + controls */}
+      {/* Controls bar */}
       <div className="max-w-[1400px] mx-auto px-6 pt-4 pb-2 flex flex-wrap items-center gap-3">
-        <a href="/options" className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-white transition-colors mr-2">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg>
-          Options
-        </a>
         <div className="flex gap-1 bg-[#0c1a2e] border border-white/8 rounded-xl p-1">
           {['NIFTY', 'BANKNIFTY'].map(s => (
             <button key={s} onClick={() => { setSymbol(s); setSelectedExp(''); }}

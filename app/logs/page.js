@@ -61,6 +61,12 @@ export default function LogsPage() {
       <div className="p-6 pb-24 lg:p-12">
         {/* Header */}
         <div className="max-w-6xl mx-auto space-y-8">
+        <div className="mb-6">
+          <Link href="/admin/users" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-white transition-colors">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg>
+            Admin
+          </Link>
+        </div>
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-cyan-400 mb-2">

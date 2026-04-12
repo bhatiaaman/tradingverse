@@ -162,6 +162,10 @@ export default function AdminUsersPage() {
       <main className="max-w-5xl mx-auto px-6 py-8">
         {/* Header */}
         <div className="mb-6">
+          <Link href="/trades" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-white transition-colors mb-4">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg>
+            Trading Dashboard
+          </Link>
           <h1 className="text-2xl font-black text-white mb-1">Admin</h1>
           <p className="text-slate-500 text-sm">Manage users and access control</p>
         </div>

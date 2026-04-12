@@ -55,6 +55,12 @@ export default function SettingsPage() {
 
       <div className="max-w-2xl mx-auto px-6 pt-16 pb-20">
 
+        <div className="mb-6">
+          <Link href="/trades" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg>
+            Trading Dashboard
+          </Link>
+        </div>
         <p className="text-blue-600 dark:text-blue-400 text-xs font-bold tracking-[0.2em] uppercase mb-3">Settings</p>
         <h1 className="text-3xl font-black mb-10">Your Account</h1>
 
