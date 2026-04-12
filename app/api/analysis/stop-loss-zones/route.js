@@ -69,7 +69,12 @@ export async function GET(request) {
   const isIntraday = ['5minute', '15minute'].includes(interval);
   const isHourly   = interval === '60minute';
 
-  const maxDistancePct = isIntraday ? 0.02 : isHourly ? 0.04 : 0.08;
+  // maxDistancePct: how far from current price a cluster can be and still show.
+  // Daily/weekly use no cap (null) — major S/R from monthly pivots can be far away.
+  const maxDistancePct = isIntraday ? 0.02 : isHourly ? 0.04 : null;
+
+  // minDistancePct: ignore clusters too close to current price (they're noise, not S/R ahead).
+  const minDistancePct = isIntraday ? 0.002 : isHourly ? 0.004 : 0.006;
 
   const cacheKey = `${NS}:sl-clusters:${symbol}:${interval}`;
   const cached   = await redisGet(cacheKey);
@@ -137,6 +142,7 @@ export async function GET(request) {
     const allClusters = engine.buildClusters({
       currentPrice,
       maxDistancePct,
+      minDistancePct,
       data15m: mapCandles(raw15m),
       data1H:  mapCandles(raw1H),
       data1D:  mapCandles(raw1D),

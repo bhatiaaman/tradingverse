@@ -79,7 +79,7 @@ export class StopLossEngine {
      * maxDistancePct: only return clusters within this % of currentPrice (e.g. 0.03 = 3%)
      */
     buildClusters(params) {
-        const { currentPrice, data15m = [], data1H = [], data1D = [], optionsData = [], maxDistancePct = 0.05 } = params;
+        const { currentPrice, data15m = [], data1H = [], data1D = [], optionsData = [], maxDistancePct = null, minDistancePct = 0 } = params;
         
         let allLevels = [];
 
@@ -139,11 +139,17 @@ export class StopLossEngine {
              cluster.score = this._calculateScore(cluster);
         });
 
-        // Filter: min score + proximity to current price
-        const maxDist = currentPrice * maxDistancePct;
+        // Filter: min score + proximity bounds
+        const minDist = currentPrice * minDistancePct;
         return clusters
             .filter(c => c.score >= 15)
-            .filter(c => Math.abs((c.range.min + c.range.max) / 2 - currentPrice) <= maxDist)
+            .filter(c => {
+                const mid  = (c.range.min + c.range.max) / 2;
+                const dist = Math.abs(mid - currentPrice);
+                if (dist < minDist) return false;                          // too close — at-price noise
+                if (maxDistancePct !== null && dist > currentPrice * maxDistancePct) return false; // too far
+                return true;
+            })
             .sort((a, b) => b.score - a.score);
     }
 
