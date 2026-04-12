@@ -44,15 +44,23 @@ export default function WeeklyWatchlist() {
     try {
       const parsed = JSON.parse(jsonInput)
       if (!Array.isArray(parsed)) throw new Error("JSON must be an array of objects")
+
+      let finalList = parsed;
+      if (isEditing === 'append') {
+        const existingMap = new Map();
+        (watchlistObj[activeTab] || []).forEach(s => existingMap.set(s.symbol, s));
+        parsed.forEach(s => existingMap.set(s.symbol, s));
+        finalList = Array.from(existingMap.values());
+      }
       
       const res = await fetch('/api/weekly-watchlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tab: activeTab, list: parsed })
+        body: JSON.stringify({ tab: activeTab, list: finalList })
       })
       
       if (res.ok) {
-        setWatchlistObj(prev => ({ ...prev, [activeTab]: parsed }))
+        setWatchlistObj(prev => ({ ...prev, [activeTab]: finalList }))
         setIsEditing(false)
         setSaveStatus(null)
       } else {
@@ -291,11 +299,23 @@ Correct Examples: Use "ELGIEQUIP" instead of "ElgiEquipments", "GET&D" instead o
               ))}
             </div>
           )}
+          {activeTab === 'expertsResearch' && currentList.length > 0 && (
+            <button 
+              onClick={() => {
+                setJsonInput("[\n\n]")
+                setIsEditing('append')
+              }}
+              className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-200 dark:hover:bg-emerald-800/50 transition-colors mr-2"
+            >
+              + Add New Stocks
+            </button>
+          )}
+
           {activeTab !== 'consolidated' && (
             <button 
               onClick={() => {
                 setJsonInput(JSON.stringify(currentList, null, 2))
-                setIsEditing(true)
+                setIsEditing('replace')
               }}
               className="text-xs font-bold text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/30 px-3 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800/50 hover:bg-violet-200 dark:hover:bg-violet-800/50 transition-colors"
             >
@@ -483,7 +503,7 @@ Correct Examples: Use "ELGIEQUIP" instead of "ElgiEquipments", "GET&D" instead o
                 onClick={handleSave}
                 className="px-4 py-2 text-sm font-bold bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
               >
-                Save to Database
+                {isEditing === 'append' ? '➕ Append to Database' : 'Save to Database'}
               </button>
             </div>
           </div>
