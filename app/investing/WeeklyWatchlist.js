@@ -99,6 +99,7 @@ export default function WeeklyWatchlist() {
     const schemaString = `[
   {
     "symbol": "STOCK_NAME",
+    "companyName": "Full Company Name in readable format",
     "sector": "Sector Name",
     "setupType": "e.g. VCP | Breakout | Mean Reversion",
     "entryZone": "150-153",
@@ -200,11 +201,12 @@ Correct Examples: Use "ELGIEQUIP" instead of "ElgiEquipments", "GET&D" instead o
     }
     const uniqueList = Object.values(uniqueMap);
 
-    const headers = ['Symbol', 'Source', 'Sector', 'Setup Type', 'Target 1', 'Target 2', 'Stop Loss', 'Entry Zone', 'R:R', 'Score', 'Reasoning'];
-    const escapeCSV = (str) => typeof str === 'string' ? `"${str.replace(/"/g, '""')}"` : str;
+    const headers = ['Symbol', 'Company Name', 'Source', 'Sector', 'Setup Type', 'Target 1', 'Target 2', 'Stop Loss', 'Entry Zone', 'R:R', 'Score', 'Reasoning'];
+    const escapeCSV = (str) => typeof str === 'string' ? `"${str.replace(/"/g, '""')}"` : (str || '');
 
     const rows = uniqueList.map(s => [
       s.symbol,
+      escapeCSV(s.companyName),
       s.source,
       escapeCSV(s.sector),
       escapeCSV(s.setupType),
@@ -371,6 +373,12 @@ Correct Examples: Use "ELGIEQUIP" instead of "ElgiEquipments", "GET&D" instead o
                 </div>
               </div>
               
+              {stock.companyName && (
+                <div className="-mt-1 mb-2 text-[10px] text-slate-500 font-medium tracking-wide truncate">
+                  {stock.companyName}
+                </div>
+              )}
+
               <div className="text-xs font-semibold text-violet-600 dark:text-violet-400 mb-3">{stock.setupType}</div>
               
               <div className="grid grid-cols-2 gap-3 mb-4 text-xs">
