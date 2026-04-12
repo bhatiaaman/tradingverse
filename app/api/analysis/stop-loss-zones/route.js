@@ -76,7 +76,7 @@ export async function GET(request) {
   // minDistancePct: ignore clusters too close to current price (they're noise, not S/R ahead).
   const minDistancePct = isIntraday ? 0.002 : isHourly ? 0.004 : 0.006;
 
-  const cacheKey = `${NS}:sl-clusters:v3:${symbol}:${interval}`;
+  const cacheKey = `${NS}:sl-clusters:v4:${symbol}:${interval}`;
   const cached   = await redisGet(cacheKey);
   if (cached) return NextResponse.json(cached);
 
@@ -153,17 +153,16 @@ export async function GET(request) {
       optionsData: [],
     });
 
-    // Split by side, then sort each by distance to current price (nearest first)
-    // so the most immediately relevant zones are returned, not just the highest-scored ones
-    const byDist = c => Math.abs((c.range.min + c.range.max) / 2 - currentPrice);
+    const byDist  = c => Math.abs((c.range.min + c.range.max) / 2 - currentPrice);
+    const byScore = (a, b) => b.score - a.score;
 
-    const bslClusters = allClusters
-      .filter(c => c.side === 'BSL')
-      .sort((a, b) => byDist(a) - byDist(b));
+    // Intraday/hourly: nearest first — trader wants the immediately actionable level
+    // Daily/weekly:    highest-score first — skip trivial corrective bounces, show major S/R
+    const sortFn   = (isIntraday || isHourly) ? (a, b) => byDist(a) - byDist(b) : byScore;
+    const zoneLimit = (isIntraday || isHourly) ? 3 : 5;
 
-    const sslClusters = allClusters
-      .filter(c => c.side === 'SSL')
-      .sort((a, b) => byDist(a) - byDist(b));
+    const bslClusters = allClusters.filter(c => c.side === 'BSL').sort(sortFn);
+    const sslClusters = allClusters.filter(c => c.side === 'SSL').sort(sortFn);
 
     const result = {
       symbol, currentPrice, interval,
@@ -172,8 +171,8 @@ export async function GET(request) {
         bslCount: bslClusters.length,
         sslCount: sslClusters.length,
       },
-      topBSLZones: bslClusters.slice(0, 3),
-      topSSLZones: sslClusters.slice(0, 3),
+      topBSLZones: bslClusters.slice(0, zoneLimit),
+      topSSLZones: sslClusters.slice(0, zoneLimit),
     };
 
     await redisSet(cacheKey, result);
