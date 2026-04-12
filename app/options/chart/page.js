@@ -1015,6 +1015,11 @@ function OptionsChartInner() {
       <div className="border-b border-[#1e3a5f] bg-[#0a0e1a] shrink-0">
         <div className="max-w-[1600px] mx-auto px-6 py-3 flex flex-wrap items-end gap-3">
 
+          <a href="/options" className="flex items-center gap-1.5 text-slate-500 hover:text-slate-200 transition-colors text-sm mr-2 self-center">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg>
+            Options
+          </a>
+
           <div className="flex flex-col gap-1">
             <label className="text-[10px] text-slate-500 uppercase tracking-wider">Symbol</label>
             {loadingMeta ? <div className="w-44 h-9 rounded-lg bg-[#0d1f3c] animate-pulse" />

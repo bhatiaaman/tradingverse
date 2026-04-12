@@ -399,7 +399,10 @@ export default function StrategicViewPage() {
 
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm text-slate-500 mb-8">
-          <Link href="/investing" className="hover:text-slate-700 dark:hover:text-slate-400 transition-colors">Investing</Link>
+          <Link href="/investing" className="flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-400 transition-colors">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg>
+            Investing
+          </Link>
           <span>/</span>
           <span className="text-slate-600 dark:text-slate-400">Connect the Dots</span>
         </div>

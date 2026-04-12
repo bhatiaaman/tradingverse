@@ -55,6 +55,12 @@ export default function AccountSettingsPage() {
       <Nav />
       <div className="max-w-xl mx-auto px-6 pt-24 pb-20">
 
+        <div className="mb-6">
+          <a href="/settings" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg>
+            Settings
+          </a>
+        </div>
         <p className="text-blue-600 dark:text-blue-400 text-xs font-bold tracking-[0.2em] uppercase mb-4">Account</p>
         <h1 className="text-3xl font-black mb-1">Account Settings</h1>
         <p className="text-slate-500 text-sm mb-10">Manage your profile and security.</p>

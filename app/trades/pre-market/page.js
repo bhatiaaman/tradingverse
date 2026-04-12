@@ -272,8 +272,9 @@ export default function PreMarketPage() {
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link href="/trades" className="text-slate-400 hover:text-slate-200">
-                <ArrowLeft className="w-6 h-6" />
+              <Link href="/trades" className="flex items-center gap-1.5 text-slate-400 hover:text-slate-200 transition-colors text-sm font-medium">
+                <ArrowLeft className="w-4 h-4" />
+                Trading Dashboard
               </Link>
               <div>
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">

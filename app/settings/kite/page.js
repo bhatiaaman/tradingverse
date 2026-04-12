@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Nav from '@/app/components/Nav';
 
 function KiteSettingsContent() {
   const searchParams = useSearchParams();
@@ -239,13 +240,16 @@ function KiteSettingsContent() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a1628] text-slate-100 p-6">
+    <div className="min-h-screen bg-[#0a1628] text-slate-100">
+      <Nav />
+      <div className="p-6">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <Link href="/trades" className="text-blue-400 hover:text-blue-300 text-sm mb-2 inline-block">
-              ← Back to Trades
+            <Link href="/settings" className="inline-flex items-center gap-1.5 text-slate-400 hover:text-white text-sm mb-2 transition-colors">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg>
+              Settings
             </Link>
             <h1 className="text-2xl font-bold text-blue-300">Kite Connect Settings</h1>
             <p className="text-slate-400 text-sm mt-1">Configure your Zerodha Kite API credentials</p>
@@ -497,6 +501,7 @@ function KiteSettingsContent() {
             <li>Your API Secret stays private {hasApiSecretInEnv ? '(stored securely in .env.local)' : 'and is never stored'}</li>
           </ol>
         </div>
+      </div>
       </div>
     </div>
   );

@@ -509,8 +509,9 @@ export default function OrdersPage() {
           <div className="bg-slate-800/80 backdrop-blur-xl rounded-2xl border border-slate-700/50 px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button onClick={() => router.push('/trades')}
-                className="w-9 h-9 flex items-center justify-center bg-slate-700/50 hover:bg-slate-600/50 rounded-xl transition-all text-slate-300 hover:text-white">
-                <ArrowLeft size={18} />
+                className="flex items-center gap-1.5 px-3 h-9 bg-slate-700/50 hover:bg-slate-600/50 rounded-xl transition-all text-slate-300 hover:text-white text-sm font-medium">
+                <ArrowLeft size={15} />
+                Dashboard
               </button>
               <div>
                 <div className="flex items-center gap-2">

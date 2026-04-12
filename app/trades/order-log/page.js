@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Nav from '../../components/Nav'
+import Link from 'next/link'
 
 function fmt(ts) {
   const d = new Date(ts)
@@ -129,6 +130,13 @@ export default function OrderLogPage() {
     <div className="min-h-screen bg-[#060b14] text-white">
       <Nav />
       <main className="max-w-[1200px] mx-auto px-6 py-8">
+
+        <div className="mb-6">
+          <Link href="/trades" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-white transition-colors">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg>
+            Trading Dashboard
+          </Link>
+        </div>
 
         {/* Header with tab switcher */}
         <div className="flex items-center justify-between mb-6">
