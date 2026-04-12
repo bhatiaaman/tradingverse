@@ -76,7 +76,7 @@ export async function GET(request) {
   // minDistancePct: ignore clusters too close to current price (they're noise, not S/R ahead).
   const minDistancePct = isIntraday ? 0.002 : isHourly ? 0.004 : 0.006;
 
-  const cacheKey = `${NS}:sl-clusters:${symbol}:${interval}`;
+  const cacheKey = `${NS}:sl-clusters:v3:${symbol}:${interval}`;
   const cached   = await redisGet(cacheKey);
   if (cached) return NextResponse.json(cached);
 
@@ -104,25 +104,29 @@ export async function GET(request) {
 
     const toStr = istDateStr(0);
 
-    // Fetch only data relevant to the chart interval — avoids daily pivots dominating 5m charts
-    let raw15m = [], raw1H = [], raw1D = [];
+    // Fetch data relevant to chart interval + current price in parallel
+    let raw15m = [], raw1H = [], raw1D = [], resolvedPrice;
     if (isIntraday) {
-      [raw15m, raw1H] = await Promise.all([
+      [raw15m, raw1H, resolvedPrice] = await Promise.all([
         dp.getHistoricalData(token, '15minute', istDateStr(-20), toStr),
         dp.getHistoricalData(token, '60minute', istDateStr(-40), toStr),
+        resolvePrice(),
       ]);
     } else if (isHourly) {
-      [raw1H, raw1D] = await Promise.all([
-        dp.getHistoricalData(token, '60minute', istDateStr(-60), toStr),
+      [raw1H, raw1D, resolvedPrice] = await Promise.all([
+        dp.getHistoricalData(token, '60minute', istDateStr(-60),  toStr),
         dp.getHistoricalData(token, 'day',      istDateStr(-150), toStr),
+        resolvePrice(),
       ]);
     } else {
-      // day / week — use only daily candles with a long lookback
-      raw1D = await dp.getHistoricalData(token, 'day', istDateStr(-365), toStr);
+      // day / week — long lookback daily only; no 15m/1H noise
+      [raw1D, resolvedPrice] = await Promise.all([
+        dp.getHistoricalData(token, 'day', istDateStr(-365), toStr),
+        resolvePrice(),
+      ]);
     }
 
-    const resolvedPrice = await resolvePrice();
-    const currentPrice  = resolvedPrice ?? 22500;
+    const currentPrice = resolvedPrice ?? 22500;
 
     const prox    = Math.max(1, currentPrice * 0.000625);
     const maxRng  = Math.max(2, currentPrice * 0.00208);
