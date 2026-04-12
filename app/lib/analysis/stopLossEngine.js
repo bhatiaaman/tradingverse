@@ -130,13 +130,7 @@ export class StopLossEngine {
              }
         }
 
-        // 4. Clean up dynamically based on current price
-        allLevels.forEach(level => {
-             if (level.price >= currentPrice) level.side = "BSL";
-             else level.side = "SSL";
-        });
-
-        // 5. Cluster Formation
+        // 4. Cluster Formation
         const clusters = this._clusterize(allLevels);
 
         // 6. Score and Sort

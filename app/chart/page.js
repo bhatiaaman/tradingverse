@@ -232,14 +232,20 @@ function ChartPageInner() {
       );
       if (intelRes.ok) setIntelligence(await intelRes.json());
 
-      const slRes = await fetch(`/api/analysis/stop-loss-zones?symbol=${encodeURIComponent(symbol)}`);
-      if (slRes.ok) setSlData(await slRes.json());
     } catch { /* non-fatal */ }
     setLoading(false);
   }, [symbol, chartInterval]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // ── SL Clusters — fetch only when toggle is on ───────────────────────────────
+  useEffect(() => {
+    if (!settings.showSL) { setSlData(null); return; }
+    fetch(`/api/analysis/stop-loss-zones?symbol=${encodeURIComponent(symbol)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && !d.error) setSlData(d); })
+      .catch(() => {});
+  }, [settings.showSL, symbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Drawing tools — sync activeTool to chart, persist drawings ───────────────
   const drawingKey = (sym, iv) => `tv_drawings_${sym}_${iv}`;
