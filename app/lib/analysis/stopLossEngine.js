@@ -134,6 +134,16 @@ export class StopLossEngine {
         // 4. Cluster Formation
         const clusters = this._clusterize(allLevels);
 
+        // 5. Reassign BSL/SSL at cluster level based on current price.
+        //    Pivot sides are set at creation time relative to then-current price;
+        //    after a large move a former swing low can now be ABOVE current price.
+        clusters.forEach(cluster => {
+            const mid  = (cluster.range.min + cluster.range.max) / 2;
+            const side = mid >= currentPrice ? 'BSL' : 'SSL';
+            cluster.side = side;
+            cluster.components.forEach(c => { c.side = side; });
+        });
+
         // 6. Score and Sort
         clusters.forEach(cluster => {
              cluster.score = this._calculateScore(cluster);
