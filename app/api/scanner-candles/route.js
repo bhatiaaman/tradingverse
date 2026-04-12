@@ -19,14 +19,27 @@ async function redisSet(key, value, ex) {
   } catch {}
 }
 
-const pad  = n => String(n).padStart(2, '0');
-const fmt  = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+const pad = n => String(n).padStart(2, '0');
+
+// All date logic works in IST (UTC+5:30).
+// We shift epoch by +5.5h so UTC getters give IST values.
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+// Returns an object with IST year/month/day/hour/min from an epoch ms
+function toIST(epochMs) {
+  const d = new Date(epochMs + IST_OFFSET_MS);
+  return {
+    year: d.getUTCFullYear(), month: d.getUTCMonth() + 1,
+    day:  d.getUTCDate(),     dow:   d.getUTCDay(),
+    hour: d.getUTCHours(),    min:   d.getUTCMinutes(),
+    dateStr: `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`,
+  };
+}
 
 function isMarketHours() {
-  const now  = new Date(Date.now() + 5.5 * 3600000);
-  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
-  const day  = now.getUTCDay();
-  return day >= 1 && day <= 5 && mins >= 555 && mins <= 930;
+  const ist  = toIST(Date.now());
+  const mins = ist.hour * 60 + ist.min;
+  return ist.dow >= 1 && ist.dow <= 5 && mins >= 555 && mins <= 930;
 }
 
 const NSE_HOLIDAYS = [
@@ -34,14 +47,13 @@ const NSE_HOLIDAYS = [
   '2026-04-14','2026-05-01','2026-05-28','2026-06-26','2026-09-14',
   '2026-10-02','2026-10-20','2026-11-10','2026-11-24','2026-12-25',
 ];
-const isHoliday   = d => NSE_HOLIDAYS.includes(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`);
-const isTradingDay = d => d.getDay() >= 1 && d.getDay() <= 5 && !isHoliday(d);
+const isHoliday    = ist => NSE_HOLIDAYS.includes(ist.dateStr);
+const isTradingIST = ist => ist.dow >= 1 && ist.dow <= 5 && !isHoliday(ist);
 
-function prevTradingDay(date) {
-  const d = new Date(date);
-  d.setDate(d.getDate() - 1);
-  while (!isTradingDay(d)) d.setDate(d.getDate() - 1);
-  return d;
+function prevTradingDayEpoch(epochMs) {
+  let e = epochMs - 24 * 3600000;
+  while (!isTradingIST(toIST(e))) e -= 24 * 3600000;
+  return e;
 }
 
 // Get NSE EQ instrument token for a symbol — cached 24h
@@ -72,8 +84,8 @@ export async function GET(req) {
 
   if (!symbol) return NextResponse.json({ error: 'symbol required' }, { status: 400 });
 
-  // Map interval string to Kite interval
-  const kiteInterval = interval.replace('min', 'minute').replace('minute', 'minute');
+  // Kite expects e.g. "15minute" — pass through as-is (frontend already sends that)
+  const kiteInterval = interval;
 
   // Cache: 3 min during market hours, 1 hour after close
   const cacheTTL = isMarketHours() ? 180 : 3600;
@@ -88,18 +100,17 @@ export async function GET(req) {
     const token = await getToken(symbol, dp);
     if (!token) return NextResponse.json({ error: `No token for ${symbol}` }, { status: 404 });
 
-    // Date range: prev trading day 9:15 AM → today now (IST)
-    const nowIST  = new Date(Date.now() + 5.5 * 3600000);
-    const todayIST = new Date(nowIST);
-    todayIST.setUTCHours(3, 45, 0, 0); // 9:15 AM IST = 03:45 UTC
+    // Date range: prev trading day 9:15 AM IST → now IST
+    const nowEpoch   = Date.now();
+    const nowISTInfo = toIST(nowEpoch);
 
-    const prevDay = prevTradingDay(new Date(nowIST.getFullYear(), nowIST.getMonth(), nowIST.getDate()));
-    const fromIST = new Date(prevDay);
-    fromIST.setUTCHours(3, 45, 0, 0); // 9:15 AM IST
+    // Previous trading day epoch
+    const prevDayEpoch   = prevTradingDayEpoch(nowEpoch);
+    const prevDayISTInfo = toIST(prevDayEpoch);
 
-    // Format for Kite API (IST strings, not UTC)
-    const fromStr = `${prevDay.getFullYear()}-${pad(prevDay.getMonth()+1)}-${pad(prevDay.getDate())} 09:15:00`;
-    const toStr   = fmt(nowIST);
+    // Format for Kite API: "YYYY-MM-DD HH:MM:SS" in IST
+    const fromStr = `${prevDayISTInfo.dateStr} 09:15:00`;
+    const toStr   = `${nowISTInfo.dateStr} ${pad(nowISTInfo.hour)}:${pad(nowISTInfo.min)}:00`;
 
     const raw = await dp.getHistoricalData(token, kiteInterval, fromStr, toStr);
     if (!raw?.length) return NextResponse.json({ error: 'No candles returned', candles: [] });
@@ -110,13 +121,9 @@ export async function GET(req) {
       o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume,
     }));
 
-    // Find prev day boundary — first candle on today's date (IST)
-    const todayDateStr = `${nowIST.getFullYear()}-${pad(nowIST.getMonth()+1)}-${pad(nowIST.getDate())}`;
-    const todayStartIdx = candles.findIndex(c => {
-      const d = new Date((c.t + 5.5 * 3600) * 1000);
-      const ds = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
-      return ds === todayDateStr;
-    });
+    // Find prev day boundary — first candle on today's IST date
+    const todayDateStr  = nowISTInfo.dateStr;
+    const todayStartIdx = candles.findIndex(c => toIST(c.t * 1000).dateStr === todayDateStr);
 
     // CDH/CDL from today's candles
     const todayCandles = todayStartIdx >= 0 ? candles.slice(todayStartIdx) : [];
