@@ -14,6 +14,8 @@ export default function WeeklyWatchlist() {
   const [userStocks, setUserStocks] = useState('')
   const [copied, setCopied] = useState(false)
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false)
+  const [editingSymbolIndex, setEditingSymbolIndex] = useState(null)
+  const [tempSymbol, setTempSymbol] = useState('')
 
   useEffect(() => {
     // Load local storage limit preference
@@ -62,6 +64,30 @@ export default function WeeklyWatchlist() {
     }
   }
 
+  const handleSymbolSave = async (oldSymbol) => {
+    if (!tempSymbol || tempSymbol.toUpperCase().trim() === oldSymbol) {
+      setEditingSymbolIndex(null)
+      return
+    }
+    
+    const updatedList = [...watchlistObj[activeTab]]
+    const ogIndex = updatedList.findIndex(s => s.symbol === oldSymbol)
+    
+    if (ogIndex !== -1) {
+       updatedList[ogIndex].symbol = tempSymbol.toUpperCase().replace(/[^A-Z0-9&-]/g, '')
+       const newWatchlistObj = { ...watchlistObj, [activeTab]: updatedList }
+       setWatchlistObj(newWatchlistObj)
+       
+       fetch('/api/weekly-watchlist', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ tab: activeTab, list: updatedList })
+       })
+    }
+    
+    setEditingSymbolIndex(null)
+  }
+
   if (loading) return null;
 
   const handleLimitChange = (lim) => {
@@ -87,7 +113,9 @@ export default function WeeklyWatchlist() {
 ]`;
 
     const base = `You are an expert Indian NSE swing-trading scanner.\n\n`;
-    const constraints = `Output the response as a single, valid JSON array of objects using this exact schema. Do not use markdown wrappers outside the JSON, strictly JSON.\n${schemaString}`;
+    const constraints = `Output the response as a single, valid JSON array of objects using this exact schema. Do not use markdown wrappers outside the JSON, strictly JSON.
+CRITICAL MANDATE: You MUST use exact, official NSE ticker symbols in the "symbol" field. Do NOT use company names or include trailing spaces.
+Correct Examples: Use "ELGIEQUIP" instead of "ElgiEquipments", "GET&D" instead of "GEVT&D", "BEPL" instead of "BhansaliEngg".\n\n${schemaString}`;
     
     if (activeTab === 'expertsResearch') {
        return `${base}I have already selected the following specific stocks based on my own research:\n\nSTOCKS: [ ${userStocks || 'INFY, TCS'} ]\n\nFor EACH of the specific stocks listed above, provide a comprehensive swing-trading setup analysis using daily and weekly data up to the most recent Friday close.\nDo not find other stocks. Only analyze the ones provided.\n\n${constraints}`;
@@ -145,7 +173,7 @@ export default function WeeklyWatchlist() {
     
     // Create a Section Header to group imported stocks visually in TradingView
     const dateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-    const tvContent = `### Watchlist (${dateStr})\n${tvLines.join(',')}`;
+    const tvContent = `### Watchlist (${dateStr}),${tvLines.join(',')}`;
     
     const blob = new Blob([tvContent], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -297,8 +325,36 @@ export default function WeeklyWatchlist() {
           {displayWatchlist.map((stock, i) => (
             <div key={i} className="flex flex-col bg-white dark:bg-[#0b101a] border border-slate-200 dark:border-white/10 rounded-xl p-5 hover:border-violet-300 dark:hover:border-violet-500/40 transition-colors group relative">
               <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">{stock.symbol}</h3>
+                <div className="flex items-center gap-2 group/title">
+                  {editingSymbolIndex === stock.symbol ? (
+                    <div className="flex items-center gap-1">
+                      <input 
+                         autoFocus
+                         value={tempSymbol}
+                         onChange={(e) => setTempSymbol(e.target.value)}
+                         onKeyDown={(e) => e.key === 'Enter' && handleSymbolSave(stock.symbol)}
+                         className="w-24 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white px-2 py-0.5 rounded text-sm font-bold border border-violet-500 outline-none"
+                      />
+                      <button onClick={() => handleSymbolSave(stock.symbol)} className="text-emerald-500 hover:text-emerald-600 transition-colors">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+                      </button>
+                      <button onClick={() => setEditingSymbolIndex(null)} className="text-slate-400 hover:text-red-500 transition-colors">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white">{stock.symbol}</h3>
+                      {activeTab !== 'consolidated' && (
+                        <button 
+                           onClick={() => { setTempSymbol(stock.symbol); setEditingSymbolIndex(stock.symbol); }}
+                           className="text-slate-400 hover:text-violet-500 opacity-0 group-hover/title:opacity-100 transition-opacity"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                        </button>
+                      )}
+                    </>
+                  )}
                   {activeTab === 'consolidated' && stock.sourceTitle && (
                     <span className={`text-[9px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-sm border ${stock.sourceColor}`}>
                       {stock.sourceTitle}
