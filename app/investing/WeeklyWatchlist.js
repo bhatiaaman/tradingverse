@@ -143,7 +143,11 @@ export default function WeeklyWatchlist() {
     const uniqueSymbols = Array.from(new Set(combined.map(s => s.symbol)));
     const tvLines = uniqueSymbols.map(sym => `NSE:${sym}`);
     
-    const blob = new Blob([tvLines.join(',')], { type: 'text/plain' });
+    // Create a Section Header to group imported stocks visually in TradingView
+    const dateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const tvContent = `### Watchlist (${dateStr})\n${tvLines.join(',')}`;
+    
+    const blob = new Blob([tvContent], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
