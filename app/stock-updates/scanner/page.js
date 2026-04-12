@@ -275,6 +275,167 @@ function buildOptionSymbols(symbol, price) {
   return { ce: `${symbol}${expiry}C${ceStrike}`, pe: `${symbol}${expiry}P${peStrike}`, ceStrike, peStrike };
 }
 
+// ── Inline Mini-Chart (canvas) ────────────────────────────────────────────────
+function ScannerMiniChart({ data, boTimestamp, showPDHL, showCDHL }) {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !data?.candles?.length) return;
+    const ctx  = canvas.getContext('2d');
+    const dpr  = window.devicePixelRatio || 1;
+    const W    = canvas.parentElement?.clientWidth || 600;
+    const PH   = Math.round(W * 0.38); // price panel height
+    const VH   = Math.round(PH * 0.28); // volume panel height
+    const H    = PH + VH + 8;          // total
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const { candles, todayStartIdx, pdh, pdl, cdh, cdl } = data;
+    const N = candles.length;
+    const PAD_L = 8, PAD_R = 56, PAD_T = 12, PAD_B = 4;
+
+    // Price range
+    const priceCandles = candles;
+    const hiP = Math.max(...priceCandles.map(c => c.h));
+    const loP = Math.min(...priceCandles.map(c => c.l));
+    const pRange = hiP - loP || 1;
+    const yP = v => PAD_T + (PH - PAD_T - PAD_B) * (1 - (v - loP) / pRange);
+
+    // Volume range
+    const maxV = Math.max(...candles.map(c => c.v)) || 1;
+    const yV = v => PH + 8 + VH * (1 - v / maxV);
+
+    // Bar width
+    const chartW = W - PAD_L - PAD_R;
+    const barW   = Math.max(1, Math.floor(chartW / N) - 1);
+    const xOf    = i => PAD_L + i * (chartW / N) + (chartW / N - barW) / 2;
+
+    // ── Background ──────────────────────────────────────────────────────────
+    ctx.fillStyle = '#060b14';
+    ctx.fillRect(0, 0, W, H);
+
+    // ── Day separator ────────────────────────────────────────────────────────
+    if (todayStartIdx > 0 && todayStartIdx < N) {
+      const sx = xOf(todayStartIdx) - (chartW / N) * 0.5;
+      ctx.strokeStyle = '#1e3a5f';
+      ctx.lineWidth   = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(sx, PAD_T); ctx.lineTo(sx, PH); ctx.stroke();
+      ctx.setLineDash([]);
+      // "Prev" / "Today" labels
+      ctx.fillStyle = '#334155'; ctx.font = `${9 * dpr / dpr}px sans-serif`; ctx.textAlign = 'center';
+      ctx.fillText('Prev', PAD_L + (sx - PAD_L) / 2, PAD_T - 3);
+      ctx.fillText('Today', sx + (W - PAD_R - sx) / 2, PAD_T - 3);
+    }
+
+    // ── PDH / PDL ────────────────────────────────────────────────────────────
+    const drawLevel = (val, color, label) => {
+      if (val == null) return;
+      const y = yP(val);
+      ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = color; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+      ctx.fillText(`${label} ${val.toFixed(1)}`, W - PAD_R + 3, y + 3);
+    };
+    if (showPDHL) { drawLevel(pdh, '#f59e0b', 'PDH'); drawLevel(pdl, '#f59e0b', 'PDL'); }
+    if (showCDHL) { drawLevel(cdh, '#34d399', 'CDH'); drawLevel(cdl, '#f87171', 'CDL'); }
+
+    // ── VWAP (today only) ────────────────────────────────────────────────────
+    const todaySlice = todayStartIdx >= 0 ? candles.slice(todayStartIdx) : candles;
+    if (todaySlice.length > 1) {
+      let cumTV = 0, cumV = 0;
+      const vwapPts = todaySlice.map((c, i) => {
+        const tp = (c.h + c.l + c.c) / 3;
+        cumTV += tp * c.v; cumV += c.v;
+        return { i: todayStartIdx + i, vwap: cumV > 0 ? cumTV / cumV : tp };
+      });
+      ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 1.5; ctx.setLineDash([]);
+      ctx.beginPath();
+      vwapPts.forEach((pt, j) => {
+        const x = xOf(pt.i) + barW / 2;
+        const y = yP(pt.vwap);
+        j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      // VWAP label
+      const lastVwap = vwapPts[vwapPts.length - 1];
+      ctx.fillStyle = '#60a5fa'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+      ctx.fillText(`VWAP ${lastVwap.vwap.toFixed(1)}`, W - PAD_R + 3, yP(lastVwap.vwap) + 3);
+    }
+
+    // ── Candles ───────────────────────────────────────────────────────────────
+    candles.forEach((c, i) => {
+      const isPrev = todayStartIdx > 0 && i < todayStartIdx;
+      const isBO   = boTimestamp && c.t === boTimestamp;
+      const isBull = c.c >= c.o;
+
+      let bodyColor, wickColor;
+      if (isBO) {
+        bodyColor = '#eab308'; wickColor = '#ca8a04';
+      } else if (isPrev) {
+        bodyColor = isBull ? 'rgba(52,211,153,0.35)' : 'rgba(248,113,113,0.35)';
+        wickColor = isPrev ? 'rgba(100,116,139,0.4)' : (isBull ? '#34d399' : '#f87171');
+      } else {
+        bodyColor = isBull ? '#34d399' : '#f87171';
+        wickColor = isBull ? '#34d399' : '#f87171';
+      }
+
+      const x    = xOf(i);
+      const cx   = x + barW / 2;
+      const yO   = yP(c.o), yC = yP(c.c), yH = yP(c.h), yL = yP(c.l);
+      const top  = Math.min(yO, yC), bot = Math.max(yO, yC);
+      const bodyH = Math.max(1, bot - top);
+
+      // Wick
+      ctx.strokeStyle = wickColor; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx, yH); ctx.lineTo(cx, top); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, bot); ctx.lineTo(cx, yL); ctx.stroke();
+
+      // Body
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(x, top, barW, bodyH);
+
+      // Volume bar
+      const vColor = isBO ? '#eab308' : isPrev ? 'rgba(100,116,139,0.3)' : (isBull ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)');
+      ctx.fillStyle = vColor;
+      const vy = yV(c.v);
+      ctx.fillRect(x, vy, barW, PH + 8 + VH - vy);
+    });
+
+    // ── Right-axis price labels ───────────────────────────────────────────────
+    const lastC = candles[candles.length - 1];
+    ctx.fillStyle = '#e2e8f0'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'left';
+    ctx.fillRect(W - PAD_R + 1, yP(lastC.c) - 7, PAD_R - 3, 13);
+    ctx.fillStyle = '#060b14';
+    ctx.fillText(lastC.c.toFixed(1), W - PAD_R + 3, yP(lastC.c) + 3);
+
+    // ── Legend ────────────────────────────────────────────────────────────────
+    const legendItems = [
+      { color: '#60a5fa', label: 'VWAP' },
+      ...(showPDHL ? [{ color: '#f59e0b', label: 'PDH/PDL' }] : []),
+      ...(showCDHL ? [{ color: '#34d399', label: 'CDH' }, { color: '#f87171', label: 'CDL' }] : []),
+      { color: '#eab308', label: 'BO candle' },
+    ];
+    ctx.font = '8px sans-serif'; ctx.textAlign = 'left';
+    let lx = PAD_L + 4;
+    legendItems.forEach(({ color, label }) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(lx, H - 10, 8, 4);
+      ctx.fillStyle = '#64748b';
+      ctx.fillText(label, lx + 10, H - 7);
+      lx += ctx.measureText(label).width + 24;
+    });
+
+  }, [data, boTimestamp, showPDHL, showCDHL]);
+
+  return <canvas ref={canvasRef} className="w-full rounded" />;
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ScannerPage({ scanName, scanSlug }) {
   const router       = useRouter();
@@ -302,8 +463,13 @@ export default function ScannerPage({ scanName, scanSlug }) {
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [orderStock,   setOrderStock]   = useState(null);
   const [filter,       setFilter]       = useState('all');
+  const [chartCandles, setChartCandles] = useState(null);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [showPDHL,     setShowPDHL]     = useState(true);
+  const [showCDHL,     setShowCDHL]     = useState(true);
   const isVisible = usePageVisibility();
-  const containerRef = useRef(null);
+  const containerRef  = useRef(null);
+  const chartAbortRef = useRef(null);
 
   // ── Enriched map: { [symbol]: enrichedEntry } ─────────────────────────────
   const enrichedMap = enriched
@@ -357,6 +523,21 @@ export default function ScannerPage({ scanName, scanSlug }) {
     // Subtracting one interval gives 11:45 — the actual signal candle that closed.
     return Math.floor((snapped - intervalMs) / 1000);
   }
+
+  // ── Fetch candles for inline chart when selected stock changes ───────────
+  useEffect(() => {
+    if (!selectedStock) { setChartCandles(null); return; }
+    if (chartAbortRef.current) chartAbortRef.current.abort();
+    const ctrl = new AbortController();
+    chartAbortRef.current = ctrl;
+    setChartLoading(true);
+    setChartCandles(null);
+    fetch(`/api/scanner-candles?symbol=${encodeURIComponent(selectedStock)}&interval=15minute`, { signal: ctrl.signal })
+      .then(r => r.json())
+      .then(d => { if (!d.error) setChartCandles(d); })
+      .catch(() => {})
+      .finally(() => { if (!ctrl.signal.aborted) setChartLoading(false); });
+  }, [selectedStock]);
 
   // ── Open 15m chart in native chart page ──────────────────────────────────
   const openChart = useCallback((symbol, triggeredAt, dir = 'bull') => {
@@ -879,20 +1060,97 @@ export default function ScannerPage({ scanName, scanSlug }) {
                         );
                       })()}
 
-                      {/* Scan stats */}
-                      <div className="p-4 grid grid-cols-2 gap-3">
-                        <div className="bg-[#060b14] border border-[#1e3a5f] rounded-2xl p-4">
-                          <div className="text-slate-400 text-xs mb-1 flex items-center gap-1.5">
-                            <Zap size={12} className="text-blue-400" /> Current scan
+                      {/* ── Inline chart ──────────────────────────────── */}
+                      <div className="px-4 pb-4">
+                        {selectedStock ? (
+                          <div className="bg-[#060b14] border border-[#1e3a5f] rounded-2xl overflow-hidden">
+                            {/* Chart toolbar */}
+                            <div className="flex items-center justify-between px-3 py-2 border-b border-[#1e3a5f]">
+                              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                                {selectedStock} · 15m · Today + Prev Day
+                              </span>
+                              <div className="flex items-center gap-2">
+                                {/* PDH/PDL toggle */}
+                                <button
+                                  onClick={() => setShowPDHL(v => !v)}
+                                  className={`text-[10px] px-2 py-0.5 rounded font-mono font-semibold border transition-colors ${
+                                    showPDHL
+                                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                                      : 'bg-transparent text-slate-600 border-slate-700/40'
+                                  }`}
+                                >PDH/PDL</button>
+                                {/* CDH/CDL toggle */}
+                                <button
+                                  onClick={() => setShowCDHL(v => !v)}
+                                  className={`text-[10px] px-2 py-0.5 rounded font-mono font-semibold border transition-colors ${
+                                    showCDHL
+                                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                                      : 'bg-transparent text-slate-600 border-slate-700/40'
+                                  }`}
+                                >CDH/CDL</button>
+                              </div>
+                            </div>
+                            {/* Canvas */}
+                            <div className="p-2">
+                              {chartLoading ? (
+                                <div className="flex items-center justify-center h-32 text-slate-500 text-xs gap-2">
+                                  <RefreshCw size={13} className="animate-spin" /> Loading candles…
+                                </div>
+                              ) : chartCandles?.candles?.length ? (
+                                <ScannerMiniChart
+                                  data={chartCandles}
+                                  boTimestamp={(() => {
+                                    const triggeredAt = latestData?.triggeredAt;
+                                    if (!triggeredAt) return null;
+                                    // Reuse buildSignalUnixSec logic
+                                    const match = String(triggeredAt).match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+                                    if (match) {
+                                      let h = parseInt(match[1]), m = parseInt(match[2]);
+                                      if (match[3].toLowerCase() === 'pm' && h !== 12) h += 12;
+                                      if (match[3].toLowerCase() === 'am' && h === 12) h = 0;
+                                      const now = new Date();
+                                      const ist = new Date(now.getTime() + (now.getTimezoneOffset() + 330) * 60000);
+                                      const p = n => String(n).padStart(2,'0');
+                                      const iso = `${ist.getFullYear()}-${p(ist.getMonth()+1)}-${p(ist.getDate())}T${p(h)}:${p(m)}:00+05:30`;
+                                      const ms = new Date(iso).getTime();
+                                      const snapped = Math.floor(ms / (15*60000)) * (15*60000);
+                                      return Math.floor((snapped - 15*60000) / 1000);
+                                    }
+                                    return null;
+                                  })()}
+                                  showPDHL={showPDHL}
+                                  showCDHL={showCDHL}
+                                />
+                              ) : (
+                                <div className="flex items-center justify-center h-32 text-slate-600 text-xs">
+                                  No candle data available
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <div className="text-3xl font-bold text-blue-400">{latestData.stocks.length}</div>
-                          <div className="text-blue-400/50 text-xs mt-0.5">stocks detected</div>
+                        ) : (
+                          <div className="bg-[#060b14] border border-[#1e3a5f] rounded-2xl flex items-center justify-center h-40 text-slate-600 text-xs">
+                            Select a stock to see chart
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Scan stats + trend (moved below chart) */}
+                    <div className="px-4 pt-0 pb-4 shrink-0">
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div className="bg-[#060b14] border border-[#1e3a5f] rounded-xl p-3">
+                          <div className="text-slate-400 text-[10px] mb-1 flex items-center gap-1.5">
+                            <Zap size={11} className="text-blue-400" /> Current scan
+                          </div>
+                          <div className="text-2xl font-bold text-blue-400">{latestData.stocks.length}</div>
+                          <div className="text-blue-400/50 text-[10px]">stocks detected</div>
                         </div>
-                        <div className="bg-[#060b14] border border-[#1e3a5f] rounded-2xl p-4">
-                          <div className="text-slate-400 text-xs mb-1 flex items-center gap-1.5">
-                            <BarChart3 size={12} className="text-emerald-400" /> Avg (20 scans)
+                        <div className="bg-[#060b14] border border-[#1e3a5f] rounded-xl p-3">
+                          <div className="text-slate-400 text-[10px] mb-1 flex items-center gap-1.5">
+                            <BarChart3 size={11} className="text-emerald-400" /> Avg (20 scans)
                           </div>
-                          <div className="text-3xl font-bold text-emerald-400">
+                          <div className="text-2xl font-bold text-emerald-400">
                             {scans.history?.length > 0
                               ? (scans.history.slice(0, 20).reduce((sum, s) => {
                                   const p = parseChartInkData(s);
@@ -900,35 +1158,31 @@ export default function ScannerPage({ scanName, scanSlug }) {
                                 }, latestData.stocks.length) / Math.min(scans.history.length + 1, 21)).toFixed(1)
                               : latestData.stocks.length}
                           </div>
-                          <div className="text-emerald-400/50 text-xs mt-0.5">stocks per scan</div>
+                          <div className="text-emerald-400/50 text-[10px]">stocks per scan</div>
                         </div>
                       </div>
-
-                      {/* Scan trend chart */}
-                      <div className="px-4 pb-4">
-                        <div className="bg-[#060b14] border border-[#1e3a5f] rounded-2xl p-4">
-                          <div className="text-slate-300 text-xs font-medium mb-3 flex items-center gap-1.5">
-                            <BarChart3 size={13} className="text-blue-400" /> Scan Trend
-                          </div>
-                          <ResponsiveContainer width="100%" height={140}>
-                            <LineChart data={[scans.latest, ...scans.history].filter(Boolean).slice(0, 10).reverse().map(s => {
-                              const p = parseChartInkData(s);
-                              if (!p) return null;
-                              let label = p.triggeredAt;
-                              if (typeof label === 'string' && label.includes('T')) {
-                                const d = new Date(label);
-                                label = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-                              }
-                              return { time: label?.slice(0, 10) || '', count: p.stocks.length };
-                            }).filter(Boolean)}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" />
-                              <XAxis dataKey="time" stroke="#475569" tick={{ fontSize: 9 }} angle={-30} textAnchor="end" height={45} />
-                              <YAxis stroke="#475569" tick={{ fontSize: 9 }} />
-                              <Tooltip contentStyle={{ backgroundColor: '#0a0e1a', border: '1px solid #1e3a5f', borderRadius: '8px', fontSize: 11 }} />
-                              <Line type="monotone" dataKey="count" stroke="#60a5fa" strokeWidth={2} dot={{ fill: '#60a5fa', r: 3 }} />
-                            </LineChart>
-                          </ResponsiveContainer>
+                      <div className="bg-[#060b14] border border-[#1e3a5f] rounded-xl p-3">
+                        <div className="text-slate-300 text-[10px] font-medium mb-2 flex items-center gap-1.5">
+                          <BarChart3 size={11} className="text-blue-400" /> Scan Trend
                         </div>
+                        <ResponsiveContainer width="100%" height={90}>
+                          <LineChart data={[scans.latest, ...scans.history].filter(Boolean).slice(0, 10).reverse().map(s => {
+                            const p = parseChartInkData(s);
+                            if (!p) return null;
+                            let label = p.triggeredAt;
+                            if (typeof label === 'string' && label.includes('T')) {
+                              const d = new Date(label);
+                              label = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+                            }
+                            return { time: label?.slice(0, 10) || '', count: p.stocks.length };
+                          }).filter(Boolean)}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" />
+                            <XAxis dataKey="time" stroke="#475569" tick={{ fontSize: 8 }} angle={-30} textAnchor="end" height={36} />
+                            <YAxis stroke="#475569" tick={{ fontSize: 8 }} />
+                            <Tooltip contentStyle={{ backgroundColor: '#0a0e1a', border: '1px solid #1e3a5f', borderRadius: '8px', fontSize: 10 }} />
+                            <Line type="monotone" dataKey="count" stroke="#60a5fa" strokeWidth={1.5} dot={{ fill: '#60a5fa', r: 2 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
                       </div>
                     </div>
 
