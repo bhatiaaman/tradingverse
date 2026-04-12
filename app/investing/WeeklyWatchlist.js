@@ -39,20 +39,28 @@ export default function WeeklyWatchlist() {
       })
   }, [])
 
-  const handleSave = async () => {
-    setSaveStatus('Saving...')
+  const handleSave = async (mode = 'replace') => {
+    setSaveStatus(`Saving (${mode})...`);
     try {
       const parsed = JSON.parse(jsonInput)
       if (!Array.isArray(parsed)) throw new Error("JSON must be an array of objects")
       
+      let finalList = parsed;
+      if (mode === 'append') {
+        const existingMap = new Map();
+        (watchlistObj[activeTab] || []).forEach(s => existingMap.set(s.symbol, s));
+        parsed.forEach(s => existingMap.set(s.symbol, s));
+        finalList = Array.from(existingMap.values());
+      }
+      
       const res = await fetch('/api/weekly-watchlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tab: activeTab, list: parsed })
+        body: JSON.stringify({ tab: activeTab, list: finalList })
       })
       
       if (res.ok) {
-        setWatchlistObj(prev => ({ ...prev, [activeTab]: parsed }))
+        setWatchlistObj(prev => ({ ...prev, [activeTab]: finalList }))
         setIsEditing(false)
         setSaveStatus(null)
       } else {
@@ -472,7 +480,7 @@ Correct Examples: Use "ELGIEQUIP" instead of "ElgiEquipments", "GET&D" instead o
               </div>
             )}
 
-            <div className="flex justify-end gap-3 mt-auto">
+            <div className="flex justify-end gap-3 mt-auto flex-wrap">
               <button 
                 onClick={() => setIsEditing(false)}
                 className="px-4 py-2 text-sm font-bold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors"
@@ -480,10 +488,18 @@ Correct Examples: Use "ELGIEQUIP" instead of "ElgiEquipments", "GET&D" instead o
                 Cancel
               </button>
               <button 
-                onClick={handleSave}
-                className="px-4 py-2 text-sm font-bold bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
+                onClick={() => handleSave('append')}
+                className="px-4 py-2 text-sm font-bold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+                title="Merges your pasted JSON with your existing stocks in the database"
               >
-                Save to Database
+                ➕ Append New
+              </button>
+              <button 
+                onClick={() => handleSave('replace')}
+                className="px-4 py-2 text-sm font-bold bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
+                title="Completely overwrites the database with the JSON above"
+              >
+                🔄 Replace Entire List
               </button>
             </div>
           </div>
