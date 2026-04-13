@@ -379,17 +379,22 @@ function getNiftyLevelAlerts(indices) {
     const quietCandleCountRef = useRef(0);
 
     // Restore Third Eye log from Redis on mount (survives browser refresh).
-    // The Redis key is already date-scoped (third-eye-log:YYYY-MM-DD) so entries
-    // are always from today's session — no client-side date filtering needed.
+    // Entries are stored as "HH:MM" strings. Filter to entries whose time is ≤ the
+    // current IST time so yesterday's end-of-session entries (e.g. "15:25") are
+    // never shown when the page is opened next morning at "09:57".
     useEffect(() => {
       fetch('/api/third-eye/log')
         .then(r => r.json())
         .then(d => {
-          if (d.entries?.length) {
-            setThirdEyeLog(d.entries);
-            // Seed the dedup ref so we don't re-log the same candle after a page refresh
-            if (d.entries[0]?.time) lastCandleTimeRef.current = d.entries[0].time;
-          }
+          if (!d.entries?.length) return;
+          const ist    = new Date(Date.now() + 5.5 * 3600 * 1000);
+          const nowStr = `${String(ist.getUTCHours()).padStart(2,'0')}:${String(ist.getUTCMinutes()).padStart(2,'0')}`;
+          // Only keep entries from today's session (HH:MM ≤ now)
+          const todayEntries = d.entries.filter(e => e.time && e.time <= nowStr);
+          if (!todayEntries.length) return;
+          setThirdEyeLog(todayEntries);
+          // Seed the dedup ref so we don't re-log the same candle after a page refresh
+          if (todayEntries[0]?.time) lastCandleTimeRef.current = todayEntries[0].time;
         })
         .catch(() => {});
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1783,15 +1788,40 @@ function getNiftyLevelAlerts(indices) {
       }
 
       // Flat — no position, no setup
+
+      // RSI extreme while flat and near VWAP — worth flagging even without a formal setup
+      if (flat && nearVwap) {
+        if (c.rsi != null && c.rsi <= 35) {
+          return ret({ type: 'watch', action: 'WATCH',
+            headline: `RSI oversold${atVwap ? ' at VWAP' : ' near VWAP'} — possible bounce zone`,
+            reason: `RSI ${Math.round(c.rsi)} is deeply oversold${vwapHint ? `, price ${vwapHint}` : ''}. No entry yet — wait for a bullish candle to confirm. This is a zone worth watching for a long.` });
+        }
+        if (c.rsi != null && c.rsi >= 65) {
+          return ret({ type: 'watch', action: 'WATCH',
+            headline: `RSI overbought${atVwap ? ' at VWAP' : ' near VWAP'} — possible rejection zone`,
+            reason: `RSI ${Math.round(c.rsi)} is stretched${vwapHint ? `, price ${vwapHint}` : ''}. No short yet — wait for a bearish candle to confirm. Watching for a rejection here.` });
+        }
+      }
+
       if (c.volume.context === 'dryup') {
         return ret({ type: 'quiet', action: 'FLAT',
-          headline: 'Nothing happening — volume dried up, staying out',
-          reason: `Low participation. ${c.trend === 'ranging' ? 'Market ranging — no clear edge.' : `Trend is ${c.trend} but no setup to act on.`} Waiting.` });
+          headline: 'Volume dried up — nothing happening, staying out',
+          reason: `Low participation${vwapHint ? `, price ${vwapHint}` : ''}${c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : ''}. Market digesting. Waiting for a setup.` });
       }
-      const trendLabel = c.trend === 'uptrend' ? 'Uptrend intact' : c.trend === 'downtrend' ? 'Downtrend intact' : 'Ranging';
-      return ret({ type: 'quiet', action: 'FLAT — WAITING',
-        headline: `${isBull ? 'Up candle' : 'Down candle'} — ${trendLabel.toLowerCase()}, no setup to act on`,
-        reason: `${trendLabel}${vwapHint ? `, price ${vwapHint}` : ''}${c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : ''}. Just watching.` });
+
+      // Describe where price IS (intraday VWAP context) rather than multi-day trend label
+      const vwapCtx  = aboveVwap ? 'above VWAP' : c.vwap ? 'below VWAP' : null;
+      const rsiCtx   = c.rsi != null ? ` · RSI ${Math.round(c.rsi)}` : '';
+      const volCtx   = c.volume.context === 'high' ? ` · vol ${c.volume.mult}×` : '';
+      const headline = vwapCtx
+        ? `${isBull ? 'Up' : 'Down'} candle, ${vwapCtx} — no setup yet`
+        : `${isBull ? 'Up' : 'Down'} candle — no clear setup`;
+      const reason   = `${vwapHint ? `Price ${vwapHint}` : (vwapCtx ?? 'No VWAP data')}${rsiCtx}${volCtx}. ${
+        c.trend === 'ranging' ? 'Market ranging.' : c.trend === 'uptrend'
+          ? (aboveVwap ? 'Uptrend, price holding above VWAP.' : 'Uptrend but below VWAP — soft.')
+          : (aboveVwap ? 'Longer-term trend down but price above VWAP today — mixed.' : 'Trend down, price below VWAP.')
+      } Waiting for a setup.`;
+      return ret({ type: 'quiet', action: 'FLAT — WAITING', headline, reason });
     };
 
     // Exit a conflicting position via market order
