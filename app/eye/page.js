@@ -3598,9 +3598,9 @@ function getNiftyLevelAlerts(indices) {
                   const displayLog = thirdEyeTestMode ? [FAKE_TEST_ENTRY, ...thirdEyeLog] : thirdEyeLog;
                   return (
                   <div className="divide-y divide-white/[0.04] max-h-[560px] overflow-y-auto">
-                    {scanStatus && (
-                      <p className="px-4 py-1.5 text-[9px] font-mono text-slate-700 border-b border-white/[0.04]">
-                        scan: last {scanStatus.lastTime || '—'} · {scanStatus.pushed}/{scanStatus.total} pushed · bias {biasRef.current}
+                    {scanStatus && scanStatus.pushed < scanStatus.total && (
+                      <p className="px-4 py-1.5 text-[9px] font-mono text-rose-500/70 border-b border-white/[0.04]">
+                        ⚠ scan errors: {scanStatus.total - scanStatus.pushed} candle(s) failed — check console
                       </p>
                     )}
                     {displayLog.length === 0 ? (
