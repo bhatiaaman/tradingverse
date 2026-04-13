@@ -13,8 +13,8 @@ function fmtPct(n) {
 }
 
 function changePillClass(n) {
-  if (n > 2)  return 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-  if (n > 0)  return 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/10'
+  if (n >  2) return 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+  if (n >  0) return 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/10'
   if (n > -2) return 'bg-red-500/10 text-red-300 border border-red-500/10'
   return 'bg-red-500/20 text-red-400 border border-red-500/30'
 }
@@ -34,8 +34,6 @@ function RefreshBtn({ loading, onClick }) {
   )
 }
 
-// ─── Change Pill ──────────────────────────────────────────────────────────────
-
 function ChangePill({ value }) {
   return (
     <span className={`inline-flex items-center justify-center min-w-[60px] text-[11px] font-bold px-2 py-1 rounded-lg ${changePillClass(value)}`}>
@@ -43,8 +41,6 @@ function ChangePill({ value }) {
     </span>
   )
 }
-
-// ─── Mini Bar ─────────────────────────────────────────────────────────────────
 
 function MiniBar({ value, maxAbs }) {
   if (!maxAbs) return <div className="w-24 h-2" />
@@ -56,6 +52,199 @@ function MiniBar({ value, maxAbs }) {
         className={`h-full rounded-full ${isPos ? 'bg-emerald-500' : 'bg-rose-500'}`}
         style={{ width: `${pct}%` }}
       />
+    </div>
+  )
+}
+
+// ─── RRG Chart ────────────────────────────────────────────────────────────────
+
+const QUADRANT_CONFIG = {
+  Leading:   { fill: 'rgba(16,185,129,0.07)',  dot: '#10b981', label: '#10b981', text: 'Leading',   labelPos: 'top-right'    },
+  Weakening: { fill: 'rgba(251,191,36,0.07)',  dot: '#f59e0b', label: '#f59e0b', text: 'Weakening', labelPos: 'bottom-right' },
+  Lagging:   { fill: 'rgba(239,68,68,0.07)',   dot: '#ef4444', label: '#ef4444', text: 'Lagging',   labelPos: 'bottom-left'  },
+  Improving: { fill: 'rgba(59,130,246,0.07)',  dot: '#3b82f6', label: '#3b82f6', text: 'Improving', labelPos: 'top-left'     },
+}
+
+function RRGChart({ rrgData }) {
+  const svgRef  = useRef(null)
+  const [tooltip, setTooltip] = useState(null) // { x, y, sector }
+  const [hovered, setHovered] = useState(null)
+
+  if (!rrgData || rrgData.length === 0) {
+    return (
+      <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-8 text-center text-slate-400 dark:text-slate-600 text-sm mb-8">
+        RRG data unavailable — refresh or check Kite connection.
+      </div>
+    )
+  }
+
+  // Determine axis bounds from data
+  const allX = rrgData.flatMap(d => d.tail.map(t => t.rsRatio))
+  const allY = rrgData.flatMap(d => d.tail.map(t => t.rsMomentum))
+  const rawMinX = Math.min(...allX), rawMaxX = Math.max(...allX)
+  const rawMinY = Math.min(...allY), rawMaxY = Math.max(...allY)
+
+  // Always keep center at 100; determine symmetric range
+  const rangeX = Math.max(Math.abs(rawMaxX - 100), Math.abs(rawMinX - 100), 3) + 1.5
+  const rangeY = Math.max(Math.abs(rawMaxY - 100), Math.abs(rawMinY - 100), 3) + 1.5
+  const minX = 100 - rangeX, maxX = 100 + rangeX
+  const minY = 100 - rangeY, maxY = 100 + rangeY
+
+  const W = 580, H = 480
+  const PAD = { top: 40, right: 40, bottom: 50, left: 50 }
+  const chartW = W - PAD.left - PAD.right
+  const chartH = H - PAD.top  - PAD.bottom
+
+  const toSvgX = val => PAD.left + ((val - minX) / (maxX - minX)) * chartW
+  const toSvgY = val => PAD.top  + ((maxY - val) / (maxY - minY)) * chartH // invert Y
+  const cx     = toSvgX(100)
+  const cy     = toSvgY(100)
+
+  // Grid lines
+  const xTicks = [minX + rangeX * 0.25, 100, minX + rangeX * 1.75].map(v => Math.round(v * 10) / 10)
+  const yTicks = [minY + rangeY * 0.25, 100, minY + rangeY * 1.75].map(v => Math.round(v * 10) / 10)
+
+  return (
+    <div className="bg-white dark:bg-[#080d16] border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden mb-8">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 pt-5 pb-3">
+        <div>
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white">Relative Rotation Graph (RRG)</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-500 mt-0.5">Sectors vs NIFTY 50 • Trailing 4-week rotation shown</p>
+        </div>
+        <div className="flex items-center gap-3 text-[10px] font-bold">
+          {Object.entries(QUADRANT_CONFIG).map(([q, cfg]) => (
+            <span key={q} className="flex items-center gap-1" style={{ color: cfg.dot }}>
+              <span className="w-2 h-2 rounded-full inline-block" style={{ background: cfg.dot }} />
+              {q}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* SVG Chart */}
+      <div className="relative overflow-x-auto">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full max-w-2xl mx-auto"
+          style={{ minWidth: 340 }}
+          onMouseLeave={() => { setTooltip(null); setHovered(null) }}
+        >
+          {/* Quadrant fills */}
+          <rect x={cx} y={PAD.top}  width={W - PAD.right - cx} height={cy - PAD.top}  fill={QUADRANT_CONFIG.Leading.fill} />
+          <rect x={cx} y={cy}       width={W - PAD.right - cx} height={H - PAD.bottom - cy} fill={QUADRANT_CONFIG.Weakening.fill} />
+          <rect x={PAD.left} y={cy} width={cx - PAD.left}      height={H - PAD.bottom - cy} fill={QUADRANT_CONFIG.Lagging.fill} />
+          <rect x={PAD.left} y={PAD.top} width={cx - PAD.left} height={cy - PAD.top}    fill={QUADRANT_CONFIG.Improving.fill} />
+
+          {/* Quadrant labels */}
+          <text x={W - PAD.right - 6} y={PAD.top + 16} textAnchor="end" fontSize="9" fontWeight="700" fill={QUADRANT_CONFIG.Leading.label} opacity="0.7">LEADING</text>
+          <text x={W - PAD.right - 6} y={H - PAD.bottom - 8} textAnchor="end" fontSize="9" fontWeight="700" fill={QUADRANT_CONFIG.Weakening.label} opacity="0.7">WEAKENING</text>
+          <text x={PAD.left + 6} y={H - PAD.bottom - 8} textAnchor="start" fontSize="9" fontWeight="700" fill={QUADRANT_CONFIG.Lagging.label} opacity="0.7">LAGGING</text>
+          <text x={PAD.left + 6} y={PAD.top + 16} textAnchor="start" fontSize="9" fontWeight="700" fill={QUADRANT_CONFIG.Improving.label} opacity="0.7">IMPROVING</text>
+
+          {/* Grid lines */}
+          {xTicks.map(v => (
+            <line key={v} x1={toSvgX(v)} y1={PAD.top} x2={toSvgX(v)} y2={H - PAD.bottom}
+              stroke="currentColor" strokeWidth="0.5" className="text-slate-200 dark:text-white/5" strokeDasharray="4,4" />
+          ))}
+          {yTicks.map(v => (
+            <line key={v} x1={PAD.left} y1={toSvgY(v)} x2={W - PAD.right} y2={toSvgY(v)}
+              stroke="currentColor" strokeWidth="0.5" className="text-slate-200 dark:text-white/5" strokeDasharray="4,4" />
+          ))}
+
+          {/* Center crosshair */}
+          <line x1={cx} y1={PAD.top} x2={cx} y2={H - PAD.bottom} stroke="currentColor" strokeWidth="1" className="text-slate-300 dark:text-white/20" />
+          <line x1={PAD.left} y1={cy} x2={W - PAD.right} y2={cy} stroke="currentColor" strokeWidth="1" className="text-slate-300 dark:text-white/20" />
+
+          {/* Axis labels */}
+          <text x={W / 2} y={H - 8} textAnchor="middle" fontSize="9" fontWeight="600" fill="currentColor" className="text-slate-400 dark:text-slate-600">RS-Ratio →  Relative Strength</text>
+          <text x={14} y={H / 2} textAnchor="middle" fontSize="9" fontWeight="600" fill="currentColor" className="text-slate-400 dark:text-slate-600" transform={`rotate(-90 14 ${H / 2})`}>RS-Momentum →  Acceleration</text>
+
+          {/* Tails + Dots */}
+          {rrgData.map((sector) => {
+            const cfg    = QUADRANT_CONFIG[sector.quadrant] || QUADRANT_CONFIG.Lagging
+            const isHov  = hovered === sector.name
+            const points = sector.tail
+
+            return (
+              <g key={sector.name}>
+                {/* Tail polyline */}
+                {points.length > 1 && (
+                  <polyline
+                    points={points.map(p => `${toSvgX(p.rsRatio)},${toSvgY(p.rsMomentum)}`).join(' ')}
+                    fill="none"
+                    stroke={cfg.dot}
+                    strokeWidth={isHov ? 2 : 1}
+                    strokeOpacity={isHov ? 0.8 : 0.35}
+                    strokeDasharray="3,2"
+                  />
+                )}
+                {/* Tail ghost dots */}
+                {points.slice(0, -1).map((p, pi) => (
+                  <circle key={pi}
+                    cx={toSvgX(p.rsRatio)} cy={toSvgY(p.rsMomentum)}
+                    r={2}
+                    fill={cfg.dot}
+                    opacity={isHov ? 0.5 : 0.2}
+                  />
+                ))}
+                {/* Current dot */}
+                <circle
+                  cx={toSvgX(sector.rsRatio)} cy={toSvgY(sector.rsMomentum)}
+                  r={isHov ? 7 : 5}
+                  fill={cfg.dot}
+                  fillOpacity={0.9}
+                  stroke="white"
+                  strokeWidth={isHov ? 2 : 1}
+                  style={{ cursor: 'pointer', transition: 'r 0.15s' }}
+                  onMouseEnter={(e) => {
+                    setHovered(sector.name)
+                    const rect = svgRef.current?.getBoundingClientRect()
+                    const svgEl = svgRef.current
+                    if (!rect || !svgEl) return
+                    const scaleX = rect.width  / W
+                    const scaleY = rect.height / H
+                    setTooltip({
+                      x: toSvgX(sector.rsRatio) * scaleX,
+                      y: toSvgY(sector.rsMomentum) * scaleY - 12,
+                      sector,
+                    })
+                  }}
+                />
+                {/* Sector label */}
+                <text
+                  x={toSvgX(sector.rsRatio)}
+                  y={toSvgY(sector.rsMomentum) - 9}
+                  textAnchor="middle"
+                  fontSize={isHov ? "10" : "9"}
+                  fontWeight={isHov ? "800" : "600"}
+                  fill={cfg.label}
+                  opacity={isHov ? 1 : 0.85}
+                  style={{ pointerEvents: 'none' }}
+                >
+                  {sector.name}
+                </text>
+              </g>
+            )
+          })}
+        </svg>
+
+        {/* Floating Tooltip */}
+        {tooltip && (
+          <div
+            className="absolute pointer-events-none z-20 bg-white dark:bg-[#0e1420] border border-slate-200 dark:border-white/15 rounded-xl px-3 py-2 shadow-xl text-xs"
+            style={{ left: tooltip.x + 12, top: tooltip.y - 20, transform: 'translateY(-100%)' }}
+          >
+            <div className="font-black text-slate-900 dark:text-white mb-1">{tooltip.sector.name}</div>
+            <div className="flex flex-col gap-0.5 text-slate-500 dark:text-slate-400">
+              <span>RS-Ratio: <b className="text-slate-900 dark:text-white">{tooltip.sector.rsRatio.toFixed(2)}</b></span>
+              <span>RS-Mom:   <b className="text-slate-900 dark:text-white">{tooltip.sector.rsMomentum.toFixed(2)}</b></span>
+              <span className="mt-1 font-bold" style={{ color: QUADRANT_CONFIG[tooltip.sector.quadrant]?.dot }}>{tooltip.sector.quadrant}</span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -97,6 +286,7 @@ export default function SectorRotationPage() {
   }, [load])
 
   const sectors = data?.sectors || []
+  const rrgData = data?.rrgData || []
   const sorted  = [...sectors].sort((a, b) => b[sortBy] - a[sortBy])
 
   const maxAbs1W = sectors.length ? Math.max(...sectors.map(s => Math.abs(s.change1W))) : 0
@@ -129,7 +319,7 @@ export default function SectorRotationPage() {
             </div>
             <h1 className="text-3xl font-black mb-2">Sector Rotation</h1>
             <p className="text-slate-600 dark:text-slate-400 text-sm leading-6">
-              Multi-timeframe sector performance — 1D, 1W, 1M
+              RRG chart + multi-timeframe sector performance — 1D, 1W, 1M
             </p>
           </div>
           <div className="flex-shrink-0 pt-1">
@@ -144,6 +334,13 @@ export default function SectorRotationPage() {
             <p className="text-rose-500 text-xs mb-3">{error}</p>
             <button onClick={() => load(true)} className="text-xs font-semibold text-rose-600 dark:text-rose-400 underline">Retry</button>
           </div>
+        )}
+
+        {/* RRG Chart */}
+        {loading ? (
+          <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl h-64 animate-pulse mb-8" />
+        ) : (
+          <RRGChart rrgData={rrgData} />
         )}
 
         {/* Sort controls */}
@@ -192,6 +389,8 @@ export default function SectorRotationPage() {
               const isLeading = top3Set.has(sector.name)
               const isLagging = bottom3Set.has(sector.name)
               const isOdd = i % 2 !== 0
+              // Get RRG quadrant for this sector
+              const rrg = rrgData.find(r => r.name === sector.name)
               return (
                 <div
                   key={sector.name}
@@ -208,6 +407,15 @@ export default function SectorRotationPage() {
                     {isLagging && (
                       <span className="text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/20 flex-shrink-0">
                         Lagging
+                      </span>
+                    )}
+                    {rrg && !isLeading && !isLagging && (rrg.quadrant === 'Improving' || rrg.quadrant === 'Weakening') && (
+                      <span className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded flex-shrink-0 border ${
+                        rrg.quadrant === 'Improving'
+                          ? 'bg-blue-500/15 text-blue-500 border-blue-500/20'
+                          : 'bg-amber-500/15 text-amber-500 border-amber-500/20'
+                      }`}>
+                        {rrg.quadrant}
                       </span>
                     )}
                   </div>
