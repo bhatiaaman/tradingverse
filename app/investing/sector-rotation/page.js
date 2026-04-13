@@ -399,25 +399,28 @@ export default function SectorRotationPage() {
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-sm font-bold text-slate-900 dark:text-white">{sector.name}</span>
-                    {isLeading && (
-                      <span className="text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex-shrink-0">
-                        Leading
-                      </span>
-                    )}
-                    {isLagging && (
-                      <span className="text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/20 flex-shrink-0">
-                        Lagging
-                      </span>
-                    )}
-                    {rrg && !isLeading && !isLagging && (rrg.quadrant === 'Improving' || rrg.quadrant === 'Weakening') && (
+                    {/* Always show exactly one badge: RRG quadrant if available, else Leading/Lagging by sort rank */}
+                    {rrg ? (
                       <span className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded flex-shrink-0 border ${
-                        rrg.quadrant === 'Improving'
+                        rrg.quadrant === 'Leading'
+                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                          : rrg.quadrant === 'Improving'
                           ? 'bg-blue-500/15 text-blue-500 border-blue-500/20'
-                          : 'bg-amber-500/15 text-amber-500 border-amber-500/20'
+                          : rrg.quadrant === 'Weakening'
+                          ? 'bg-amber-500/15 text-amber-500 border-amber-500/20'
+                          : 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20'
                       }`}>
                         {rrg.quadrant}
                       </span>
-                    )}
+                    ) : isLeading ? (
+                      <span className="text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex-shrink-0">
+                        Leading
+                      </span>
+                    ) : isLagging ? (
+                      <span className="text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/20 flex-shrink-0">
+                        Lagging
+                      </span>
+                    ) : null}
                   </div>
                   <div className="flex justify-center">
                     <ChangePill value={sector.change1D} />

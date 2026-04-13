@@ -106,7 +106,10 @@ export async function GET(req) {
     const cached = await redis.get(cacheKey);
     if (cached) {
       const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached;
-      return NextResponse.json({ ...parsed, cached: true });
+      // Cache-bust if rrgData is missing (old format before RRG upgrade)
+      if (Array.isArray(parsed.rrgData) && parsed.rrgData.length > 0) {
+        return NextResponse.json({ ...parsed, cached: true });
+      }
     }
   }
 
