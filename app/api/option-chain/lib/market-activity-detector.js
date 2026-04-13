@@ -47,6 +47,23 @@ export function detectMarketActivity(current, previous, sinceOpen = false) {
     };
   }
 
+  // ── OI building but price flat: premium writing / range formation (not directional) ──
+  // Both Long Buildup and Short Buildup require CONFIRMED price movement.
+  // If only OI is growing with flat price, it's option writers selling premium (straddles/strangles) — not a directional bet.
+  if (significantOI && !significantPrice) {
+    const net = callOIChangePct - putOIChangePct;
+    const leg = Math.abs(net) > 1.5
+      ? (net > 0 ? `Call OI growing faster (+${callOIChangePct.toFixed(1)}%) — call writing active` : `Put OI growing faster (+${putOIChangePct.toFixed(1)}%) — put writing active`)
+      : `Both legs growing (+${callOIChangePct.toFixed(1)}% CE, +${putOIChangePct.toFixed(1)}% PE) — premium writing`;
+    return {
+      activity: 'Range Formation',
+      strength: 3,
+      description: `OI building with price flat ${ctx} — ${leg}. Price ${priceChangePct > 0 ? '+' : ''}${priceChangePct.toFixed(2)}%`,
+      actionable: 'No directional edge — option writers are active, price needs to move to confirm direction',
+      emoji: '↔️',
+    };
+  }
+
   // ── Long Buildup: Price ↑ + OI ↑ (Bullish) ──
   if (priceChange > 0 && totalOIChange > 0) {
     activity = 'Long Buildup';

@@ -350,10 +350,14 @@ export async function GET(request) {
         await redisSet(sessionKey, sessionOpen, 8 * 3600);
       }
 
-      // Rolling 15-min snapshot — what's happening RIGHT NOW vs 15 min ago
+      // Rolling 15-min snapshot — what's happening RIGHT NOW vs 15 min ago.
+      // Only write if no baseline exists (key expired after 15 min or session start).
+      // This way recentSnap truly represents "OI 15 minutes ago", not "OI 60s ago".
       let recentSnap = await redisGet(recentKey);
-      // Always refresh: write current as the new "recent" with 15-min TTL
-      await redisSet(recentKey, snapshot, 15 * 60);
+      if (!recentSnap) {
+        await redisSet(recentKey, snapshot, 15 * 60);
+        // No prior 15-min baseline yet — fall through to session-open comparison below
+      }
 
       const hasOpen   = sessionOpen?.totalCallOI !== undefined;
       const hasRecent = recentSnap?.totalCallOI  !== undefined;
