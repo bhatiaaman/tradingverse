@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getBroker } from '@/app/lib/providers';
+import { requireSession, unauthorized } from '@/app/lib/session';
 
 export async function POST(req) {
+  if (!await requireSession()) return unauthorized();
   try {
     const { symbol, qty } = await req.json();
     if (!symbol || !qty) {

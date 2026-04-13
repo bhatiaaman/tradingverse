@@ -7,6 +7,11 @@
   import OptionsAnalysisPanel from '../components/OptionsAnalysisPanel';
   import { usePageVisibility } from '@/app/hooks/usePageVisibility';
   import { playBullishFlip, playBearishFlip, playReversalAlert, playWarningPing, playReversalBuilding, playSentiment50Cross, playShortCoveringAlert } from '../lib/sounds';
+  // ── Extracted components (Phase 5 split) ───────────────────────────────────
+  import KeyLevelsBar from './components/KeyLevelsBar';
+  import ShortCoveringBanner from './components/ShortCoveringBanner';
+  import PositionConflictBanner from './components/PositionConflictBanner';
+  import ThirdEyePanel from './components/ThirdEyePanel';
 
   // ── Determine directional bias of an open position ────────────────────────
   // Options: short PE = bullish, short CE = bearish, long PE = bearish, long CE = bullish
@@ -146,17 +151,8 @@ function getNiftyLevelAlerts(indices) {
     return `${biasLabel(c.bias)} since ${c.time}${stateNote}${reversalSuffix}`;
   }
 
-  // Category colors for key levels bar
-  const LEVEL_CATEGORY_COLOR = {
-    pd:      'text-sky-300',
-    pivot:   'text-violet-300',
-    weekly:  'text-amber-300',
-    monthly: 'text-orange-300',
-    ema:     'text-emerald-300',
-    today:   'text-slate-300',
-    or:      'text-pink-300',
-  };
-
+  // LEVEL_FULL_NAME: kept here for chart zone rendering (lines ~1344, ~1418)
+  // LEVEL_CATEGORY_COLOR moved to ./components/KeyLevelsBar.js
   const LEVEL_FULL_NAME = {
     PDH: 'Previous Day High', PDL: 'Previous Day Low', PDC: 'Previous Day Close',
     PP: 'Pivot Point', R1: 'Resistance 1', S1: 'Support 1',
@@ -166,69 +162,6 @@ function getNiftyLevelAlerts(indices) {
     TdH: "Today's High", TdL: "Today's Low",
     ORH: 'Opening Range High', ORL: 'Opening Range Low',
   };
-
-  function KeyLevelsBar({ levels, spot }) {
-    if (!levels?.length) return null;
-
-    // Nearest resistance above and nearest support below define the current zone
-    const nearestCeiling = levels.find(l => l.dist !== null && l.dist > 0.5);
-    const nearestFloor   = levels.find(l => l.dist !== null && l.dist < -0.5);
-
-    return (
-      <div className="px-3 py-2 border-b border-blue-800/40 overflow-x-auto scrollbar-none">
-        <div className="flex items-center gap-1.5 min-w-max">
-          {levels.map((l) => {
-            const dist = l.dist;
-            const isNear = dist !== null && Math.abs(dist) <= 0.5;
-            const isAbove = dist !== null && dist > 0;
-            const isCeiling = nearestCeiling && l.label === nearestCeiling.label && !isNear;
-            const isFloor   = nearestFloor   && l.label === nearestFloor.label   && !isNear;
-            const priceColor = isNear
-              ? 'text-amber-400'
-              : isAbove
-                ? 'text-emerald-400'
-                : 'text-red-400';
-            const labelColor = LEVEL_CATEGORY_COLOR[l.category] || 'text-slate-400';
-            const bg = isNear
-              ? 'bg-amber-500/10 border border-amber-500/30 animate-pulse'
-              : isCeiling
-                ? 'bg-rose-950/40 border border-rose-700/50'
-                : isFloor
-                  ? 'bg-sky-950/40 border border-sky-700/50'
-                  : 'bg-[#0a1628] border border-blue-800/20';
-            const fullName = LEVEL_FULL_NAME[l.label] || l.label;
-            const zoneTag = isCeiling ? ' — zone ceiling' : isFloor ? ' — zone floor' : '';
-            const tooltipText = `${fullName}: ₹${l.price.toLocaleString('en-IN')}${dist !== null ? ` (${dist >= 0 ? '+' : ''}${dist.toFixed(2)}%)` : ''}${zoneTag}`;
-
-            return (
-              <div
-                key={l.label}
-                className={`flex flex-col items-center px-2 py-1 rounded-md ${bg} min-w-[52px]`}
-                title={tooltipText}
-              >
-                <span className={`text-[9px] font-semibold leading-none ${labelColor}`}>{l.label}</span>
-                <span className={`text-[10px] font-mono font-medium leading-tight mt-0.5 ${priceColor}`}>
-                  {l.price >= 10000
-                    ? l.price.toLocaleString('en-IN', { maximumFractionDigits: 0 })
-                    : l.price.toFixed(1)}
-                </span>
-                {dist !== null && (
-                  <span className={`text-[8px] leading-none mt-0.5 ${isNear ? 'text-amber-400' : isCeiling ? 'text-rose-500' : isFloor ? 'text-sky-500' : 'text-slate-500'}`}>
-                    {dist >= 0 ? '+' : ''}{dist.toFixed(1)}%
-                  </span>
-                )}
-                {(isCeiling || isFloor) && (
-                  <span className={`text-[7px] leading-none mt-0.5 font-bold ${isCeiling ? 'text-rose-600' : 'text-sky-600'}`}>
-                    {isCeiling ? '▲ RES' : '▼ SUP'}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
 
   export default function EyePage() {
     const [marketData, setMarketData] = useState(null);
@@ -379,10 +312,15 @@ function getNiftyLevelAlerts(indices) {
     // Counts consecutive "no setup" candles in the same bias — drives consolidation commentary.
     const quietCandleCountRef = useRef(0);
 
-    // Restore Third Eye log from Redis on mount (survives browser refresh).
-    // Entries are stored as "HH:MM" strings. Filter to entries whose time is ≤ the
-    // current IST time so yesterday's end-of-session entries (e.g. "15:25") are
-    // never shown when the page is opened next morning at "09:57".
+    // ── Server-side bias state (Phase 1 rebuild) ──────────────────────────────
+    // Source of truth for bias — lives in Redis, persists across page refreshes.
+    // biasRef is kept as a fallback for position-conflict check compatibility.
+    const [serverBiasState, setServerBiasState] = useState(null); // { bias, since, pendingFlip }
+    const [liveTick, setLiveTick] = useState(null); // { ltp, change, vwapDist, aboveVwap } from 10s tick
+
+    // Restore Third Eye log from Redis on mount → now handled by /api/third-eye/scan.
+    // Keeps backward compat: also loads from /api/third-eye/log for immediate display
+    // while scan initializes.
     useEffect(() => {
       fetch('/api/third-eye/log')
         .then(r => r.json())
@@ -390,15 +328,89 @@ function getNiftyLevelAlerts(indices) {
           if (!d.entries?.length) return;
           const ist    = new Date(Date.now() + 5.5 * 3600 * 1000);
           const nowStr = `${String(ist.getUTCHours()).padStart(2,'0')}:${String(ist.getUTCMinutes()).padStart(2,'0')}`;
-          // Only keep entries from today's session (HH:MM ≤ now)
           const todayEntries = d.entries.filter(e => e.time && e.time <= nowStr);
           if (!todayEntries.length) return;
           setThirdEyeLog(todayEntries);
-          // Seed the dedup ref so we don't re-log the same candle after a page refresh
           if (todayEntries[0]?.time) lastCandleTimeRef.current = todayEntries[0].time;
         })
         .catch(() => {});
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── Server-side scan polling (primary bias + log source) ─────────────────
+    // Polls /api/third-eye/scan every 30s during market hours.
+    // Writes bias to serverBiasState (and syncs biasRef for backward compat).
+    // Log from server overwrites client log (server is source of truth).
+    useEffect(() => {
+      let scanTimer;
+
+      const runScan = async () => {
+        if (!isMarketHours()) return;
+        try {
+          const res = await fetch('/api/third-eye/scan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              symbol:   chartSymbol,
+              interval: chartInterval,
+              env:      thirdEyeEnvRef.current,
+              cfg:      setupConfigRef.current,
+            }),
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+
+          // Update server bias state
+          if (data.biasState) {
+            setServerBiasState(data.biasState);
+            // Sync biasRef for position-conflict check compatibility
+            const bias = data.biasState.bias?.toLowerCase();
+            biasRef.current = bias === 'bull' ? 'bull' : bias === 'bear' ? 'bear' : 'neutral';
+          }
+
+          // Update log from server (authoritative)
+          if (data.log?.length) {
+            setThirdEyeLog(data.log);
+            if (data.log[0]?.time) lastCandleTimeRef.current = data.log[0].time;
+          }
+
+          // Update live card from server
+          if (data.live) {
+            setThirdEyeLive(data.live);
+          }
+
+          if (data.scanStatus) setScanStatus(data.scanStatus);
+
+          // Position conflict check when bias changes
+          if (data.biasState?.bias && data.biasState.bias !== 'NEUTRAL') {
+            checkPositionsAgainstBias();
+          }
+        } catch { /* scan errors are non-fatal */ }
+      };
+
+      // Run immediately then on interval
+      runScan();
+      const SCAN_MS = chartInterval === '15minute' ? 60_000 : 30_000;
+      const interval = setInterval(runScan, SCAN_MS);
+
+      return () => clearInterval(interval);
+    }, [chartSymbol, chartInterval]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── 10s live tick polling ─────────────────────────────────────────────────
+    // Updates spot LTP on the live card — lightweight, no scan.
+    useEffect(() => {
+      const runTick = async () => {
+        if (!isMarketHours()) return;
+        try {
+          const res  = await fetch(`/api/third-eye/tick?symbol=${chartSymbol}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          setLiveTick(data);
+        } catch { /* silent */ }
+      };
+      runTick();
+      const iv = setInterval(runTick, 10_000);
+      return () => clearInterval(iv);
+    }, [chartSymbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Fetch open positions and check against current bias
     const checkPositionsAgainstBias = async () => {
@@ -1887,153 +1899,27 @@ function getNiftyLevelAlerts(indices) {
         <Nav />
 
         {/* ── Short Covering Setup Card ─────────────────────────────────────── */}
-        {scData?.active && !scDismissed && (() => {
-          const trade = scData.trade;
-          const score = scData.score;
-          const max   = scData.maxScore;
-          return (
-            <div className="border-b border-emerald-500/30 bg-emerald-950/60 backdrop-blur-sm">
-              <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3">
-                {!scConfirming ? (
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    {/* Left: label + score + signals */}
-                    <div className="flex items-start gap-3 min-w-0">
-                      <span className="text-emerald-400 text-base leading-none mt-0.5 flex-shrink-0">⚡</span>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-emerald-300 font-bold text-sm">Short Covering Active</span>
-                          <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full">{score}/{max}</span>
-                          {scData.context?.spot && (
-                            <span className="text-[11px] text-slate-400 font-mono">
-                              NIFTY <span className="text-white">{scData.context.spot.toFixed(0)}</span>
-                              {scData.context.vwap ? <> · VWAP <span className={scData.context.spot > scData.context.vwap ? 'text-emerald-400' : 'text-red-400'}>{scData.context.vwap.toFixed(0)}</span></> : null}
-                              {scData.context.ceWall ? <> · Wall <span className="text-red-400">{scData.context.ceWall}</span></> : null}
-                            </span>
-                          )}
-                        </div>
-                        {/* Top 3 hit signals */}
-                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-                          {Object.entries(scData.signals ?? {}).filter(([, s]) => s.hit).slice(0, 3).map(([k, s]) => (
-                            <span key={k} className="text-[10px] text-emerald-400/80">✓ {s.detail}</span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                    {/* Right: trade info + action buttons */}
-                    <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-                      {trade && (
-                        <div className="text-[11px] font-mono text-right">
-                          <div className="text-white font-bold">NIFTY {trade.strike} CE · ₹{trade.entryLtp}</div>
-                          <div className="text-red-400">SL ₹{trade.sl.cePremium} <span className="text-slate-500">(−{trade.sl.pctRisk}%)</span></div>
-                          <div className="text-emerald-400">T1 ₹{trade.targets[0]?.cePremium} · T2 ₹{trade.targets[1]?.cePremium}</div>
-                        </div>
-                      )}
-                      {trade && kiteAuth.isLoggedIn && !scOrderResult?.ok && (
-                        <button onClick={() => setScConfirming(true)}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors">
-                          Buy CE ▶
-                        </button>
-                      )}
-                      {scOrderResult && (
-                        <span className={`text-[11px] font-medium px-2 py-1 rounded-lg ${scOrderResult.ok ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-400'}`}>
-                          {scOrderResult.ok ? '✅ ' : '❌ '}{scOrderResult.msg}
-                        </span>
-                      )}
-                      <button onClick={() => setScDismissed(true)}
-                        className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors text-xs" title="Dismiss">
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  /* Inline confirm */
-                  <div className="flex flex-wrap items-center gap-4">
-                    <span className="text-emerald-300 font-bold text-sm">⚡ Confirm Buy</span>
-                    <div className="text-[11px] font-mono flex items-center gap-3 flex-wrap">
-                      <span className="text-white">NIFTY {trade?.strike} CE · MARKET · MIS · 75 qty</span>
-                      <span className="text-emerald-400">~₹{trade ? (trade.entryLtp * 75).toLocaleString('en-IN') : '—'}</span>
-                      <span className="text-red-400">SL ₹{trade?.sl.cePremium}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => setScConfirming(false)} disabled={scPlacing}
-                        className="px-3 py-1.5 rounded-lg border border-white/10 text-slate-400 text-xs font-medium hover:bg-white/5 disabled:opacity-40 transition-colors">
-                        Cancel
-                      </button>
-                      <button onClick={handleScPlaceOrder} disabled={scPlacing}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold disabled:opacity-40 transition-colors flex items-center gap-1.5">
-                        {scPlacing ? 'Placing…' : '✓ Place Order'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })()}
+        <ShortCoveringBanner
+          scData={scData}
+          scDismissed={scDismissed}
+          setScDismissed={setScDismissed}
+          scConfirming={scConfirming}
+          setScConfirming={setScConfirming}
+          scPlacing={scPlacing}
+          scOrderResult={scOrderResult}
+          kiteAuth={kiteAuth}
+          onPlaceScOrder={handleScPlaceOrder}
+        />
 
         {/* ── Position Conflict Banner ───────────────────────────────────────── */}
-        {positionAlert && positionAlertDismissedBias !== positionAlert.bias && (
-          <div className="border-b-2 border-rose-500 bg-rose-950/80 backdrop-blur-sm">
-            <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3 min-w-0">
-                  <span className="text-rose-400 text-lg leading-none mt-0.5 flex-shrink-0">⚡</span>
-                  <div className="min-w-0">
-                    <p className="text-rose-300 font-bold text-sm">
-                      Structure flipped {positionAlert.bias === 'bull' ? 'BULLISH' : 'BEARISH'} — you have conflicting open positions
-                    </p>
-                    <div className="mt-2 space-y-2">
-                      {positionAlert.conflicting.map(p => {
-                        const pnl  = p.pnl ?? ((p.last_price - p.average_price) * p.quantity);
-                        const side = p.quantity > 0 ? 'LONG' : 'SHORT';
-                        const pnlStr = pnl != null ? `₹${pnl >= 0 ? '+' : ''}${Math.round(pnl).toLocaleString('en-IN')}` : null;
-                        const isExiting = exitingSymbol === p.tradingsymbol;
-                        const wasExited = exitResult?.ok && exitResult.symbol === p.tradingsymbol;
-                        return (
-                          <div key={p.tradingsymbol} className="flex flex-wrap items-center gap-3">
-                            <div className="flex items-center gap-2 text-sm">
-                              <span className={`font-mono font-semibold ${side === 'LONG' ? 'text-emerald-400' : 'text-rose-400'}`}>{side}</span>
-                              <span className="text-slate-200 font-medium">{p.tradingsymbol}</span>
-                              <span className="text-slate-400">×{Math.abs(p.quantity)}</span>
-                              {p.average_price > 0 && <span className="text-slate-400 text-xs">avg ₹{p.average_price.toFixed(0)}</span>}
-                              {p.last_price   > 0 && <span className="text-slate-400 text-xs">now ₹{p.last_price.toFixed(0)}</span>}
-                              {pnlStr && (
-                                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${pnl >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}`}>
-                                  {pnlStr}
-                                </span>
-                              )}
-                            </div>
-                            {!wasExited ? (
-                              <button
-                                onClick={() => exitConflictingPosition(p)}
-                                disabled={!!exitingSymbol}
-                                className="px-3 py-1 rounded text-xs font-bold bg-rose-500 hover:bg-rose-400 text-white disabled:opacity-50 transition-colors flex-shrink-0"
-                              >
-                                {isExiting ? 'Exiting…' : `Exit ${side} — Market`}
-                              </button>
-                            ) : (
-                              <span className="text-xs text-emerald-400 font-semibold">✓ Exit order placed</span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {exitResult?.ok === false && (
-                      <p className="mt-1.5 text-xs text-rose-400">Exit failed: {exitResult.error}</p>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={() => setPositionAlertDismissedBias(positionAlert.bias)}
-                  className="text-slate-500 hover:text-slate-300 text-xs flex-shrink-0 mt-0.5 transition-colors"
-                  title="Dismiss — will reappear on next scan if still conflicting"
-                >
-                  Keep holding ✕
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <PositionConflictBanner
+          positionAlert={positionAlert}
+          positionAlertDismissedBias={positionAlertDismissedBias}
+          setPositionAlertDismissedBias={setPositionAlertDismissedBias}
+          exitingSymbol={exitingSymbol}
+          exitResult={exitResult}
+          onExitPosition={exitConflictingPosition}
+        />
 
         {/* Sub-bar: Kite status + quick links */}
         <div className="border-b border-white/5 bg-[#060b14]">
@@ -3328,454 +3214,37 @@ function getNiftyLevelAlerts(indices) {
             <div className="lg:col-span-3 space-y-3 order-3 lg:order-none">
 
               {/* ── Third Eye ────────────────────────────────────────── */}
-              <div className="bg-[#0d1829] border border-white/[0.06] rounded-2xl overflow-hidden">
-                {/* Header */}
-                <div className="px-3 py-2.5 border-b border-white/[0.05]">
-                  {/* Row 1: title + collapse */}
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">👁</span>
-                      <span className="text-sm font-bold text-white">Third Eye</span>
-                      {thirdEyeData?.strongSetups?.length > 0 && (
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Link href="/eye/settings" className="flex items-center gap-1 px-2 py-1 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-colors text-[10px] font-medium" title="Setup Settings">
-                        <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-                          <path d="M8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/>
-                          <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.474l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z"/>
-                        </svg>
-                        Setups
-                      </Link>
-                      <button onClick={() => setThirdEyeOpen(o => !o)} className="text-slate-500 hover:text-slate-300">
-                        {thirdEyeOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                      </button>
-                    </div>
-                  </div>
-                  {/* Row 2: mode + environment */}
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => setThirdEyeMode('semi')}
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide transition-all ${
-                        thirdEyeMode === 'semi'
-                          ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                          : 'text-slate-600 hover:text-slate-400 border border-transparent'
-                      }`}
-                      title="Semi-Auto: action card shown, you confirm before order fires"
-                    >Semi</button>
-                    <button
-                      disabled
-                      className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide text-slate-700 cursor-not-allowed border border-transparent"
-                      title="Auto mode — coming soon"
-                    >Auto</button>
-                    <span className="w-px h-3 bg-white/10 mx-0.5" />
-                    {[['light','L','sky'],['medium','M','amber'],['tight','T','rose']].map(([env, label, col]) => (
-                      <button
-                        key={env}
-                        onClick={() => setThirdEyeEnv(env)}
-                        className={`w-7 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide transition-all ${
-                          thirdEyeEnv === env
-                            ? col === 'sky'   ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                            : col === 'amber' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            :                   'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                            : 'text-slate-600 hover:text-slate-400 border border-transparent'
-                        }`}
-                        title={env}
-                      >{label}</button>
-                    ))}
-                  </div>
-                </div>
-
-                {thirdEyeOpen && activeTrade && (
-                  <div className={`mx-3 my-2 p-3 rounded-xl border ${activeTrade.direction === 'bull' ? 'bg-emerald-500/[0.06] border-emerald-500/20' : 'bg-rose-500/[0.06] border-rose-500/20'}`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider ${activeTrade.direction === 'bull' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'}`}>
-                        ACTIVE · {activeTrade.optionType}
-                      </span>
-                      <span className="text-[10px] font-mono text-slate-400 truncate max-w-[130px]">{activeTrade.symbol}</span>
-                    </div>
-                    <div className="grid grid-cols-4 gap-1 mb-2.5 text-center">
-                      <div>
-                        <p className="text-[9px] text-slate-600 mb-0.5">Entry</p>
-                        <p className="text-[11px] font-mono text-white">₹{activeTrade.limitPrice}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-slate-600 mb-0.5">LTP</p>
-                        <p className={`text-[11px] font-mono ${!tradeLTP ? 'text-slate-500' : tradeLTP > activeTrade.limitPrice ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {tradeLTP ? `₹${tradeLTP}` : '—'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-slate-600 mb-0.5">P&amp;L</p>
-                        <p className={`text-[11px] font-mono ${!tradeLTP ? 'text-slate-500' : ((tradeLTP - activeTrade.limitPrice) * activeTrade.qty) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {tradeLTP ? `₹${((tradeLTP - activeTrade.limitPrice) * activeTrade.qty).toFixed(0)}` : '—'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-slate-600 mb-0.5">SL Idx</p>
-                        <p className="text-[11px] font-mono text-rose-400">{activeTrade.slLevel ? activeTrade.slLevel.toFixed(0) : '—'}</p>
-                      </div>
-                    </div>
-                    {tradeExited ? (
-                      <div className={`text-[10px] text-center py-1.5 rounded-lg border font-mono ${tradeExited.ok ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-rose-400 bg-rose-500/10 border-rose-500/20'}`}>
-                        {tradeExited.ok ? '✓ Exit order sent' : tradeExited.error || 'Exit failed'}
-                      </div>
-                    ) : (
-                      <button
-                        onClick={exitThirdEyeTrade}
-                        disabled={tradeExiting}
-                        className="w-full py-1.5 rounded-lg text-[11px] font-bold tracking-wide transition-all bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-50"
-                      >
-                        {tradeExiting ? 'Exiting…' : 'Exit Trade (Market)'}
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {thirdEyeOpen && thirdEyeLive && isMarketHours() && (() => {
-                  const nObj = runBuildNarrative(thirdEyeLive, biasRef.current, lastEntryDirRef.current);
-                  // Live card: soften directional labels — candle is still forming so don't flip
-                  // direction every 30s. Only show TAKE LONG/SHORT if:
-                  //  (a) the rolling log bias already confirms this direction, OR
-                  //  (b) score >= 9 (extremely high-conviction, unambiguous signal)
-                  // Everything else shows WATCH ↑ / WATCH ↓ instead.
-                  const ln = nObj.narrative ? { ...nObj.narrative } : nObj.narrative;
-                  if (ln?.type === 'entry') {
-                    const liveDir   = thirdEyeLive.topSetup?.pattern?.direction;
-                    const liveScore = thirdEyeLive.topSetup?.score ?? 0;
-                    const biasConfirmed = biasRef.current === liveDir;
-                    if (!biasConfirmed && liveScore < 9) {
-                      ln.action  = liveDir === 'bull' ? 'WATCH ↑' : 'WATCH ↓';
-                      ln.type    = 'watch';
-                    }
-                  }
-                  const liveIsBull = thirdEyeLive.topSetup?.pattern?.direction === 'bull';
-                  const liveClose  = thirdEyeLive.candle?.close;
-                  const liveSl     = thirdEyeLive.topSetup?.pattern?.sl;
-                  const liveScore  = thirdEyeLive.topSetup?.score;
-
-                  // Stale signal detection: prior log was directional but raw patterns now contradict it
-                  const lastLogDir   = thirdEyeLog[0]?.topSetup?.pattern?.direction;
-                  const BULL_REVERSAL_IDS = new Set(['morning_star','hammer','bull_pin','bull_engulfing','tweezer_bottom']);
-                  const BEAR_REVERSAL_IDS = new Set(['evening_star','shooting_star','bear_pin','bear_engulfing','tweezer_top']);
-                  const liveHasBullReversal = thirdEyeLive.rawPatterns?.some(p => BULL_REVERSAL_IDS.has(p.pattern?.id));
-                  const liveHasBearReversal = thirdEyeLive.rawPatterns?.some(p => BEAR_REVERSAL_IDS.has(p.pattern?.id));
-                  const staleWarning =
-                    (lastLogDir === 'bear' && liveHasBullReversal) ? '⚠ Prior short — bounce pattern forming, hold fire' :
-                    (lastLogDir === 'bull' && liveHasBearReversal) ? '⚠ Prior long — rejection pattern forming, tighten stops' :
-                    null;
-                  return (
-                    <div className="px-3 pt-2 pb-1">
-                      <div className={`relative px-3 py-2.5 rounded-xl border ${
-                        ln?.action?.startsWith('EXIT') ? 'bg-violet-500/[0.06] border-violet-500/25' :
-                        ln?.action === 'BOS WATCH'     ? 'bg-yellow-500/[0.06] border-yellow-500/25' :
-                        liveIsBull                     ? 'bg-emerald-500/[0.05] border-emerald-500/20' :
-                        thirdEyeLive.topSetup          ? 'bg-rose-500/[0.05] border-rose-500/20' :
-                                                         'bg-white/[0.02] border-white/[0.06]'
-                      }`}>
-                        {/* LIVE pulse dot — only during market hours */}
-                        {isMarketHours() && (
-                          <div className="absolute top-2 right-2 flex items-center gap-1">
-                            <span className="relative flex h-1.5 w-1.5">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-sky-400"></span>
-                            </span>
-                            <span className="text-[9px] font-bold text-sky-400 tracking-wider">LIVE</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2 mb-1.5 pr-12">
-                          {ln && (
-                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider shrink-0 ${
-                              ln.action === 'LONG (Fresh)'        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
-                              ln.action === 'LONG (Cont.)'     ? 'bg-teal-500/15 text-teal-300 border-teal-500/30' :
-                              ln.action === 'LONG (Careful)'   ? 'bg-sky-500/15 text-sky-300 border-sky-500/30' :
-                              ln.action === 'SHORT (Fresh)'       ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' :
-                              ln.action === 'SHORT (Cont.)'    ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
-                              ln.action === 'SHORT (Careful)'  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
-                              ln.action?.startsWith('EXIT')    ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' :
-                              ln.action === 'BOS WATCH'        ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' :
-                              ln.action === 'OBSERVE'          ? 'bg-slate-700/40 text-slate-500 border-slate-600/30' :
-                                                                 'bg-slate-500/15 text-slate-400 border-slate-500/30'
-                            }`}>{ln.action ?? 'WATCH'}</span>
-                          )}
-                          {thirdEyeLive.topSetup?.pattern?.name && <span className="text-[10px] text-white font-medium truncate">{thirdEyeLive.topSetup.pattern.name}</span>}
-                          {liveScore != null && <span className="text-[9px] text-slate-500 ml-auto shrink-0">{liveScore}/10</span>}
-                        </div>
-                        <p className="text-[10px] text-slate-400 leading-snug line-clamp-2">{ln?.reason ?? 'No signal yet — monitoring price action'}</p>
-                        {staleWarning && (
-                          <p className="mt-1.5 text-[9px] text-amber-400/80 font-medium">{staleWarning}</p>
-                        )}
-                        <div className="flex items-center gap-3 mt-1.5 text-[9px] font-mono text-slate-600">
-                          <span>C {liveClose?.toFixed(0) ?? '—'}</span>
-                          {liveSl && <span className="text-rose-500/80">SL {liveSl.toFixed(0)}</span>}
-                          <span className="ml-auto">
-                            <span className="text-slate-700">{thirdEyeLive.time} candle · </span>
-                            <span>upd {thirdEyeLive.updatedAt ?? thirdEyeLive.time}</span>
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* ── Always-on Bias + Position Strip ──────────────────────── */}
-                {(() => {
-                  const bias = biasRef.current;
-                  const biasColor = bias === 'bull' ? 'text-emerald-400' : bias === 'bear' ? 'text-rose-400' : 'text-slate-400';
-                  const biasBg    = bias === 'bull' ? 'bg-emerald-500/10 border-emerald-500/20' : bias === 'bear' ? 'bg-rose-500/10 border-rose-500/20' : 'bg-slate-800/60 border-white/5';
-                  const biasLabel = bias === 'bull' ? '▲ BULLISH' : bias === 'bear' ? '▼ BEARISH' : '— NEUTRAL';
-                  const conflicting = openPositions.filter(p => positionDir(p) !== bias);
-                  const aligned     = openPositions.filter(p => positionDir(p) === bias);
-                  const totalPnl = openPositions.reduce((s, p) => {
-                    const pnl = p.pnl ?? ((p.last_price - p.average_price) * p.quantity);
-                    return s + (pnl ?? 0);
-                  }, 0);
-                  return (
-                    <div className={`mx-3 mb-2 rounded-lg border ${biasBg} px-3 py-2`}>
-                      <div className="flex items-center justify-between gap-3 flex-wrap">
-                        {/* Bias */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Bias</span>
-                          <span className={`text-[11px] font-bold ${biasColor}`}>{biasLabel}</span>
-                        </div>
-
-                        {/* Open positions summary */}
-                        {openPositions.length > 0 ? (
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {conflicting.length > 0 && (
-                              <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.5 rounded">
-                                ⚡ {conflicting.length} AGAINST
-                              </span>
-                            )}
-                            {aligned.length > 0 && (
-                              <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
-                                ✓ {aligned.length} aligned
-                              </span>
-                            )}
-                            {openPositions.map(p => {
-                              const pnl = p.pnl ?? ((p.last_price - p.average_price) * p.quantity);
-                              const isConflict = conflicting.includes(p);
-                              return (
-                                <span key={p.tradingsymbol} className={`text-[10px] font-mono ${isConflict ? 'text-rose-300' : 'text-slate-400'}`}>
-                                  {p.tradingsymbol.replace(/NFO:/, '')} ×{Math.abs(p.quantity)}
-                                  {pnl != null && (
-                                    <span className={pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}> ₹{Math.round(pnl) >= 0 ? '+' : ''}{Math.round(pnl).toLocaleString('en-IN')}</span>
-                                  )}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <span className="text-[10px] text-slate-600">No open positions</span>
-                        )}
-
-                        {/* Total P&L */}
-                        {openPositions.length > 0 && (
-                          <span className={`text-[11px] font-bold tabular-nums ml-auto ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {totalPnl >= 0 ? '+' : ''}₹{Math.round(totalPnl).toLocaleString('en-IN')}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {thirdEyeOpen && thirdEyeTestMode && (
-                  <div className="mx-3 mb-1 px-2 py-1 rounded text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/20 font-bold tracking-wider text-center">
-                    TEST MODE · Ctrl+Shift+T to exit
-                  </div>
-                )}
-
-                {thirdEyeOpen && (() => {
-                  const FAKE_TEST_ENTRY = {
-                    time: '⚠ TEST', isTest: true,
-                    topSetup: { pattern: { id: 's3_orb_bull', name: 'ORB Breakout [TEST]', direction: 'bull', strength: 5, sl: 21950 }, score: 8 },
-                    context:  { sessionTime: 'midday', trend: 'uptrend', bos: null, vwap: { above: true, distPct: 0.2 }, volume: { mult: 1.8, context: 'high' }, rsi: 58 },
-                    candle:   { open: 22000, high: 22050, low: 21980, close: 22020 },
-                    rawPatterns: [],
-                  };
-                  const displayLog = thirdEyeTestMode ? [FAKE_TEST_ENTRY, ...thirdEyeLog] : thirdEyeLog;
-                  return (
-                  <div className="divide-y divide-white/[0.04] max-h-[560px] overflow-y-auto">
-                    {scanStatus && scanStatus.pushed < scanStatus.total && (
-                      <p className="px-4 py-1.5 text-[9px] font-mono text-rose-500/70 border-b border-white/[0.04]">
-                        ⚠ scan errors: {scanStatus.total - scanStatus.pushed} candle(s) failed — check console
-                      </p>
-                    )}
-                    {displayLog.length === 0 ? (
-                      <p className="px-4 py-6 text-slate-600 text-xs text-center">Waiting for next candle close…</p>
-                    ) : displayLog.map((entry, i) => {
-                      const ln      = entry.narrative;
-                      const isFirst = i === 0;
-
-                      // Semi-auto action card: setup has semiAuto:true in config, score ≥ 6, Nifty chart, most recent candle only
-                      const setupId    = entry.topSetup?.pattern?.id;
-                      const isActionable = (
-                        isFirst &&
-                        (entry.isTest || chartSymbol === 'NIFTY') &&
-                        (entry.topSetup?.score ?? 0) >= 6 &&
-                        SEMI_AUTO_IDS.includes(setupId)
-                      );
-
-                      if (isActionable) {
-                        const s         = entry.topSetup.pattern;
-                        const isBull    = s.direction === 'bull';
-                        const close     = entry.candle.close;
-                        const sl        = s.sl;
-                        const dist      = sl ? Math.abs(close - sl) : null;
-                        const target    = sl ? (isBull ? close + 2 * dist : close - 2 * dist) : null;
-                        const placed    = thirdEyePlaced[entry.time];
-                        const placing   = thirdEyePlacing === entry.time;
-                        const atm       = getAtmInfo(close);
-                        const optLabel  = `${atm.strike} ${isBull ? 'CE' : 'PE'}`;
-                        return (
-                          <div key={i} className={`px-4 py-3 bg-white/[0.03] border-l-2 ${isBull ? 'border-emerald-500/60' : 'border-rose-500/60'}`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider ${isBull ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'}`}>
-                                  {isBull ? 'LONG' : 'SHORT'}
-                                </span>
-                                {entry.isTest && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/30 tracking-widest">TEST</span>}
-                              </div>
-                              <span className="text-[10px] text-slate-600 font-mono">{entry.isTest ? '—' : entry.time}</span>
-                            </div>
-                            <p className="text-[11px] font-semibold text-white mb-1">{s.name}</p>
-                            <div className="flex items-center gap-2 mb-2.5">
-                              <p className="text-[10px] text-slate-500">Score {entry.topSetup.score} · <span className="text-white/70 font-mono">{optLabel}</span> · <span className="text-slate-600">{atm.expiryLabel}</span></p>
-                              <div className="ml-auto flex items-center gap-1">
-                                <span className="text-[9px] text-slate-500">Qty</span>
-                                <input
-                                  type="number" min="65" step="65"
-                                  value={semiAutoQty}
-                                  onChange={e => setSemiAutoQty(Math.max(65, parseInt(e.target.value) || 65))}
-                                  className="w-16 text-[10px] font-mono text-white bg-white/10 border border-white/10 rounded px-1.5 py-0.5 text-center focus:outline-none focus:border-white/30"
-                                />
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-1 mb-2 text-center">
-                              <div>
-                                <p className="text-[9px] text-slate-600 mb-0.5">Entry</p>
-                                <p className="text-[11px] font-mono text-white">{close.toFixed(0)}</p>
-                              </div>
-                              <div>
-                                <p className="text-[9px] text-slate-600 mb-0.5">SL</p>
-                                <p className="text-[11px] font-mono text-rose-400">{sl ? sl.toFixed(0) : '—'}</p>
-                              </div>
-                              <div>
-                                <p className="text-[9px] text-slate-600 mb-0.5">Target 2:1</p>
-                                <p className="text-[11px] font-mono text-emerald-400">{target ? target.toFixed(0) : '—'}</p>
-                              </div>
-                            </div>
-                            {/* S/R flip level — show which price level triggered the signal */}
-                            {s.details?.flipPrice && (
-                              <p className="text-[9px] text-slate-500 mb-2 font-mono">
-                                S/R level: <span className="text-amber-300">{s.details.flipPrice.toFixed(0)}</span>
-                                {s.details.distPct != null && <span className="text-slate-600"> · {s.details.distPct}% away</span>}
-                                {s.details.touchCount != null && <span className="text-slate-600"> · {s.details.touchCount} prior touches</span>}
-                              </p>
-                            )}
-                            {s.details?.wideCandle && (
-                              <p className="text-[9px] text-amber-400/80 mb-2">⚠ Wide candle — SL capped at 1 ATR · size down</p>
-                            )}
-                            {placed ? (
-                              placed.ok ? (
-                                <div className="bg-emerald-500/10 rounded-lg border border-emerald-500/20 px-3 py-2 space-y-1">
-                                  <div className="text-[10px] text-emerald-400 font-mono font-semibold">✓ Entry placed — {placed.symbol}</div>
-                                  <div className="flex justify-between text-[10px] font-mono">
-                                    <span className="text-slate-500">Buy limit</span>
-                                    <span className="text-white">₹{placed.entryLimit ?? placed.limitPrice}</span>
-                                  </div>
-                                  <div className="flex justify-between text-[10px] font-mono">
-                                    <span className="text-slate-500">SL trigger (prem)</span>
-                                    <span className={placed.slOrderId ? 'text-rose-400' : 'text-amber-400'}>
-                                      {placed.slOrderId ? `₹${placed.slTrigger} ✓` : `₹${placed.slTrigger} ⚠ manual`}
-                                    </span>
-                                  </div>
-                                  {placed.niftySl && (
-                                    <div className="flex justify-between text-[10px] font-mono">
-                                      <span className="text-slate-500">Nifty SL level</span>
-                                      <span className="text-rose-300">₹{placed.niftySl.toFixed(0)}</span>
-                                    </div>
-                                  )}
-                                  {placed.slError && (
-                                    <div className="text-[9px] text-amber-400/80">SL order failed: {placed.slError} — set manually</div>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="text-[10px] text-rose-400 text-center py-1.5 bg-rose-500/10 rounded-lg border border-rose-500/20">
-                                  {placed.error || 'Order failed'}
-                                </div>
-                              )
-                            ) : (
-                              <button
-                                onClick={() => placeThirdEyeOrder(entry)}
-                                disabled={placing}
-                                className={`w-full py-2 rounded-lg text-[11px] font-bold tracking-wide transition-all disabled:opacity-50 ${isBull ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'} text-white`}
-                              >
-                                {placing ? 'Placing…' : `Buy ${optLabel} · ${semiAutoQty} qty`}
-                              </button>
-                            )}
-                          </div>
-                        );
-                      }
-
-                      if (!ln) return null;
-
-                      const isEntry  = ln.type === 'entry';
-                      const isExit   = ln.type === 'exit';
-                      const isCaut   = ln.type === 'caution';
-                      const nLong    = ln.direction === 'bull';
-                      const isGo     = ln.subType === 'fresh';
-                      const isCont   = ln.subType === 'cont';
-
-                      const isBosWatch = ln.action === 'BOS WATCH';
-
-                      const badgeStyle =
-                        (isEntry && isGo   && nLong)  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
-                        (isEntry && isCont && nLong)  ? 'bg-teal-500/15 text-teal-300 border-teal-500/30' :
-                        (isEntry && isGo   && !nLong) ? 'bg-rose-500/20 text-rose-400 border-rose-500/40' :
-                        (isEntry && isCont && !nLong) ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
-                        isExit                        ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' :
-                        isBosWatch                    ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' :
-                        (isCaut && nLong)             ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' :
-                        isCaut                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                        ln.type === 'watch'            ? 'bg-slate-500/10 text-slate-400 border-slate-500/20' :
-                        'bg-slate-700/20 text-slate-600 border-slate-600/10';
-
-                      const headlineStyle =
-                        (isEntry && isGo   && nLong)  ? 'text-emerald-300' :
-                        (isEntry && isCont && nLong)  ? 'text-teal-300' :
-                        (isEntry && isGo   && !nLong) ? 'text-rose-300' :
-                        (isEntry && isCont && !nLong) ? 'text-orange-300' :
-                        isExit                        ? 'text-violet-300' :
-                        isBosWatch                    ? 'text-yellow-300' :
-                        isCaut                        ? 'text-amber-300' :
-                        ln.type === 'watch'            ? 'text-slate-400' :
-                        'text-slate-500';
-                      return (
-                        <div key={i} className={`px-4 py-3 ${isFirst ? 'bg-white/[0.025]' : ''}`}>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wider ${badgeStyle}`}>
-                              {ln.action}
-                            </span>
-                            <span className="text-[10px] text-slate-600 font-mono">{entry.time}</span>
-                          </div>
-                          <p className={`text-[11px] font-semibold leading-snug mb-1 ${headlineStyle}`}>{ln.headline}</p>
-                          <p className="text-[10px] text-slate-500 leading-relaxed">{ln.reason}</p>
-                          {entry.topSetup?.pattern?.details?.flipPrice && (
-                            <p className="text-[9px] text-slate-600 font-mono mt-0.5">
-                              S/R @ <span className="text-amber-400/80">{entry.topSetup.pattern.details.flipPrice.toFixed(0)}</span>
-                              {entry.topSetup.pattern.details.touchCount != null && ` · ${entry.topSetup.pattern.details.touchCount} touches`}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  );
-                })()}
-              </div>
+              <ThirdEyePanel
+                thirdEyeData={thirdEyeData}
+                thirdEyeOpen={thirdEyeOpen}
+                setThirdEyeOpen={setThirdEyeOpen}
+                thirdEyeLog={thirdEyeLog}
+                thirdEyeLive={thirdEyeLive}
+                thirdEyeMode={thirdEyeMode}
+                setThirdEyeMode={setThirdEyeMode}
+                thirdEyeEnv={thirdEyeEnv}
+                setThirdEyeEnv={setThirdEyeEnv}
+                thirdEyeTestMode={thirdEyeTestMode}
+                serverBiasState={serverBiasState}
+                liveTick={liveTick}
+                activeTrade={activeTrade}
+                tradeLTP={tradeLTP}
+                tradeExiting={tradeExiting}
+                tradeExited={tradeExited}
+                thirdEyePlaced={thirdEyePlaced}
+                thirdEyePlacing={thirdEyePlacing}
+                scanStatus={scanStatus}
+                openPositions={openPositions}
+                semiAutoQty={semiAutoQty}
+                setSemiAutoQty={setSemiAutoQty}
+                chartSymbol={chartSymbol}
+                SEMI_AUTO_IDS={SEMI_AUTO_IDS}
+                getAtmInfo={getAtmInfo}
+                isMarketHours={isMarketHours}
+                positionDir={positionDir}
+                onPlaceThirdEyeOrder={placeThirdEyeOrder}
+                onExitThirdEyeTrade={exitThirdEyeTrade}
+              />
 
             </div>
           </div>

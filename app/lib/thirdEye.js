@@ -795,52 +795,86 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   }
 
   // ── S9: S/R Flip Retest ───────────────────────────────────────────────────
-  // BOS level that had 3+ prior touches before breaking — clean resistance-to-support flip.
-  // REQUIRES a rejection candle at the level (wick rejection or body inside zone).
-  // Without a reaction candle this is just "price near a level" — not a setup.
-  if (false && pre.bosLevels.length) { // S9 disabled — re-enable later
-    const recentBOS9  = pre.bosLevels.reduce((a, b) => (b.breakIdx ?? 0) > (a.breakIdx ?? 0) ? b : a);
-    const dist9       = Math.abs((c0.close - recentBOS9.price) / recentBOS9.price * 100);
-    const s9Dist      = t('s9', 'distPct', 0.35);
-    const s9Touches   = t('s9', 'touchCount', 2);
-    const validSide   = recentBOS9.type === 'bear'
-      ? c0.close <= recentBOS9.price * 1.002
-      : c0.close >= recentBOS9.price * 0.998;
-    if (dist9 <= s9Dist && validSide && recentBOS9.breakIdx !== undefined && recentBOS9.breakIdx >= 5) {
-      const preBOSSlice = candles.slice(0, recentBOS9.breakIdx);
-      const touchCount  = preBOSSlice.filter(c => {
-        const pct = recentBOS9.type === 'bull'
-          ? Math.abs(c.high - recentBOS9.price) / recentBOS9.price * 100
-          : Math.abs(c.low  - recentBOS9.price) / recentBOS9.price * 100;
-        return pct <= 0.25;
-      }).length;
-      if (touchCount >= s9Touches) {
-        // ── Rejection candle check (the new gate) ─────────────────────────
-        // For a BULL flip (support retest): candle must show a lower wick ≥40% of range,
-        //   meaning price dipped into the level and bounced — a genuine support test.
-        // For a BEAR flip (resistance retest): candle must show an upper wick ≥40% of range,
-        //   meaning price rallied into resistance and got rejected.
-        const cRange9  = c0.high - c0.low;
-        const hasRange = cRange9 > 0;
-        let hasRejection = false;
-        if (hasRange) {
-          if (recentBOS9.type === 'bull') {
-            // Lower wick = close/open (whichever higher) minus low
-            const lowerWick = Math.min(c0.close, c0.open) - c0.low;
-            hasRejection = lowerWick / cRange9 >= 0.25;
-          } else {
-            // Upper wick = high minus close/open (whichever lower)
-            const upperWick = c0.high - Math.max(c0.close, c0.open);
-            hasRejection = upperWick / cRange9 >= 0.25;
+  // A real S/R flip: BOS level that had ≥ 3 confirmed touches before breaking.
+  // The flip level must now act as the opposite role (resistance → support / vice versa).
+  //
+  // Strict gates to prevent "every level flips" noise:
+  //   1. BOS must be recent (within last 30 candles — stale levels ignored)
+  //   2. ≥ 3 prior touches within 0.20% of the level (tighter than before)
+  //   3. Volume ≥ 1.5× baseline at the retest candle
+  //   4. Wick rejection ≥ 40% of candle range (clear bounce/rejection candle)
+  //   5. Price must be retesting FROM the correct side (not just near the level)
+  if (en('s9') && pre.bosLevels.length) {
+    const recentBOS9 = pre.bosLevels.reduce((a, b) =>
+      (b.breakIdx ?? 0) > (a.breakIdx ?? 0) ? b : a
+    );
+    const breakAge = recentBOS9.breakIdx !== undefined ? (n - 1 - recentBOS9.breakIdx) : 999;
+    if (breakAge <= 30 && recentBOS9.breakIdx !== undefined && recentBOS9.breakIdx >= 5) {
+      const s9DistPct   = t('s9', 'distPct', 0.30);   // how close price must be to the flip level
+      const s9Touches   = t('s9', 'touchCount', 3);    // minimum prior touches (strict: 3 not 2)
+      const s9VolMult   = t('s9', 'volMult', 1.5);     // volume at the retest candle
+      const s9WickPct   = t('s9', 'wickPct', 0.40);   // wick rejection threshold
+
+      const dist9 = Math.abs((c0.close - recentBOS9.price) / recentBOS9.price * 100);
+
+      // Price must be on the correct side of the flipped level —
+      // bear BOS (resistance broke down): retest from below (price ≤ level × 1.003)
+      // bull BOS (support broke up): retest from above (price ≥ level × 0.997)
+      const correctSide = recentBOS9.type === 'bear'
+        ? c0.close <= recentBOS9.price * 1.003   // retesting ex-resistance as new support: price at or below level
+        : c0.close >= recentBOS9.price * 0.997;  // retesting ex-support as new resistance: price at or above level
+
+      if (dist9 <= s9DistPct && correctSide) {
+        // Count prior touches — candles before the break that came within 0.20% of the level
+        const tightTouchPct = 0.20;
+        const preBOSSlice = candles.slice(0, recentBOS9.breakIdx);
+        const touchCount = preBOSSlice.filter(c => {
+          const pct = recentBOS9.type === 'bull'
+            ? Math.abs(c.high - recentBOS9.price) / recentBOS9.price * 100
+            : Math.abs(c.low  - recentBOS9.price) / recentBOS9.price * 100;
+          return pct <= tightTouchPct;
+        }).length;
+
+        if (touchCount >= s9Touches && pre.volume.mult >= s9VolMult) {
+          // Wick rejection check — 40% of range pointing away from the flip level
+          const cRange9 = c0.high - c0.low;
+          let hasRejection = false;
+          if (cRange9 > 0) {
+            if (recentBOS9.type === 'bull') {
+              // bull BOS → ex-support now acts as resistance → upper wick rejection
+              const upperWick = c0.high - Math.max(c0.close, c0.open);
+              hasRejection = upperWick / cRange9 >= s9WickPct;
+            } else {
+              // bear BOS → ex-resistance now acts as support → lower wick rejection (bounce)
+              const lowerWick = Math.min(c0.close, c0.open) - c0.low;
+              hasRejection = lowerWick / cRange9 >= s9WickPct;
+            }
+          }
+
+          if (hasRejection) {
+            // Direction: bull BOS flip → resistance-turned-support → look SHORT (bear reaction at level)
+            //            bear BOS flip → support-turned-resistance → look LONG (bull bounce at level)
+            const flipDir = recentBOS9.type === 'bull' ? 'bear' : 'bull';
+            setups.push({
+              id: 's9_sr_flip', name: 'S/R Flip Retest', direction: flipDir, strength: 4,
+              sl: flipDir === 'bull' ? recentBOS9.price * 0.997 : recentBOS9.price * 1.003,
+              target: null,
+              details: {
+                flipPrice:  recentBOS9.price,
+                flipType:   recentBOS9.type,
+                touchCount,
+                distPct:    parseFloat(dist9.toFixed(2)),
+                volMult:    pre.volume.mult,
+                breakAge,
+              },
+            });
           }
         }
-        if (hasRejection)
-          setups.push({ id: 's9_sr_flip', name: 'S/R Flip Retest', direction: recentBOS9.type, strength: 4,
-            sl: recentBOS9.type === 'bull' ? recentBOS9.price * 0.997 : recentBOS9.price * 1.003, target: null,
-            details: { flipPrice: recentBOS9.price, touchCount, distPct: parseFloat(dist9.toFixed(2)) } });
       }
     }
   }
+
+
 
   // ── S10: Double Bottom / Double Top ──────────────────────────────────────
   // Two swing pivots within 0.3% of each other, second touch on lower volume.
