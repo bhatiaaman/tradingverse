@@ -356,6 +356,7 @@ function getNiftyLevelAlerts(indices) {
     // Third Eye state
     const [thirdEyeData, setThirdEyeData] = useState(null);
     const [thirdEyeLog, setThirdEyeLog]   = useState([]);   // rolling candle log
+    const [scanStatus, setScanStatus]     = useState(null); // { lastTime, pushed, errors }
     const [thirdEyeEnv, setThirdEyeEnv]   = useState('medium');
     const [thirdEyeOpen, setThirdEyeOpen] = useState(true);
     const [thirdEyePlacing, setThirdEyePlacing] = useState(null);  // entry.time being placed
@@ -1230,6 +1231,8 @@ function getNiftyLevelAlerts(indices) {
                     }
                   }
 
+                  setScanStatus({ lastTime: lastCandleTimeRef.current, pushed: newEntries.length, total: toProcess.length });
+
                   if (newEntries.length > 0) {
                     setThirdEyeLog(prev => {
                       // newEntries is oldest-first; prepend newest-first to log
@@ -1495,16 +1498,30 @@ function getNiftyLevelAlerts(indices) {
       const isSpotIndexChart = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'SENSEX']
         .includes(String(chartSymbol || '').toUpperCase());
 
-      const inLong  = sysBias === 'bull';
-      const inShort = sysBias === 'bear';
-      const flat    = sysBias === 'neutral';
-
       // VWAP proximity helpers
       const atVwap      = c.vwap?.atVwap;
       const nearVwap    = c.vwap && c.vwap.distPct != null && c.vwap.distPct <= 0.25;
       const vwapPct     = c.vwap?.distPct != null ? c.vwap.distPct.toFixed(1) : null;
       const aboveVwap   = c.vwap?.above;
       const vwapHint    = atVwap ? 'right at VWAP' : nearVwap ? `near VWAP (${vwapPct}% away)` : null;
+
+      // ── Reality check: auto-reset stale bias when market context clearly contradicts it ──
+      // A human observer drops a bearish bias the moment price is in an uptrend above VWAP,
+      // and drops a bullish bias when price is in a downtrend below VWAP.
+      let effectiveBias = sysBias;
+      if (sysBias === 'bear' && c.trend === 'uptrend' && aboveVwap === true) {
+        effectiveBias = 'neutral';
+        nextBias = 'neutral';
+        nextDir  = null;
+      } else if (sysBias === 'bull' && c.trend === 'downtrend' && aboveVwap === false) {
+        effectiveBias = 'neutral';
+        nextBias = 'neutral';
+        nextDir  = null;
+      }
+
+      const inLong  = effectiveBias === 'bull';
+      const inShort = effectiveBias === 'bear';
+      const flat    = effectiveBias === 'neutral';
 
       // ── Opening / closing session gates ─────────────────────────────────
       if (c.sessionTime === 'opening') {
@@ -3581,6 +3598,11 @@ function getNiftyLevelAlerts(indices) {
                   const displayLog = thirdEyeTestMode ? [FAKE_TEST_ENTRY, ...thirdEyeLog] : thirdEyeLog;
                   return (
                   <div className="divide-y divide-white/[0.04] max-h-[560px] overflow-y-auto">
+                    {scanStatus && (
+                      <p className="px-4 py-1.5 text-[9px] font-mono text-slate-700 border-b border-white/[0.04]">
+                        scan: last {scanStatus.lastTime || '—'} · {scanStatus.pushed}/{scanStatus.total} pushed · bias {biasRef.current}
+                      </p>
+                    )}
                     {displayLog.length === 0 ? (
                       <p className="px-4 py-6 text-slate-600 text-xs text-center">Waiting for next candle close…</p>
                     ) : displayLog.map((entry, i) => {
