@@ -1789,17 +1789,17 @@ function getNiftyLevelAlerts(indices) {
 
       // Flat — no position, no setup
 
-      // RSI extreme while flat and near VWAP — worth flagging even without a formal setup
-      if (flat && nearVwap) {
+      // RSI extreme while flat AND price is right at VWAP (≤0.15%) — worth flagging
+      if (flat && atVwap) {
         if (c.rsi != null && c.rsi <= 35) {
           return ret({ type: 'watch', action: 'WATCH',
-            headline: `RSI oversold${atVwap ? ' at VWAP' : ' near VWAP'} — possible bounce zone`,
-            reason: `RSI ${Math.round(c.rsi)} is deeply oversold${vwapHint ? `, price ${vwapHint}` : ''}. No entry yet — wait for a bullish candle to confirm. This is a zone worth watching for a long.` });
+            headline: 'RSI oversold at VWAP — possible bounce zone',
+            reason: `RSI ${Math.round(c.rsi)} deeply oversold, price right at VWAP. No entry yet — wait for a bullish candle to confirm before considering a long.` });
         }
         if (c.rsi != null && c.rsi >= 65) {
           return ret({ type: 'watch', action: 'WATCH',
-            headline: `RSI overbought${atVwap ? ' at VWAP' : ' near VWAP'} — possible rejection zone`,
-            reason: `RSI ${Math.round(c.rsi)} is stretched${vwapHint ? `, price ${vwapHint}` : ''}. No short yet — wait for a bearish candle to confirm. Watching for a rejection here.` });
+            headline: 'RSI overbought at VWAP — possible rejection zone',
+            reason: `RSI ${Math.round(c.rsi)} stretched, price right at VWAP. No short yet — wait for a bearish candle to confirm before considering a short.` });
         }
       }
 
@@ -3616,6 +3616,14 @@ function getNiftyLevelAlerts(indices) {
                                 <p className="text-[11px] font-mono text-emerald-400">{target ? target.toFixed(0) : '—'}</p>
                               </div>
                             </div>
+                            {/* S/R flip level — show which price level triggered the signal */}
+                            {s.details?.flipPrice && (
+                              <p className="text-[9px] text-slate-500 mb-2 font-mono">
+                                S/R level: <span className="text-amber-300">{s.details.flipPrice.toFixed(0)}</span>
+                                {s.details.distPct != null && <span className="text-slate-600"> · {s.details.distPct}% away</span>}
+                                {s.details.touchCount != null && <span className="text-slate-600"> · {s.details.touchCount} prior touches</span>}
+                              </p>
+                            )}
                             {s.details?.wideCandle && (
                               <p className="text-[9px] text-amber-400/80 mb-2">⚠ Wide candle — SL capped at 1 ATR · size down</p>
                             )}
@@ -3704,6 +3712,12 @@ function getNiftyLevelAlerts(indices) {
                           </div>
                           <p className={`text-[11px] font-semibold leading-snug mb-1 ${headlineStyle}`}>{ln.headline}</p>
                           <p className="text-[10px] text-slate-500 leading-relaxed">{ln.reason}</p>
+                          {entry.topSetup?.pattern?.details?.flipPrice && (
+                            <p className="text-[9px] text-slate-600 font-mono mt-0.5">
+                              S/R @ <span className="text-amber-400/80">{entry.topSetup.pattern.details.flipPrice.toFixed(0)}</span>
+                              {entry.topSetup.pattern.details.touchCount != null && ` · ${entry.topSetup.pattern.details.touchCount} touches`}
+                            </p>
+                          )}
                         </div>
                       );
                     })}
