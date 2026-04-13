@@ -48,19 +48,33 @@ function pctChange(current, base) {
 // rsRatio   = mean-zero normalized over the 25-day window then scaled 90-110
 // rsMomentum = 5-day rate-of-change of the RS series, similarly normalized
 
+// Kite SDK returns date as a Date object. Convert to IST date string YYYY-MM-DD.
+// Daily candles: midnight IST = 18:30 previous day UTC, so plain toISOString() gives
+// the wrong date. Apply +5.5h offset before slicing.
+const IST_OFFSET_MS = 5.5 * 3600 * 1000;
+function candleDateIST(c) {
+  const d = c.date;
+  if (!d) return '';
+  const ms = d instanceof Date ? d.getTime() : new Date(d).getTime();
+  return new Date(ms + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
 function computeRRGSeries(sectorCandles, benchCandles, tailLen = 4) {
-  // Align both candle arrays by date
+  // Align both candle arrays by IST date
   const benchMap = {};
-  for (const c of benchCandles) benchMap[c.date?.slice(0, 10) || ''] = c.close;
+  for (const c of benchCandles) {
+    const d = candleDateIST(c);
+    if (d) benchMap[d] = c.close;
+  }
 
   // Build RS ratio series from aligned dates
   const aligned = sectorCandles
     .filter(c => {
-      const d = c.date?.slice(0, 10) || '';
+      const d = candleDateIST(c);
       return benchMap[d] && benchMap[d] > 0;
     })
     .map(c => {
-      const d = c.date?.slice(0, 10) || '';
+      const d = candleDateIST(c);
       return { date: d, rs: c.close / benchMap[d] };
     });
 
