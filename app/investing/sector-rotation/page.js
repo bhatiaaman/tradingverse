@@ -272,7 +272,7 @@ export default function SectorRotationPage() {
       const url = `/api/investing/sector-rotation${refresh ? '?refresh=1' : ''}`
       const res = await fetch(url, { cache: 'no-store' })
       const json = await res.json()
-      if (!res.ok && !json.sectors) throw new Error(json.error || 'Failed')
+      if (!res.ok) throw new Error(json.error || 'Failed to load sector data')
       setData(json)
     } catch (e) {
       setError(e.message)

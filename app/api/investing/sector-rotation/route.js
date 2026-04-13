@@ -106,8 +106,8 @@ export async function GET(req) {
     const cached = await redis.get(cacheKey);
     if (cached) {
       const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached;
-      // Cache-bust if rrgData is missing (old format before RRG upgrade)
-      if (Array.isArray(parsed.rrgData) && parsed.rrgData.length > 0) {
+      // Serve from cache as long as sectors are populated — rrgData may be empty on weekends
+      if (Array.isArray(parsed.sectors) && parsed.sectors.length > 0) {
         return NextResponse.json({ ...parsed, cached: true });
       }
     }
@@ -115,6 +115,21 @@ export async function GET(req) {
 
   try {
     const dp = await getDataProvider();
+
+    if (!dp.isConnected()) {
+      // Fall back to previous day's cache (stale but better than empty)
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached;
+        if (Array.isArray(parsed.sectors) && parsed.sectors.length > 0) {
+          return NextResponse.json({ ...parsed, cached: true, stale: true });
+        }
+      }
+      return NextResponse.json(
+        { sectors: [], rrgData: [], error: 'Kite not connected — reconnect in Settings', cached: false },
+        { status: 503 }
+      );
+    }
 
     // Build instrument keys for OHLC
     const instrumentKeys = SECTORS.map(s => `${s.exchange}:${s.symbol}`);
