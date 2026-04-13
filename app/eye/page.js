@@ -1158,64 +1158,70 @@ function getNiftyLevelAlerts(indices) {
                   .slice(-12);
 
                 if (toProcess.length > 0) {
-                  // Advance the ref to the newest candle we're about to process
-                  lastCandleTimeRef.current = candleTimeStr(toProcess[toProcess.length - 1]);
+                  // NOTE: ref is updated per-candle inside the loop (after success or failure)
+                  // to avoid advancing past candles that threw an exception before they were logged.
 
                   const newEntries = [];
 
                   for (const targetCandle of toProcess) {
-                    const candleIdx    = data.candles.indexOf(targetCandle);
-                    const candlesUpTo  = data.candles.slice(0, candleIdx + 1);
-                    if (candlesUpTo.length < 3) continue;
+                    const timeStr = candleTimeStr(targetCandle);
+                    try {
+                      const candleIdx    = data.candles.indexOf(targetCandle);
+                      const candlesUpTo  = data.candles.slice(0, candleIdx + 1);
+                      if (candlesUpTo.length < 3) { lastCandleTimeRef.current = timeStr; continue; }
 
-                    const rsiVal = rsiData[candleIdx]?.value ?? null;
-                    const result = runThirdEye(candlesUpTo, vwapForHE, rsiVal, thirdEyeEnvRef.current, setupConfigRef.current);
-                    const topSetup = result.strongSetups?.[0] ?? result.watchList?.[0] ?? null;
-                    const timeStr  = candleTimeStr(targetCandle);
+                      const rsiVal = rsiData[candleIdx]?.value ?? null;
+                      const result = runThirdEye(candlesUpTo, vwapForHE, rsiVal, thirdEyeEnvRef.current, setupConfigRef.current);
+                      const topSetup = result.strongSetups?.[0] ?? result.watchList?.[0] ?? null;
 
-                    const entry = {
-                      time:        timeStr,
-                      topSetup,
-                      context:     result.context,
-                      candle:      { open: targetCandle.open, high: targetCandle.high, low: targetCandle.low, close: targetCandle.close },
-                      rawPatterns: result.rawPatterns ?? [],
-                    };
+                      const entry = {
+                        time:        timeStr,
+                        topSetup,
+                        context:     result.context,
+                        candle:      { open: targetCandle.open, high: targetCandle.high, low: targetCandle.low, close: targetCandle.close },
+                        rawPatterns: result.rawPatterns ?? [],
+                      };
 
-                    // Compute frozen narrative — bias evolves in order through backfilled candles
-                    const nObj = runBuildNarrative(entry, biasRef.current, lastEntryDirRef.current);
-                    biasRef.current         = nObj.nextBias;
-                    lastEntryDirRef.current = nObj.nextDir;
-                    entry.narrative         = nObj.narrative;
+                      // Compute frozen narrative — bias evolves in order through backfilled candles
+                      const nObj = runBuildNarrative(entry, biasRef.current, lastEntryDirRef.current);
+                      biasRef.current         = nObj.nextBias;
+                      lastEntryDirRef.current = nObj.nextDir;
+                      entry.narrative         = nObj.narrative;
 
-                    if (nObj.alertUI) {
-                      setPositionAlertDismissedBias(null);
-                      setTimeout(checkPositionsAgainstBias, 0);
-                    }
-
-                    // Push strong setups to permanent system log (with cooldown)
-                    if (topSetup?.score >= 6 && topSetup?.pattern?.name) {
-                      const cooldownKey = `${chartSymbol}|${chartInterval}|${topSetup.pattern.id}`;
-                      const intervalMs  = (chartInterval === '15minute' ? 15 : chartInterval === '3minute' ? 3 : 5) * 60 * 1000;
-                      const cooldownMs  = intervalMs * 8;
-                      const lastLoggedMs  = lastSetupLogRef.current[cooldownKey] ?? 0;
-                      const nowMs         = Date.now();
-                      if (nowMs - lastLoggedMs >= cooldownMs) {
-                        lastSetupLogRef.current[cooldownKey] = nowMs;
-                        fetch('/api/logs', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            category: 'setup', message: topSetup.pattern.name,
-                            data: { symbol: chartSymbol, timeframe: chartInterval,
-                              setupName: topSetup.pattern.name, setupId: topSetup.pattern.id,
-                              direction: topSetup.pattern.direction, strength: topSetup.score,
-                              sl: topSetup.pattern.sl }
-                          })
-                        }).catch(e => console.error('Failed to log setup:', e));
+                      if (nObj.alertUI) {
+                        setPositionAlertDismissedBias(null);
+                        setTimeout(checkPositionsAgainstBias, 0);
                       }
-                    }
 
-                    newEntries.push(entry);
+                      // Push strong setups to permanent system log (with cooldown)
+                      if (topSetup?.score >= 6 && topSetup?.pattern?.name) {
+                        const cooldownKey = `${chartSymbol}|${chartInterval}|${topSetup.pattern.id}`;
+                        const intervalMs  = (chartInterval === '15minute' ? 15 : chartInterval === '3minute' ? 3 : 5) * 60 * 1000;
+                        const cooldownMs  = intervalMs * 8;
+                        const lastLoggedMs  = lastSetupLogRef.current[cooldownKey] ?? 0;
+                        const nowMs         = Date.now();
+                        if (nowMs - lastLoggedMs >= cooldownMs) {
+                          lastSetupLogRef.current[cooldownKey] = nowMs;
+                          fetch('/api/logs', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              category: 'setup', message: topSetup.pattern.name,
+                              data: { symbol: chartSymbol, timeframe: chartInterval,
+                                setupName: topSetup.pattern.name, setupId: topSetup.pattern.id,
+                                direction: topSetup.pattern.direction, strength: topSetup.score,
+                                sl: topSetup.pattern.sl }
+                            })
+                          }).catch(e => console.error('Failed to log setup:', e));
+                        }
+                      }
+
+                      newEntries.push(entry);
+                      lastCandleTimeRef.current = timeStr; // advance ref only after successful processing
+                    } catch (candleErr) {
+                      console.error('[Third Eye] candle processing error at', timeStr, candleErr);
+                      lastCandleTimeRef.current = timeStr; // advance past failed candle to avoid infinite retry
+                    }
                   }
 
                   if (newEntries.length > 0) {
@@ -3403,7 +3409,21 @@ function getNiftyLevelAlerts(indices) {
 
                 {thirdEyeOpen && thirdEyeLive && isMarketHours() && (() => {
                   const nObj = runBuildNarrative(thirdEyeLive, biasRef.current, lastEntryDirRef.current);
-                  const ln = nObj.narrative;
+                  // Live card: soften directional labels — candle is still forming so don't flip
+                  // direction every 30s. Only show TAKE LONG/SHORT if:
+                  //  (a) the rolling log bias already confirms this direction, OR
+                  //  (b) score >= 9 (extremely high-conviction, unambiguous signal)
+                  // Everything else shows WATCH ↑ / WATCH ↓ instead.
+                  const ln = nObj.narrative ? { ...nObj.narrative } : nObj.narrative;
+                  if (ln?.type === 'entry') {
+                    const liveDir   = thirdEyeLive.topSetup?.pattern?.direction;
+                    const liveScore = thirdEyeLive.topSetup?.score ?? 0;
+                    const biasConfirmed = biasRef.current === liveDir;
+                    if (!biasConfirmed && liveScore < 9) {
+                      ln.action  = liveDir === 'bull' ? 'WATCH ↑' : 'WATCH ↓';
+                      ln.type    = 'watch';
+                    }
+                  }
                   const liveIsBull = thirdEyeLive.topSetup?.pattern?.direction === 'bull';
                   const liveClose  = thirdEyeLive.candle?.close;
                   const liveSl     = thirdEyeLive.topSetup?.pattern?.sl;

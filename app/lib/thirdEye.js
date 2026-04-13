@@ -798,7 +798,7 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   // BOS level that had 3+ prior touches before breaking — clean resistance-to-support flip.
   // REQUIRES a rejection candle at the level (wick rejection or body inside zone).
   // Without a reaction candle this is just "price near a level" — not a setup.
-  if (en('s9') && pre.bosLevels.length) {
+  if (false && pre.bosLevels.length) { // S9 disabled — re-enable later
     const recentBOS9  = pre.bosLevels.reduce((a, b) => (b.breakIdx ?? 0) > (a.breakIdx ?? 0) ? b : a);
     const dist9       = Math.abs((c0.close - recentBOS9.price) / recentBOS9.price * 100);
     const s9Dist      = t('s9', 'distPct', 0.35);
