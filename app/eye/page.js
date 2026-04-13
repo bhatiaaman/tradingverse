@@ -5,7 +5,7 @@
   import { RefreshCw, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
   import Nav from '../components/Nav';
   import OptionsAnalysisPanel from '../components/OptionsAnalysisPanel';
-  import { usePageVisibility } from '@/app/hooks/usePageVisibility';
+
   import { playBullishFlip, playBearishFlip, playReversalAlert, playWarningPing, playReversalBuilding, playSentiment50Cross, playShortCoveringAlert } from '../lib/sounds';
   // ── Extracted components (Phase 5 split) ───────────────────────────────────
   import KeyLevelsBar from './components/KeyLevelsBar';
@@ -220,7 +220,7 @@ function getNiftyLevelAlerts(indices) {
       const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
       return mins >= 555 && mins <= 960; // 9:15 AM – 4:00 PM IST
     };
-    const isVisible = usePageVisibility();
+
     const [commentary, setCommentary] = useState(null);
     const [commentaryLoading, setCommentaryLoading] = useState(true);
     const [commentaryRefreshedAt, setCommentaryRefreshedAt] = useState(null);
@@ -586,7 +586,7 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       fetchMarketData();
-      const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchMarketData(); }, 60000);
+      const interval = setInterval(() => { if (isMarketHours()) fetchMarketData(); }, 60000);
       return () => clearInterval(interval);
     }, []);
 
@@ -708,7 +708,7 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       fetchSectorData();
-      const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchSectorData(); }, 300000);
+      const interval = setInterval(() => { if (isMarketHours()) fetchSectorData(); }, 300000);
       return () => clearInterval(interval);
     }, []);
 
@@ -775,7 +775,7 @@ function getNiftyLevelAlerts(indices) {
 
     useEffect(() => {
       fetchOptionChain();
-      const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchOptionChain(); }, 60000);
+      const interval = setInterval(() => { if (isMarketHours()) fetchOptionChain(); }, 60000);
       return () => clearInterval(interval);
     }, [optionUnderlying, optionExpiry, fetchOptionChain]);
 
@@ -822,7 +822,7 @@ function getNiftyLevelAlerts(indices) {
       let commentaryTimer;
       const scheduleCommentary = () => {
         commentaryTimer = setTimeout(() => {
-          if (isMarketHours() && isVisible) { fetchCommentaryNow(); fetchRegime(); }
+          if (isMarketHours()) { fetchCommentaryNow(); fetchRegime(); }
           else if (!isMarketHours()) { setCommentary(null); setCommentaryLoading(false); }
           scheduleCommentary();
         }, getCommentaryInterval());
@@ -875,7 +875,7 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       fetchSentiment();
-      const interval = setInterval(() => { if (isMarketHours() && isVisible) fetchSentiment(); }, 5 * 60 * 1000);
+      const interval = setInterval(() => { if (isMarketHours()) fetchSentiment(); }, 5 * 60 * 1000);
       return () => clearInterval(interval);
     }, [optionChainData?.pcr]);
 
