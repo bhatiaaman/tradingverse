@@ -124,15 +124,20 @@ function checkDuplicateOrder(data) {
     const t = o.tradingsymbol?.toUpperCase() ?? '';
     // Exact match OR symbol followed immediately by a digit (options/futures suffix)
     // Prevents "SBI" matching "SBILIFE" or "NIFTY" matching "NIFTYBEES"
-    return t === symbol || (t.startsWith(symbol) && /\d/.test(t[symbol.length]));
+    const symbolMatch = t === symbol || (t.startsWith(symbol) && /\d/.test(t[symbol.length]));
+    if (!symbolMatch) return false;
+    // Skip exit orders — a pending SELL to close a long is not a risk, it's a good exit.
+    // Only flag when the new order and existing pending order are in the SAME direction.
+    const sameDirection = o.transaction_type?.toUpperCase() === data.order.transactionType?.toUpperCase();
+    return sameDirection;
   });
   if (!dupe) return null;
 
   return {
     type: 'DUPLICATE_ORDER',
     severity: 'caution',
-    title: 'Open order already exists',
-    detail: `${dupe.tradingsymbol} has a ${dupe.status?.toLowerCase()} ${dupe.transaction_type?.toLowerCase()} order pending. Placing another may double your exposure.`,
+    title: 'Open order already exists in same direction',
+    detail: `${dupe.tradingsymbol} has a ${dupe.status?.toLowerCase()} ${dupe.transaction_type?.toLowerCase()} order pending. Placing another in the same direction may double your exposure.`,
     riskScore: 12,
   };
 }

@@ -41,7 +41,7 @@ function calcATR(candles, period = 14) {
 // Candlestick pattern detector — copied from behavioral-agent/route.js
 // Returns array of { name, candles, direction, meaning, strength }
 // ─────────────────────────────────────────────────────────────────────────────
-export function detectPatterns(candles) {
+export function detectPatterns(candles, todayOnly = false) {
   if (!candles || candles.length < 3) return [];
   const patterns = [];
   const last3 = candles.slice(-3);
@@ -52,6 +52,17 @@ export function detectPatterns(candles) {
   const isBull  = c => c.close > c.open;
   const isBear  = c => c.close < c.open;
   const isDoji  = c => range(c) > 0 && body(c) / range(c) < 0.1;
+
+  // ── Today's session boundary (for filtering stale cross-day patterns) ──
+  // Candles from a previous session can form phantom 3-candle setups at open.
+  const istMidnight = (() => {
+    const now = new Date();
+    const d   = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+    d.setUTCHours(0, 0, 0, 0);
+    return d.getTime() / 1000;
+  })();
+  const isToday = c => c.time >= istMidnight;
+  const allThreeToday = isToday(c1) && isToday(c2) && isToday(c3);
 
   // ── 1-candle on c3 ──
   if (isDoji(c3)) {
@@ -99,35 +110,37 @@ export function detectPatterns(candles) {
       meaning: 'Inside bullish candle after bearish — potential base forming.', strength: 'moderate' });
   }
 
-  // ── 3-candle on c1+c2+c3 ──
-  if (isBear(c1) && isDoji(c2) && isBull(c3) &&
-      c3.close > (c1.open + c1.close) / 2 && body(c3) > body(c1) * 0.5) {
-    patterns.push({ name: 'Morning Star', candles: 3, direction: 'bullish',
-      meaning: 'Classic reversal: down-doji-up. Strong bullish signal after downtrend.', strength: 'strong' });
-  }
+  // ── 3-candle on c1+c2+c3 ── (only fire when all candles are from today's session)
+  if (allThreeToday) {
+    if (isBear(c1) && isDoji(c2) && isBull(c3) &&
+        c3.close > (c1.open + c1.close) / 2 && body(c3) > body(c1) * 0.5) {
+      patterns.push({ name: 'Morning Star', candles: 3, direction: 'bullish',
+        meaning: 'Classic reversal: down-doji-up. Strong bullish signal after downtrend.', strength: 'strong' });
+    }
 
-  if (isBull(c1) && isDoji(c2) && isBear(c3) &&
-      c3.close < (c1.open + c1.close) / 2 && body(c3) > body(c1) * 0.5) {
-    patterns.push({ name: 'Evening Star', candles: 3, direction: 'bearish',
-      meaning: 'Classic reversal: up-doji-down. Strong bearish signal after uptrend.', strength: 'strong' });
-  }
+    if (isBull(c1) && isDoji(c2) && isBear(c3) &&
+        c3.close < (c1.open + c1.close) / 2 && body(c3) > body(c1) * 0.5) {
+      patterns.push({ name: 'Evening Star', candles: 3, direction: 'bearish',
+        meaning: 'Classic reversal: up-doji-down. Strong bearish signal after uptrend.', strength: 'strong' });
+    }
 
-  if (isBull(c1) && isBull(c2) && isBull(c3) &&
-      c2.close > c1.close && c3.close > c2.close &&
-      body(c2) > body(c1) * 0.7 && body(c3) > body(c2) * 0.7 &&
-      c2.open >= c1.open && c2.open <= c1.close &&   // c2 opens within c1's body
-      c3.open >= c2.open && c3.open <= c2.close) {   // c3 opens within c2's body
-    patterns.push({ name: 'Three White Soldiers', candles: 3, direction: 'bullish',
-      meaning: 'Three consecutive strong bullish candles — sustained buying pressure.', strength: 'strong' });
-  }
+    if (isBull(c1) && isBull(c2) && isBull(c3) &&
+        c2.close > c1.close && c3.close > c2.close &&
+        body(c2) > body(c1) * 0.7 && body(c3) > body(c2) * 0.7 &&
+        c2.open >= c1.open && c2.open <= c1.close &&   // c2 opens within c1's body
+        c3.open >= c2.open && c3.open <= c2.close) {   // c3 opens within c2's body
+      patterns.push({ name: 'Three White Soldiers', candles: 3, direction: 'bullish',
+        meaning: 'Three consecutive strong bullish candles — sustained buying pressure.', strength: 'strong' });
+    }
 
-  if (isBear(c1) && isBear(c2) && isBear(c3) &&
-      c2.close < c1.close && c3.close < c2.close &&
-      body(c2) > body(c1) * 0.7 && body(c3) > body(c2) * 0.7 &&
-      c2.open <= c1.open && c2.open >= c1.close &&   // c2 opens within c1's body
-      c3.open <= c2.open && c3.open >= c2.close) {   // c3 opens within c2's body
-    patterns.push({ name: 'Three Black Crows', candles: 3, direction: 'bearish',
-      meaning: 'Three consecutive strong bearish candles — sustained selling pressure.', strength: 'strong' });
+    if (isBear(c1) && isBear(c2) && isBear(c3) &&
+        c2.close < c1.close && c3.close < c2.close &&
+        body(c2) > body(c1) * 0.7 && body(c3) > body(c2) * 0.7 &&
+        c2.open <= c1.open && c2.open >= c1.close &&   // c2 opens within c1's body
+        c3.open <= c2.open && c3.open >= c2.close) {   // c3 opens within c2's body
+      patterns.push({ name: 'Three Black Crows', candles: 3, direction: 'bearish',
+        meaning: 'Three consecutive strong bearish candles — sustained selling pressure.', strength: 'strong' });
+    }
   }
 
   return patterns;
@@ -360,10 +373,10 @@ function checkInsideBar15m(data) {
   const isInside = cur.high <= prev.high && cur.low >= prev.low;
   if (!isInside) return null;
 
-  // Only flag tight inside bars (≤60% of parent range) — wide inside bars are just normal consolidation
+  // Only flag tight inside bars (≤40% of parent range) — wide inside bars are normal consolidation
   const parentRange = prev.high - prev.low;
   const curRange    = cur.high - cur.low;
-  if (parentRange === 0 || curRange / parentRange > 0.6) return null;
+  if (parentRange === 0 || curRange / parentRange > 0.4) return null;
 
   return {
     type:      'INSIDE_BAR_15M',

@@ -267,45 +267,47 @@ function checkVWAP(data) {
   };
 }
 
-// CHECK 3: ADX regime — ADX < 20 = choppy
+// CHECK 3: ADX regime — ADX < 25 = choppy (Wilder's threshold for meaningful trend)
 function checkADX(data) {
   const adxResult = data.indicators.adx_15m;
   if (adxResult == null) return null;
 
   const { adx } = adxResult;
-  if (adx >= 20) return null;
+  if (adx >= 25) return null;
 
   return {
     type: 'LOW_ADX',
     severity: 'caution',
     title: `ADX ${adx.toFixed(0)} — choppy market on 15m`,
-    detail: `ADX below 20 indicates a range-bound, directionless market. Breakout and momentum trades have lower success rate in this regime.`,
+    detail: `ADX below 25 indicates a range-bound or directionless market. Breakout and momentum trades have lower success rate. Wait for ADX > 25 before entering trend-following trades.`,
     riskScore: 8,
   };
 }
 
 // CHECK 4: RSI extremes — BUY into overbought / SELL into oversold
+// Thresholds: 78/22 on 15m (tighter than daily 70/30) to avoid
+// flagging normal trend-day RSI readings as risky.
 function checkRSI(data) {
   const { rsi_15m } = data.indicators;
   if (rsi_15m == null) return null;
 
   const tradeBias = getTradeBias(data.order.instrumentType, data.order.transactionType);
 
-  if (tradeBias === 'BULLISH' && rsi_15m > 70) {
+  if (tradeBias === 'BULLISH' && rsi_15m > 78) {
     return {
       type: 'RSI_OVERBOUGHT',
       severity: 'warning',
       title: `RSI ${rsi_15m.toFixed(0)} — overbought on 15m`,
-      detail: `Buying when RSI is above 70 means entering an extended move. Mean reversion risk is elevated.`,
+      detail: `Buying when 15m RSI is above 78 means entering a significantly extended move. Mean reversion risk is elevated.`,
       riskScore: 15,
     };
   }
-  if (tradeBias === 'BEARISH' && rsi_15m < 30) {
+  if (tradeBias === 'BEARISH' && rsi_15m < 22) {
     return {
       type: 'RSI_OVERSOLD',
       severity: 'warning',
       title: `RSI ${rsi_15m.toFixed(0)} — oversold on 15m`,
-      detail: `Selling when RSI is below 30 means entering a stretched move. Bounce risk is elevated.`,
+      detail: `Selling when 15m RSI is below 22 means entering a stretched move. Bounce risk is elevated.`,
       riskScore: 15,
     };
   }
@@ -331,29 +333,57 @@ function checkVolume(data) {
   };
 }
 
-// CHECK 6: Opening range — price still inside first-15min H/L range
+// CHECK 6: Opening range — context-aware direction check
+// Flags when: (a) price is still inside the OR (no direction), or
+// (b) price broke the OR in the WRONG direction for the trade.
 function checkOpeningRange(data) {
   const { orHigh, orLow, spotPrice } = data.indicators;
-  if (orHigh == null || orLow == null || spotPrice == null) return { passed: true, title: 'Opening range — no intraday data yet' };
+  if (orHigh == null || orLow == null || spotPrice == null) {
+    return { passed: true, title: 'Opening range — no intraday data yet' };
+  }
 
-  const insideOR = spotPrice <= orHigh && spotPrice >= orLow;
+  const tradeBias  = getTradeBias(data.order.instrumentType, data.order.transactionType);
+  const insideOR   = spotPrice <= orHigh && spotPrice >= orLow;
 
-  if (!insideOR) {
-    const brokeAbove = spotPrice > orHigh;
+  if (insideOR) {
     return {
-      passed: true,
-      title: brokeAbove
-        ? `Opening range breakout above ₹${orHigh.toFixed(0)}`
-        : `Opening range breakdown below ₹${orLow.toFixed(0)}`,
+      type: 'INSIDE_OPENING_RANGE',
+      severity: 'caution',
+      title: 'Price inside opening range — no breakout yet',
+      detail: `Price (₹${spotPrice.toFixed(0)}) is within the opening range (₹${orLow.toFixed(0)} – ₹${orHigh.toFixed(0)}). Wait for a confirmed breakout before entering.`,
+      riskScore: 8,
     };
   }
 
+  const brokeAbove = spotPrice > orHigh;
+  const brokeBelow = spotPrice < orLow;
+
+  // Breakout in WRONG direction for trade
+  if (tradeBias === 'BULLISH' && brokeBelow) {
+    return {
+      type: 'OR_BREAK_AGAINST_TRADE',
+      severity: 'caution',
+      title: `Opening range breakdown — OR broke bearish, you are buying`,
+      detail: `Price broke below the opening range low (₹${orLow.toFixed(0)}). A bearish OR breakout is against your long trade. Consider waiting for reclaim of ₹${orLow.toFixed(0)}.`,
+      riskScore: 10,
+    };
+  }
+  if (tradeBias === 'BEARISH' && brokeAbove) {
+    return {
+      type: 'OR_BREAK_AGAINST_TRADE',
+      severity: 'caution',
+      title: `Opening range breakout — OR broke bullish, you are selling`,
+      detail: `Price broke above the opening range high (₹${orHigh.toFixed(0)}). A bullish OR breakout is against your short trade. Consider waiting for reclaim below ₹${orHigh.toFixed(0)}.`,
+      riskScore: 10,
+    };
+  }
+
+  // Breakout in CORRECT direction
   return {
-    type: 'INSIDE_OPENING_RANGE',
-    severity: 'caution',
-    title: 'Price inside opening range — no breakout yet',
-    detail: `Price (₹${spotPrice.toFixed(0)}) is within the opening range (₹${orLow.toFixed(0)} – ₹${orHigh.toFixed(0)}). Wait for a confirmed breakout before entering.`,
-    riskScore: 8,
+    passed: true,
+    title: brokeAbove
+      ? `Opening range breakout above ₹${orHigh.toFixed(0)} — aligned with ${tradeBias.toLowerCase()} trade`
+      : `Opening range breakdown below ₹${orLow.toFixed(0)} — aligned with ${tradeBias.toLowerCase()} trade`,
   };
 }
 

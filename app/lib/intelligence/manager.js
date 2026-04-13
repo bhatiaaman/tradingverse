@@ -316,10 +316,41 @@ export async function getIntelligence(symbol, { base, interval = '15minute', tra
     marketRegime:    regime?.regime ?? null,
   });
 
-  // 5. Combined risk score (sum of all agent scores)
-  const riskScore = [behavioral, structure, pattern, station, oi]
+  // 5. Combined risk score (sum of all agent scores, capped at 100)
+  //    Deduplication FIRST — suppress structural/pattern checks that repeat the same
+  //    "wrong direction" signal already captured by Behavioral's AGAINST_TREND.
+  const behavioralFiredTrendConflict = behavioral.behaviors?.some(b => b.type === 'AGAINST_TREND');
+
+  // Types in Structure / Pattern that are redundant when AGAINST_TREND is already flagged
+  const TREND_REDUNDANT_TYPES = new Set([
+    'EMA_MISALIGNED',          // Structure: EMAs bearish / bullish — same as AGAINST_TREND
+    'EMA_PARTIAL_CONFLICT',    // Structure: mild EMA conflict
+    'RSI_OVERBOUGHT',          // Structure: overbought on 15m (trend following, not reversal risk)
+    'RSI_OVERSOLD',            // Structure: oversold on 15m
+    'VOLUME_DIVERGENCE_15M',   // Pattern: price-volume divergence in trend direction
+    'VOLUME_WEAK_MOVE_15M',    // Pattern: weak move conflicting with trade
+  ]);
+
+  function deduplicateAgent(agent) {
+    if (!behavioralFiredTrendConflict) return agent;
+    const deduped = agent.checks.map(c => {
+      if (!c.passed && TREND_REDUNDANT_TYPES.has(c.type)) {
+        return { ...c, passed: true, _deduped: true,
+          title: `${c.title} (covered by trend-conflict check)` };
+      }
+      return c;
+    });
+    const triggered  = deduped.filter(c => !c.passed);
+    const newScore   = triggered.reduce((sum, b) => sum + (b.riskScore ?? 0), 0);
+    return { ...agent, checks: deduped, behaviors: triggered, riskScore: newScore };
+  }
+
+  const structureD = deduplicateAgent(structure);
+  const patternD   = deduplicateAgent(pattern);
+
+  const riskScore = Math.min(100, [behavioral, structureD, patternD, station, oi]
     .filter(Boolean)
-    .reduce((sum, a) => sum + (a.riskScore ?? 0), 0);
+    .reduce((sum, a) => sum + (a.riskScore ?? 0), 0));
 
   // 6. Raw price action — direction-agnostic, for chart pill display
   const pa15m = pd?.candles15m?.length ? pd.candles15m : null;
@@ -335,7 +366,7 @@ export async function getIntelligence(symbol, { base, interval = '15minute', tra
     regime,
     scenario,
     riskScore,
-    agents: { behavioral, structure, pattern, station, oi },
+    agents: { behavioral, structure: structureD, pattern: patternD, station, oi },
     priceAction,
     // Raw context — needed by OrderModal verdict card and terminal page
     positions:  bd?.positions  ?? { all: [], count: 0, sameSymbol: null },

@@ -498,7 +498,8 @@ export function runStationAgent(data) {
 
   // 2. Pre-compute zone state once — shared across all checks
   const zone      = stationResult?.nearestStation ?? null;
-  const zoneState = determineZoneState(zone, data.stationData?.candles15m, data.order.spotPrice);
+  // spotPrice is already resolved above (falls back to last candle close)
+  const zoneState = determineZoneState(zone, data.stationData?.candles15m, spotPrice);
 
   // 3. Enrich data
   const enriched = { ...data, stationResult, _zoneState: zoneState };

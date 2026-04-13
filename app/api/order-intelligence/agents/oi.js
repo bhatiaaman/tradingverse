@@ -45,22 +45,25 @@ function checkPCRBias(data) {
 
   const tradeBias = getTradeBias(data.order.instrumentType, data.order.transactionType);
 
-  if (pcr < 0.7 && tradeBias === 'BULLISH') {
+  // Thresholds calibrated to post-2022 NSE structure:
+  //   < 0.65 = crowded bullishness (below historical average)
+  //   > 1.7  = extreme fear (above structural put-hedging baseline)
+  if (pcr < 0.65 && tradeBias === 'BULLISH') {
     return {
       type:     'PCR_EXTREME_GREED',
       severity: 'caution',
-      title:    `PCR ${pcr.toFixed(2)} — excessive call writing, contrarian risk for bulls`,
-      detail:   `PCR below 0.7 signals crowded bullishness. When everyone is long, the market tends to reverse from extremes. Consider reducing size.`,
+      title:    `PCR ${pcr.toFixed(2)} — crowded call buying, contrarian risk for bulls`,
+      detail:   `PCR below 0.65 signals crowded bullishness. When call-writing becomes one-sided, the market tends to reverse. Consider reducing size.`,
       riskScore: 10,
     };
   }
 
-  if (pcr > 1.5 && tradeBias === 'BEARISH') {
+  if (pcr > 1.7 && tradeBias === 'BEARISH') {
     return {
       type:     'PCR_EXTREME_FEAR',
       severity: 'caution',
       title:    `PCR ${pcr.toFixed(2)} — excessive put buying, contrarian risk for bears`,
-      detail:   `PCR above 1.5 signals extreme fear. Crowded shorts often get squeezed. Consider waiting for PCR to normalise.`,
+      detail:   `PCR above 1.7 signals extreme fear / crowded shorts. Crowded short positions often get squeezed — consider waiting for PCR to normalise below 1.5.`,
       riskScore: 10,
     };
   }
@@ -124,7 +127,10 @@ function checkMaxPain(data) {
   const { maxPain, spotPrice, expiry } = data.oiData;
   if (!maxPain || !spotPrice || !expiry) return null;
 
-  const expiryDate    = new Date(expiry);
+  // Parse expiry date as IST midnight (not UTC midnight) to avoid daysToExpiry
+  // being off by 1 day during Indian trading hours (UTC+5:30).
+  // YYYY-MM-DD string → append IST midnight so 'new Date' uses correct timezone.
+  const expiryDate    = new Date(`${expiry}T00:00:00+05:30`);
   const now           = new Date();
   const daysToExpiry  = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
   const pctFromMaxPain = Math.abs(spotPrice - maxPain) / spotPrice * 100;

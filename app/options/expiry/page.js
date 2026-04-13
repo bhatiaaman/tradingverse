@@ -99,6 +99,7 @@ function computeShortSqueezeRisk({ spot, maxPain, pcr, ivHvRatio, straddleCandle
   // ── Signal 1: Spot vs Max Pain (weight: 35pts)
   // If spot is BELOW max pain, there is natural upward gravitational pull.
   // The further below, the more violent the potential squeeze.
+  // If spot is ABOVE max pain, the squeeze may already be in motion — score it accordingly.
   const mpDelta = maxPain - spot; // positive = spot below max pain (bullish squeeze setup)
   let mpScore = 0;
   let mpLabel = '';
@@ -107,7 +108,20 @@ function computeShortSqueezeRisk({ spot, maxPain, pcr, ivHvRatio, straddleCandle
   else if (mpDelta >= 150) { mpScore = 25; mpLabel = 'HIGH'; mpDesc = `Spot is ${mpDelta.toFixed(0)}pts below max pain ₹${maxPain}. Strong upside gravitational pull building.`; }
   else if (mpDelta >= 75)  { mpScore = 15; mpLabel = 'MODERATE'; mpDesc = `Spot is ${mpDelta.toFixed(0)}pts below max pain — some upward pull. Watch for acceleration.`; }
   else if (mpDelta >= 0)   { mpScore = 5;  mpLabel = 'LOW'; mpDesc = `Spot near or at max pain — limited squeeze fuel from this signal.`; }
-  else                     { mpScore = 0;  mpLabel = 'NONE'; mpDesc = `Spot is ABOVE max pain — downside gravity, not a squeeze setup from this signal.`; }
+  else {
+    // Spot is ABOVE max pain — check if a squeeze may already be in motion
+    const aboveBy = Math.abs(mpDelta);
+    if (aboveBy > 150) {
+      mpScore = 15; mpLabel = 'ACTIVE';
+      mpDesc = `Spot is ${aboveBy.toFixed(0)}pts ABOVE max pain ₹${maxPain} — a directional squeeze may already be in motion. Shorts above max pain are deeply underwater; covering accelerates further up.`;
+    } else if (aboveBy > 50) {
+      mpScore = 8; mpLabel = 'ABOVE MP';
+      mpDesc = `Spot is ${aboveBy.toFixed(0)}pts above max pain ₹${maxPain}. Downside gravity from max pain is the primary pull — but if PCR and straddle confirm, covering may be underway.`;
+    } else {
+      mpScore = 5; mpLabel = 'NEAR MP';
+      mpDesc = `Spot is ${aboveBy.toFixed(0)}pts above max pain — still in pin zone. Both directions remain possible.`;
+    }
+  }
   signals.push({ name: 'Spot vs Max Pain', score: mpScore, max: 35, label: mpLabel, desc: mpDesc, icon: '🎯' });
   totalScore += mpScore;
 
@@ -122,8 +136,8 @@ function computeShortSqueezeRisk({ spot, maxPain, pcr, ivHvRatio, straddleCandle
   else if (pcr < 0.75) { pcrScore = 13; pcrLabel = 'MODERATE FUEL'; pcrDesc = `PCR ${pcr.toFixed(2)} — mildly skewed toward bears. Some short fuel but consensus not extreme enough for a full squeeze.`; }
   else if (pcr < 0.90) { pcrScore = 5;  pcrLabel = 'LOW FUEL'; pcrDesc = `PCR ${pcr.toFixed(2)} — near-balanced. Limited squeeze fuel from positioning alone.`; }
   else                 { pcrScore = 0;  pcrLabel = 'NONE'; pcrDesc = `PCR ${pcr.toFixed(2)} — put-heavy. Market not in an oversold short-heavy state; different risk profile.`; }
-  // PCR trend bonus: if PCR is rising fast (shorts covering puts), add 5pts
-  const pcrTrend = prevPCR != null && (pcr - prevPCR) > 0.08;
+  // PCR trend bonus: if PCR is rising (call shorts covering), add 5pts
+  const pcrTrend = prevPCR != null && (pcr - prevPCR) > 0.04;
   if (pcrTrend && pcrScore > 0) { pcrScore = Math.min(pcrScore + 5, 30); pcrDesc += ` PCR rising rapidly from ${prevPCR?.toFixed(2)} — active covering underway.`; }
   signals.push({ name: 'PCR (Short Book Size)', score: pcrScore, max: 30, label: pcrLabel, desc: pcrDesc, icon: '📊', trend: pcrTrend ? '↑' : null });
   totalScore += pcrScore;
@@ -348,7 +362,7 @@ function makeCommentary({ spot, atm, maxPain, pcr, straddlePremium, ivHvRatio,
     const dir = spot > maxPain ? 'above' : 'below';
     const pull = spot > maxPain ? 'downward pull' : 'upward pull';
     if (d < 50)
-      lines.push({ icon: '🎯', c: 'text-emerald-400', t: `Spot ₹${fmt(spot)} is ${d.toFixed(0)}pts ${dir} max pain ₹${maxPain} — strong pin zone. Sellers defending; expect chop around here.` });
+      lines.push({ icon: '🎯', c: 'text-emerald-400', t: `Spot ₹${fmt(spot)} is ${d.toFixed(0)}pts ${dir} max pain ₹${maxPain} — strong pin zone. Both Call and Put writers have max pain incentive to pin here; expect chop.` });
     else if (d < 150)
       lines.push({ icon: '🎯', c: 'text-amber-400',   t: `Spot ₹${fmt(spot)} is ${d.toFixed(0)}pts ${dir} max pain ₹${maxPain}. ${pull.charAt(0).toUpperCase()+pull.slice(1)} expected as time decays.` });
     else
@@ -359,7 +373,7 @@ function makeCommentary({ spot, atm, maxPain, pcr, straddlePremium, ivHvRatio,
   // This fires BEFORE the PCR line intentionally — it reframes what low PCR actually means in this context.
   if (spot && maxPain && pcr != null) {
     const mpGap   = maxPain - spot; // positive = spot below max pain
-    const pcrTrend = prevPCR != null && (pcr - prevPCR) > 0.06; // PCR rising = covering underway
+    const pcrTrend = prevPCR != null && (pcr - prevPCR) > 0.03; // PCR rising = call shorts covering
     if (mpGap >= 200 && pcr < 0.55) {
       const floorWallStr = walls?.support?.filter(s => s.strike <= spot).sort((a, b) => b.strike - a.strike)[0];
       const floorMsg = floorWallStr ? ` Put wall ₹${floorWallStr.strike} is the floor to defend.` : '';
@@ -396,13 +410,27 @@ function makeCommentary({ spot, atm, maxPain, pcr, straddlePremium, ivHvRatio,
   else if (t >= 12*60) lines.push({ icon: '⏱', c: 'text-amber-400',  t: 'Post-noon: theta decay accelerating. Short straddle sellers have edge. Watch for sudden directional breakout.' });
   else if (t >= 9*60+15) lines.push({ icon: '⏱', c: 'text-slate-400', t: 'Morning session — wait for first 30-min range to form before initiating expiry positions.' });
 
-  // 4. Straddle decay vs open
+  // 4. Straddle decay vs open — distinguish theta decay (flat price) vs directional move
   if (straddleCandles?.length > 2) {
     const open = straddleCandles[0].value;
     const cur  = straddleCandles[straddleCandles.length - 1].value;
     const pct  = ((open - cur) / open * 100);
-    if      (pct > 35) lines.push({ icon: '↓', c: 'text-emerald-400', t: `Straddle decayed ${pct.toFixed(0)}% from ₹${fmt(open)} → ₹${fmt(cur)}. Sellers controlling the session.` });
-    else if (pct < -15) lines.push({ icon: '↑', c: 'text-red-400',    t: `Straddle UP ${Math.abs(pct).toFixed(0)}% from open ₹${fmt(open)} — IV expanding. Avoid new premium sells until volatility stabilises.` });
+    // Check if price has moved significantly from ATM (directional day) vs pinned (theta day)
+    const spotMovePct = atm ? Math.abs(spot - atm) / atm * 100 : 0;
+    const isDirectional = spotMovePct > 0.8;
+    if (pct > 35) {
+      if (isDirectional) {
+        const dir = spot > atm ? 'bullish' : 'bearish';
+        lines.push({ icon: '↓', c: 'text-sky-400',
+          t: `Straddle decayed ${pct.toFixed(0)}% but spot has moved ${spotMovePct.toFixed(1)}% from ATM — ${dir} trend crushed the losing side. Directional buyers drove this session, not theta sellers.` });
+      } else {
+        lines.push({ icon: '↓', c: 'text-emerald-400',
+          t: `Straddle decayed ${pct.toFixed(0)}% from ₹${fmt(open)} → ₹${fmt(cur)} with price near ATM ₹${atm}. Classic theta decay — Call and Put writers controlling the session.` });
+      }
+    } else if (pct < -15) {
+      lines.push({ icon: '↑', c: 'text-red-400',
+        t: `Straddle UP ${Math.abs(pct).toFixed(0)}% from open ₹${fmt(open)} — IV expanding. Avoid new premium sells until volatility stabilises.` });
+    }
   }
 
   // 5. OI wall proximity
@@ -833,8 +861,8 @@ export default function ExpiryPage() {
             </div>
           )}
 
-          {/* ── GIFT Nifty / Expected Open Strip ── */}
-          {giftData?.price && (
+          {/* ── GIFT Nifty / Expected Open Strip — pre-market only ── */}
+          {giftData?.price && getIST().getUTCHours() < 9 && (
             (() => {
               const { price, change, changePct } = giftData;
               const isUp       = (change ?? 0) >= 0;
