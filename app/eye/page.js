@@ -1149,7 +1149,13 @@ function getNiftyLevelAlerts(indices) {
                   return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
                 };
 
-                const allSealed = data.candles.slice(0, -1);
+                // Only process candles from TODAY's IST date — prevents yesterday's
+                // closing candles (15:xx WRAP UP) from polluting the log on next-day load.
+                const todayISTDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+                const allSealed = data.candles.slice(0, -1).filter(c => {
+                  const candleDateIST = new Date(c.time * 1000 + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+                  return candleDateIST === todayISTDate;
+                });
                 const lastLogged = lastCandleTimeRef.current;
 
                 // Candles not yet in the log, in chronological order. Cap at 12 (log size).
@@ -1739,13 +1745,16 @@ function getNiftyLevelAlerts(indices) {
 
       // VWAP approach while in a position — specific commentary
       if ((inLong || inShort) && nearVwap) {
-        const approaching = inLong ? !aboveVwap : aboveVwap; // price moving toward VWAP
+        // "approaching": price is moving toward VWAP from the wrong side for the position
+        // inLong + below VWAP = pulled back below VWAP (bad)
+        // inShort + above VWAP = price recovered above VWAP (bad for short)
+        const approaching = inLong ? !aboveVwap : aboveVwap;
         if (approaching) {
           return ret({ type: 'caution', action: 'VWAP WATCH',
             headline: inShort
-              ? `Approaching VWAP from below — hold tight, watch if it breaks`
-              : `Pulling back to VWAP — hold tight, this is the test`,
-            reason: `${vwapHint}. ${inShort ? 'If this candle closes above VWAP, that\'s a concern. Watch next one.' : 'If this holds VWAP as support, the long is fine. If it breaks, reassess.'}` });
+              ? `Price recovered above VWAP — short is at risk near VWAP`
+              : `Pulled back below VWAP — hold tight, this is the test`,
+            reason: `${vwapHint}. ${inShort ? 'Price is now above VWAP — that\'s a concern for the short. Watch if it holds above next candle.' : 'If this holds VWAP as support, the long is fine. If it breaks, reassess.'}` });
         }
         // Just crossed VWAP
         const crossedFavorably = (inShort && !aboveVwap) || (inLong && aboveVwap);
