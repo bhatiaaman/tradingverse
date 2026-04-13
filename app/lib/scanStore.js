@@ -5,7 +5,18 @@ function getScannerSlug(scanOrSlug) {
   const raw = typeof scanOrSlug === 'string'
     ? scanOrSlug
     : (scanOrSlug.scan_url || scanOrSlug.scan_name || scanOrSlug.alert_name || '');
-  return String(raw).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  const str = String(raw);
+
+  // Chartink sends scan_url as a full URL: https://chartink.com/screener/bullish-bo-15min
+  // Extract just the last path segment so it matches the page URL slug.
+  if (str.startsWith('http')) {
+    try {
+      const lastSegment = new URL(str).pathname.split('/').filter(Boolean).pop() || '';
+      if (lastSegment) return lastSegment.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    } catch { /* fall through */ }
+  }
+
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
 // Reconstruct the original scan payload from the row.
