@@ -1389,7 +1389,7 @@ const SERIES_CONFIG = [
   { key: 'vix',    label: 'India VIX',       color: '#a78bfa', dash: true,  yAxis: 'right' },
 ];
 
-function StraddleChart({ resp, chainData, label = 'Straddle' }) {
+function StraddleChart({ resp, chainData, label = 'Straddle', interval = '5minute', onIntervalChange }) {
   const svgRef   = useRef(null);
   const [mouse,  setMouse]  = useState(null);   // { x, snapIdx }
   const [visible, setVisible] = useState({ atm: true, avg: true, spot: true, synfut: true, vix: false });
@@ -1532,21 +1532,53 @@ function StraddleChart({ resp, chainData, label = 'Straddle' }) {
 
   return (
     <div className="w-full">
-      {/* ── Info bar ── */}
-      <div className="grid grid-cols-8 gap-0 border-b border-white/[0.06] text-center">
+      {/* ── Top control bar ── */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.06] bg-[#060d1a]">
+        <div className="flex items-center gap-2">
+          {/* Symbol badge */}
+          <span className="text-xs font-bold text-slate-200 font-mono">{chainData?.symbol ?? resp?.symbol ?? 'NIFTY'}</span>
+          <span className="text-slate-600">·</span>
+          {/* Expiry */}
+          <span className="text-[11px] font-mono text-slate-400">
+            {chainData?.expiry
+              ? new Date(chainData.expiry.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+              : '—'}
+          </span>
+        </div>
+        {/* Timeframe selector */}
+        <div className="flex items-center gap-1 bg-[#0c1a2e] rounded-lg p-0.5">
+          {['3minute', '5minute', '10minute', '15minute'].map(tf => (
+            <button
+              key={tf}
+              onClick={() => onIntervalChange?.(tf)}
+              className={`px-2.5 py-1 text-[10px] font-mono font-semibold rounded-md transition-colors ${
+                interval === tf ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              {tf.replace('minute', 'm')}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Info bar (11 columns) ── */}
+      <div className="grid gap-0 border-b border-white/[0.06] text-center" style={{ gridTemplateColumns: 'repeat(11, minmax(0, 1fr))' }}>
         {[
           { label: 'DTE',          val: dte != null ? dte : '—' },
           { label: 'SPOT',         val: hovSpot?.v?.toFixed(2) ?? chainData?.spot?.toFixed(2) ?? '—' },
+          { label: 'FUTURE',       val: '—' },
+          { label: 'SYN FUT',      val: hovSynFut?.v?.toFixed(2) ?? (series.synfut?.length ? series.synfut[series.synfut.length - 1].v.toFixed(2) : '—') },
           { label: 'ATM STRIKE',   val: chainData?.atm ?? strike ?? '—' },
           { label: 'PRICE',        val: hovAtm?.v?.toFixed(2) ?? straddleCur?.toFixed(2) ?? '—' },
           { label: 'OPEN',         val: straddleOpen?.toFixed(2) ?? '—' },
           { label: 'HIGH',         val: straddleHigh?.toFixed(2) ?? '—' },
           { label: 'LOW',          val: straddleLow?.toFixed(2) ?? '—' },
-          { label: 'LAST UPDATED', val: lastUpdated ?? '—' },
+          { label: 'P.CLOSE',      val: straddleOpen?.toFixed(2) ?? '—' },
+          { label: 'LAST UP',      val: lastUpdated ?? '—' },
         ].map(({ label: lbl, val }) => (
-          <div key={lbl} className="py-2 px-1 border-r border-white/[0.05] last:border-r-0">
-            <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-0.5">{lbl}</div>
-            <div className="text-[11px] font-mono font-semibold text-slate-200">{val}</div>
+          <div key={lbl} className="py-1.5 px-0.5 border-r border-white/[0.05] last:border-r-0">
+            <div className="text-[8px] text-slate-500 uppercase tracking-wider mb-0.5">{lbl}</div>
+            <div className="text-[10px] font-mono font-semibold text-slate-200 truncate">{val}</div>
           </div>
         ))}
       </div>
@@ -1735,6 +1767,7 @@ export default function OptionsPage() {
   const [straddleLoading, setStraddleLoading] = useState(false);
   const [strangleData,    setStrangleData]    = useState(null);
   const [strangleLoading, setStrangleLoading] = useState(false);
+  const [straddleInterval, setStraddleInterval] = useState('5minute'); // chart timeframe
 
   // Probability panel
   const [probTarget,    setProbTarget]    = useState('');
@@ -1911,11 +1944,11 @@ export default function OptionsPage() {
     return () => { active = false; clearInterval(iv); };
   }, [symbol]);
 
-  // ── Fetch straddle chart when ATM changes ───────────────────────────────────
+  // ── Fetch straddle chart when ATM or interval changes ──────────────────
   useEffect(() => {
     if (!chainData?.atm || !chainData?.expiry) return;
     setStraddleLoading(true);
-    fetch(`/api/options/straddle-chart?symbol=${symbol}&expiry=${chainData.expiry}&strike=${chainData.atm}&interval=5minute`)
+    fetch(`/api/options/straddle-chart?symbol=${symbol}&expiry=${chainData.expiry}&strike=${chainData.atm}&interval=${straddleInterval}`)
       .then(r => r.json())
       .then(d => {
         setStraddleResp(d);               // full response (candles+spot+vix+strike)
@@ -1923,7 +1956,7 @@ export default function OptionsPage() {
       })
       .catch(() => { setStraddleResp(null); setStraddleData([]); })
       .finally(() => setStraddleLoading(false));
-  }, [chainData?.atm, chainData?.expiry, symbol]);
+  }, [chainData?.atm, chainData?.expiry, symbol, straddleInterval]);
 
   // ── Fetch strangle chart when strikes or ATM changes ────────────────────────
   useEffect(() => {
@@ -2219,7 +2252,8 @@ export default function OptionsPage() {
             {chartMode === 'straddle' ? (
               straddleLoading
                 ? <div className="flex items-center justify-center text-slate-500 text-sm" style={{ height: 340 }}>Loading...</div>
-                : <StraddleChart resp={straddleResp} chainData={chainData} label="Straddle" />
+                : <StraddleChart resp={straddleResp} chainData={chainData} label="Straddle"
+                    interval={straddleInterval} onIntervalChange={setStraddleInterval} />
             ) : (
               <div className="flex min-h-[200px]">
                 {strangleLoading
