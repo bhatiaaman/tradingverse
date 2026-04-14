@@ -1769,6 +1769,13 @@ export default function OptionsPage() {
   const [strangleLoading, setStrangleLoading] = useState(false);
   const [straddleInterval, setStraddleInterval] = useState('5minute'); // chart timeframe
 
+  // Straddle spike alerts
+  const [straddleAlert, setStraddleAlert]   = useState(null);   // { pct, threshold, open, current, time }
+  const straddleOpenRef   = useRef(null);   // session open value (first candle)
+  const alertsFiredRef    = useRef(new Set()); // thresholds fired this session
+  const alertTimerRef     = useRef(null);      // auto-dismiss timer
+  const SPIKE_THRESHOLDS  = [10, 20, 30, 50, 100];
+
   // Probability panel
   const [probTarget,    setProbTarget]    = useState('');
   const [probDays,      setProbDays]      = useState('7');
@@ -1957,6 +1964,85 @@ export default function OptionsPage() {
       .catch(() => { setStraddleResp(null); setStraddleData([]); })
       .finally(() => setStraddleLoading(false));
   }, [chainData?.atm, chainData?.expiry, symbol, straddleInterval]);
+
+  // ── Straddle spike alert polling (every 60s, market hours only) ─────────────
+  useEffect(() => {
+    if (!chainData?.atm || !chainData?.expiry) return;
+    let alive = true;
+
+    const checkSpike = async () => {
+      // Only during market hours (IST 9:15–15:30)
+      const ist  = new Date(Date.now() + 5.5 * 3600 * 1000);
+      const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+      const day  = ist.getUTCDay();
+      if (day === 0 || day === 6 || mins < 555 || mins > 930) return;
+
+      try {
+        const r = await fetch(
+          `/api/options/straddle-chart?symbol=${symbol}&expiry=${chainData.expiry}&strike=${chainData.atm}&interval=${straddleInterval}`
+        );
+        const d = await r.json();
+        if (!alive || !d.candles?.length) return;
+
+        const candles = d.candles;
+        const current = candles[candles.length - 1].value;
+
+        // Lock in the session open on first successful read
+        if (straddleOpenRef.current === null) {
+          straddleOpenRef.current = candles[0].value;
+          alertsFiredRef.current  = new Set(); // fresh session
+        }
+
+        const open = straddleOpenRef.current;
+        if (!open) return;
+        const pct = ((current - open) / open) * 100;
+
+        // Find highest crossed threshold not yet fired
+        let hitThreshold = null;
+        for (const t of [...SPIKE_THRESHOLDS].reverse()) {
+          if (pct >= t && !alertsFiredRef.current.has(t)) {
+            hitThreshold = t;
+            break;
+          }
+        }
+
+        if (hitThreshold != null) {
+          alertsFiredRef.current.add(hitThreshold);
+          const alertPayload = { pct: pct.toFixed(1), threshold: hitThreshold, open, current, time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) };
+          setStraddleAlert(alertPayload);
+
+          // Auto-dismiss after 30s
+          clearTimeout(alertTimerRef.current);
+          alertTimerRef.current = setTimeout(() => setStraddleAlert(null), 30000);
+
+          // Browser push notification
+          try {
+            const granted = Notification.permission === 'granted'
+              ? 'granted'
+              : await Notification.requestPermission();
+            if (granted === 'granted') {
+              new Notification(
+                `⚡ Straddle Spike +${hitThreshold}% — ${symbol}`,
+                { body: `Open: ₹${open.toFixed(0)} → Now: ₹${current.toFixed(0)} (+${pct.toFixed(1)}%) at ${alertPayload.time}`, icon: '/favicon.ico' }
+              );
+            }
+          } catch { /* notifications blocked */ }
+        }
+      } catch { /* silent */ }
+    };
+
+    // Run immediately + every 60s
+    checkSpike();
+    const iv = setInterval(checkSpike, 60_000);
+    return () => { alive = false; clearInterval(iv); clearTimeout(alertTimerRef.current); };
+  }, [chainData?.atm, chainData?.expiry, symbol, straddleInterval]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset alert refs when ATM changes (new session / strike change)
+  useEffect(() => {
+    straddleOpenRef.current  = null;
+    alertsFiredRef.current   = new Set();
+    setStraddleAlert(null);
+  }, [chainData?.atm, symbol]);
 
   // ── Fetch strangle chart when strikes or ATM changes ────────────────────────
   useEffect(() => {
@@ -2215,7 +2301,59 @@ export default function OptionsPage() {
       {/* ── Straddle / Strangle Chart — full width ── */}
       {chainData && (
         <div className="max-w-[1400px] mx-auto px-6 pb-4">
-          <div className="bg-[#0c1a2e] border border-white/5 rounded-xl overflow-hidden">
+        <div className="bg-[#0c1a2e] border border-white/5 rounded-xl overflow-hidden">
+            {/* ── Straddle Spike Alert Banner ── */}
+            {straddleAlert && (
+              <div
+                style={{
+                  animation: 'straddleAlertBlink 0.7s ease-in-out infinite alternate',
+                  background: straddleAlert.threshold >= 50
+                    ? 'linear-gradient(90deg, rgba(239,68,68,0.25), rgba(220,38,38,0.12))'
+                    : straddleAlert.threshold >= 20
+                    ? 'linear-gradient(90deg, rgba(245,158,11,0.25), rgba(217,119,6,0.12))'
+                    : 'linear-gradient(90deg, rgba(99,102,241,0.2), rgba(79,70,229,0.08))',
+                }}
+                className={`flex items-center justify-between px-4 py-2.5 border-b ${
+                  straddleAlert.threshold >= 50 ? 'border-red-500/40' :
+                  straddleAlert.threshold >= 20 ? 'border-amber-500/40' : 'border-indigo-500/40'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-base animate-ping inline-flex">
+                    {straddleAlert.threshold >= 50 ? '🚨' : straddleAlert.threshold >= 20 ? '⚠️' : '⚡'}
+                  </span>
+                  <div>
+                    <div className={`text-xs font-bold font-mono tracking-wide ${
+                      straddleAlert.threshold >= 50 ? 'text-red-400' :
+                      straddleAlert.threshold >= 20 ? 'text-amber-400' : 'text-indigo-400'
+                    }`}>
+                      STRADDLE SPIKE +{straddleAlert.threshold}% TRIGGERED
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                      Open ₹{straddleAlert.open?.toFixed(0)} → Now ₹{straddleAlert.current?.toFixed(0)}
+                      <span className="ml-2 text-slate-500">({straddleAlert.time})</span>
+                      <span className="ml-3 text-[9px] italic text-slate-500">
+                        {straddleAlert.threshold >= 50
+                          ? 'Extreme vol expansion — sellers exit or hedge immediately'
+                          : straddleAlert.threshold >= 20
+                          ? 'Significant move — check direction, consider fading or following'
+                          : 'Early spike — monitor for continuation or mean revert'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setStraddleAlert(null); clearTimeout(alertTimerRef.current); }}
+                  className="text-slate-500 hover:text-slate-300 text-lg leading-none px-1 transition-colors"
+                >×</button>
+              </div>
+            )}
+            <style>{`
+              @keyframes straddleAlertBlink {
+                from { opacity: 1; }
+                to   { opacity: 0.55; }
+              }
+            `}</style>
             {/* Chart header */}
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]">
               <div className="flex items-center gap-3">
