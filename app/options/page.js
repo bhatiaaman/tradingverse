@@ -1529,16 +1529,6 @@ function StraddleChart({ resp, chainData, label = 'Straddle' }) {
 
   const handleMouseLeave = useCallback(() => setMouse(null), []);
 
-  if (isEmpty) {
-    const msg = isMarketHours()
-      ? `No ${label.toLowerCase()} data yet — builds as the session progresses`
-      : 'Market closed — intraday data available Mon–Fri, 9:15 AM – 3:30 PM IST';
-    return (
-      <div className="flex items-center justify-center text-slate-500 text-[11px] text-center px-4" style={{ minHeight: 220 }}>
-        {msg}
-      </div>
-    );
-  }
 
   return (
     <div className="w-full">
@@ -1583,81 +1573,91 @@ function StraddleChart({ resp, chainData, label = 'Straddle' }) {
 
       {/* ── Chart ── */}
       <div className="relative">
-        <svg
-          ref={svgRef}
-          viewBox={`0 0 ${W} ${H}`}
-          className="w-full"
-          style={{ height: 280, cursor: 'crosshair' }}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
-        >
-          {/* Grid lines (right axis) */}
-          {rightLabels.map(({ y }, i) => (
-            <line key={i} x1={PAD.l} y1={y.toFixed(1)} x2={PAD.l + cW} y2={y.toFixed(1)}
-              stroke="rgba(71,85,105,0.25)" strokeWidth="0.5" />
-          ))}
-
-          {/* Left Y-axis labels */}
-          {leftLabels.map(({ v, y }, i) => (
-            <text key={i} x={PAD.l - 6} y={y} textAnchor="end" dominantBaseline="middle"
-              fontSize="9" fill="#64748b">
-              {v > 10000 ? (v / 1000).toFixed(1) + 'k' : v.toFixed(0)}
-            </text>
-          ))}
-
-          {/* Right Y-axis labels */}
-          {rightLabels.map(({ v, y }, i) => (
-            <text key={i} x={PAD.l + cW + 6} y={y} textAnchor="start" dominantBaseline="middle"
-              fontSize="9" fill="#64748b">
-              {v.toFixed(0)}
-            </text>
-          ))}
-
-          {/* X-axis labels */}
-          {xLabels.map(({ i, label: lbl }) => (
-            <text key={i} x={xScale(i)} y={H - 8} textAnchor="middle" fontSize="8" fill="#475569">
-              {lbl}
-            </text>
-          ))}
-
-          {/* Series lines */}
-          {visible.spot    && series.spot   && <polyline points={buildPath(series.spot,   xScale, yLeft).replace(/M|L/g, match => match === 'M' ? '' : ' ').trim()} fill="none" stroke="#fbbf24" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
-          {visible.synfut  && series.synfut && <polyline points={buildPath(series.synfut, xScale, yLeft).replace(/M|L/g, match => match === 'M' ? '' : ' ').trim()} fill="none" stroke="#60a5fa" strokeWidth="1.2" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />}
-          {visible.avg     && series.avg    && <polyline points={buildPath(series.avg,    xScale, yRight).replace(/M|L/g, match => match === 'M' ? '' : ' ').trim()} fill="none" stroke="#22c55e" strokeWidth="1.2" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />}
-          {visible.atm     && series.atm    && <polyline points={buildPath(series.atm,    xScale, yRight).replace(/M|L/g, match => match === 'M' ? '' : ' ').trim()} fill="none" stroke="#ef4444" strokeWidth="2" vectorEffect="non-scaling-stroke" />}
-          {visible.vix     && vixPath       && <polyline points={vixPath.replace(/M|L/g, match => match === 'M' ? '' : ' ').trim()} fill="none" stroke="#a78bfa" strokeWidth="1" strokeDasharray="2 3" vectorEffect="non-scaling-stroke" />}
-
-          {/* Crosshair */}
-          {crossX != null && (
-            <line x1={crossX.toFixed(1)} y1={PAD.t} x2={crossX.toFixed(1)} y2={PAD.t + cH}
-              stroke="rgba(148,163,184,0.4)" strokeWidth="1" strokeDasharray="3 3" />
-          )}
-
-          {/* Live end-point dots */}
-          {visible.atm && series.atm?.length && (() => {
-            const last = series.atm[series.atm.length - 1];
-            const x = xScale(series.atm.length - 1); const y = yRight(last.v);
-            return <circle cx={x} cy={y} r="3.5" fill="#ef4444" />;
-          })()}
-          {visible.spot && series.spot?.length && (() => {
-            const last = series.spot[series.spot.length - 1];
-            const x = xScale(series.spot.length - 1); const y = yLeft(last.v);
-            return <circle cx={x} cy={y} r="3.5" fill="#fbbf24" />;
-          })()}
-        </svg>
-
-        {/* Hover tooltip */}
-        {mouse != null && hovAtm && (
-          <div className="absolute top-3 left-16 z-20 bg-[#0a1628]/95 border border-white/10 rounded-lg px-3 py-2.5 text-[10px] font-mono min-w-[160px] pointer-events-none shadow-xl">
-            {visible.atm    && hovAtm    && <div className="flex justify-between gap-4"><span className="text-red-400">ATM Straddle</span><span className="text-slate-200">{hovAtm.v.toFixed(2)}</span></div>}
-            {visible.avg    && hovAvg    && <div className="flex justify-between gap-4"><span className="text-emerald-400">Avg Straddle</span><span className="text-slate-200">{hovAvg.v.toFixed(2)}</span></div>}
-            {hovCe != null              && <div className="flex justify-between gap-4 pl-3"><span className="text-slate-500">↳ CE</span><span className="text-sky-300">{hovCe.toFixed(2)}</span></div>}
-            {hovPe != null              && <div className="flex justify-between gap-4 pl-3"><span className="text-slate-500">↳ PE</span><span className="text-rose-300">{hovPe.toFixed(2)}</span></div>}
-            {visible.synfut && hovSynFut && <div className="flex justify-between gap-4"><span className="text-blue-400">Syn Future</span><span className="text-slate-200">{hovSynFut.v.toFixed(2)}</span></div>}
-            {visible.spot   && hovSpot   && <div className="flex justify-between gap-4"><span className="text-amber-400">Spot Price</span><span className="text-slate-200">{hovSpot.v.toFixed(2)}</span></div>}
-            {visible.vix    && hovVix    && <div className="flex justify-between gap-4"><span className="text-violet-400">India VIX</span><span className="text-slate-200">{hovVix.v.toFixed(2)}</span></div>}
-            {hovTs && <div className="text-slate-500 mt-1 pt-1 border-t border-white/10">{hovTs}</div>}
+        {isEmpty ? (
+          <div className="flex items-center justify-center text-slate-500 text-[11px] text-center px-4" style={{ minHeight: 240 }}>
+            {isMarketHours()
+              ? `No ${label.toLowerCase()} data yet — builds as the session progresses`
+              : 'Market closed — intraday data available Mon–Fri, 9:15 AM – 3:30 PM IST'}
           </div>
+        ) : (
+          <>
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${W} ${H}`}
+            className="w-full"
+            style={{ height: 280, cursor: 'crosshair' }}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+          >
+            {/* Grid lines (right axis) */}
+            {rightLabels.map(({ y }, i) => (
+              <line key={i} x1={PAD.l} y1={y.toFixed(1)} x2={PAD.l + cW} y2={y.toFixed(1)}
+                stroke="rgba(71,85,105,0.25)" strokeWidth="0.5" />
+            ))}
+
+            {/* Left Y-axis labels */}
+            {leftLabels.map(({ v, y }, i) => (
+              <text key={i} x={PAD.l - 6} y={y} textAnchor="end" dominantBaseline="middle"
+                fontSize="9" fill="#64748b">
+                {v > 10000 ? (v / 1000).toFixed(1) + 'k' : v.toFixed(0)}
+              </text>
+            ))}
+
+            {/* Right Y-axis labels */}
+            {rightLabels.map(({ v, y }, i) => (
+              <text key={i} x={PAD.l + cW + 6} y={y} textAnchor="start" dominantBaseline="middle"
+                fontSize="9" fill="#64748b">
+                {v.toFixed(0)}
+              </text>
+            ))}
+
+            {/* X-axis labels */}
+            {xLabels.map(({ i, label: lbl }) => (
+              <text key={i} x={xScale(i)} y={H - 8} textAnchor="middle" fontSize="8" fill="#475569">
+                {lbl}
+              </text>
+            ))}
+
+            {/* Series lines */}
+            {visible.spot   && series.spot   && <polyline points={buildPath(series.spot,   xScale, yLeft).replace(/M|L/g, m => m === 'M' ? '' : ' ').trim()} fill="none" stroke="#fbbf24" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
+            {visible.synfut && series.synfut && <polyline points={buildPath(series.synfut, xScale, yLeft).replace(/M|L/g, m => m === 'M' ? '' : ' ').trim()} fill="none" stroke="#60a5fa" strokeWidth="1.2" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />}
+            {visible.avg    && series.avg    && <polyline points={buildPath(series.avg,    xScale, yRight).replace(/M|L/g, m => m === 'M' ? '' : ' ').trim()} fill="none" stroke="#22c55e" strokeWidth="1.2" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />}
+            {visible.atm    && series.atm    && <polyline points={buildPath(series.atm,    xScale, yRight).replace(/M|L/g, m => m === 'M' ? '' : ' ').trim()} fill="none" stroke="#ef4444" strokeWidth="2" vectorEffect="non-scaling-stroke" />}
+            {visible.vix    && vixPath       && <polyline points={vixPath.replace(/M|L/g, m => m === 'M' ? '' : ' ').trim()} fill="none" stroke="#a78bfa" strokeWidth="1" strokeDasharray="2 3" vectorEffect="non-scaling-stroke" />}
+
+            {/* Crosshair */}
+            {crossX != null && (
+              <line x1={crossX.toFixed(1)} y1={PAD.t} x2={crossX.toFixed(1)} y2={PAD.t + cH}
+                stroke="rgba(148,163,184,0.4)" strokeWidth="1" strokeDasharray="3 3" />
+            )}
+
+            {/* Live end-point dots */}
+            {visible.atm && series.atm?.length && (() => {
+              const last = series.atm[series.atm.length - 1];
+              const x = xScale(series.atm.length - 1); const y = yRight(last.v);
+              return <circle cx={x} cy={y} r="3.5" fill="#ef4444" />;
+            })()}
+            {visible.spot && series.spot?.length && (() => {
+              const last = series.spot[series.spot.length - 1];
+              const x = xScale(series.spot.length - 1); const y = yLeft(last.v);
+              return <circle cx={x} cy={y} r="3.5" fill="#fbbf24" />;
+            })()}
+          </svg>
+
+          {/* Hover tooltip */}
+          {mouse != null && hovAtm && (
+            <div className="absolute top-3 left-16 z-20 bg-[#0a1628]/95 border border-white/10 rounded-lg px-3 py-2.5 text-[10px] font-mono min-w-[160px] pointer-events-none shadow-xl">
+              {visible.atm    && hovAtm    && <div className="flex justify-between gap-4"><span className="text-red-400">ATM Straddle</span><span className="text-slate-200">{hovAtm.v.toFixed(2)}</span></div>}
+              {visible.avg    && hovAvg    && <div className="flex justify-between gap-4"><span className="text-emerald-400">Avg Straddle</span><span className="text-slate-200">{hovAvg.v.toFixed(2)}</span></div>}
+              {hovCe != null              && <div className="flex justify-between gap-4 pl-3"><span className="text-slate-500">↳ CE</span><span className="text-sky-300">{hovCe.toFixed(2)}</span></div>}
+              {hovPe != null              && <div className="flex justify-between gap-4 pl-3"><span className="text-slate-500">↳ PE</span><span className="text-rose-300">{hovPe.toFixed(2)}</span></div>}
+              {visible.synfut && hovSynFut && <div className="flex justify-between gap-4"><span className="text-blue-400">Syn Future</span><span className="text-slate-200">{hovSynFut.v.toFixed(2)}</span></div>}
+              {visible.spot   && hovSpot   && <div className="flex justify-between gap-4"><span className="text-amber-400">Spot Price</span><span className="text-slate-200">{hovSpot.v.toFixed(2)}</span></div>}
+              {visible.vix    && hovVix    && <div className="flex justify-between gap-4"><span className="text-violet-400">India VIX</span><span className="text-slate-200">{hovVix.v.toFixed(2)}</span></div>}
+              {hovTs && <div className="text-slate-500 mt-1 pt-1 border-t border-white/10">{hovTs}</div>}
+            </div>
+          )}
+          </>
         )}
       </div>
     </div>
