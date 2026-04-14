@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Nav from '../components/Nav';
 import { probAtTime, probTouch, lognormalPDF, expectedMove } from '@/app/lib/options/black-scholes';
 import { playWarningPing, playShortCoveringAlert } from '@/app/lib/sounds';
@@ -1380,14 +1380,296 @@ function isMarketHours() {
   return mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
 }
 
-// ── Straddle / Strangle Chart (line, reuses our canvas module) ───────────────
-function StraddleChart({ data, color = '#818cf8', label = 'Straddle' }) {
+// ── Rich Straddle Chart — multi-series dual Y-axis SVG chart ─────────────────
+const SERIES_CONFIG = [
+  { key: 'atm',    label: 'ATM Straddle',    color: '#ef4444', dash: false, yAxis: 'right' },
+  { key: 'avg',    label: 'Avg Straddle',    color: '#22c55e', dash: true,  yAxis: 'right' },
+  { key: 'spot',   label: 'Spot Price',      color: '#fbbf24', dash: false, yAxis: 'left'  },
+  { key: 'synfut', label: 'Synthetic Future',color: '#60a5fa', dash: true,  yAxis: 'left'  },
+  { key: 'vix',    label: 'India VIX',       color: '#a78bfa', dash: true,  yAxis: 'right' },
+];
+
+function StraddleChart({ resp, chainData, label = 'Straddle' }) {
+  const svgRef   = useRef(null);
+  const [mouse,  setMouse]  = useState(null);   // { x, snapIdx }
+  const [visible, setVisible] = useState({ atm: true, avg: true, spot: true, synfut: true, vix: false });
+
+  const candles = resp?.candles || [];
+  const spotSeries = resp?.spot  || [];
+  const vixSeries  = resp?.vix   || [];
+  const strike     = resp?.strike || 0;
+
+  // Build all series data
+  const series = useMemo(() => {
+    if (!candles.length) return {};
+
+    const atm = candles.map(c => ({ time: c.time, v: c.value }));
+
+    // Rolling average of ATM straddle
+    let sum = 0;
+    const avg = candles.map((c, i) => { sum += c.value; return { time: c.time, v: parseFloat((sum / (i + 1)).toFixed(2)) }; });
+
+    // Spot from index candles (or synfut fallback)
+    const spot = spotSeries.length
+      ? spotSeries.map(s => ({ time: s.time, v: s.value }))
+      : candles.map(c => ({ time: c.time, v: parseFloat((c.ce - c.pe + strike).toFixed(2)) }));
+
+    // Synthetic future = CE − PE + Strike
+    const synfut = candles.map(c => ({ time: c.time, v: parseFloat((c.ce - c.pe + strike).toFixed(2)) }));
+
+    // VIX (right axis, scaled separately)
+    const vix = vixSeries.map(s => ({ time: s.time, v: s.value }));
+
+    return { atm, avg, spot, synfut, vix };
+  }, [candles, spotSeries, vixSeries, strike]);
+
+  const isEmpty = !candles.length;
+
+  // DTE calc
+  const dte = chainData?.expiry
+    ? Math.max(0, Math.ceil((new Date(chainData.expiry.slice(0, 10) + 'T10:00:00Z') - Date.now()) / 86400000))
+    : null;
+
+  // Straddle stats from candles
+  const straddleOpen   = candles[0]?.value;
+  const straddleCur    = candles[candles.length - 1]?.value;
+  const straddleHigh   = candles.length ? Math.max(...candles.map(c => c.value)) : null;
+  const straddleLow    = candles.length ? Math.min(...candles.map(c => c.value)) : null;
+  const straddlePClose = straddleOpen; // day open = prev reference
+  const lastUpdated    = resp?.timestamp
+    ? new Date(resp.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  // Hover tooltip data
+  const snapIdx  = mouse?.snapIdx ?? (candles.length - 1);
+  const hovAtm   = series.atm?.[snapIdx];
+  const hovAvg   = series.avg?.[snapIdx];
+  const hovSpot  = series.spot?.[snapIdx];
+  const hovSynFut= series.synfut?.[snapIdx];
+  const hovVix   = series.vix?.find(v => v.time === candles[snapIdx]?.time);
+  const hovCe    = candles[snapIdx]?.ce;
+  const hovPe    = candles[snapIdx]?.pe;
+  const hovTs    = candles[snapIdx]?.time
+    ? new Date(candles[snapIdx].time * 1000).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  // ── SVG drawing ──────────────────────────────────────────────────────────────
+  const W = 800, H = 280;
+  const PAD = { l: 70, r: 70, t: 16, b: 32 };
+  const cW = W - PAD.l - PAD.r;
+  const cH = H - PAD.t - PAD.b;
+
+  const buildPath = (data, xScale, yFn) => {
+    if (!data?.length) return '';
+    return data.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(i).toFixed(1)},${yFn(p.v).toFixed(1)}`).join(' ');
+  };
+
+  // Scales from series data
+  const leftSeries  = ['spot', 'synfut'];
+  const rightSeries = ['atm', 'avg', 'vix'];
+
+  const allLeft  = leftSeries.flatMap(k => series[k] || []).map(p => p.v).filter(Boolean);
+  const allRight = rightSeries.filter(k => k !== 'vix').flatMap(k => series[k] || []).map(p => p.v).filter(Boolean);
+  const allVix   = (series.vix || []).map(p => p.v).filter(Boolean);
+
+  const leftMin  = allLeft.length  ? Math.min(...allLeft)  * 0.9995 : 0;
+  const leftMax  = allLeft.length  ? Math.max(...allLeft)  * 1.0005 : 1;
+  const rightMin = allRight.length ? Math.min(...allRight) * 0.97   : 0;
+  const rightMax = allRight.length ? Math.max(...allRight) * 1.03   : 1;
+  const vixMin   = allVix.length   ? Math.min(...allVix)  * 0.9     : 0;
+  const vixMax   = allVix.length   ? Math.max(...allVix)  * 1.1     : 1;
+
+  const xScale  = i => PAD.l + (i / Math.max(candles.length - 1, 1)) * cW;
+  const yLeft   = v => PAD.t + cH - ((v - leftMin)  / Math.max(leftMax  - leftMin,  1)) * cH;
+  const yRight  = v => PAD.t + cH - ((v - rightMin) / Math.max(rightMax - rightMin, 1)) * cH;
+  const yVix    = v => PAD.t + cH - ((v - vixMin)   / Math.max(vixMax   - vixMin,   1)) * cH;
+
+  // VIX series uses spot-aligned time index
+  const spotTimeMap = new Map((series.spot || []).map((p, i) => [p.time, i]));
+  const vixAligned  = (series.vix || []).map(v => {
+    const i = spotTimeMap.get(v.time) ?? -1;
+    return i >= 0 ? { i, v: v.v } : null;
+  }).filter(Boolean);
+
+  const vixPath = vixAligned.length
+    ? vixAligned.map((p, j) => `${j === 0 ? 'M' : 'L'}${xScale(p.i).toFixed(1)},${yVix(p.v).toFixed(1)}`).join(' ')
+    : '';
+
+  // X-axis labels: show every ~6 bars
+  const xLabels = candles
+    .map((c, i) => ({ i, label: new Date(c.time * 1000).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }).slice(0, 5) }))
+    .filter((_, i) => i % 6 === 0 || i === candles.length - 1);
+
+  // Right-axis labels: 5 evenly spaced
+  const rightLabels = Array.from({ length: 5 }, (_, i) => {
+    const v = rightMin + (rightMax - rightMin) * (i / 4);
+    return { v, y: yRight(v) };
+  });
+
+  // Left-axis labels
+  const leftLabels = Array.from({ length: 5 }, (_, i) => {
+    const v = leftMin + (leftMax - leftMin) * (i / 4);
+    return { v, y: yLeft(v) };
+  });
+
+  // Crosshair X position
+  const crossX = mouse != null && candles.length
+    ? xScale(snapIdx)
+    : null;
+
+  // Mouse handler
+  const handleMouseMove = useCallback((e) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect || !candles.length) return;
+    const svgX = ((e.clientX - rect.left) / rect.width) * W;
+    const relX = svgX - PAD.l;
+    const idx  = Math.round((relX / cW) * (candles.length - 1));
+    setMouse({ snapIdx: Math.max(0, Math.min(idx, candles.length - 1)) });
+  }, [candles.length]);
+
+  const handleMouseLeave = useCallback(() => setMouse(null), []);
+
+  if (isEmpty) {
+    const msg = isMarketHours()
+      ? `No ${label.toLowerCase()} data yet — builds as the session progresses`
+      : 'Market closed — intraday data available Mon–Fri, 9:15 AM – 3:30 PM IST';
+    return (
+      <div className="flex items-center justify-center text-slate-500 text-[11px] text-center px-4" style={{ minHeight: 220 }}>
+        {msg}
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full">
+      {/* ── Info bar ── */}
+      <div className="grid grid-cols-8 gap-0 border-b border-white/[0.06] text-center">
+        {[
+          { label: 'DTE',          val: dte != null ? dte : '—' },
+          { label: 'SPOT',         val: hovSpot?.v?.toFixed(2) ?? chainData?.spot?.toFixed(2) ?? '—' },
+          { label: 'ATM STRIKE',   val: chainData?.atm ?? strike ?? '—' },
+          { label: 'PRICE',        val: hovAtm?.v?.toFixed(2) ?? straddleCur?.toFixed(2) ?? '—' },
+          { label: 'OPEN',         val: straddleOpen?.toFixed(2) ?? '—' },
+          { label: 'HIGH',         val: straddleHigh?.toFixed(2) ?? '—' },
+          { label: 'LOW',          val: straddleLow?.toFixed(2) ?? '—' },
+          { label: 'LAST UPDATED', val: lastUpdated ?? '—' },
+        ].map(({ label: lbl, val }) => (
+          <div key={lbl} className="py-2 px-1 border-r border-white/[0.05] last:border-r-0">
+            <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-0.5">{lbl}</div>
+            <div className="text-[11px] font-mono font-semibold text-slate-200">{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Series toggles ── */}
+      <div className="flex items-center gap-4 px-4 py-2 border-b border-white/[0.05] flex-wrap">
+        {SERIES_CONFIG.map(s => (
+          <label key={s.key} className="flex items-center gap-1.5 cursor-pointer select-none">
+            <div
+              onClick={() => setVisible(v => ({ ...v, [s.key]: !v[s.key] }))}
+              className={`w-3 h-3 rounded-sm border-2 flex-shrink-0 transition-colors cursor-pointer`}
+              style={{ borderColor: s.color, backgroundColor: visible[s.key] ? s.color : 'transparent' }}
+            />
+            <span
+              onClick={() => setVisible(v => ({ ...v, [s.key]: !v[s.key] }))}
+              className="text-[10px] font-medium cursor-pointer"
+              style={{ color: visible[s.key] ? s.color : '#475569' }}
+            >
+              {s.label}
+            </span>
+          </label>
+        ))}
+      </div>
+
+      {/* ── Chart ── */}
+      <div className="relative">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full"
+          style={{ height: 280, cursor: 'crosshair' }}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+        >
+          {/* Grid lines (right axis) */}
+          {rightLabels.map(({ y }, i) => (
+            <line key={i} x1={PAD.l} y1={y.toFixed(1)} x2={PAD.l + cW} y2={y.toFixed(1)}
+              stroke="rgba(71,85,105,0.25)" strokeWidth="0.5" />
+          ))}
+
+          {/* Left Y-axis labels */}
+          {leftLabels.map(({ v, y }, i) => (
+            <text key={i} x={PAD.l - 6} y={y} textAnchor="end" dominantBaseline="middle"
+              fontSize="9" fill="#64748b">
+              {v > 10000 ? (v / 1000).toFixed(1) + 'k' : v.toFixed(0)}
+            </text>
+          ))}
+
+          {/* Right Y-axis labels */}
+          {rightLabels.map(({ v, y }, i) => (
+            <text key={i} x={PAD.l + cW + 6} y={y} textAnchor="start" dominantBaseline="middle"
+              fontSize="9" fill="#64748b">
+              {v.toFixed(0)}
+            </text>
+          ))}
+
+          {/* X-axis labels */}
+          {xLabels.map(({ i, label: lbl }) => (
+            <text key={i} x={xScale(i)} y={H - 8} textAnchor="middle" fontSize="8" fill="#475569">
+              {lbl}
+            </text>
+          ))}
+
+          {/* Series lines */}
+          {visible.spot    && series.spot   && <polyline points={buildPath(series.spot,   xScale, yLeft).replace(/M|L/g, match => match === 'M' ? '' : ' ').trim()} fill="none" stroke="#fbbf24" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
+          {visible.synfut  && series.synfut && <polyline points={buildPath(series.synfut, xScale, yLeft).replace(/M|L/g, match => match === 'M' ? '' : ' ').trim()} fill="none" stroke="#60a5fa" strokeWidth="1.2" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />}
+          {visible.avg     && series.avg    && <polyline points={buildPath(series.avg,    xScale, yRight).replace(/M|L/g, match => match === 'M' ? '' : ' ').trim()} fill="none" stroke="#22c55e" strokeWidth="1.2" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />}
+          {visible.atm     && series.atm    && <polyline points={buildPath(series.atm,    xScale, yRight).replace(/M|L/g, match => match === 'M' ? '' : ' ').trim()} fill="none" stroke="#ef4444" strokeWidth="2" vectorEffect="non-scaling-stroke" />}
+          {visible.vix     && vixPath       && <polyline points={vixPath.replace(/M|L/g, match => match === 'M' ? '' : ' ').trim()} fill="none" stroke="#a78bfa" strokeWidth="1" strokeDasharray="2 3" vectorEffect="non-scaling-stroke" />}
+
+          {/* Crosshair */}
+          {crossX != null && (
+            <line x1={crossX.toFixed(1)} y1={PAD.t} x2={crossX.toFixed(1)} y2={PAD.t + cH}
+              stroke="rgba(148,163,184,0.4)" strokeWidth="1" strokeDasharray="3 3" />
+          )}
+
+          {/* Live end-point dots */}
+          {visible.atm && series.atm?.length && (() => {
+            const last = series.atm[series.atm.length - 1];
+            const x = xScale(series.atm.length - 1); const y = yRight(last.v);
+            return <circle cx={x} cy={y} r="3.5" fill="#ef4444" />;
+          })()}
+          {visible.spot && series.spot?.length && (() => {
+            const last = series.spot[series.spot.length - 1];
+            const x = xScale(series.spot.length - 1); const y = yLeft(last.v);
+            return <circle cx={x} cy={y} r="3.5" fill="#fbbf24" />;
+          })()}
+        </svg>
+
+        {/* Hover tooltip */}
+        {mouse != null && hovAtm && (
+          <div className="absolute top-3 left-16 z-20 bg-[#0a1628]/95 border border-white/10 rounded-lg px-3 py-2.5 text-[10px] font-mono min-w-[160px] pointer-events-none shadow-xl">
+            {visible.atm    && hovAtm    && <div className="flex justify-between gap-4"><span className="text-red-400">ATM Straddle</span><span className="text-slate-200">{hovAtm.v.toFixed(2)}</span></div>}
+            {visible.avg    && hovAvg    && <div className="flex justify-between gap-4"><span className="text-emerald-400">Avg Straddle</span><span className="text-slate-200">{hovAvg.v.toFixed(2)}</span></div>}
+            {hovCe != null              && <div className="flex justify-between gap-4 pl-3"><span className="text-slate-500">↳ CE</span><span className="text-sky-300">{hovCe.toFixed(2)}</span></div>}
+            {hovPe != null              && <div className="flex justify-between gap-4 pl-3"><span className="text-slate-500">↳ PE</span><span className="text-rose-300">{hovPe.toFixed(2)}</span></div>}
+            {visible.synfut && hovSynFut && <div className="flex justify-between gap-4"><span className="text-blue-400">Syn Future</span><span className="text-slate-200">{hovSynFut.v.toFixed(2)}</span></div>}
+            {visible.spot   && hovSpot   && <div className="flex justify-between gap-4"><span className="text-amber-400">Spot Price</span><span className="text-slate-200">{hovSpot.v.toFixed(2)}</span></div>}
+            {visible.vix    && hovVix    && <div className="flex justify-between gap-4"><span className="text-violet-400">India VIX</span><span className="text-slate-200">{hovVix.v.toFixed(2)}</span></div>}
+            {hovTs && <div className="text-slate-500 mt-1 pt-1 border-t border-white/10">{hovTs}</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Strangle chart still uses simple single-line renderer ─────────────────────
+function SimpleStraddleChart({ data, color = '#34d399', label = 'Strangle' }) {
   const ref    = useRef(null);
   const chartR = useRef(null);
-  const [hover, setHover] = useState(null); // { value, ce, pe } | null
-
-  // Last data point — shown when crosshair is not active
-  const last = data?.length ? data[data.length - 1] : null;
+  const [hover, setHover] = useState(null);
+  const last    = data?.length ? data[data.length - 1] : null;
   const display = hover ?? (last ? { value: last.value, ce: last.ce, pe: last.pe } : null);
 
   useEffect(() => {
@@ -1396,13 +1678,8 @@ function StraddleChart({ data, color = '#818cf8', label = 'Straddle' }) {
       if (chartR.current) { chartR.current.destroy(); chartR.current = null; }
       const chart = createChart(ref.current, { interval: '5minute' });
       chartR.current = chart;
-      const candles = data.map(d => ({
-        time: d.time, open: d.value, high: d.value, low: d.value, close: d.value, volume: 0,
-      }));
-      chart.setCandles(candles);
+      chart.setCandles(data.map(d => ({ time: d.time, open: d.value, high: d.value, low: d.value, close: d.value, volume: 0 })));
       chart.setLine('premium', { data: data.map(d => ({ time: d.time, value: d.value })), color, width: 2 });
-
-      // Map time → { ce, pe } for crosshair lookup
       const cepeMap = new Map(data.map(d => [d.time, { ce: d.ce, pe: d.pe }]));
       chart.onCrosshairMove(info => {
         if (!info) { setHover(null); return; }
@@ -1414,16 +1691,9 @@ function StraddleChart({ data, color = '#818cf8', label = 'Straddle' }) {
   }, [data, color]);
 
   if (!data?.length) {
-    const msg = isMarketHours()
-      ? `No ${label.toLowerCase()} data yet — builds as the session progresses`
-      : 'Market closed — intraday data available Mon–Fri, 9:15 AM – 3:30 PM IST';
-    return (
-      <div className="flex-1 flex items-center justify-center text-slate-500 text-[11px] text-center px-4">
-        {msg}
-      </div>
-    );
+    const msg = isMarketHours() ? 'No strangle data yet' : 'Market closed — intraday data available Mon–Fri, 9:15 AM – 3:30 PM IST';
+    return <div className="flex-1 flex items-center justify-center text-slate-500 text-[11px] text-center px-4">{msg}</div>;
   }
-
   return (
     <div ref={ref} className="flex-1 relative min-h-[180px]">
       {display && (
@@ -1460,7 +1730,8 @@ export default function OptionsPage() {
 
   // Straddle / Strangle chart
   const [chartMode,       setChartMode]       = useState('straddle'); // 'straddle' | 'strangle'
-  const [straddleData,    setStraddleData]    = useState(null);
+  const [straddleResp,    setStraddleResp]    = useState(null);  // full API response
+  const [straddleData,    setStraddleData]    = useState(null);  // candles[] for legacy usage
   const [straddleLoading, setStraddleLoading] = useState(false);
   const [strangleData,    setStrangleData]    = useState(null);
   const [strangleLoading, setStrangleLoading] = useState(false);
@@ -1646,8 +1917,11 @@ export default function OptionsPage() {
     setStraddleLoading(true);
     fetch(`/api/options/straddle-chart?symbol=${symbol}&expiry=${chainData.expiry}&strike=${chainData.atm}&interval=5minute`)
       .then(r => r.json())
-      .then(d => { setStraddleData(d.candles || []); })
-      .catch(() => setStraddleData([]))
+      .then(d => {
+        setStraddleResp(d);               // full response (candles+spot+vix+strike)
+        setStraddleData(d.candles || []); // keep for legacy commentary fn
+      })
+      .catch(() => { setStraddleResp(null); setStraddleData([]); })
       .finally(() => setStraddleLoading(false));
   }, [chainData?.atm, chainData?.expiry, symbol]);
 
@@ -1905,15 +2179,14 @@ export default function OptionsPage() {
         );
       })()}
 
-      {/* ── Two-column: Straddle Chart + Probability Panel ── */}
+      {/* ── Straddle / Strangle Chart — full width ── */}
       {chainData && (
-        <div className="max-w-[1400px] mx-auto px-6 pb-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-          {/* Straddle / Strangle Chart */}
-          <div className="lg:col-span-2 bg-[#0c1a2e] border border-white/5 rounded-xl overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2 border-b border-white/5">
+        <div className="max-w-[1400px] mx-auto px-6 pb-4">
+          <div className="bg-[#0c1a2e] border border-white/5 rounded-xl overflow-hidden">
+            {/* Chart header */}
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]">
               <div className="flex items-center gap-3">
-                <span className="text-xs font-semibold text-slate-300">Intraday Premium</span>
+                <span className="text-xs font-bold text-slate-200">Intraday Premium</span>
                 <div className="flex bg-[#060b14] rounded-lg p-0.5">
                   {[{ val: 'straddle', label: 'Straddle' }, { val: 'strangle', label: 'Strangle' }].map(m => (
                     <button key={m.val} onClick={() => setChartMode(m.val)}
@@ -1923,12 +2196,12 @@ export default function OptionsPage() {
                   ))}
                 </div>
               </div>
-              <span className="text-[10px] text-slate-500">
-                {chartMode === 'straddle'
-                  ? `${atm} CE + PE`
-                  : `${strikesInput.lower} PE + ${strikesInput.upper} CE`}
+              <span className="text-[10px] text-slate-500 font-mono">
+                {chartMode === 'straddle' ? `${atm} CE + PE` : `${strikesInput.lower} PE + ${strikesInput.upper} CE`}
               </span>
             </div>
+
+            {/* Strangle strike inputs */}
             {chartMode === 'strangle' && (
               <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5 text-xs">
                 <span className="text-slate-500">PE strike</span>
@@ -1941,22 +2214,25 @@ export default function OptionsPage() {
                   className="w-24 bg-[#060b14] border border-white/10 rounded px-2 py-1 text-slate-300" />
               </div>
             )}
-            <div className="p-2 flex min-h-[200px]">
-              {chartMode === 'straddle'
-                ? (straddleLoading
-                    ? <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading...</div>
-                    : <StraddleChart data={straddleData} color="#818cf8" label="Straddle" />)
-                : (strangleLoading
-                    ? <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading...</div>
-                    : <StraddleChart data={strangleData} color="#34d399" label="Strangle" />)
-              }
-            </div>
-            {/* Commentary */}
+
+            {/* Chart body */}
+            {chartMode === 'straddle' ? (
+              straddleLoading
+                ? <div className="flex items-center justify-center text-slate-500 text-sm" style={{ height: 340 }}>Loading...</div>
+                : <StraddleChart resp={straddleResp} chainData={chainData} label="Straddle" />
+            ) : (
+              <div className="flex min-h-[200px]">
+                {strangleLoading
+                  ? <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">Loading...</div>
+                  : <SimpleStraddleChart data={strangleData} color="#34d399" label="Strangle" />}
+              </div>
+            )}
+
+            {/* Session Analysis commentary */}
             {(() => {
               const commentary = getStraddleCommentary(
                 chartMode === 'straddle' ? straddleData : strangleData,
-                chainData,
-                scData
+                chainData, scData
               );
               if (!commentary.length) return null;
               return (
@@ -1972,11 +2248,37 @@ export default function OptionsPage() {
               );
             })()}
           </div>
+        </div>
+      )}
 
-          {/* Probability Panel */}
-          <div className="bg-[#0c1a2e] border border-white/5 rounded-xl p-4 flex flex-col gap-4">
-            <div className="text-xs font-semibold text-slate-300">Probability Calculator</div>
-            <div className="text-[10px] text-slate-500 -mt-2">Based on BS model · risk-neutral probabilities</div>
+      {/* ── Price Distribution + Probability Calculator — side by side ── */}
+      {chainData && (
+        <div className="max-w-[1400px] mx-auto px-6 pb-4 grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+          {/* Price Distribution — 3 of 5 cols (narrower, taller) */}
+          {atmIV && T != null && (
+            <div className="lg:col-span-3 bg-[#0c1a2e] border border-white/5 rounded-xl overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 flex-shrink-0">
+                <span className="text-xs font-semibold text-slate-300">Price Distribution at Expiry</span>
+                <span className="text-[10px] text-slate-500">Log-normal · {atmIV?.toFixed(1)}% IV · click to set target</span>
+              </div>
+              <div className="p-2 flex-1">
+                <DistributionChart
+                  spot={spot} atm={atm} strikes={strikes}
+                  atmIV={atmIV} T={T}
+                  targetPrice={targetPrice}
+                  onTargetChange={p => { setTargetPrice(p); setProbTarget(String(p)); }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Probability Calculator — 2 of 5 cols */}
+          <div className={`${atmIV && T != null ? 'lg:col-span-2' : 'lg:col-span-5'} bg-[#0c1a2e] border border-white/5 rounded-xl p-4 flex flex-col gap-4`}>
+            <div>
+              <div className="text-xs font-semibold text-slate-300">Probability Calculator</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">Based on BS model · risk-neutral probabilities</div>
+            </div>
 
             <div className="flex flex-col gap-2">
               <div className="flex gap-2">
@@ -2009,10 +2311,7 @@ export default function OptionsPage() {
               const cappedToExpiry = parseFloat(probDays) >= daysLeft;
               const pAt    = parseFloat(probResult);
               const pTouch = parseFloat(touchResult);
-              const dir    = probDirection === 'above' ? 'above' : 'below';
               const dirLabel = probDirection === 'above' ? 'Above' : 'Below';
-              // Seller-friendly: "below" for CE sellers, "above" for PE sellers
-              // Keep it neutral — just describe what the number means
               const atVerdict    = pAt < 30 ? 'Unlikely at close — seller edge' : pAt > 70 ? 'Likely at close — buyer edge' : 'Coin-flip territory at close';
               const touchVerdict = pTouch < 30 ? 'Unlikely to reach — safe zone' : pTouch > 70 ? 'Likely to be touched — hedge risk' : 'May touch intraday — watch closely';
               return (
@@ -2029,9 +2328,7 @@ export default function OptionsPage() {
                         {probResult}%
                       </div>
                     </div>
-                    <div className={`text-[10px] mt-1.5 ${pAt < 30 || pAt > 70 ? 'text-amber-400' : 'text-slate-500'}`}>
-                      {atVerdict}
-                    </div>
+                    <div className={`text-[10px] mt-1.5 ${pAt < 30 || pAt > 70 ? 'text-amber-400' : 'text-slate-500'}`}>{atVerdict}</div>
                   </div>
                   <div className="bg-[#060b14] border border-white/5 rounded-lg px-3 py-2.5">
                     <div className="flex items-start justify-between gap-2">
@@ -2043,13 +2340,11 @@ export default function OptionsPage() {
                         {touchResult}%
                       </div>
                     </div>
-                    <div className={`text-[10px] mt-1.5 ${pTouch > 70 ? 'text-amber-400' : 'text-slate-500'}`}>
-                      {touchVerdict}
-                    </div>
+                    <div className={`text-[10px] mt-1.5 ${pTouch > 70 ? 'text-amber-400' : 'text-slate-500'}`}>{touchVerdict}</div>
                   </div>
                   {pTouch - pAt > 25 && (
                     <div className="text-[10px] text-slate-500 bg-amber-500/5 border border-amber-500/10 rounded-lg px-2.5 py-1.5">
-                      ⚡ {Math.round(pTouch - pAt)}pt gap between touch and close — high intraday whipsaw risk
+                      ⚡ {Math.round(pTouch - pAt)}pt gap — high intraday whipsaw risk
                     </div>
                   )}
                 </div>
@@ -2057,7 +2352,7 @@ export default function OptionsPage() {
             })()}
 
             {expMove && (
-              <div className="border-t border-white/5 pt-3">
+              <div className="border-t border-white/5 pt-3 mt-auto">
                 <div className="text-[10px] text-slate-500 mb-2">Expected range by expiry (±1σ, 68%)</div>
                 <div className="flex justify-between text-xs font-mono">
                   <span className="text-red-400">{expMove.lower.toFixed(0)}</span>
@@ -2072,31 +2367,12 @@ export default function OptionsPage() {
             )}
 
             <div className="text-[10px] text-slate-600 border-t border-white/5 pt-2">
-              Tip: click on the distribution chart below to set target price
+              Tip: click on the distribution chart to set target price
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Price Distribution Chart ── */}
-      {chainData && atmIV && T != null && (
-        <div className="max-w-[1400px] mx-auto px-6 pb-4">
-          <div className="bg-[#0c1a2e] border border-white/5 rounded-xl overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2 border-b border-white/5">
-              <span className="text-xs font-semibold text-slate-300">Price Distribution at Expiry</span>
-              <span className="text-[10px] text-slate-500">Log-normal · {atmIV?.toFixed(1)}% IV · click to set target</span>
-            </div>
-            <div className="p-2">
-              <DistributionChart
-                spot={spot} atm={atm} strikes={strikes}
-                atmIV={atmIV} T={T}
-                targetPrice={targetPrice}
-                onTargetChange={p => { setTargetPrice(p); setProbTarget(String(p)); }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Greeks Table ── */}
       {strikes?.length > 0 && (

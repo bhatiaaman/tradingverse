@@ -1,7 +1,8 @@
 // ─── Straddle Chart API ────────────────────────────────────────────────────────
-// Returns intraday time series of ATM straddle (CE + PE combined premium).
-// Fetches 5-min or 15-min historical data for the CE and PE option tokens,
-// merges by timestamp, and sums LTP per bar.
+// Returns intraday time series:
+//   candles[]  — ATM straddle (CE+PE) per bar: { time, value, ce, pe }
+//   spot[]     — Nifty 50 index candles: { time, value }
+//   vix[]      — India VIX candles: { time, value }
 //
 // GET /api/options/straddle-chart?symbol=NIFTY&expiry=2025-01-30&strike=22450&interval=5minute
 
@@ -26,6 +27,13 @@ async function redisSet(key, value, ex) {
     await fetch(url, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
   } catch {}
 }
+
+// Well-known Kite instrument tokens (NSE indices)
+const INDEX_TOKENS = {
+  NIFTY:    256265,   // NSE:NIFTY 50
+  BANKNIFTY: 260105,  // NSE:NIFTY BANK
+  VIX:      264969,   // NSE:INDIA VIX
+};
 
 const INSTRUMENTS_KEY = `${NS}:nfo-options-instruments`;
 
@@ -63,6 +71,14 @@ async function getNFOInstruments(dp) {
   return instruments;
 }
 
+function toCandles(rawCandles) {
+  // Raw Kite format: [isoTime, o, h, l, close, vol]
+  return (rawCandles || []).map(c => ({
+    time:  Math.floor(new Date(c[0]).getTime() / 1000),
+    value: parseFloat(c[4].toFixed(2)),
+  }));
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const symbol   = (searchParams.get('symbol')   || 'NIFTY').toUpperCase();
@@ -79,7 +95,7 @@ export async function GET(request) {
     return NextResponse.json({ error: 'expiry and strike (or ceStrike+peStrike) required' }, { status: 400 });
   }
 
-  const cacheKey = `${NS}:straddle-chart-${symbol}-${expiry}-${ceStrike}-${peStrike}-${interval}`;
+  const cacheKey = `${NS}:straddle-chart-v2-${symbol}-${expiry}-${ceStrike}-${peStrike}-${interval}`;
   const cached   = await redisGet(cacheKey);
   if (cached) return NextResponse.json({ ...cached, fromCache: true });
 
@@ -93,7 +109,7 @@ export async function GET(request) {
 
     if (!ce || !pe) return NextResponse.json({ error: `Options not found for ${symbol} ${expiry} ${strike}` }, { status: 404 });
 
-    // Fetch today's intraday data for both legs via REST (more reliable than SDK for options)
+    // Fetch today's intraday data for both legs + Nifty spot + VIX
     const now   = new Date();
     const ist   = new Date(now.getTime() + 5.5 * 3600 * 1000);
     const pad   = n => n.toString().padStart(2, '0');
@@ -101,20 +117,27 @@ export async function GET(request) {
     const from  = encodeURIComponent(`${today} 09:15:00`);
     const to    = encodeURIComponent(`${today} 15:30:00`);
 
-    const [ceRaw, peRaw] = await Promise.all([
+    const spotToken = INDEX_TOKENS[symbol] || INDEX_TOKENS.NIFTY;
+    const vixToken  = INDEX_TOKENS.VIX;
+
+    const [ceRaw, peRaw, spotRaw, vixRaw] = await Promise.all([
       dp.getHistoricalRaw(ce.token, interval, from, to),
       dp.getHistoricalRaw(pe.token, interval, from, to),
+      dp.getHistoricalRaw(spotToken, interval, from, to).catch(() => null),
+      dp.getHistoricalRaw(vixToken,  interval, from, to).catch(() => null),
     ]);
 
-    const ceCandles = ceRaw?.data?.candles || [];
-    const peCandles = peRaw?.data?.candles || [];
+    const ceCandles  = ceRaw?.data?.candles  || [];
+    const peCandles  = peRaw?.data?.candles  || [];
+    const spotCandles = spotRaw?.data?.candles || [];
+    const vixCandles  = vixRaw?.data?.candles  || [];
 
     if (!ceCandles.length && !peCandles.length) {
       console.log('[straddle-chart] no data:', symbol, expiry, ceStrike, today);
-      return NextResponse.json({ candles: [], ceSymbol: ce.symbol, peSymbol: pe.symbol });
+      return NextResponse.json({ candles: [], spot: [], vix: [], ceSymbol: ce.symbol, peSymbol: pe.symbol, strike: ceStrike });
     }
 
-    // Merge CE + PE by Unix-second timestamp. Raw format: [isoTime, o, h, l, close, vol]
+    // Merge CE + PE by Unix-second timestamp
     const peMap = new Map(peCandles.map(c => [Math.floor(new Date(c[0]).getTime() / 1000), c[4]]));
     const candles = ceCandles.map(c => {
       const ts      = Math.floor(new Date(c[0]).getTime() / 1000);
@@ -130,11 +153,14 @@ export async function GET(request) {
     const response = {
       symbol, expiry, ceStrike, peStrike, interval,
       ceSymbol: ce.symbol, peSymbol: pe.symbol,
+      strike: ceStrike,
       candles,
+      spot: toCandles(spotCandles),
+      vix:  toCandles(vixCandles),
       timestamp: new Date().toISOString(),
     };
 
-    await redisSet(cacheKey, response, 5 * 60);  // 5-min cache
+    await redisSet(cacheKey, response, 5 * 60); // 5-min cache
     return NextResponse.json(response);
 
   } catch (err) {
