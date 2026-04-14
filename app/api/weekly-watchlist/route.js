@@ -72,8 +72,14 @@ export async function POST(request) {
       currentData = { aiResearch: [], expertsResearch: [], chartink: [] };
     }
     
+    // Stamp dateAdded on any stock that doesn't already have it
+    const stampedList = list.map(s => ({
+      ...s,
+      dateAdded: s.dateAdded ?? new Date().toISOString(),
+    }));
+
     // Update the specific tab entirely
-    currentData[tab] = list;
+    currentData[tab] = stampedList;
     
     await redisSet(CACHE_KEY, currentData);
     
