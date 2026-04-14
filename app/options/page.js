@@ -1806,6 +1806,12 @@ export default function OptionsPage() {
   const alertTimerRef     = useRef(null);      // auto-dismiss timer
   const SPIKE_THRESHOLDS  = [10, 20, 30, 50, 100];
 
+  // Straddle quick-order modal
+  const [straddleOrderModal, setStraddleOrderModal] = useState(null); // { side: 'BUY'|'SELL', lots, status, result }
+  const [straddleOrderLots,  setStraddleOrderLots]  = useState(1);
+  const [straddleOrderState, setStraddleOrderState] = useState('idle'); // 'idle'|'placing'|'done'|'error'
+  const [straddleOrderResult, setStraddleOrderResult] = useState(null); // { ce, pe } order results
+
   // Probability panel
   const [probTarget,    setProbTarget]    = useState('');
   const [probDays,      setProbDays]      = useState('7');
@@ -2384,7 +2390,7 @@ export default function OptionsPage() {
                 to   { opacity: 0.55; }
               }
             `}</style>
-            {/* Chart header */}
+            {/* Chart header — Intraday Premium tabs + Buy/Sell Straddle */}
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]">
               <div className="flex items-center gap-3">
                 <span className="text-xs font-bold text-slate-200">Intraday Premium</span>
@@ -2397,10 +2403,165 @@ export default function OptionsPage() {
                   ))}
                 </div>
               </div>
-              <span className="text-[10px] text-slate-500 font-mono">
-                {chartMode === 'straddle' ? `${atm} CE + PE` : `${strikesInput.lower} PE + ${strikesInput.upper} CE`}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-500 font-mono mr-1">
+                  {chartMode === 'straddle' ? `${atm} CE + PE` : `${strikesInput.lower} PE + ${strikesInput.upper} CE`}
+                </span>
+                {/* Quick order buttons — only show in straddle mode when we have ATM symbols */}
+                {chainData?.strikes && (() => {
+                  const atmRow = chainData.strikes.find(s => s.strike === chainData.atm);
+                  if (!atmRow?.ce?.symbol || !atmRow?.pe?.symbol) return null;
+                  const lotSz  = symbol === 'BANKNIFTY' ? 35 : 75;
+                  const openModal = (side) => {
+                    setStraddleOrderModal({ side, atmRow, lotSz });
+                    setStraddleOrderLots(1);
+                    setStraddleOrderState('idle');
+                    setStraddleOrderResult(null);
+                  };
+                  return (
+                    <>
+                      <button onClick={() => openModal('BUY')}
+                        className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 transition-colors font-mono">
+                        ▲ Buy Straddle
+                      </button>
+                      <button onClick={() => openModal('SELL')}
+                        className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors font-mono">
+                        ▼ Sell Straddle
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
             </div>
+
+            {/* ── Straddle Order Modal ── */}
+            {straddleOrderModal && (() => {
+              const { side, atmRow, lotSz } = straddleOrderModal;
+              const isBuy   = side === 'BUY';
+              const ceLtp   = atmRow?.ce?.ltp ?? 0;
+              const peLtp   = atmRow?.pe?.ltp ?? 0;
+              const ceSymbol = atmRow?.ce?.symbol;
+              const peSymbol = atmRow?.pe?.symbol;
+              const lots    = Math.max(1, parseInt(straddleOrderLots) || 1);
+              const qty     = lots * lotSz;
+              const premium = (ceLtp + peLtp) * qty;
+              const accentCls = isBuy
+                ? 'border-emerald-500/30 bg-emerald-500/5'
+                : 'border-red-500/30 bg-red-500/5';
+              const accentText = isBuy ? 'text-emerald-400' : 'text-red-400';
+
+              const placeOrder = async () => {
+                setStraddleOrderState('placing');
+                try {
+                  const [ceRes, peRes] = await Promise.all([
+                    fetch('/api/place-order', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ tradingsymbol: ceSymbol, exchange: 'NFO', transaction_type: side, order_type: 'MARKET', product: 'MIS', quantity: qty }),
+                    }).then(r => r.json()),
+                    fetch('/api/place-order', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ tradingsymbol: peSymbol, exchange: 'NFO', transaction_type: side, order_type: 'MARKET', product: 'MIS', quantity: qty }),
+                    }).then(r => r.json()),
+                  ]);
+                  setStraddleOrderResult({ ce: ceRes, pe: peRes });
+                  setStraddleOrderState(ceRes.error || peRes.error ? 'error' : 'done');
+                } catch (e) {
+                  setStraddleOrderResult({ error: e.message });
+                  setStraddleOrderState('error');
+                }
+              };
+
+              return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+                  <div className={`w-full max-w-sm mx-4 rounded-2xl border ${accentCls} bg-[#0a1628] shadow-2xl p-5 flex flex-col gap-4`}>
+                    {/* Header */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className={`text-sm font-bold font-mono ${accentText}`}>
+                          {isBuy ? '▲ Buy Straddle' : '▼ Sell Straddle'}
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">{symbol} · ATM {chainData.atm} · MARKET · MIS</div>
+                      </div>
+                      <button onClick={() => setStraddleOrderModal(null)}
+                        className="text-slate-500 hover:text-slate-300 text-xl leading-none">×</button>
+                    </div>
+
+                    {/* Legs */}
+                    <div className="flex flex-col gap-2">
+                      {[{ label: 'CE', sym: ceSymbol, ltp: ceLtp, color: 'text-sky-400' },
+                        { label: 'PE', sym: peSymbol, ltp: peLtp, color: 'text-rose-400' }].map(leg => (
+                        <div key={leg.label} className="flex items-center justify-between bg-[#060b14] border border-white/5 rounded-lg px-3 py-2">
+                          <div>
+                            <div className={`text-[10px] font-bold font-mono ${leg.color}`}>{leg.label}</div>
+                            <div className="text-[9px] text-slate-500 font-mono mt-0.5">{leg.sym}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs font-mono font-semibold text-slate-200">₹{leg.ltp.toFixed(2)}</div>
+                            <div className="text-[9px] text-slate-500">LTP</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Lot selector */}
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] text-slate-500">Lots</span>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => setStraddleOrderLots(l => Math.max(1, parseInt(l)||1) - 1)}
+                          className="w-6 h-6 rounded bg-white/5 hover:bg-white/10 text-slate-300 text-sm flex items-center justify-center">−</button>
+                        <input type="number" value={straddleOrderLots} min="1"
+                          onChange={e => setStraddleOrderLots(e.target.value)}
+                          className="w-12 text-center bg-[#060b14] border border-white/10 rounded px-1 py-0.5 text-xs font-mono text-slate-200" />
+                        <button onClick={() => setStraddleOrderLots(l => (parseInt(l)||1) + 1)}
+                          className="w-6 h-6 rounded bg-white/5 hover:bg-white/10 text-slate-300 text-sm flex items-center justify-center">+</button>
+                      </div>
+                      <span className="text-[10px] text-slate-600">× {lotSz} = {qty} qty</span>
+                    </div>
+
+                    {/* Cost summary */}
+                    <div className="bg-[#060b14] border border-white/5 rounded-lg px-3 py-2.5 flex items-center justify-between">
+                      <div className="text-[10px] text-slate-500">{isBuy ? 'Total Debit (est.)' : 'Total Credit (est.)'}</div>
+                      <div className={`text-base font-bold font-mono ${accentText}`}>₹{premium.toFixed(0)}</div>
+                    </div>
+
+                    {/* Result */}
+                    {straddleOrderState === 'done' && straddleOrderResult && (
+                      <div className="text-[10px] text-emerald-400 bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-3 py-2 font-mono space-y-0.5">
+                        <div>✓ CE: {straddleOrderResult.ce?.order_id || straddleOrderResult.ce?.kiteOrderId || 'placed'}</div>
+                        <div>✓ PE: {straddleOrderResult.pe?.order_id || straddleOrderResult.pe?.kiteOrderId || 'placed'}</div>
+                      </div>
+                    )}
+                    {straddleOrderState === 'error' && (
+                      <div className="text-[10px] text-red-400 bg-red-500/5 border border-red-500/20 rounded-lg px-3 py-2 font-mono">
+                        {straddleOrderResult?.ce?.error || straddleOrderResult?.pe?.error || straddleOrderResult?.error || 'Order failed'}
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={() => setStraddleOrderModal(null)}
+                        className="flex-1 py-2 text-xs font-medium rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 transition-colors">
+                        {straddleOrderState === 'done' ? 'Close' : 'Cancel'}
+                      </button>
+                      {straddleOrderState !== 'done' && (
+                        <button
+                          onClick={placeOrder}
+                          disabled={straddleOrderState === 'placing'}
+                          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-colors ${
+                            isBuy
+                              ? 'bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-900 text-white'
+                              : 'bg-red-600 hover:bg-red-500 disabled:bg-red-900 text-white'
+                          }`}>
+                          {straddleOrderState === 'placing' ? 'Placing...' : `Confirm ${isBuy ? 'Buy' : 'Sell'}`}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Strangle strike inputs */}
             {chartMode === 'strangle' && (
