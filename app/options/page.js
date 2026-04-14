@@ -1533,33 +1533,63 @@ function StraddleChart({ resp, chainData, label = 'Straddle', interval = '5minut
   return (
     <div className="w-full">
       {/* ── Top control bar ── */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.06] bg-[#060d1a]">
-        <div className="flex items-center gap-2">
-          {/* Symbol badge */}
-          <span className="text-xs font-bold text-slate-200 font-mono">{chainData?.symbol ?? resp?.symbol ?? 'NIFTY'}</span>
-          <span className="text-slate-600">·</span>
-          {/* Expiry */}
-          <span className="text-[11px] font-mono text-slate-400">
-            {chainData?.expiry
-              ? new Date(chainData.expiry.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-              : '—'}
-          </span>
-        </div>
-        {/* Timeframe selector */}
-        <div className="flex items-center gap-1 bg-[#0c1a2e] rounded-lg p-0.5">
-          {['3minute', '5minute', '10minute', '15minute'].map(tf => (
-            <button
-              key={tf}
-              onClick={() => onIntervalChange?.(tf)}
-              className={`px-2.5 py-1 text-[10px] font-mono font-semibold rounded-md transition-colors ${
-                interval === tf ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              {tf.replace('minute', 'm')}
-            </button>
-          ))}
-        </div>
-      </div>
+      {(() => {
+        // Compute Buyers/Sellers Edge from session open vs current
+        const sessionOpen    = candles[0]?.value;
+        const sessionCurrent = candles[candles.length - 1]?.value;
+        const pctDelta = (sessionOpen && sessionCurrent)
+          ? ((sessionCurrent - sessionOpen) / sessionOpen) * 100
+          : null;
+        let edge = null;
+        if (pctDelta !== null) {
+          if (pctDelta <= -5)
+            edge = { label: 'Sellers Edge', icon: '↓', bg: 'bg-emerald-500/10', border: 'border-emerald-500/25', text: 'text-emerald-400', tip: 'Premium decaying — theta working for sellers' };
+          else if (pctDelta >= 5)
+            edge = { label: 'Buyers Edge',  icon: '↑', bg: 'bg-red-500/10',     border: 'border-red-500/25',     text: 'text-red-400',     tip: 'Premium expanding — vol spike, buyers profiting' };
+          else
+            edge = { label: 'Neutral',      icon: '≈', bg: 'bg-slate-500/10',   border: 'border-slate-500/20',   text: 'text-slate-400',   tip: 'Range bound — no clear edge yet' };
+        }
+        return (
+          <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.06] bg-[#060d1a]">
+            <div className="flex items-center gap-2.5">
+              {/* Symbol badge */}
+              <span className="text-xs font-bold text-slate-200 font-mono">{chainData?.symbol ?? resp?.symbol ?? 'NIFTY'}</span>
+              <span className="text-slate-600">·</span>
+              {/* Expiry */}
+              <span className="text-[11px] font-mono text-slate-400">
+                {chainData?.expiry
+                  ? new Date(chainData.expiry.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                  : '—'}
+              </span>
+              {/* Edge badge */}
+              {edge && (
+                <span title={edge.tip}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold font-mono ${edge.bg} ${edge.border} ${edge.text}`}>
+                  <span>{edge.icon}</span>
+                  {edge.label}
+                  {pctDelta !== null && (
+                    <span className="opacity-60 text-[9px]">({pctDelta >= 0 ? '+' : ''}{pctDelta.toFixed(1)}%)</span>
+                  )}
+                </span>
+              )}
+            </div>
+            {/* Timeframe selector */}
+            <div className="flex items-center gap-1 bg-[#0c1a2e] rounded-lg p-0.5">
+              {['3minute', '5minute', '10minute', '15minute'].map(tf => (
+                <button
+                  key={tf}
+                  onClick={() => onIntervalChange?.(tf)}
+                  className={`px-2.5 py-1 text-[10px] font-mono font-semibold rounded-md transition-colors ${
+                    interval === tf ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {tf.replace('minute', 'm')}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Info bar (11 columns) ── */}
       <div className="grid gap-0 border-b border-white/[0.06] text-center" style={{ gridTemplateColumns: 'repeat(11, minmax(0, 1fr))' }}>
