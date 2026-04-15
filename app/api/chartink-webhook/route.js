@@ -29,30 +29,8 @@ export async function POST(request) {
   }
 
   try {
-    // ── Content-type aware parsing ───────────────────────────────────────────
-    // ChartInk sends:  application/x-www-form-urlencoded
-    // Our test form sends: application/json
-    // Support both so real alerts and test alerts both work.
-    const ct = request.headers.get('content-type') || '';
-    let scanData;
-
-    if (ct.includes('application/json')) {
-      scanData = await request.json();
-    } else {
-      // form-urlencoded (ChartInk real webhook format)
-      const text   = await request.text();
-      const params = new URLSearchParams(text);
-      scanData = {};
-      for (const [k, v] of params.entries()) {
-        // stocks and trigger_prices arrive as comma-separated strings —
-        // split them so downstream parsing works identically to JSON array form.
-        if (k === 'stocks' || k === 'trigger_prices') {
-          scanData[k] = v.split(',').map(s => s.trim()).filter(Boolean);
-        } else {
-          scanData[k] = v;
-        }
-      }
-    }
+    // ChartInk sends JSON — parse it directly.
+    const scanData = await request.json();
 
     if (!scanData || typeof scanData !== 'object') {
       return Response.json({ error: 'Invalid scan data' }, { status: 400 });

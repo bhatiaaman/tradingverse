@@ -1,5 +1,49 @@
 import { sql } from '@/app/lib/db';
 
+// ── Parse ChartInk triggered_at ───────────────────────────────────────────────
+// ChartInk sends triggered_at as "2:34 pm" (time only, IST, no date).
+// new Date("2:34 pm") → Invalid Date → Neon INSERT throws → row never saved.
+// This function converts it to a valid Date for today in IST.
+function parseScanTriggeredAt(raw) {
+  if (!raw) return new Date();
+
+  // Already a valid ISO or epoch-like string?
+  const direct = new Date(raw);
+  if (!isNaN(direct.getTime())) return direct;
+
+  // ChartInk format: "2:34 pm" or "14:34"
+  const match12 = String(raw).match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+  if (match12) {
+    let h = parseInt(match12[1]), m = parseInt(match12[2]);
+    const pm = match12[3].toLowerCase() === 'pm';
+    if (pm && h !== 12) h += 12;
+    if (!pm && h === 12) h = 0;
+    // Build an IST timestamp for today
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const todayIST  = new Date(now.getTime() + istOffset);
+    const pad = n => String(n).padStart(2, '0');
+    const iso = `${todayIST.getUTCFullYear()}-${pad(todayIST.getUTCMonth() + 1)}-${pad(todayIST.getUTCDate())}T${pad(h)}:${pad(m)}:00+05:30`;
+    const parsed = new Date(iso);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
+  }
+
+  // 24h format "14:34"
+  const match24 = String(raw).match(/^(\d{1,2}):(\d{2})$/);
+  if (match24) {
+    const h = parseInt(match24[1]), m_= parseInt(match24[2]);
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const todayIST = new Date(now.getTime() + istOffset);
+    const pad = n => String(n).padStart(2, '0');
+    const iso = `${todayIST.getUTCFullYear()}-${pad(todayIST.getUTCMonth() + 1)}-${pad(todayIST.getUTCDate())}T${pad(h)}:${pad(m_)}:00+05:30`;
+    const parsed = new Date(iso);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
+  }
+
+  return new Date();
+}
+
 function getScannerSlug(scanOrSlug) {
   if (!scanOrSlug) return '';
   const raw = typeof scanOrSlug === 'string'
@@ -18,6 +62,7 @@ function getScannerSlug(scanOrSlug) {
 
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
+
 
 // Reconstruct the original scan payload from the row.
 // The 'raw' column holds the full original payload — fall back to reassembling from columns.
@@ -50,7 +95,7 @@ export async function setScannerScan(scan) {
         ${slug},
         ${JSON.stringify(scan.stocks ?? [])},
         ${JSON.stringify(scan)},
-        ${scan.triggered_at ? new Date(scan.triggered_at) : new Date()}
+        ${parseScanTriggeredAt(scan.triggered_at)}
       )
       ON CONFLICT (id) DO UPDATE SET
         raw          = EXCLUDED.raw,
