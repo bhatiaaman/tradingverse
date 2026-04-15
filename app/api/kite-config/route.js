@@ -8,11 +8,12 @@ export async function GET() {
   if (!await requireOwner()) return unauthorized();
 
   try {
-    const [redisApiKey, redisAccessToken, disconnected, rawAutoLogin] = await Promise.all([
+    const [redisApiKey, redisAccessToken, disconnected, rawAutoLogin, tokenRefreshedAt] = await Promise.all([
       kiteRedisGet('api_key'),
       kiteRedisGet('access_token'),
       kiteRedisGet('disconnected'),
       kiteRedisGet('auto_login'),
+      kiteRedisGet('token_refreshed_at'),
     ]);
 
     const apiKey = redisApiKey || process.env.KITE_API_KEY || '';
@@ -28,6 +29,7 @@ export async function GET() {
       success: true,
       config: { apiKey, autoLogin },
       tokenValid,
+      tokenRefreshedAt: tokenRefreshedAt || null,
       hasApiSecretInEnv: !!(process.env.KITE_SECRET || process.env.KITE_API_SECRET),
     });
   } catch (error) {

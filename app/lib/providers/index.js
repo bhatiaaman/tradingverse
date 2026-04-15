@@ -13,6 +13,7 @@ import { KiteBroker }         from './kite/KiteBroker.js';
 import { KiteDataProvider }   from './kite/KiteDataProvider.js';
 import { PaperBroker }        from './paper/PaperBroker.js';
 import { redis }              from '@/app/lib/redis';
+import { kiteRedisGet }       from './kite/kite-redis.js';
 
 async function getActiveBroker() {
   try {
@@ -40,22 +41,25 @@ export async function getDataProvider() {
 
 export async function getProviderStatus() {
   const active = await getActiveBroker();
+  const tokenRefreshedAt = await kiteRedisGet('token_refreshed_at').catch(() => null);
 
   if (active === 'paper') {
     return {
-      broker:      'paper',
-      brokerLabel: 'Paper Trading',
-      dataSource:  'kite',
-      connected:   true,
+      broker:           'paper',
+      brokerLabel:      'Paper Trading',
+      dataSource:       'kite',
+      connected:        true,
+      tokenRefreshedAt: tokenRefreshedAt || null,
     };
   }
 
   const { apiKey, accessToken } = await getKiteCredentials();
   const connected = await KiteBroker.getConnectionStatus(apiKey, accessToken);
   return {
-    broker:      'kite',
-    brokerLabel: 'Zerodha Kite',
-    dataSource:  'kite',
+    broker:           'kite',
+    brokerLabel:      'Zerodha Kite',
+    dataSource:       'kite',
     connected,
+    tokenRefreshedAt: tokenRefreshedAt || null,
   };
 }

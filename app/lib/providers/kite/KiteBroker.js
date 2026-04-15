@@ -131,10 +131,12 @@ export class KiteBroker {
 
   static async saveAccessToken(token) {
     if (token === '') {
-      await kiteRedisDel('access_token');
+      await kiteRedisSet('access_token', '');
+      await kiteRedisDel('token_refreshed_at');
       return kiteRedisSet('disconnected', '1');
     }
     await kiteRedisSet('access_token', token);
+    await kiteRedisSet('token_refreshed_at', new Date().toISOString()); // track freshness
     return kiteRedisDel('disconnected');
   }
 

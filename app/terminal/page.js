@@ -807,6 +807,20 @@ function TopBar({ indices, kiteConnected, user, setUser, regimeData }) {
           <span className="text-xs text-gray-400 dark:text-white/30 hidden sm:inline">
             {loading ? 'Checking' : status?.broker === 'paper' ? 'Paper' : 'Kite'} {status?.connected ? 'Live' : 'Off'}
           </span>
+          {!loading && status?.tokenRefreshedAt && (() => {
+            const refreshed = new Date(status.tokenRefreshedAt);
+            const ageHours  = (Date.now() - refreshed.getTime()) / 3_600_000;
+            const timeStr   = refreshed.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata', hour12: false });
+            const isStale   = ageHours > 20; // older than 20h — cron may not have run
+            return (
+              <span
+                title={`Kite token last refreshed at ${timeStr} IST${isStale ? ' — may be stale' : ''}`}
+                className={`text-[10px] hidden sm:inline ${isStale ? 'text-red-400 dark:text-red-500' : 'text-gray-400 dark:text-white/20'}`}
+              >
+                ↻{timeStr}
+              </span>
+            );
+          })()}
         </div>
       </div>
     </div>
