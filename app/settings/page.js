@@ -159,12 +159,12 @@ export default function SettingsPage() {
               {/* Zerodha Kite */}
               <button
                 onClick={() => selectBroker('kite')}
-                disabled={selectingBroker}
+                disabled={selectingBroker || activeBroker === 'kite'}
                 className={`rounded-2xl p-5 text-left transition-all border-2 ${
                   activeBroker === 'kite'
-                    ? 'border-blue-600 dark:border-blue-400 bg-blue-50 dark:bg-blue-950/20'
+                    ? 'border-blue-600 dark:border-blue-400 bg-blue-50 dark:bg-blue-950/20 cursor-default'
                     : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] hover:border-blue-400 dark:hover:border-blue-500/30'
-                } disabled:opacity-60 disabled:cursor-not-allowed`}
+                } disabled:cursor-default`}
               >
                 <div className="flex items-start justify-between mb-2">
                   <div>
@@ -187,29 +187,36 @@ export default function SettingsPage() {
                 )}
               </button>
 
-              {/* Paper Trading */}
+              {/* Paper Trading — click to enable; click again when active to disable */}
               <button
-                onClick={() => selectBroker('paper')}
+                onClick={() => selectBroker(activeBroker === 'paper' ? 'kite' : 'paper')}
                 disabled={selectingBroker}
                 className={`rounded-2xl p-5 text-left transition-all border-2 ${
                   activeBroker === 'paper'
-                    ? 'border-amber-600 dark:border-amber-400 bg-amber-50 dark:bg-amber-950/20'
+                    ? 'border-amber-500 dark:border-amber-400 bg-amber-50 dark:bg-amber-950/20'
                     : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] hover:border-amber-400 dark:hover:border-amber-500/30'
                 } disabled:opacity-60 disabled:cursor-not-allowed`}
               >
                 <div className="flex items-start justify-between mb-2">
                   <div>
-                    <p className="font-bold text-slate-900 dark:text-white">Paper Trading</p>
+                    <p className="font-bold text-slate-900 dark:text-white">Paper Trading 🧪</p>
                     <p className="text-slate-500 dark:text-slate-400 text-sm">Simulate trades without real money</p>
                   </div>
-                  {activeBroker === 'paper' && (
+                  {activeBroker === 'paper' ? (
                     <span className="text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/20 px-2 py-0.5 rounded">Active</span>
-                  )}
+                  ) : null}
                 </div>
-                <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  Always Connected
-                </div>
+                {activeBroker === 'paper' ? (
+                  <div className="flex items-center gap-1.5 text-sm font-semibold text-rose-600 dark:text-rose-400">
+                    <span className="w-2 h-2 rounded-full bg-rose-500" />
+                    Tap to disconnect
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-400">
+                    <span className="w-2 h-2 rounded-full bg-slate-300 dark:bg-white/20" />
+                    Tap to enable
+                  </div>
+                )}
               </button>
             </div>
 
