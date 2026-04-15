@@ -1100,7 +1100,7 @@ function AddSLModal({ position, onClose, onPlaced }) {
   );
 }
 
-function PositionsTab({ positions, openOrders, loading, onRefresh }) {
+function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) {
   const [slModal, setSlModal] = useState(null); // position object or null
 
   const unprotected = positions.filter(p => p.quantity !== 0 && !hasSL(p, openOrders));
@@ -1122,9 +1122,15 @@ function PositionsTab({ positions, openOrders, loading, onRefresh }) {
       </div>
       {loading ? (
         <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-12 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}</div>
+      ) : kiteError ? (
+        <div className="flex flex-col items-center justify-center h-40 gap-2 text-center px-4">
+          <span className="text-xs text-red-500 dark:text-red-400">{kiteError}</span>
+          <a href="/api/kite-config" className="text-xs text-blue-500 underline">Re-connect Kite</a>
+        </div>
       ) : positions.length === 0 ? (
         <div className="flex items-center justify-center h-40 text-gray-400 text-sm">No open positions</div>
       ) : (
+
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -1239,7 +1245,7 @@ function OrdersTab({ orders, loading, onRefresh }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // OrdersRightPanel — collapsible right sidebar for today's orders + FnO movers
 // ─────────────────────────────────────────────────────────────────────────────
-function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, onModifyOrder, open, setOpen }) {
+function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder, onModifyOrder, open, setOpen }) {
   const [modifyForm,    setModifyForm]    = useState(null);
   const [modifying,     setModifying]     = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(null); // order_id pending confirm
@@ -1275,9 +1281,15 @@ function OrdersRightPanel({ orders, loading, onRefresh, onCancelOrder, onModifyO
         <div className="flex-1 overflow-y-auto scrollbar-thin">
           {loading ? (
             <div className="p-3 space-y-2">{[1,2,3,4].map(i => <div key={i} className="h-10 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}</div>
+          ) : kiteError ? (
+            <div className="flex flex-col items-center justify-center h-16 gap-1 px-2 text-center">
+              <span className="text-[10px] text-red-500 dark:text-red-400 leading-tight">{kiteError}</span>
+              <a href="/api/kite-config" className="text-[10px] text-blue-500 underline">Re-connect</a>
+            </div>
           ) : orders.length === 0 ? (
             <div className="flex items-center justify-center h-16 text-gray-400 text-xs">No open orders</div>
           ) : (
+
             <div className="p-2 space-y-1.5">
               {orders.map(o => {
                 const isBuy        = o.transaction_type === 'BUY';
@@ -2404,6 +2416,7 @@ export default function TerminalPage() {
   // Positions / Orders
   const [positions, setPositions]           = useState([]);
   const [positionsLoading, setPositionsLoading] = useState(false);
+  const [kiteError, setKiteError]           = useState(null); // surfaced Kite/auth error
   // Panel orders (right sidebar — always visible)
   const [panelOrders, setPanelOrders]       = useState([]);
   const [panelOrdersLoading, setPanelOrdersLoading] = useState(false);
@@ -2585,7 +2598,8 @@ export default function TerminalPage() {
     try {
       const r = await fetch('/api/kite-positions');
       const d = await r.json();
-      setPositions(d.success ? (d.positions || []) : []);
+      if (d.kiteError) { setKiteError(d.kiteError); setPositions([]); }
+      else { setKiteError(null); setPositions(d.success ? (d.positions || []) : []); }
     } catch { setPositions([]); }
     finally { setPositionsLoading(false); }
   }, []);
@@ -2612,7 +2626,9 @@ export default function TerminalPage() {
     try {
       const r = await fetch('/api/kite-orders?limit=200');
       const d = await r.json();
-      const allOrders = d.success ? (d.orders || []) : [];
+      const allOrders = d.orders || [];
+      if (d.kiteError) setKiteError(d.kiteError);
+      else setKiteError(null);
 
       // Detect newly COMPLETE orders → play execution beep
       const prevMap = prevOrderStatusMapRef.current;
@@ -3148,7 +3164,8 @@ export default function TerminalPage() {
 
           {/* Tab content */}
           <div className="flex-1 overflow-hidden">
-            {activeTab === 'positions' && <PositionsTab positions={positions} openOrders={panelOrders} loading={positionsLoading} onRefresh={fetchPositions} />}
+            {activeTab === 'positions' && <PositionsTab positions={positions} openOrders={panelOrders} loading={positionsLoading} kiteError={kiteError} onRefresh={fetchPositions} />}
+
             {activeTab === 'scSetup'    && <ShortCoveringPanel kiteConnected={kiteConnected} />}
             {activeTab === 'placeOrder' && (
               <PlaceOrderTab
@@ -3187,12 +3204,14 @@ export default function TerminalPage() {
           <OrdersRightPanel
             orders={panelOrders}
             loading={panelOrdersLoading}
+            kiteError={kiteError}
             onRefresh={fetchPanelOrders}
             onCancelOrder={handleCancelPanelOrder}
             onModifyOrder={handleModifyPanelOrder}
             open={ordersOpen}
             setOpen={setOrdersOpen}
           />
+
         </div>
       </div>
 

@@ -7,17 +7,27 @@ export async function requireSession() {
   const token = cookieStore.get('tv_session')?.value
   if (!token) return null
 
-  const rows = await sql`
-    SELECT s.email FROM sessions s
-    WHERE s.token = ${token} AND s.expires_at > now()
-    LIMIT 1
-  `
+  let rows
+  try {
+    rows = await sql`
+      SELECT s.email FROM sessions s
+      WHERE s.token = ${token} AND s.expires_at > now()
+      LIMIT 1
+    `
+  } catch (err) {
+    // Neon cold-start timeout, connection error, etc.
+    // Return null (treat as unauthenticated) rather than crashing the API route.
+    console.error('[session] DB error in requireSession:', err?.message ?? err)
+    return null
+  }
+
   if (!rows.length) return null
 
   const email = rows[0].email
   const role  = resolveRole(email)
   return { email, role }
 }
+
 
 export async function requireOwner() {
   const session = await requireSession()

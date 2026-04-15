@@ -9,13 +9,13 @@ function isMarketHours() {
 }
 
 export async function GET() {
-  if (!await requireOwner()) return unauthorized();
-
   try {
+    if (!await requireOwner()) return unauthorized();
+
     const broker = await getBroker();
 
     if (!broker.isConnected()) {
-      return NextResponse.json({ success: false, error: 'Kite not connected', positions: [] });
+      return NextResponse.json({ success: false, kiteError: 'Kite not connected — please authenticate via /api/kite-config', positions: [] });
     }
 
     let data;
@@ -23,11 +23,14 @@ export async function GET() {
       data = await broker.getPositionsRaw();
     } catch (err) {
       console.error('Kite positions error:', err.message);
-      return NextResponse.json({ success: false, error: 'Failed to fetch positions', positions: [] });
+      const msg = err.message?.includes('Incorrect') || err.message?.includes('403')
+        ? 'Kite session expired — please re-login to Zerodha'
+        : 'Failed to fetch positions from Kite';
+      return NextResponse.json({ success: false, kiteError: msg, positions: [] });
     }
 
     if (data.status !== 'success') {
-      return NextResponse.json({ success: false, error: data.message || 'Unknown error', positions: [] });
+      return NextResponse.json({ success: false, kiteError: data.message || 'Unknown Kite error', positions: [] });
     }
 
     // Filter open positions (MIS or NFO, non-zero qty)
@@ -69,6 +72,7 @@ export async function GET() {
 
   } catch (error) {
     console.error('Error fetching positions:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error', positions: [] }, { status: 500 });
+    return NextResponse.json({ success: false, kiteError: 'Internal server error', positions: [] }, { status: 500 });
   }
 }
+
