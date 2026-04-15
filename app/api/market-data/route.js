@@ -560,8 +560,19 @@ export async function GET() {
                              ?? niftyLastSessionClose 
                              ?? null;
 
-    let giftNiftyChange        = (giftNiftyPrice && strictGiftPrevClose) ? giftNiftyPrice - strictGiftPrevClose : null;
-    let giftNiftyChangePercent = (giftNiftyChange !== null && strictGiftPrevClose) ? (giftNiftyChange / strictGiftPrevClose) * 100 : null;
+    // ── GIFT Nifty Change vs Nifty Spot prev close ─────────────────────────────
+    // The economically meaningful question is:
+    //   "How much will Nifty 50 GAP at 9:15 AM open?"
+    // Answer = (GIFT Nifty current - Nifty spot last session close) / Nifty spot last session close
+    //
+    // Using GIFT's own prev close (~24,209 when GIFT is at 24,224) gives +0.06% which is
+    // GIFT's intraday movement — NOT the gap Nifty will open with. That gives wrong expected open.
+    // We must compare GIFT Nifty to where NIFTY 50 SPOT last closed (e.g. 23,842).
+    //
+    // strictGiftPrevClose is kept for reference / Redis caching but NOT used for displayed %
+    const giftRef = niftyLastSessionClose ?? strictGiftPrevClose ?? null;
+    let giftNiftyChange        = (giftNiftyPrice && giftRef) ? giftNiftyPrice - giftRef : null;
+    let giftNiftyChangePercent = (giftNiftyChange !== null && giftRef) ? (giftNiftyChange / giftRef) * 100 : null;
 
     const marketData = {
       indices: {
