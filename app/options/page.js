@@ -1864,7 +1864,7 @@ export default function OptionsPage() {
     // 30s high-frequency refresh for Greeks/ATM
     const iv = setInterval(() => {
       if (isMarketHours()) fetchChain(true);
-    }, 30_000);
+    }, 15_000);
     return () => clearInterval(iv);
   }, [fetchChain]);
 
@@ -2319,7 +2319,10 @@ export default function OptionsPage() {
               {loading ? '...' : '↻ Refresh'}
             </button>
             {chainLastUpdated && (
-              <span className="text-[10px] text-slate-500 font-mono hidden sm:inline">Updated: {chainLastUpdated}</span>
+              <span className="text-[10px] text-slate-500 font-mono hidden sm:flex items-center gap-1.5 tabular-nums">
+                <span className="w-1 h-1 rounded-full bg-blue-500 animate-pulse-slow" />
+                Updated: {chainLastUpdated}
+              </span>
             )}
           </div>
 

@@ -394,15 +394,12 @@ async function getOIChange5Min(currentCallOI, currentPutOI) {
     return { callOIChange5min: 0, putOIChange5min: 0 };
   }
 
-  const callOIChange5min = snapshot.callOI > 0
-    ? ((currentCallOI - snapshot.callOI) / snapshot.callOI) * 100
-    : 0;
-  const putOIChange5min = snapshot.putOI > 0
-    ? ((currentPutOI - snapshot.putOI) / snapshot.putOI) * 100
-    : 0;
-
-  // Refresh snapshot (TTL of 360s ensures it auto-expires if not called)
-  await redisSet(KEY, { callOI: currentCallOI, putOI: currentPutOI, time: Date.now() }, 360);
+  // Only refresh snapshot if existing one is > 5 minutes old (300s)
+  // This ensures we detect a genuine 5-min trend rather than just 'change since last poll'.
+  const SNAP_THRESHOLD_MS = 5 * 60 * 1000;
+  if (!snapshot || (Date.now() - snapshot.time) > SNAP_THRESHOLD_MS) {
+    await redisSet(KEY, { callOI: currentCallOI, putOI: currentPutOI, time: Date.now() }, 360);
+  }
 
   return { callOIChange5min, putOIChange5min };
 }
@@ -1333,15 +1330,15 @@ function generatePreMarketCommentary(marketData, optionChain) {
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const refresh  = searchParams.get('refresh') === '1';
     const interval = ['5minute', '15minute', '1minute'].includes(searchParams.get('interval'))
       ? searchParams.get('interval')
       : '5minute';
 
-    const CACHE_KEY    = `${NS}:market-commentary:${interval}`;
+    const CACHE_KEY    = `${NS}:commentary:v2:${interval}${marketIsOpen ? ':live' : ':pre'}`;
     const marketIsOpen = isMarketOpen();
+    const forceRefresh = searchParams.get('refresh') === '1';
 
-    if (!refresh) {
+    if (!forceRefresh) {
       const cached = await trackRedis('market-commentary', () => redisGet(CACHE_KEY), 'get:cache');
       if (cached) {
         const age    = Date.now() - new Date(cached.timestamp).getTime();

@@ -224,6 +224,7 @@ function getNiftyLevelAlerts(indices) {
     const [commentary, setCommentary] = useState(null);
     const [commentaryLoading, setCommentaryLoading] = useState(true);
     const [commentaryRefreshedAt, setCommentaryRefreshedAt] = useState(null);
+    const [commentaryLastUpdated, setCommentaryLastUpdated] = useState(null);
     const [niftyRegime, setNiftyRegime] = useState(null);
     const [dailyBias, setDailyBias] = useState(null);
     const [fifteenMinBias, setFifteenMinBias] = useState(null);
@@ -271,6 +272,7 @@ function getNiftyLevelAlerts(indices) {
 
     // Short Covering setup state
     const [scData,          setScData]          = useState(null);
+    const [scLastUpdated,   setScLastUpdated]   = useState(null);
     const [scDismissed,     setScDismissed]     = useState(false);
     const [scConfirming,    setScConfirming]    = useState(false);
     const [scPlacing,       setScPlacing]       = useState(false);
@@ -453,12 +455,13 @@ function getNiftyLevelAlerts(indices) {
 
     // ── Short Covering: poll + sound + browser notification ──────────────────
     useEffect(() => {
-      const fetchSC = async () => {
+      const fetchSC = async (isSilent = false) => {
         try {
-          const r = await fetch('/api/short-covering');
+          const r = await fetch(`/api/short-covering${isSilent ? '' : '?refresh=1'}`);
           const d = await r.json();
           if (!d.error) {
             setScData(d);
+            setScLastUpdated(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
             const wasActive = scPrevActiveRef.current;
             const isActive  = d.active === true;
             // Transition: inactive → active
@@ -494,7 +497,7 @@ function getNiftyLevelAlerts(indices) {
         const ist  = new Date(Date.now() + 5.5 * 3600 * 1000);
         const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
         const day  = ist.getUTCDay();
-        if (day !== 0 && day !== 6 && mins >= 555 && mins <= 930) fetchSC();
+        if (day !== 0 && day !== 6 && mins >= 555 && mins <= 930) fetchSC(true);
       }, 60_000);
       return () => clearInterval(iv);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -745,6 +748,7 @@ function getNiftyLevelAlerts(indices) {
         soundEnabledRef.current   = true;
         setCommentary(next);
         setCommentaryRefreshedAt(new Date());
+        setCommentaryLastUpdated(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
         if (data.dailyBias)      setDailyBias(data.dailyBias);
         if (data.fifteenMinBias) setFifteenMinBias(data.fifteenMinBias);
       } catch (error) {
@@ -813,19 +817,14 @@ function getNiftyLevelAlerts(indices) {
       if (isMarketHours()) { fetchCommentaryNow(); fetchRegime(); }
       else { setCommentary(null); setCommentaryLoading(false); }
 
-      // Refresh every 3 min during 1:30–3:30 PM IST (high short-covering activity window), 5 min otherwise
-      const getCommentaryInterval = () => {
-        const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-        const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-        return (mins >= 810 && mins <= 930) ? 3 * 60 * 1000 : 5 * 60 * 1000;
-      };
+      // Refresh every 60s (was 3-5m)
       let commentaryTimer;
       const scheduleCommentary = () => {
         commentaryTimer = setTimeout(() => {
           if (isMarketHours()) { fetchCommentaryNow(); fetchRegime(); }
           else if (!isMarketHours()) { setCommentary(null); setCommentaryLoading(false); }
           scheduleCommentary();
-        }, getCommentaryInterval());
+        }, 60_000);
       };
       scheduleCommentary();
 
@@ -875,7 +874,7 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       fetchSentiment();
-      const interval = setInterval(() => { if (isMarketHours()) fetchSentiment(); }, 5 * 60 * 1000);
+      const interval = setInterval(() => { if (isMarketHours()) fetchSentiment(); }, 60_000);
       return () => clearInterval(interval);
     }, [optionChainData?.pcr]);
 
@@ -2103,9 +2102,10 @@ function getNiftyLevelAlerts(indices) {
                   }`}>
                     {commentary.bias}
                   </span>
-                  {commentaryRefreshedAt && !commentaryLoading && (
-                    <span className="hidden sm:inline text-[10px] text-slate-600 tabular-nums">
-                      {commentaryRefreshedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                  {commentaryLastUpdated && !commentaryLoading && (
+                    <span className="hidden sm:flex items-center gap-1.5 text-[10px] text-slate-500 tabular-nums">
+                      <span className="w-1 h-1 rounded-full bg-blue-500 animate-pulse-slow" />
+                      {commentaryLastUpdated}
                     </span>
                   )}
                   <button
@@ -2980,8 +2980,9 @@ function getNiftyLevelAlerts(indices) {
                     {sentimentData.timestamp && (
                       <div className="flex items-center justify-between pt-2 border-t border-blue-800/30 mt-1">
                         <span className="text-[9px] text-slate-500">Last computed</span>
-                        <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.5 rounded">
-                          {new Date(sentimentData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.5 rounded flex items-center gap-1">
+                          <span className="w-1 h-1 rounded-full bg-blue-500 animate-pulse-slow" />
+                          {new Date(sentimentData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
                         </span>
                       </div>
                     )}
@@ -3348,6 +3349,7 @@ function getNiftyLevelAlerts(indices) {
             <OptionsAnalysisPanel
               chainData={optionChainData}
               scData={scData}
+              scLastUpdated={scLastUpdated}
               loading={optionLoading}
               underlying={optionUnderlying}
               expiry={optionExpiry}

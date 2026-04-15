@@ -257,6 +257,7 @@ function getNiftyLevelAlerts(indices) {
     const [optionUnderlying, setOptionUnderlying] = useState('NIFTY');
     const [optionExpiry, setOptionExpiry] = useState('weekly');
     const [scData, setScData] = useState(null);
+    const [scLastUpdated, setScLastUpdated] = useState(null);
 
     // Helper: check if today is in last week of expiry (after 2nd last Tuesday to last Thursday)
     function isLastWeekOfExpiry(date = new Date()) {
@@ -309,6 +310,7 @@ function getNiftyLevelAlerts(indices) {
     const [commentary, setCommentary] = useState(null);
     const [commentaryLoading, setCommentaryLoading] = useState(true);
     const [commentaryRefreshedAt, setCommentaryRefreshedAt] = useState(null);
+    const [commentaryLastUpdated, setCommentaryLastUpdated] = useState(null);
     const [niftyRegime, setNiftyRegime] = useState(null);
     const [dailyBias, setDailyBias] = useState(null);
     const [fifteenMinBias, setFifteenMinBias] = useState(null);
@@ -629,15 +631,18 @@ function getNiftyLevelAlerts(indices) {
 
     // Fetch short-covering data for futures OI signal
     useEffect(() => {
-      const fetchSC = async () => {
+      const fetchSC = async (isSilent = false) => {
         try {
-          const r = await fetch('/api/short-covering');
+          const r = await fetch(`/api/short-covering${isSilent ? '' : '?refresh=1'}`);
           const d = await r.json();
-          if (!d.error) setScData(d);
+          if (!d.error) {
+            setScData(d);
+            setScLastUpdated(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+          }
         } catch {}
       };
       fetchSC();
-      const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchSC(); }, 5 * 60 * 1000);
+      const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchSC(true); }, 60_000);
       return () => clearInterval(interval);
     }, []);
 
@@ -662,9 +667,9 @@ function getNiftyLevelAlerts(indices) {
 
     // Add fetch function (around line 150)
     useEffect(() => {
-      const fetchCommentary = async () => {
+      const fetchCommentary = async (forceRefresh = false) => {
         try {
-          const response = await fetch('/api/market-commentary');
+          const response = await fetch(`/api/market-commentary${forceRefresh ? '?refresh=1' : ''}`);
           const data = await response.json();
           const next = data.commentary;
           const prev = prevCommentaryRef.current;
@@ -692,6 +697,7 @@ function getNiftyLevelAlerts(indices) {
           soundEnabledRef.current   = true
           setCommentary(next);
           setCommentaryRefreshedAt(new Date());
+          setCommentaryLastUpdated(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
           if (data.dailyBias)       setDailyBias(data.dailyBias);
           if (data.fifteenMinBias)  setFifteenMinBias(data.fifteenMinBias);
         } catch (error) {
@@ -704,7 +710,7 @@ function getNiftyLevelAlerts(indices) {
       // We ALSO bind this internal function to globally respond when visibility flips
       const handleVisibilityReturn = () => {
         if (isVisible && isMarketHours()) {
-          fetchCommentary();
+          fetchCommentary(true);
         }
       };
       handleVisibilityReturn();
@@ -722,18 +728,13 @@ function getNiftyLevelAlerts(indices) {
       fetchCommentary();
       fetchRegime();
 
-      // Refresh every 3 min during 1:30–3:30 PM IST (high short-covering activity window), 5 min otherwise
-      const getCommentaryInterval = () => {
-        const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-        const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-        return (mins >= 810 && mins <= 930) ? 3 * 60 * 1000 : 5 * 60 * 1000;
-      };
+      // Refresh every 60s (was 3-5m)
       let commentaryTimer;
       const scheduleCommentary = () => {
         commentaryTimer = setTimeout(() => {
           if (isMarketHours() && isVisibleRef.current) { fetchCommentary(); fetchRegime(); }
           scheduleCommentary();
-        }, getCommentaryInterval());
+        }, 60_000);
       };
       scheduleCommentary();
 
@@ -783,7 +784,7 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       const t = setTimeout(fetchSentiment, 6000); // stagger 6s — heaviest call, last
-      const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchSentiment(); }, 5 * 60 * 1000);
+      const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchSentiment(); }, 60_000);
       return () => { clearTimeout(t); clearInterval(interval); };
     }, [optionChainData?.pcr]);
 
@@ -1565,9 +1566,10 @@ function getNiftyLevelAlerts(indices) {
                   }`}>
                     {commentary.bias}
                   </span>
-                  {commentaryRefreshedAt && !commentaryLoading && (
-                    <span className="hidden sm:inline text-[10px] text-slate-600 tabular-nums">
-                      {commentaryRefreshedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                  {commentaryLastUpdated && !commentaryLoading && (
+                    <span className="hidden sm:flex items-center gap-1.5 text-[10px] text-slate-500 tabular-nums">
+                      <span className="w-1 h-1 rounded-full bg-blue-500 animate-pulse-slow" />
+                      {commentaryLastUpdated}
                     </span>
                   )}
                   <button
@@ -2374,8 +2376,9 @@ function getNiftyLevelAlerts(indices) {
                     {sentimentData.timestamp && (
                       <div className="flex items-center justify-between pt-2 border-t border-blue-800/30 mt-1">
                         <span className="text-[9px] text-slate-500">Last computed</span>
-                        <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.5 rounded">
-                          {new Date(sentimentData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.5 rounded flex items-center gap-1">
+                          <span className="w-1 h-1 rounded-full bg-blue-500 animate-pulse-slow" />
+                          {new Date(sentimentData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
                         </span>
                       </div>
                     )}
@@ -2761,6 +2764,7 @@ function getNiftyLevelAlerts(indices) {
             <OptionsAnalysisPanel
               chainData={optionChainData}
               scData={scData}
+              scLastUpdated={scLastUpdated}
               loading={optionLoading}
               underlying={optionUnderlying}
               expiry={optionExpiry}

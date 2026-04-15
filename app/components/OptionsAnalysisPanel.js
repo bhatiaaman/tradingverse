@@ -94,7 +94,7 @@ function getOptionsAnalysisCommentary(chainData, scData) {
 //   onUnderlyingChange — (u: string) => void
 //   onExpiryChange  — (e: string) => void
 export default function OptionsAnalysisPanel({
-  chainData, scData = null, loading, underlying, expiry,
+  chainData, scData = null, scLastUpdated = null, loading, underlying, expiry,
   onRefresh, onUnderlyingChange, onExpiryChange,
 }) {
   return (
@@ -334,15 +334,21 @@ export default function OptionsAnalysisPanel({
           </div>
 
           {/* Footer */}
-          <div className="flex justify-between text-xs text-slate-400 pt-2 border-t border-blue-800/40">
-            <span>Total Call OI: <span className="text-red-400 font-mono">{(chainData?.totalCallOI / 100000).toFixed(1)}L</span></span>
-            <span>Total Put OI: <span className="text-green-400 font-mono">{(chainData?.totalPutOI / 100000).toFixed(1)}L</span></span>
-            <span className="text-slate-500">
-              Last updated: {chainData?.timestamp ? new Date(chainData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}
-            </span>
+          <div className="flex flex-wrap justify-between items-center gap-y-1 text-[10px] sm:text-xs text-slate-400 pt-2 border-t border-blue-800/40">
+            <div className="flex gap-3">
+              <span>Total CE: <span className="text-red-400 font-mono">{(chainData?.totalCallOI / 100000).toFixed(1)}L</span></span>
+              <span>Total PE: <span className="text-green-400 font-mono">{(chainData?.totalPutOI / 100000).toFixed(1)}L</span></span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse-slow" />
+                Live Analysis: {scLastUpdated || (chainData?.timestamp ? new Date(chainData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—')}
+              </span>
+            </div>
           </div>
-          <div className="text-[9px] text-slate-600 pt-1">
-            OI data reflects NSE end-of-day positions — intraday OI changes may lag by 5–15 min
+          <div className="text-[9px] text-slate-600 pt-1 flex justify-between">
+            <span>OI data reflects NSE snapshots · Intraday may lag 5–15m</span>
+            {scLastUpdated && <span className="text-amber-500/60 italic">Signal poller active</span>}
           </div>
         </div>
       )}

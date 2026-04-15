@@ -416,18 +416,26 @@ export async function GET(request) {
                   sigVolume.score + sigStraddle.score + sigPCR.score;
     const active = score >= SCORE_THRESHOLD;
 
-    // 6. Save new snapshot (fire-and-forget — don't await)
-    const newSnap = {
-      spot,
-      futOI,
-      pcr:       chain?.pcr ?? 0,
-      straddle:  chain ? (chain.atmCE?.ltp ?? 0) + (chain.atmPE?.ltp ?? 0) : null,
-      atmCELTP:  chain?.atmCE?.ltp ?? null,
-      atmPELTP:  chain?.atmPE?.ltp ?? null,
-      atmPEOI:   chain?.atmPE?.oi  ?? null,
-      ts:        Date.now(),
-    };
-    redisSet(SNAP_KEY, newSnap, SNAP_TTL).catch(() => {});
+    // 6. Save new snapshot only if no snapshot exists or existing one is older than 10 mins
+    // This provides a STABLE baseline for price/OI divergence scoring.
+    // If we overwrite every session, the 'delta' is always zero.
+    const SNAP_REFRESH_THRESHOLD_MS = 10 * 60 * 1000;
+    const isStale = !snap || (Date.now() - snap.ts) > SNAP_REFRESH_THRESHOLD_MS;
+    const forceRefresh = request.nextUrl.searchParams.get('refresh') === '1';
+
+    if (isStale || forceRefresh) {
+      const newSnap = {
+        spot,
+        futOI,
+        pcr:       chain?.pcr ?? 0,
+        straddle:  chain ? (chain.atmCE?.ltp ?? 0) + (chain.atmPE?.ltp ?? 0) : null,
+        atmCELTP:  chain?.atmCE?.ltp ?? null,
+        atmPELTP:  chain?.atmPE?.ltp ?? null,
+        atmPEOI:   chain?.atmPE?.oi  ?? null,
+        ts:        Date.now(),
+      };
+      redisSet(SNAP_KEY, newSnap, SNAP_TTL).catch(() => {});
+    }
 
     // 7. Build trade suggestion if active
     const trade = active ? buildTrade(spot, chain, vwapNow, candles) : null;
