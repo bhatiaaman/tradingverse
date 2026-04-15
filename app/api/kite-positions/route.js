@@ -33,13 +33,9 @@ export async function GET() {
       return NextResponse.json({ success: false, kiteError: data.message || 'Unknown Kite error', positions: [] });
     }
 
-    // Filter open positions (MIS or NFO, non-zero qty)
-    const positions = (data.data.net || []).filter(p => {
-      const isMIS = p.product === 'MIS';
-      const isNFO = p.exchange === 'NFO';
-      const isOpen = (p.quantity || 0) !== 0;
-      return (isMIS || isNFO) && isOpen;
-    });
+    // Show all positions with a non-zero net quantity.
+    // The old filter (MIS || NFO) was dropping NRML futures and CNC equity positions.
+    const positions = (data.data.net || []).filter(p => (p.quantity || 0) !== 0);
 
     if (positions.length === 0) {
       return NextResponse.json({ success: true, positions: [], livePrice: false });
