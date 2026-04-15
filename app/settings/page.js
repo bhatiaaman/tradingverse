@@ -29,17 +29,31 @@ export default function SettingsPage() {
     })
   }, [user])
 
+  const [brokerError, setBrokerError] = useState(null)
+
   const selectBroker = async (brokerName) => {
+    if (selectingBroker || brokerName === activeBroker) return
     setSelectingBroker(true)
+    setBrokerError(null)
+    const prev = activeBroker
+    setActiveBroker(brokerName) // optimistic update
     try {
-      await fetch('/api/broker-select', {
+      const res = await fetch('/api/broker-select', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ broker: brokerName }),
       })
-      setActiveBroker(brokerName)
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || `Server error ${res.status}`)
+      }
+      // Re-fetch to confirm what Redis actually stored
+      const confirm = await fetch('/api/broker-select').then(r => r.json()).catch(() => null)
+      setActiveBroker(confirm?.broker || brokerName)
     } catch (e) {
       console.error('Failed to select broker:', e)
+      setActiveBroker(prev) // roll back optimistic update
+      setBrokerError(e.message || 'Failed to switch broker — please try again')
     } finally {
       setSelectingBroker(false)
     }
@@ -133,6 +147,12 @@ export default function SettingsPage() {
         {isPro(user) && (
           <>
             <h2 className="text-xs font-bold tracking-[0.18em] uppercase text-slate-400 mt-10 mb-4">Trading Broker</h2>
+
+            {brokerError && (
+              <div className="mb-4 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 text-sm">
+                ⚠️ {brokerError}
+              </div>
+            )}
 
             {/* Broker Cards */}
             <div className="grid sm:grid-cols-2 gap-3 mb-6">
