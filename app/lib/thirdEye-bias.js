@@ -53,13 +53,13 @@ const FORCE_NEUTRAL_AFTER_BEAR = new Set(['s13_choch_bull', 's16_spring']);
 //
 // Called once per sealed candle, in chronological order.
 // Inputs:
-//   state        : current bias state { bias: 'NEUTRAL'|'BULL'|'BEAR', downtrendCount, uptrendCount, pendingFlip }
+//   state        : current bias state { bias: 'NEUTRAL'|'BULL'|'BEAR', downtrendCount, uptrendCount, pendingFlip, addsToday }
 //   thirdEyeResult: output of runThirdEye() for this candle
 //   context      : context from buildContext() — includes .trend, .vwap.above, .bos
 // Returns: new state object (immutable — always returns a fresh copy)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function applyBiasTransition(state, thirdEyeResult, context) {
+export function applyBiasTransition(state, thirdEyeResult, context, candle) {
   const { bias, downtrendCount = 0, uptrendCount = 0, pendingFlip = null } = state;
 
   const topSetup  = thirdEyeResult.strongSetups?.[0] ?? thirdEyeResult.watchList?.[0] ?? null;
@@ -86,56 +86,69 @@ export function applyBiasTransition(state, thirdEyeResult, context) {
 
   // ── BULL state ─────────────────────────────────────────────────────────────
   if (bias === 'BULL') {
-    // Hard exit: CHoCH or Upthrust against bull
-    if (setupId && FORCE_NEUTRAL_AFTER_BULL.has(setupId)) {
+    // 1. FAST INVALIDATION (0.6% against trend with volume or momentum)
+    const movePct = candle ? (candle.close - candle.open) / candle.open * 100 : 0;
+    if (movePct <= -0.6) {
+      nextBias = 'NEUTRAL'; nextPending = null;
+      nextDown = 0; nextUp = 0;
+      changed = true; reason = `Hard Invalidation — strong bearish candle (${movePct.toFixed(2)}%) clears bull bias`;
+    }
+    // 2. Hard exit: CHoCH or Upthrust against bull
+    else if (setupId && FORCE_NEUTRAL_AFTER_BULL.has(setupId)) {
       nextBias = 'NEUTRAL'; nextPending = 'BEAR';
       nextDown = 0; nextUp = 0;
       changed = true; reason = `CHoCH/Upthrust — bias clearing to NEUTRAL`;
     }
-    // Confirmed BOS against bull (not fresh — already held for 1+ candle)
+    // 3. Confirmed BOS against bull (not fresh — already held for 1+ candle)
     else if (bos?.type === 'bear' && !bos?.freshBreak) {
       nextBias = 'NEUTRAL'; nextPending = 'BEAR';
       nextDown = 0; nextUp = 0;
       changed = true; reason = `Confirmed bear BOS — clearing bull bias`;
     }
-    // Reality check: sustained downtrend + below VWAP for 3 candles
+    // 4. Reality check: sustained downtrend + below VWAP for 2 candles (Expert: 3 was too slow)
     else {
       if (trend === 'downtrend' && aboveVwap === false) {
         nextDown = downtrendCount + 1;
-        if (nextDown >= 3) {
+        if (nextDown >= 2) {
           nextBias = 'NEUTRAL'; nextPending = null;
           nextDown = 0;
-          changed = true; reason = `Reality check — 3 candles downtrend + below VWAP`;
+          changed = true; reason = `Reality check — 2 candles downtrend + below VWAP`;
         }
       } else {
-        nextDown = 0; // reset counter if even one candle breaks the sequence
+        nextDown = 0;
       }
-      // Uptrend candles don't flip to BEAR — only go to NEUTRAL
     }
   }
 
   // ── BEAR state ─────────────────────────────────────────────────────────────
   else if (bias === 'BEAR') {
-    // Hard exit: CHoCH or Spring against bear
-    if (setupId && FORCE_NEUTRAL_AFTER_BEAR.has(setupId)) {
+    // 1. FAST INVALIDATION (0.6% against trend)
+    const movePct = candle ? (candle.close - candle.open) / candle.open * 100 : 0;
+    if (movePct >= 0.6) {
+      nextBias = 'NEUTRAL'; nextPending = null;
+      nextDown = 0; nextUp = 0;
+      changed = true; reason = `Hard Invalidation — strong bullish candle (${movePct.toFixed(2)}%) clears bear bias`;
+    }
+    // 2. Hard exit: CHoCH or Spring against bear
+    else if (setupId && FORCE_NEUTRAL_AFTER_BEAR.has(setupId)) {
       nextBias = 'NEUTRAL'; nextPending = 'BULL';
       nextDown = 0; nextUp = 0;
       changed = true; reason = `CHoCH/Spring — bias clearing to NEUTRAL`;
     }
-    // Confirmed BOS against bear
+    // 3. Confirmed BOS against bear
     else if (bos?.type === 'bull' && !bos?.freshBreak) {
       nextBias = 'NEUTRAL'; nextPending = 'BULL';
       nextDown = 0; nextUp = 0;
       changed = true; reason = `Confirmed bull BOS — clearing bear bias`;
     }
-    // Reality check: sustained uptrend + above VWAP for 3 candles
+    // 4. Reality check: sustained uptrend + above VWAP for 2 candles (Expert: 3 was too slow)
     else {
       if (trend === 'uptrend' && aboveVwap === true) {
         nextUp = uptrendCount + 1;
-        if (nextUp >= 3) {
+        if (nextUp >= 2) {
           nextBias = 'NEUTRAL'; nextPending = null;
           nextUp = 0;
-          changed = true; reason = `Reality check — 3 candles uptrend + above VWAP`;
+          changed = true; reason = `Reality check — 2 candles uptrend + above VWAP`;
         }
       } else {
         nextUp = 0;
@@ -207,6 +220,7 @@ export function freshBiasState() {
     since:          null,         // IST HH:MM when current bias started
     downtrendCount: 0,
     uptrendCount:   0,
+    addsToday:      0,            // tracks pyramid adds
     pendingFlip:    null,
     pendingFlipAge: 0,
     lastUpdated:    null,         // ISO timestamp of last candle processed

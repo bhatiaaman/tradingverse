@@ -225,8 +225,8 @@ export async function POST(req) {
         const context = result.context;
         const topSetup = result.strongSetups?.[0] ?? result.watchList?.[0] ?? null;
 
-        // Apply bias state machine
-        const newBiasState = applyBiasTransition(biasState, result, context);
+        // Apply bias state machine (v2: pass targetCandle for invalidation check)
+        const newBiasState = applyBiasTransition(biasState, result, context, targetCandle);
 
         // Track quiet candle count
         if (!topSetup || (topSetup?.score ?? 0) < 4) {
@@ -241,6 +241,11 @@ export async function POST(req) {
           newBiasState,
           quietCount
         );
+
+        // Update addsToday if narrative confirms an ADD
+        if (narrative.isAdd) {
+          newBiasState.addsToday = (biasState.addsToday || 0) + 1;
+        }
 
         // Update bias state (add since/date tracking)
         if (newBiasState.changed || !biasState.since) {
@@ -295,7 +300,7 @@ export async function POST(req) {
           // Live narrative reflects current bias + current forming candle
           narrative:  buildNarrative(
             { time: liveTimeStr, topSetup: liveResult.strongSetups?.[0] ?? null, context: liveResult.context, candle: liveCandle },
-            { ...biasState, changed: false, reason: null, prevBias: biasState.bias },
+            { ...biasState, changed: false, reason: null, prevBias: biasState.bias, addsToday: biasState.addsToday },
             quietCount
           ),
         };
@@ -326,6 +331,7 @@ export async function POST(req) {
         bias:        biasState.bias,
         since:       biasState.since,
         pendingFlip: biasState.pendingFlip,
+        addsToday:   biasState.addsToday || 0,
         date:        biasState.date,
       },
       log,

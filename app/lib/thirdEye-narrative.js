@@ -60,15 +60,15 @@ const SETUP_SHORT = {
 function vwapNote(context) {
   const v = context?.vwap;
   if (!v) return '';
-  if (v.atVwap) return ' right at VWAP';
+  if (v.atVwap) return ' at VWAP';
   if (v.distPct <= 0.25) return ` near VWAP (${v.distPct.toFixed(1)}% away)`;
   return v.above ? ` — above VWAP` : ` — below VWAP`;
 }
 
 function trendNote(context) {
-  if (context?.trend === 'uptrend')   return 'uptrend structure intact';
-  if (context?.trend === 'downtrend') return 'downtrend structure intact';
-  return 'market ranging';
+  if (context?.trend === 'uptrend')   return 'Trend structure is cleanly BULLISH';
+  if (context?.trend === 'downtrend') return 'Trend structure is cleanly BEARISH';
+  return 'Market is currently consolidatng';
 }
 
 function setupName(s) {
@@ -88,7 +88,7 @@ function setupName(s) {
 
 export function buildNarrative(entry, biasState, quietCount = 0) {
   const { topSetup: s, context: c, candle } = entry;
-  const { bias, prevBias, changed, reason, pendingFlip } = biasState;
+  const { bias, prevBias, changed, reason, pendingFlip, addsToday = 0 } = biasState;
 
   const inLong  = bias === 'BULL';
   const inShort = bias === 'BEAR';
@@ -134,17 +134,19 @@ export function buildNarrative(entry, biasState, quietCount = 0) {
     }
     // BULL → NEUTRAL (reality check or BOS)
     if (bias === 'NEUTRAL' && prevBias === 'BULL') {
+      const isPanic = reason?.includes('Hard Invalidation');
       return {
-        type: 'exit', direction: 'bear', action: 'EXIT LONG',
-        headline: pendingFlip === 'BEAR' ? 'Bull bias cleared — bearish signal building' : 'Bull bias cleared — standing aside',
+        type: 'exit', direction: 'bear', action: isPanic ? 'INVALIDATED' : 'EXIT LONG',
+        headline: isPanic ? 'Panic price action — clearing long bias' : (pendingFlip === 'BEAR' ? 'Bull bias cleared — bearish signal building' : 'Bull bias cleared — standing aside'),
         reason: reason || 'Lost bullish structure. Closing long bias. Waiting for next clean setup.',
       };
     }
     // BEAR → NEUTRAL
     if (bias === 'NEUTRAL' && prevBias === 'BEAR') {
+      const isPanic = reason?.includes('Hard Invalidation');
       return {
-        type: 'exit', direction: 'bull', action: 'EXIT SHORT',
-        headline: pendingFlip === 'BULL' ? 'Bear bias cleared — bullish signal building' : 'Bear bias cleared — standing aside',
+        type: 'exit', direction: 'bull', action: isPanic ? 'INVALIDATED' : 'EXIT SHORT',
+        headline: isPanic ? 'Panic price action — clearing short bias' : (pendingFlip === 'BULL' ? 'Bear bias cleared — bullish signal building' : 'Bear bias cleared — standing aside'),
         reason: reason || 'Lost bearish structure. Covering short bias. Waiting for next clean setup.',
       };
     }
@@ -170,22 +172,33 @@ export function buildNarrative(entry, biasState, quietCount = 0) {
   if (s && s.score >= 6) {
     const dir = s.pattern?.direction;
 
-    // Setup aligns with bias → GO signal
+    // Setup aligns with bias → GO / ADD signal
     if ((inLong && dir === 'bull') || (inShort && dir === 'bear')) {
+      const isAdd = addsToday > 0;
+      const canAdd = addsToday < 3;
+      
       return {
-        type: 'go', direction: dir, action: inLong ? 'LONG ↑' : 'SHORT ↓',
-        headline: `${setupName(s)} — ${inLong ? 'buy the dip' : 'sell the bounce'}`,
-        reason: `${setupName(s)} at${vwapNote(c)}. ${trendNote(c)}. Bias is ${bias}. Clean entry aligned.`,
+        type: 'go', direction: dir, 
+        action: isAdd 
+          ? (canAdd ? (inLong ? 'ADD LONG' : 'ADD SHORT') : (inLong ? 'HOLD LONG' : 'HOLD SHORT'))
+          : (inLong ? 'GO LONG' : 'GO SHORT'),
+        headline: isAdd 
+          ? (canAdd ? `${setupName(s)} — adding to conviction` : 'Max pyramiding reached — holding current size')
+          : `Fresh Bias established — ${setupName(s)}`,
+        reason: isAdd
+          ? (canAdd ? `${setupName(s)} confirmed. Adding unit ${addsToday + 1}/3. Trend is maturing beautifully.` : `Scale-in limit (3) reached. Letting the profits run.`)
+          : `${setupName(s)} at${vwapNote(c)}. ${trendNote(c)}. Bias is ${bias}. High alignment for initial entry.`,
         sl: s.pattern?.sl ?? null, score: s.score,
+        isAdd: isAdd && canAdd
       };
     }
 
-    // Setup fires against bias → WARNING
+    // Setup fires against bias → WARNING / CAUTION
     if ((inLong && dir === 'bear') || (inShort && dir === 'bull')) {
       return {
-        type: 'warning', action: 'WARNING',
-        headline: `${setupName(s)} fired AGAINST the bias`,
-        reason: `${dir === 'bear' ? 'Bearish' : 'Bullish'} setup (score ${s.score}) while bias is ${bias}. Don't act. Tighten stop. Watch if this leads to a structure break.`,
+        type: 'warning', action: 'TIGHTEN SL',
+        headline: `Counter-signal: ${setupName(s)} building`,
+        reason: `${dir === 'bear' ? 'Bearish' : 'Bullish'} pattern detected (score ${s.score}) against established ${bias} bias. Expert view: Stay alert. Tighten trail stop to last swing ${inLong ? 'low' : 'high'}.`,
       };
     }
   }
@@ -205,17 +218,18 @@ export function buildNarrative(entry, biasState, quietCount = 0) {
   // ── Active bias, no setup — quiet candle ──────────────────────────────────
   if (inLong || inShort) {
     const dir = inLong ? 'bull' : 'bear';
+    const side = inLong ? 'Bulls' : 'Bears';
     if (quietCount >= 3) {
       return {
         type: 'hold', direction: dir, action: inLong ? 'HOLD LONG' : 'HOLD SHORT',
-        headline: `${inLong ? 'Long' : 'Short'} bias — ${quietCount} candles consolidating`,
-        reason: `${trendNote(c)}${vwapNote(c)}. No fresh setup. That's fine — tight range after a move is healthy. Holding.`,
+        headline: `${side} in control — taking a breather`,
+        reason: `Price is consolidating after the move. ${trendNote(c)}${vwapNote(c)}. Range is tight. No need to worry — trend is intact. Waiting for the next expansion.`,
       };
     }
     return {
       type: 'hold', direction: dir, action: inLong ? 'HOLD LONG' : 'HOLD SHORT',
-      headline: `${inLong ? 'Long' : 'Short'} bias — no entry yet`,
-      reason: `${trendNote(c)}${vwapNote(c)}. No fresh entry trigger. Waiting for price to set up cleanly.`,
+      headline: `Holding — ${side.toLowerCase()} consensus intact`,
+      reason: `Consolidating above support. No fresh entry trigger yet. An expert trader stays patient here. Trend conviction remains ${bias}.`,
     };
   }
 
