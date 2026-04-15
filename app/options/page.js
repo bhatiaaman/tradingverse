@@ -11,6 +11,15 @@ function fmtPct(n){ return n != null ? n.toFixed(1) + '%' : '—'; }
 function fmtIV(n) { return n != null ? n.toFixed(1) + '%' : '—'; }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
+// ── Market hours helper (9:15 AM – 3:30 PM IST, Mon–Fri) ─────────────────────
+function isMarketHours() {
+  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const day = ist.getUTCDay();
+  if (day === 0 || day === 6) return false;
+  const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  return mins >= 555 && mins <= 930; // 9:15 AM – 3:30 PM IST
+}
+
 // Colour for probITM chip
 function probColour(pct) {
   if (pct == null) return 'text-slate-500';
@@ -1777,6 +1786,7 @@ export default function OptionsPage() {
   const [liveSpot,  setLiveSpot]  = useState(null);
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState(null);
+  const [chainLastUpdated, setChainLastUpdated] = useState(null);
   const [marketBias, setMarketBias] = useState(null); // from /api/market-data (same as Trades home)
   const [marketRegime, setMarketRegime] = useState(null); // from /api/market-regime (NIFTY/BANKNIFTY)
 
@@ -1795,8 +1805,10 @@ export default function OptionsPage() {
   const [straddleResp,    setStraddleResp]    = useState(null);  // full API response
   const [straddleData,    setStraddleData]    = useState(null);  // candles[] for legacy usage
   const [straddleLoading, setStraddleLoading] = useState(false);
+  const [straddleLastUpdated, setStraddleLastUpdated] = useState(null);
   const [strangleData,    setStrangleData]    = useState(null);
   const [strangleLoading, setStrangleLoading] = useState(false);
+  const [strangleLastUpdated, setStrangleLastUpdated] = useState(null);
   const [straddleInterval, setStraddleInterval] = useState('5minute'); // chart timeframe
 
   // Straddle spike alerts
@@ -1825,26 +1837,36 @@ export default function OptionsPage() {
   const [strikesInput,  setStrikesInput]  = useState({ lower: '', upper: '' });
 
   // ── Fetch chain data ────────────────────────────────────────────────────────
-  const fetchChain = useCallback(async () => {
-    setLoading(true); setError(null);
+  const fetchChain = useCallback(async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
+    setError(null);
     try {
       const res  = await fetch(`/api/options/chain-with-greeks?symbol=${symbol}&expiry=${expiry}`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setChainData(data);
-      // Pre-populate strangle strikes
-      if (data.atm) {
+      setChainLastUpdated(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+
+      // Pre-populate strangle strikes (only on full load, not silent refresh)
+      if (data.atm && !isSilent) {
         const gap = symbol === 'BANKNIFTY' ? 200 : 100;
         setStrikesInput({ lower: String(data.atm - gap), upper: String(data.atm + gap) });
       }
     } catch (e) {
-      setError(e.message);
+      if (!isSilent) setError(e.message);
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   }, [symbol, expiry]);
 
-  useEffect(() => { fetchChain(); }, [fetchChain]);
+  useEffect(() => {
+    fetchChain();
+    // 30s high-frequency refresh for Greeks/ATM
+    const iv = setInterval(() => {
+      if (isMarketHours()) fetchChain(true);
+    }, 30_000);
+    return () => clearInterval(iv);
+  }, [fetchChain]);
 
   // BANKNIFTY has no weekly options in our metadata — force monthly.
   useEffect(() => {
@@ -1988,30 +2010,25 @@ export default function OptionsPage() {
   }, [symbol]);
 
   // ── Fetch straddle chart when ATM or interval changes ──────────────────
+  // Note: Standard high-frequency refresh (15s) is handled by the checkSpike effect below.
+  // This effect ensures we show the loading state on initial strike/interval change.
   useEffect(() => {
     if (!chainData?.atm || !chainData?.expiry) return;
     setStraddleLoading(true);
-    fetch(`/api/options/straddle-chart?symbol=${symbol}&expiry=${chainData.expiry}&strike=${chainData.atm}&interval=${straddleInterval}`)
-      .then(r => r.json())
-      .then(d => {
-        setStraddleResp(d);               // full response (candles+spot+vix+strike)
-        setStraddleData(d.candles || []); // keep for legacy commentary fn
-      })
-      .catch(() => { setStraddleResp(null); setStraddleData([]); })
-      .finally(() => setStraddleLoading(false));
+    // The actual fetch is handled by checkSpike() which runs on mount
   }, [chainData?.atm, chainData?.expiry, symbol, straddleInterval]);
 
-  // ── Straddle spike alert polling (every 60s, market hours only) ─────────────
+  // ── Straddle spike alert polling (every 15s, market hours only) ─────────────
   useEffect(() => {
     if (!chainData?.atm || !chainData?.expiry) return;
     let alive = true;
 
     const checkSpike = async () => {
-      // Only during market hours (IST 9:15–15:30)
+      // Fetch data — always do it, but only run alert logic during market hours
       const ist  = new Date(Date.now() + 5.5 * 3600 * 1000);
       const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
       const day  = ist.getUTCDay();
-      if (day === 0 || day === 6 || mins < 555 || mins > 930) return;
+      const isLive = !(day === 0 || day === 6 || mins < 555 || mins > 930);
 
       try {
         const r = await fetch(
@@ -2019,6 +2036,15 @@ export default function OptionsPage() {
         );
         const d = await r.json();
         if (!alive || !d.candles?.length) return;
+
+        // Update UI state with latest data
+        setStraddleResp(d);
+        setStraddleData(d.candles);
+        setStraddleLastUpdated(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        setStraddleLoading(false);
+
+        // Only run alert logic during market hours
+        if (!isLive) return;
 
         const candles = d.candles;
         const current = candles[candles.length - 1].value;
@@ -2067,9 +2093,9 @@ export default function OptionsPage() {
       } catch { /* silent */ }
     };
 
-    // Run immediately + every 60s
+    // Run immediately + every 15s (standard high-frequency refresh)
     checkSpike();
-    const iv = setInterval(checkSpike, 60_000);
+    const iv = setInterval(checkSpike, 15_000);
     return () => { alive = false; clearInterval(iv); clearTimeout(alertTimerRef.current); };
   }, [chainData?.atm, chainData?.expiry, symbol, straddleInterval]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2086,12 +2112,26 @@ export default function OptionsPage() {
     const ceS = parseInt(strikesInput.upper);
     const peS = parseInt(strikesInput.lower);
     if (!ceS || !peS) return;
+
+    const load = async () => {
+      try {
+        const r = await fetch(`/api/options/straddle-chart?symbol=${symbol}&expiry=${chainData.expiry}&ceStrike=${ceS}&peStrike=${peS}&interval=5minute`);
+        const d = await r.json();
+        setStrangleData(d.candles || []);
+        setStrangleLastUpdated(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        setStrangleLoading(false);
+      } catch {
+        setStrangleData([]);
+        setStrangleLoading(false);
+      }
+    };
+
     setStrangleLoading(true);
-    fetch(`/api/options/straddle-chart?symbol=${symbol}&expiry=${chainData.expiry}&ceStrike=${ceS}&peStrike=${peS}&interval=5minute`)
-      .then(r => r.json())
-      .then(d => { setStrangleData(d.candles || []); })
-      .catch(() => setStrangleData([]))
-      .finally(() => setStrangleLoading(false));
+    load();
+    const iv = setInterval(() => {
+      if (isMarketHours()) load();
+    }, 30_000);
+    return () => clearInterval(iv);
   }, [chainData?.expiry, symbol, strikesInput.lower, strikesInput.upper]);
 
   // ── Probability calculation ─────────────────────────────────────────────────
@@ -2272,11 +2312,16 @@ export default function OptionsPage() {
             ))}
           </div>
 
-          <button onClick={fetchChain}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[#0c1a2e] border border-white/10 text-slate-400 hover:text-white transition-colors"
-            disabled={loading}>
-            {loading ? '...' : '↻ Refresh'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => fetchChain()}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[#0c1a2e] border border-white/10 text-slate-400 hover:text-white transition-colors"
+              disabled={loading}>
+              {loading ? '...' : '↻ Refresh'}
+            </button>
+            {chainLastUpdated && (
+              <span className="text-[10px] text-slate-500 font-mono hidden sm:inline">Updated: {chainLastUpdated}</span>
+            )}
+          </div>
 
           <a href="/options/expiry"
             className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-600/20 border border-amber-500/30 text-amber-400 hover:bg-amber-600/30 hover:text-amber-300 transition-colors">
@@ -2402,6 +2447,11 @@ export default function OptionsPage() {
                     </button>
                   ))}
                 </div>
+                {((chartMode === 'straddle' && straddleLastUpdated) || (chartMode === 'strangle' && strangleLastUpdated)) && (
+                  <span className="text-[10px] text-slate-500 font-mono ml-2 animate-pulse-slow">
+                    Updated: {chartMode === 'straddle' ? straddleLastUpdated : strangleLastUpdated}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-slate-500 font-mono mr-1">
