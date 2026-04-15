@@ -57,7 +57,19 @@ export async function POST(req) {
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
+  // ── Paper mode safety gate ────────────────────────────────────────────────
   try {
+    const activeBroker = (await redis.get('tradingverse:active_broker')) || 'kite';
+    if (activeBroker === 'paper') {
+      return NextResponse.json({
+        error: '🧪 Paper mode is active — use the main order form which supports paper execution.',
+        paperMode: true,
+      }, { status: 403 });
+    }
+  } catch { /* if Redis fails, allow through */ }
+
+  try {
+
     const { symbol, price, optionType, qty } = await req.json();
 
     if (!symbol || !price || !['CE', 'PE'].includes(optionType)) {

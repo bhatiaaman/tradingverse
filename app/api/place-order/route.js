@@ -128,6 +128,19 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
+  // ── Safety gate: enforce server-side paper mode ────────────────────────────
+  // Paper mode is stored in Redis (tradingverse:active_broker = 'paper').
+  // If it is active, ALL orders MUST be paper — regardless of what the client sends.
+  // This prevents a client-side bug from ever firing a real Zerodha order while
+  // Paper Trading mode is enabled.
+  let activeBroker = 'kite';
+  try { activeBroker = (await redis.get('tradingverse:active_broker')) || 'kite'; } catch { /* default kite */ }
+  const isPaperMode = activeBroker === 'paper';
+
+  if (isPaperMode) {
+    body.paper = true; // force paper regardless of client flag
+  }
+
   // ── Paper trade branch — direct execution, no queue ───────────────────────
   if (body.paper) {
     try {
@@ -157,6 +170,7 @@ export async function POST(request) {
       return NextResponse.json({ error: e.message || 'Paper order failed' }, { status: e.status ?? 500 });
     }
   }
+
 
   // ── Real order — queue via VPS worker ─────────────────────────────────────
   let params, source;

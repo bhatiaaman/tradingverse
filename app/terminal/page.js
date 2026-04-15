@@ -1834,6 +1834,7 @@ function PlaceOrderTab({
   onSymbolSearch, onSymbolSelect, onPlaceOrder, onExecuteOrder, onRunIntel,
   onRunStructure, onRunPattern, onRunStation, onRunOI,
   regimeData, regimeLoading, stockContext,
+  isPaperMode,
 }) {
   const isNFO   = instrumentType === 'CE' || instrumentType === 'PE' || instrumentType === 'FUT';
   const isIndex = INDEX_SYMBOLS.includes(symbol);
@@ -2218,6 +2219,14 @@ function PlaceOrderTab({
           );
         })()}
 
+        {/* Paper mode banner */}
+        {isPaperMode && (
+          <div className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-amber-100 dark:bg-amber-500/15 border border-amber-300 dark:border-amber-500/30 mb-1">
+            <span className="text-xs">🧪</span>
+            <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Paper Mode — no real orders will be placed</span>
+          </div>
+        )}
+
         {/* Place Order button */}
         <button
           onClick={onPlaceOrder}
@@ -2225,14 +2234,18 @@ function PlaceOrderTab({
           className={`w-full py-3 rounded-xl text-sm font-bold transition-all ${
             !canPlace || !symbol
               ? 'bg-gray-200 dark:bg-white/5 text-gray-400 dark:text-white/25 cursor-not-allowed'
-              : transactionType === 'BUY'
-                ? 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/20'
-                : 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/20'
+              : isPaperMode
+                ? 'bg-amber-500 hover:bg-amber-400 text-white shadow-lg shadow-amber-900/20'
+                : transactionType === 'BUY'
+                  ? 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/20'
+                  : 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/20'
           }`}
         >
           {orderPlacing
             ? <span className="flex items-center justify-center gap-2"><Loader2 size={14} className="animate-spin" /> Placing...</span>
-            : `${transactionType} ${symbol || '---'}`
+            : isPaperMode
+              ? `🧪 PAPER ${transactionType} ${symbol || '---'}`
+              : `${transactionType} ${symbol || '---'}`
           }
         </button>
       </div>
@@ -2388,6 +2401,7 @@ export default function TerminalPage() {
   const isVisible = usePageVisibility();
 
   const [kiteConnected, setKiteConnected]   = useState(false);
+  const [isPaperMode, setIsPaperMode]       = useState(false);
   const [indices, setIndices]               = useState(null);
   const [user, setUser]                     = useState(null);
   const [regimeData, setRegimeData]         = useState({});   // { NIFTY: {...}, BANKNIFTY: {...} }
@@ -2525,9 +2539,16 @@ export default function TerminalPage() {
     return () => clearInterval(iv);
   }, [fetchScannerStocks]);
 
-  // ── Kite connection
+  // ── Kite connection + broker mode
   useEffect(() => {
     fetch('/api/kite-config').then(r => r.json()).then(d => setKiteConnected(d.tokenValid || false)).catch(() => {});
+    // Detect paper mode from provider-status (updates every 5s in TopBar already)
+    fetch('/api/provider-status').then(r => r.json()).then(d => setIsPaperMode(d?.broker === 'paper')).catch(() => {});
+    // Re-check every 10s so the button reflects mode changes quickly
+    const iv = setInterval(() => {
+      fetch('/api/provider-status').then(r => r.json()).then(d => setIsPaperMode(d?.broker === 'paper')).catch(() => {});
+    }, 10_000);
+    return () => clearInterval(iv);
   }, []);
 
   // ── Market indices
@@ -3194,7 +3215,9 @@ export default function TerminalPage() {
                 regimeData={regimeData} regimeLoading={regimeLoading}
                 stockContext={stockContext}
                 onQuickTrade={dir => setTransactionType(dir)}
+                isPaperMode={isPaperMode}
               />
+
             )}
           </div>
         </div>

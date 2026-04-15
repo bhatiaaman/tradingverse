@@ -90,6 +90,19 @@ export async function POST(req) {
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
+  // ── Paper mode safety gate ────────────────────────────────────────────────
+  // This route pushes real orders to the VPS queue. Block it entirely when
+  // Paper Trading mode is active so no real Kite orders are placed.
+  try {
+    const activeBroker = (await redis.get('tradingverse:active_broker')) || 'kite';
+    if (activeBroker === 'paper') {
+      return NextResponse.json({
+        error: '🧪 Paper mode is active — use the main order form which supports paper execution.',
+        paperMode: true,
+      }, { status: 403 });
+    }
+  } catch { /* if Redis fails, allow through — fail-safe */ }
+
   try {
     const body = await req.json();
     const {
