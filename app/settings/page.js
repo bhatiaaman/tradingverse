@@ -189,7 +189,18 @@ export default function SettingsPage() {
 
               {/* Paper Trading — click to enable; click again when active to disable */}
               <button
-                onClick={() => selectBroker(activeBroker === 'paper' ? 'kite' : 'paper')}
+                onClick={() => {
+                  if (activeBroker === 'paper') {
+                    // Don't switch back to Kite if Kite is disconnected
+                    if (!connected) {
+                      setBrokerError('Kite is disconnected — reconnect Kite first before disabling Paper mode.')
+                      return
+                    }
+                    selectBroker('kite')
+                  } else {
+                    selectBroker('paper')
+                  }
+                }}
                 disabled={selectingBroker}
                 className={`rounded-2xl p-5 text-left transition-all border-2 ${
                   activeBroker === 'paper'
@@ -207,9 +218,9 @@ export default function SettingsPage() {
                   ) : null}
                 </div>
                 {activeBroker === 'paper' ? (
-                  <div className="flex items-center gap-1.5 text-sm font-semibold text-rose-600 dark:text-rose-400">
-                    <span className="w-2 h-2 rounded-full bg-rose-500" />
-                    Tap to disconnect
+                  <div className={`flex items-center gap-1.5 text-sm font-semibold ${connected ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'}`}>
+                    <span className={`w-2 h-2 rounded-full ${connected ? 'bg-rose-500' : 'bg-slate-300 dark:bg-white/20'}`} />
+                    {connected ? 'Tap to disconnect' : 'Reconnect Kite first'}
                   </div>
                 ) : (
                   <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-400">
