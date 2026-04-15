@@ -33,9 +33,16 @@ export async function GET() {
       return NextResponse.json({ success: false, kiteError: data.message || 'Unknown Kite error', positions: [] });
     }
 
-    // Show all positions with a non-zero net quantity.
-    // The old filter (MIS || NFO) was dropping NRML futures and CNC equity positions.
-    const positions = (data.data.net || []).filter(p => (p.quantity || 0) !== 0);
+    // Show positions relevant to today's trading session:
+    //   MIS  → always intraday, show if non-zero net qty
+    //   NRML/CNC → could be old carry-forward; only show if Kite reports
+    //              activity today (day_buy_quantity or day_sell_quantity > 0)
+    const positions = (data.data.net || []).filter(p => {
+      if ((p.quantity || 0) === 0) return false;          // squared off / empty
+      if (p.product === 'MIS') return true;               // MIS = always intraday
+      const dayActivity = (p.day_buy_quantity || 0) + (p.day_sell_quantity || 0);
+      return dayActivity > 0;                              // NRML/CNC: today only
+    });
 
     if (positions.length === 0) {
       return NextResponse.json({ success: true, positions: [], livePrice: false });
