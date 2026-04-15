@@ -1379,15 +1379,6 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
   );
 }
 
-// Returns true if current IST time is within NSE market hours (Mon-Fri, 9:15-15:30)
-function isMarketHours() {
-  const now = new Date();
-  const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
-  const day = ist.getUTCDay(); // 0=Sun, 6=Sat
-  if (day === 0 || day === 6) return false;
-  const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-  return mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
-}
 
 // ── Rich Straddle Chart — multi-series dual Y-axis SVG chart ─────────────────
 const SERIES_CONFIG = [
