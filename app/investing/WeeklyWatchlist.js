@@ -39,6 +39,9 @@ export default function WeeklyWatchlist() {
   const [userStocks, setUserStocks] = useState('')
   const [copied, setCopied] = useState(false)
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false)
+  const [performanceData, setPerformanceData] = useState({})
+  const [isTrackerLoading, setIsTrackerLoading] = useState(false)
+  const [lastRefreshed, setLastRefreshed] = useState(null)
   const [editingSymbolIndex, setEditingSymbolIndex] = useState(null)
   const [tempSymbol, setTempSymbol] = useState('')
 
@@ -157,19 +160,59 @@ export default function WeeklyWatchlist() {
     if (!tempSymbol || tempSymbol.toUpperCase().trim() === oldSymbol) {
       setEditingSymbolIndex(null); return
     }
+    const cleanSym = tempSymbol.toUpperCase().replace(/[^A-Z0-9&-]/g, '');
     const updatedList = [...watchlistObj[activeTab]]
     const ogIndex = updatedList.findIndex(s => s.symbol === oldSymbol)
+    
     if (ogIndex !== -1) {
-      updatedList[ogIndex].symbol = tempSymbol.toUpperCase().replace(/[^A-Z0-9&-]/g, '')
+      updatedList[ogIndex].symbol = cleanSym
       setWatchlistObj(prev => ({ ...prev, [activeTab]: updatedList }))
-      fetch('/api/weekly-watchlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tab: activeTab, list: updatedList }),
-      })
+      try {
+        await fetch('/api/weekly-watchlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tab: activeTab, list: updatedList }),
+        })
+      } catch (err) {
+        console.error('Failed to save symbol edit:', err)
+      }
     }
     setEditingSymbolIndex(null)
   }
+
+  // ── Performance Tracker Fetcher ──────────────────────────────────────────────
+  const fetchPerformance = async (symbols) => {
+    if (!symbols?.length) return
+    setIsTrackerLoading(true)
+    try {
+      const res = await fetch(`/api/quotes?symbols=${symbols.join(',')}`)
+      const data = await res.json()
+      if (data.quotes) {
+        const mapped = {}
+        data.quotes.forEach(q => { mapped[q.symbol] = q })
+        setPerformanceData(mapped)
+        setLastRefreshed(new Date())
+      }
+    } catch (err) {
+      console.error('Performance fetch failed:', err)
+    } finally {
+      setIsTrackerLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    // Determine consolidated symbols for the tracker
+    const combined = [
+      ...watchlistObj.aiResearch,
+      ...watchlistObj.expertsResearch,
+      ...watchlistObj.chartink
+    ]
+    const uniqueSymbols = Array.from(new Set(combined.map(s => s.symbol))).slice(0, 20)
+    
+    if (uniqueSymbols.length > 0) {
+      fetchPerformance(uniqueSymbols)
+    }
+  }, [watchlistObj])
 
   if (loading) return null
 
@@ -374,9 +417,106 @@ export default function WeeklyWatchlist() {
     </div>
   )
 
+  const PerformanceSidebar = () => {
+    const combined = [
+      ...watchlistObj.aiResearch.map(s => ({ ...s, source: 'AI' })),
+      ...watchlistObj.expertsResearch.map(s => ({ ...s, source: 'Exp' })),
+      ...watchlistObj.chartink.map(s => ({ ...s, source: 'Chart' })),
+    ]
+    
+    // De-duplicate like in terminal API
+    const map = {}
+    for (const item of combined) {
+      const sym = item.symbol
+      if (!map[sym] || (item.confidenceScore || 0) > (map[sym].confidenceScore || 0)) {
+        map[sym] = item
+      }
+    }
+    const consol20 = Object.values(map)
+      .sort((a, b) => (b.confidenceScore || 0) - (a.confidenceScore || 0))
+      .slice(0, 20)
+
+    return (
+      <div className="bg-white dark:bg-[#0b101a] border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden flex flex-col h-fit sticky top-6">
+        <div className="px-4 py-3 bg-slate-50 dark:bg-[#0e1420] border-b border-slate-200 dark:border-white/10 flex items-center justify-between">
+          <div>
+            <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">
+              Weekly Tracker
+            </h3>
+            <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">ROI vs Fri Close</p>
+          </div>
+          <button 
+            onClick={() => fetchPerformance(consol20.map(s => s.symbol))}
+            disabled={isTrackerLoading}
+            className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50"
+          >
+            <svg className={`w-3.5 h-3.5 text-slate-500 ${isTrackerLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-0">
+          {consol20.length === 0 ? (
+            <div className="p-4 text-center text-[10px] text-slate-500 italic">No consolidated stocks yet.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/50 dark:bg-white/[0.02]">
+                    <th className="px-4 py-2 text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">Symbol</th>
+                    <th className="px-3 py-2 text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider text-right">ROI %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {consol20.map((s, idx) => {
+                    const quote = performanceData[s.symbol]
+                    const ref = s.referencePrice
+                    const roi = (quote?.ltp && ref) ? ((quote.ltp - ref) / ref) * 100 : null
+                    const isPositive = roi !== null ? roi >= 0 : null
+                    
+                    return (
+                      <tr key={s.symbol} className="border-b border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
+                        <td className="px-4 py-2.5">
+                          <div className="text-[11px] font-black text-slate-700 dark:text-slate-300">{s.symbol}</div>
+                          <div className="text-[9px] text-slate-400 dark:text-slate-500 font-mono">
+                            {ref ? `Ref: ${ref.toLocaleString('en-IN')}` : 'No Ref Price'}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          {roi !== null ? (
+                            <div className={`text-[11px] font-mono font-black ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
+                              {isPositive ? '▲' : '▼'} {roi.toFixed(2)}%
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-slate-400 dark:text-slate-600">---</div>
+                          )}
+                          <div className="text-[9px] font-mono text-slate-500">
+                            {quote?.ltp ? quote.ltp.toLocaleString('en-IN') : '--'}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        
+        {lastRefreshed && (
+          <div className="px-4 py-2 bg-slate-50 dark:bg-black/20 text-[8px] font-bold text-slate-400 uppercase tracking-tight text-center">
+            Updated {lastRefreshed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="w-full">
+    <div className="w-full flex flex-col lg:flex-row gap-8">
+      <div className="flex-1 min-w-0">
       <Link href="/investing" className="inline-flex items-center text-xs font-bold text-slate-500 hover:text-violet-600 dark:hover:text-violet-400 mb-4 transition-colors">
         <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" />
@@ -652,6 +792,13 @@ export default function WeeklyWatchlist() {
           </div>
         </div>
       )}
+
+      </div>
+
+      {/* Right Sidebar */}
+      <div className="w-full lg:w-[280px] flex-shrink-0">
+        <PerformanceSidebar />
+      </div>
     </div>
   )
 }

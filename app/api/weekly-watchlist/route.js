@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getDataProvider } from '@/app/lib/providers';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -67,16 +68,47 @@ export async function POST(request) {
     if (Array.isArray(currentData)) {
       currentData = { aiResearch: currentData, expertsResearch: [], chartink: [] };
     }
-    
     if (!currentData) {
       currentData = { aiResearch: [], expertsResearch: [], chartink: [] };
     }
+
+    // ── Build Ref Price Map ──────────────────────────────────────────────────
+    // Find stocks missing referencePrice
+    const missingRef = list.filter(s => !s.referencePrice && s.symbol);
+    const refPrices = {};
+
+    if (missingRef.length > 0) {
+      try {
+        const dp = await getDataProvider();
+        if (dp.isConnected()) {
+          const instrumentKeys = [...new Set(missingRef.map(s => `NSE:${s.symbol}`))];
+          const quotes = await dp.getOHLC(instrumentKeys);
+          Object.keys(quotes).forEach(key => {
+            const sym = key.split(':')[1];
+            refPrices[sym] = quotes[key].last_price;
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch reference prices:', err);
+      }
+    }
     
-    // Stamp dateAdded on any stock that doesn't already have it
-    const stampedList = list.map(s => ({
-      ...s,
-      dateAdded: s.dateAdded ?? new Date().toISOString(),
-    }));
+    // Stamp dateAdded and referencePrice
+    const stampedList = list.map(s => {
+      const existing = (currentData[tab] || []).find(ex => ex.symbol === s.symbol);
+      let refPrice = s.referencePrice || existing?.referencePrice;
+      
+      // If still missing and we have a fresh quote, use it
+      if (!refPrice && refPrices[s.symbol]) {
+        refPrice = refPrices[s.symbol];
+      }
+
+      return {
+        ...s,
+        dateAdded: s.dateAdded ?? existing?.dateAdded ?? new Date().toISOString(),
+        referencePrice: refPrice || null,
+      };
+    });
 
     // Update the specific tab entirely
     currentData[tab] = stampedList;

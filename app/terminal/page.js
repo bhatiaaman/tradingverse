@@ -830,20 +830,21 @@ function TopBar({ indices, kiteConnected, user, setUser, regimeData }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // WatchlistPanel — with 2 tabs
 // ─────────────────────────────────────────────────────────────────────────────
-function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSearch, setWatchSearch, watchSearchResults, watchSearching, onSymbolClick, onAddSymbol, onRemoveSymbol, activeSymbol, scannerStocks, scannerLastScan, movers }) {
+function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSearch, setWatchSearch, watchSearchResults, watchSearching, onSymbolClick, onAddSymbol, onRemoveSymbol, activeSymbol, scannerStocks, scannerLastScan, movers, weeklyStocks, fetchWeeklyStocks }) {
   const isScanner = watchTab === 'S';
   const isMovers  = watchTab === 'M';
+  const isWeekly  = watchTab === 'W';
   // Build scanName lookup for scanner tab
   const scannerMeta = isScanner
     ? Object.fromEntries(scannerStocks.map(s => [s.symbol, s]))
     : {};
 
   return (
-    <div className="w-screen md:w-[240px] flex-shrink-0 flex flex-col h-full bg-gray-50 dark:bg-slate-900/60 border-r border-gray-200 dark:border-white/10 overflow-hidden">
+    <div className="w-screen md:w-[265px] flex-shrink-0 flex flex-col h-full bg-gray-50 dark:bg-slate-900/60 border-r border-gray-200 dark:border-white/10 overflow-hidden">
 
       {/* Tab header */}
       <div className="flex border-b border-gray-200 dark:border-white/10 flex-shrink-0">
-        {[1, 2, 'S', 'M'].map(t => (
+        {[1, 2, 'S', 'W', 'M'].map(t => (
           <button
             key={t}
             onClick={() => setWatchTab(t)}
@@ -853,7 +854,7 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
                 : 'border-transparent text-gray-400 dark:text-white/30 hover:text-gray-600 dark:hover:text-white/60'
             }`}
           >
-            {t === 'S' ? 'Scanner' : t === 'M' ? 'Movers' : `List ${t}`}
+            {t === 'S' ? 'Scanner' : t === 'M' ? 'Movers' : t === 'W' ? 'Weekly' : `List ${t}`}
           </button>
         ))}
       </div>
@@ -909,6 +910,59 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
         </div>
       )}
 
+      {/* Weekly stocks tab */}
+      {isWeekly && (
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="px-3 py-1.5 border-b border-gray-100 dark:border-white/5 flex items-center justify-between bg-blue-500/5">
+            <span className="text-[10px] font-semibold text-blue-500 uppercase tracking-widest">Weekly Plan</span>
+            <button
+              onClick={() => fetchWeeklyStocks(true)}
+              disabled={weeklyStocks.loading}
+              className="p-1 hover:bg-blue-500/10 rounded transition-colors text-blue-500 disabled:opacity-50"
+              title="Sync with Weekly Watchlist Hub"
+            >
+              <RefreshCw size={12} className={weeklyStocks.loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto scrollbar-thin">
+            {weeklyStocks.loading && weeklyStocks.list.length === 0 ? (
+              <div className="p-2 space-y-1">
+                {[1,2,3,4,5].map(i => <div key={i} className="h-7 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}
+              </div>
+            ) : weeklyStocks.list.length === 0 ? (
+              <div className="p-4 text-center text-xs text-slate-500">
+                No weekly stocks found.
+              </div>
+            ) : (
+              weeklyStocks.list.map(s => {
+                const q = watchQuotes[s.symbol];
+                const isUp = q ? q.changePct >= 0 : null;
+                const isActive = s.symbol === activeSymbol;
+                return (
+                  <div
+                    key={s.symbol}
+                    className={`flex items-center justify-between px-3 py-2.5 border-b border-gray-100 dark:border-white/5 cursor-pointer hover:bg-gray-100 dark:hover:bg-white/5 transition-colors ${isActive ? 'bg-blue-50 dark:bg-blue-500/10 border-l-2 border-l-blue-500' : ''}`}
+                    onClick={() => onSymbolClick(s.symbol)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-gray-900 dark:text-white truncate">{s.symbol}</div>
+                    </div>
+                    <div className="text-right flex-shrink-0 ml-1">
+                      <div className={`text-xs font-mono font-semibold ${q === undefined ? 'text-gray-300 dark:text-white/25' : isUp ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {q === undefined ? '---' : `${isUp ? '+' : ''}${q.changePct?.toFixed(2)}%`}
+                      </div>
+                      <div className="text-[10px] font-mono text-gray-400 dark:text-white/30">
+                        {q?.ltp ? q.ltp.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '--'}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Scanner header info */}
       {isScanner && (
         <div className="px-3 py-1.5 border-b border-gray-100 dark:border-white/5 flex-shrink-0 flex items-center justify-between">
@@ -923,8 +977,8 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
         </div>
       )}
 
-      {/* Add symbol search — hidden for scanner + movers tabs */}
-      {!isScanner && !isMovers && (
+      {/* Add symbol search — hidden for scanner + movers + weekly tabs */}
+      {!isScanner && !isMovers && !isWeekly && (
         <div className="px-3 py-2 border-b border-gray-100 dark:border-white/5 flex-shrink-0 relative">
           <div className="flex items-center gap-2 bg-gray-200 dark:bg-slate-800 rounded-lg px-2.5 py-1.5">
             <Search size={12} className="text-gray-400 dark:text-white/30 flex-shrink-0" />
@@ -953,8 +1007,8 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
         </div>
       )}
 
-      {/* Symbol list — hidden on movers tab */}
-      {!isMovers && <div className="flex-1 overflow-y-auto scrollbar-thin">
+      {/* Symbol list — hidden on movers + weekly tabs */}
+      {!isMovers && !isWeekly && <div className="flex-1 overflow-y-auto scrollbar-thin">
         {watchlist.length === 0 ? (
           <p className="text-xs text-gray-400 dark:text-white/30 text-center p-4">
             {isScanner ? 'No Chartink alerts received yet.' : 'Search above to add symbols.'}
@@ -2436,6 +2490,8 @@ export default function TerminalPage() {
   const [watchSearchResults, setWatchSearchResults] = useState([]);
   const [watchSearching, setWatchSearching] = useState(false);
   const watchSearchTimer                    = useRef(null);
+  const [weeklyStocks, setWeeklyStocks]     = useState({ list: [], syncedAt: null, loading: true });
+
 
   // Tabs
   const [activeTab, setActiveTab]           = useState('placeOrder');
@@ -2508,8 +2564,8 @@ export default function TerminalPage() {
   // Derived — memoized so useEffect deps get stable references
   const scannerSymbols      = useMemo(() => scannerStocks.map(s => s.symbol), [scannerStocks]);
   const activeWatchlist     = useMemo(
-    () => watchTab === 'S' ? scannerSymbols : watchTab === 'M' ? [] : (watchTab === 1 ? watchlist1 : watchlist2),
-    [watchTab, scannerSymbols, watchlist1, watchlist2]
+    () => watchTab === 'S' ? scannerSymbols : (watchTab === 'W' ? weeklyStocks.list.map(s => s.symbol) : (watchTab === 'M' ? [] : (watchTab === 1 ? watchlist1 : watchlist2))),
+    [watchTab, scannerSymbols, watchlist1, watchlist2, weeklyStocks.list]
   );
   const setActiveWatchlist  = watchTab === 1 ? setWatchlist1 : setWatchlist2;
   const activeWatchlistKey  = watchTab === 1 ? 'bv-watchlist-1' : watchTab === 2 ? 'bv-watchlist-2' : null;
@@ -2552,6 +2608,26 @@ export default function TerminalPage() {
     const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchScannerStocks(); }, 5 * 60_000); // 5 min — matches Chartink scan frequency
     return () => clearInterval(iv);
   }, [fetchScannerStocks]);
+
+  // ── Weekly stocks (Monday snapshot)
+  const fetchWeeklyStocks = useCallback(async (isSync = false) => {
+    setWeeklyStocks(prev => ({ ...prev, loading: true }));
+    try {
+      const url = isSync ? '/api/weekly-watchlist/terminal' : '/api/weekly-watchlist/terminal';
+      const method = isSync ? 'POST' : 'GET';
+      const response = await fetch(url, { method });
+      const data = await response.json();
+      if (data.list) {
+        setWeeklyStocks({ list: data.list, syncedAt: data.syncedAt, loading: false });
+      }
+    } catch {
+      setWeeklyStocks(prev => ({ ...prev, loading: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchWeeklyStocks();
+  }, [fetchWeeklyStocks]);
 
   // ── Kite connection + broker mode
   useEffect(() => {
@@ -3177,6 +3253,8 @@ export default function TerminalPage() {
             scannerStocks={scannerStocks}
             scannerLastScan={scannerLastScan}
             movers={movers}
+            weeklyStocks={weeklyStocks}
+            fetchWeeklyStocks={fetchWeeklyStocks}
           />
         </div>
 
