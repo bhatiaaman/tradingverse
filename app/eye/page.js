@@ -397,11 +397,13 @@ function getNiftyLevelAlerts(indices) {
       return () => clearInterval(interval);
     }, [chartSymbol, chartInterval]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // ── 10s live tick polling ─────────────────────────────────────────────────
+    // ── 15s live tick polling ─────────────────────────────────────────────────
     // Updates spot LTP on the live card — lightweight, no scan.
+    // Slowed from 10s and guarded by visibility — /api/quotes is shared with
+    // the chart LTP tick, so reducing concurrent callers cuts Kite API pressure.
     useEffect(() => {
       const runTick = async () => {
-        if (!isMarketHours()) return;
+        if (!isMarketHours() || !isVisibleRef.current) return;
         try {
           const res  = await fetch(`/api/third-eye/tick?symbol=${chartSymbol}`);
           if (!res.ok) return;
@@ -410,7 +412,7 @@ function getNiftyLevelAlerts(indices) {
         } catch { /* silent */ }
       };
       runTick();
-      const iv = setInterval(runTick, 10_000);
+      const iv = setInterval(runTick, 15_000);
       return () => clearInterval(iv);
     }, [chartSymbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -560,7 +562,8 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       checkKiteAuth();
-      const pollInterval = setInterval(checkKiteAuth, 5000);
+      // 60s is sufficient — Kite token is valid all day; window message handles instant transitions
+      const pollInterval = setInterval(checkKiteAuth, 60_000);
       const handleMessage = (event) => {
         if (event.data?.type === 'KITE_LOGIN_SUCCESS' || event.data?.type === 'KITE_LOGOUT_SUCCESS') {
           checkKiteAuth();
@@ -589,7 +592,7 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       fetchMarketData();
-      const interval = setInterval(() => { if (isMarketHours()) fetchMarketData(); }, 60000);
+      const interval = setInterval(() => { if (isMarketHours() && isVisibleRef.current) fetchMarketData(); }, 60000);
       return () => clearInterval(interval);
     }, []);
 
@@ -657,11 +660,14 @@ function getNiftyLevelAlerts(indices) {
       return () => window.removeEventListener('keydown', onKey);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Live LTP tick — update last chart candle every 5s (intraday only)
+    // Live LTP tick — update last chart candle every 10s (intraday only)
+    // Slowed from 5s: reduces /api/quotes load when multiple tabs are open.
+    // Skips when tab is hidden — no point updating a chart nobody is watching.
     useEffect(() => {
       const intraday = chartInterval === '5minute' || chartInterval === '15minute';
       if (!intraday) return;
       const tick = async () => {
+        if (!isVisibleRef.current) return; // skip when tab is in background
         try {
           const res  = await fetch(`/api/quotes?symbols=${chartSymbol}`);
           const data = await res.json();
@@ -669,7 +675,7 @@ function getNiftyLevelAlerts(indices) {
           if (ltp && customChartRef.current) customChartRef.current.updateTick(ltp);
         } catch { /* ignore */ }
       };
-      const id = setInterval(tick, 5000);
+      const id = setInterval(tick, 10_000);
       return () => clearInterval(id);
     }, [chartSymbol, chartInterval]); // eslint-disable-line react-hooks/exhaustive-deps
 

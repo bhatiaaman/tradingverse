@@ -318,18 +318,10 @@ function getNiftyLevelAlerts(indices) {
     const prevCommentaryRef = useRef(null);
     const soundEnabledRef   = useRef(false); // only alert after first load
 
-    // Trigger instant refresh of commentary when tab is resumed
+    // Note: market-regime is fetched by the commentary polling loop every 60s —
+    // no need for a separate call here on visibility change.
     useEffect(() => {
-      if (isVisible && isMarketHours()) {
-        const fetchRegime = async () => {
-          try {
-            const r = await fetch('/api/market-regime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: 'NIFTY', type: 'intraday' }) });
-            const d = await r.json();
-            if (d.regime && d.regime !== 'INITIALIZING' && !d.error) setNiftyRegime(d);
-          } catch {}
-        };
-        fetchRegime();
-      }
+      // placeholder kept for future per-tab resume logic
     }, [isVisible]);
 
     // Key levels bar — follows chartSymbol
@@ -411,7 +403,8 @@ function getNiftyLevelAlerts(indices) {
         }
       };
       checkKiteAuth();
-      const pollInterval = setInterval(checkKiteAuth, 5000);
+      // 60s is sufficient — Kite token is valid all day; window message handles instant transitions
+      const pollInterval = setInterval(checkKiteAuth, 60_000);
       const handleMessage = (event) => {
         if (event.data?.type === 'KITE_LOGIN_SUCCESS' || event.data?.type === 'KITE_LOGOUT_SUCCESS') {
           checkKiteAuth();
@@ -526,11 +519,13 @@ function getNiftyLevelAlerts(indices) {
       return () => window.removeEventListener('keydown', onKey);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Live LTP tick — update last chart candle every 5s (intraday only)
+    // Live LTP tick — update last chart candle every 10s (intraday only)
+    // Slowed from 5s and guarded by visibility to reduce /api/quotes pressure.
     useEffect(() => {
       const intraday = chartInterval === '5minute' || chartInterval === '15minute';
       if (!intraday) return;
       const tick = async () => {
+        if (!isVisibleRef.current) return; // skip when tab is in background
         try {
           const res  = await fetch(`/api/quotes?symbols=${chartSymbol}`);
           const data = await res.json();
@@ -538,7 +533,7 @@ function getNiftyLevelAlerts(indices) {
           if (ltp && customChartRef.current) customChartRef.current.updateTick(ltp);
         } catch { /* ignore */ }
       };
-      const id = setInterval(tick, 5000);
+      const id = setInterval(tick, 10_000);
       return () => clearInterval(id);
     }, [chartSymbol, chartInterval]); // eslint-disable-line react-hooks/exhaustive-deps
 

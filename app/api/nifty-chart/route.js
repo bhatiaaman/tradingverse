@@ -77,7 +77,7 @@ const INTERVALS = {
   'week':     'week',
 };
 
-const CACHE_TTL = 60;
+const CACHE_TTL = 90; // 90s > scan interval (30s), so every scan poll hits cache
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
