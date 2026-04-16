@@ -684,6 +684,8 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
   const niftyChangePct    = parseFloat(marketData.indices?.niftyChangePercent    ?? 0) || null;
   const bankNiftyChangePct = parseFloat(marketData.indices?.bankNiftyChangePercent ?? 0) || null;
   const bankRelStrength   = computeBankRelStrength(niftyChangePct, bankNiftyChangePct);
+  const isGapUp           = niftyChangePct != null && niftyChangePct > 0.4;
+  const isGapDown         = niftyChangePct != null && niftyChangePct < -0.4;
 
   const pcr         = optionChain?.pcr         || null;
   const oiSupport   = optionChain?.support     || null;
@@ -771,10 +773,14 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
     if (tradingImplication.includes('buy') || tradingImplication.includes('long') || tradingImplication.includes('longs')) {
       if (intradayBias === 'Bullish') { bias = 'BULLISH'; biasEmoji = '🟢'; }
     } else if (tradingImplication.includes('sell') || tradingImplication.includes('short') || tradingImplication.includes('shorts')) {
-      if (intradayBias === 'Bearish') { bias = 'BEARISH'; biasEmoji = '🔴'; }
+      if (intradayBias === 'Bearish') { 
+        // During a gap up, don't jump to Bearish bias just based on minor OI implications
+        bias = isGapUp ? 'NEUTRAL' : 'BEARISH';
+        biasEmoji = isGapUp ? '🟡' : '🔴'; 
+      }
     } else if (intradayBias && dailyBiasVal && intradayBias === dailyBiasVal) {
       if (intradayBias === 'Bullish') { bias = 'BULLISH'; biasEmoji = '🟢'; }
-      else                           { bias = 'BEARISH'; biasEmoji = '🔴'; }
+      else                           { bias = isGapUp ? 'NEUTRAL' : 'BEARISH'; biasEmoji = isGapUp ? '🟡' : '🔴'; }
     }
   }
 
@@ -848,8 +854,8 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
     spot, vwap, ema9, ema21, rsi, change5min, volumeRatio,
     trendDirection: intraday?.trendDirection || 'NEUTRAL',
     support, resistance, maxPain, pcr,
-    priceStructure, levelAnalysis, hasConflicts,
     niftyHigh, bankRelStrength,
+    niftyChangePct, isGapUp, isGapDown,
   };
   const narr = synthesizeNarrative(narrativeCtx);
 
@@ -896,7 +902,6 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
 // CEREBRUM — synthesizes all market signals into one coherent narrative
 // Observes → interprets → names the setup → states the trade
 // Priority: Regime > Reversal > Setup detection > OI > Structure
-// ─────────────────────────────────────────────────────────────────────
 function synthesizeNarrative({
   regimeType, regimeConf, regimeSignals,
   reversalResult, oiActivity, marketActivity,
@@ -904,6 +909,7 @@ function synthesizeNarrative({
   support, resistance, pcr,
   priceStructure, levelAnalysis,
   niftyHigh, bankRelStrength,
+  niftyChangePct, isGapUp, isGapDown,
 }) {
   const oiAct     = marketActivity?.activity || null;
   const aboveVwap = vwap  && spot > vwap;
@@ -1068,13 +1074,21 @@ function synthesizeNarrative({
   }
 
   if (atSup) {
-    // Only BEARISH if spot is clearly below VWAP (not just marginally — e.g. first candle of day, VWAP ≈ spot)
+    // Only BEARISH if spot is clearly below VWAP AND not a gap-up day
     const clearlyBelowVwap = !aboveVwap && !nearVwap;
-    const dir  = (rsiOS || oiAct === 'Long Buildup') ? 'NEUTRAL' : clearlyBelowVwap ? 'BEARISH' : 'NEUTRAL';
+    let biasVal = clearlyBelowVwap ? 'BEARISH' : 'NEUTRAL';
+    let state   = 'AT SUPPORT';
+
+    if (isGapUp && clearlyBelowVwap) {
+      biasVal = 'BULLISH'; // Call it a "Bullish Pullback" instead of Bearish Trend
+      state   = 'BULLISH PULLBACK';
+    }
+
+    const dir  = (rsiOS || oiAct === 'Long Buildup') ? 'NEUTRAL' : biasVal;
     const holding = change5min >= 0;
     const headline = `Testing support ${R(support)}${!aboveVwap ? ', below VWAP' : ''}${rsiOS ? ', RSI oversold' : ''}`;
     const action = `${oiAct === 'Long Buildup' ? 'Put writing building a floor here. ' : oiAct === 'Short Buildup' ? 'Call writers active — bears not giving up at this level. ' : ''}${rsiNote('BULLISH')}${volNote} ${holding ? 'Holding so far.' : 'Still under pressure.'} Hold = bounce to ${R(parseFloat(support) + 60)}. Break = ${R(parseFloat(support) - 80)}.`;
-    return { state: 'AT SUPPORT', stateEmoji: '🛡️', bias: dir, headline, action, keyLevel: R(support) };
+    return { state: state, stateEmoji: '🛡️', bias: dir, headline, action, keyLevel: R(support) };
   }
 
   // ════════════════════════════════════════════════════════════════
