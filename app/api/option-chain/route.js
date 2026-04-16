@@ -185,6 +185,41 @@ async function getNFOInstruments(dp) {
   return options;
 }
 
+// ── Resolve near-month futures { ts, token } ──────────────────────────────────
+async function resolveFutSymbol(dp, underlying) {
+  const cacheKey = `${NS}:sc-fut-sym:${underlying}`;
+  const cached   = await redisGet(cacheKey);
+  if (cached) return cached;
+
+  const csvText = await dp.getNFOInstrumentsCSV();
+  const lines   = csvText.trim().split('\n');
+  const headers = lines[0].split(',');
+
+  const tsIdx     = headers.indexOf('tradingsymbol');
+  const nameIdx   = headers.indexOf('name');
+  const typeIdx   = headers.indexOf('instrument_type');
+  const expiryIdx = headers.indexOf('expiry');
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+
+  let best = null;
+  for (let i = 1; i < lines.length; i++) {
+    const cols   = lines[i].split(',');
+    const name   = cols[nameIdx]?.replace(/"/g, '').trim();
+    const type   = cols[typeIdx]?.replace(/"/g, '').trim();
+    const expiry = cols[expiryIdx]?.replace(/"/g, '').trim();
+    if (name !== underlying || type !== 'FUT' || !expiry) continue;
+    const expiryDate = new Date(expiry);
+    if (expiryDate < today) continue;
+    if (!best || expiryDate < new Date(best.expiry)) {
+      best = { ts: cols[tsIdx]?.replace(/"/g, '').trim(), expiry };
+    }
+  }
+  if (!best?.ts) return null;
+  await redisSet(cacheKey, best, 6 * 3600);
+  return best;
+}
+
 function getExpiries(options, underlyingName) {
   const underlyingOptions = options.filter(o => o.name === underlyingName);
   const today = new Date();
@@ -237,13 +272,23 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Kite API not configured', pcr: null, maxPain: null, support: null, resistance: null });
     }
 
-    const [spotData, allOptions] = await Promise.all([
+    const [spotData, allOptions, futSym] = await Promise.all([
       dp.getOHLC([`NSE:${config.spotSymbol}`]),
       getNFOInstruments(dp),
+      resolveFutSymbol(dp, underlying),
     ]);
     const spotPrice = spotData[`NSE:${config.spotSymbol}`]?.last_price;
     if (!spotPrice) throw new Error(`Could not fetch ${underlying} spot price`);
     const spot = spotPrice;
+
+    // Fetch Futures OI if available
+    let futOI = null;
+    if (futSym?.ts) {
+      try {
+        const futQ = await dp.getQuote([`NFO:${futSym.ts}`]);
+        futOI = futQ[`NFO:${futSym.ts}`]?.oi || null;
+      } catch (e) { console.error('Futures OI fetch error:', e); }
+    }
     const expiries      = getExpiries(allOptions, config.name);
     const selectedExpiry = expiryType === 'monthly' ? expiries.monthly : expiries.weekly;
 
@@ -341,39 +386,55 @@ export async function GET(request) {
       };
     } else {
       const recentKey = `${NS}:session-recent-${underlying}-${expiryType}`;
-      const snapshot = { totalCallOI, totalPutOI, spot: spotPrice };
+      const snapshot = { totalCallOI, totalPutOI, spot: spotPrice, futOI };
 
-      // Session-open baseline — captured once at 9:15, never overwritten
+      // Session-open baseline — captured once at 9:15
       let sessionOpen = await redisGet(sessionKey);
       if (!sessionOpen) {
         sessionOpen = snapshot;
         await redisSet(sessionKey, sessionOpen, 8 * 3600);
       }
 
-      // Rolling 15-min snapshot — what's happening RIGHT NOW vs 15 min ago.
-      // Only write if no baseline exists (key expired after 15 min or session start).
-      // This way recentSnap truly represents "OI 15 minutes ago", not "OI 60s ago".
+      // Rolling 15-min snapshot — what's happening RIGHT NOW
       let recentSnap = await redisGet(recentKey);
       if (!recentSnap) {
         await redisSet(recentKey, snapshot, 15 * 60);
-        // No prior 15-min baseline yet — fall through to session-open comparison below
       }
 
       const hasOpen   = sessionOpen?.totalCallOI !== undefined;
       const hasRecent = recentSnap?.totalCallOI  !== undefined;
 
       if (hasRecent) {
-        // Primary: recent 15-min window — always use this once data exists.
-        // Do NOT fall back to since-open when flat: session-open data can be stale
-        // (e.g. Short Buildup at open, Long Buildup now → since-open would still
-        // show Short Buildup, misleading the user about the current condition).
+        // Calculate Futures delta if available
+        const futDelta = (futOI != null && recentSnap.futOI != null && recentSnap.futOI > 0)
+          ? ((futOI - recentSnap.futOI) / recentSnap.futOI) * 100 : 0;
+
+        // Primary: 15-min activity
         marketActivity = detectMarketActivity(
           snapshot,
           { totalCallOI: recentSnap.totalCallOI, totalPutOI: recentSnap.totalPutOI, spot: recentSnap.spot },
-          false
+          false,
+          futDelta
         );
+
+        // STICKY TREND LOGIC: If recent activity is neutral/conservative but session-long trend is huge (>0.75%),
+        // upgrade the activity to reflect the broader trend.
+        const dayPriceChangePct = ((spotPrice - sessionOpen.spot) / sessionOpen.spot) * 100;
+        if (marketActivity.activity === 'Consolidation' && Math.abs(dayPriceChangePct) > 0.75) {
+          const sessionActivity = detectMarketActivity(
+            snapshot,
+            { totalCallOI: sessionOpen.totalCallOI, totalPutOI: sessionOpen.totalPutOI, spot: sessionOpen.spot },
+            true
+          );
+          if (sessionActivity.activity !== 'Consolidation') {
+            marketActivity = {
+              ...sessionActivity,
+              activity: `${sessionActivity.activity} (Session Trend)`,
+              description: `Last 15m quiet but session trend is ${sessionActivity.activity}. ${sessionActivity.description}`,
+            };
+          }
+        }
       } else if (hasOpen) {
-        // No 15-min data yet (first ~15 min of session) — since-open is the only baseline
         marketActivity = detectMarketActivity(
           snapshot,
           { totalCallOI: sessionOpen.totalCallOI, totalPutOI: sessionOpen.totalPutOI, spot: sessionOpen.spot },

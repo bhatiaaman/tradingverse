@@ -12,6 +12,7 @@
   import ShortCoveringBanner from './components/ShortCoveringBanner';
   import PositionConflictBanner from './components/PositionConflictBanner';
   import ThirdEyePanel from './components/ThirdEyePanel';
+  import { usePageVisibility } from '@/app/hooks/usePageVisibility';
 
   // ── Determine directional bias of an open position ────────────────────────
   // Options: short PE = bullish, short CE = bearish, long PE = bearish, long CE = bullish
@@ -164,6 +165,10 @@ function getNiftyLevelAlerts(indices) {
   };
 
   export default function EyePage() {
+    const isVisible = usePageVisibility();
+    const isVisibleRef = useRef(isVisible);
+    useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
+
     const [marketData, setMarketData] = useState(null);
     const [sectorData, setSectorData] = useState([]);
     const [sectorError, setSectorError] = useState('');

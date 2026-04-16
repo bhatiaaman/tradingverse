@@ -8,36 +8,53 @@
  * @param {Object} previous - Previous data { totalCallOI, totalPutOI, spot }
  * @returns {Object} - { activity, strength, description, actionable }
  */
-export function detectMarketActivity(current, previous, sinceOpen = false) {
+/**
+ * Detect market activity based on OI change and price movement
+ * Incorporates CE/PE divergence and optional Futures OI trend.
+ * @param {Object} current - Current data { totalCallOI, totalPutOI, spot }
+ * @param {Object} previous - Previous data { totalCallOI, totalPutOI, spot }
+ * @param {Boolean} sinceOpen - Is this comparison against session-open baseline?
+ * @param {Number} futOIChangePct - Change in Futures OI (optional)
+ * @returns {Object} - { activity, strength, description, actionable, emoji }
+ */
+export function detectMarketActivity(current, previous, sinceOpen = false, futOIChangePct = 0) {
   if (!previous || !current) {
     return { activity: 'Unknown', strength: 0, description: 'Insufficient data', actionable: '', emoji: '⏳' };
   }
   const ctx = sinceOpen ? 'since open' : 'recent';
 
-  // Calculate changes
-  const callOIChange = current.totalCallOI - previous.totalCallOI;
-  const putOIChange = current.totalPutOI - previous.totalPutOI;
-  const totalOIChange = callOIChange + putOIChange;
-  const priceChange = current.spot - previous.spot;
-
-  const callOIChangePct = previous.totalCallOI > 0 ? (callOIChange / previous.totalCallOI) * 100 : 0;
-  const putOIChangePct = previous.totalPutOI > 0 ? (putOIChange / previous.totalPutOI) * 100 : 0;
+  // 1. Core Deltas
+  const callOIChangePct = previous.totalCallOI > 0 ? ((current.totalCallOI - previous.totalCallOI) / previous.totalCallOI) * 100 : 0;
+  const putOIChangePct  = previous.totalPutOI > 0  ? ((current.totalPutOI - previous.totalPutOI) / previous.totalPutOI) * 100 : 0;
   const totalOIChangePct = (previous.totalCallOI + previous.totalPutOI) > 0 
-    ? (totalOIChange / (previous.totalCallOI + previous.totalPutOI)) * 100 : 0;
-  const priceChangePct = previous.spot > 0 ? (priceChange / previous.spot) * 100 : 0;
+    ? ((current.totalCallOI + current.totalPutOI - (previous.totalCallOI + previous.totalPutOI)) / (previous.totalCallOI + previous.totalPutOI)) * 100 
+    : 0;
+  const priceChangePct  = previous.spot > 0 ? ((current.spot - previous.spot) / previous.spot) * 100 : 0;
 
-  // Thresholds
-  const significantOI = Math.abs(totalOIChangePct) > 2; // 2% OI change
-  const significantPrice = Math.abs(priceChangePct) > 0.3; // 0.3% price change
+  // 2. Thresholds (Lowered for better sensitivity)
+  const isTrendingPrice = Math.abs(priceChangePct) >= 0.1; // 0.1% move is enough to confirm direction
+  const isTrendingOI    = Math.abs(totalOIChangePct) >= 1 || Math.abs(callOIChangePct) >= 1.5 || Math.abs(putOIChangePct) >= 1.5;
+  const isFutSignal     = Math.abs(futOIChangePct) >= 1;
 
-  // Determine activity
+  // 3. Directional Classification (Divergence Logic)
   let activity = 'Neutral';
-  let strength = 0; // 0-10
+  let strength = 0;
   let description = '';
   let actionable = '';
   let emoji = '➡️';
 
-  if (!significantOI && !significantPrice) {
+  // Bearish Components
+  const isCallBuildup   = priceChangePct < 0 && callOIChangePct > 0.8;    // Price down, Calls added
+  const isPutUnwinding  = priceChangePct < 0 && putOIChangePct < -0.8;   // Price down, Puts exiting
+  const isFutShorting   = priceChangePct < 0 && futOIChangePct > 0.8;    // Price down, Futures added
+
+  // Bullish Components
+  const isPutBuildup    = priceChangePct > 0 && putOIChangePct > 0.8;     // Price up, Puts added
+  const isCallUnwinding = priceChangePct > 0 && callOIChangePct < -0.8;  // Price up, Calls exiting
+  const isFutLonging    = priceChangePct > 0 && futOIChangePct > 0.8;    // Price up, Futures added
+
+  // Fallback for Consolidation
+  if (!isTrendingPrice && !isTrendingOI && !isFutSignal) {
     return {
       activity: 'Consolidation',
       strength: 2,
@@ -47,94 +64,42 @@ export function detectMarketActivity(current, previous, sinceOpen = false) {
     };
   }
 
-  // ── OI building but price flat: premium writing / range formation (not directional) ──
-  // Both Long Buildup and Short Buildup require CONFIRMED price movement.
-  // If only OI is growing with flat price, it's option writers selling premium (straddles/strangles) — not a directional bet.
-  if (significantOI && !significantPrice) {
-    const net = callOIChangePct - putOIChangePct;
-    const leg = Math.abs(net) > 1.5
-      ? (net > 0 ? `Call OI growing faster (+${callOIChangePct.toFixed(1)}%) — call writing active` : `Put OI growing faster (+${putOIChangePct.toFixed(1)}%) — put writing active`)
-      : `Both legs growing (+${callOIChangePct.toFixed(1)}% CE, +${putOIChangePct.toFixed(1)}% PE) — premium writing`;
-    return {
-      activity: 'Range Formation',
-      strength: 3,
-      description: `OI building with price flat ${ctx} — ${leg}. Price ${priceChangePct > 0 ? '+' : ''}${priceChangePct.toFixed(2)}%`,
-      actionable: 'No directional edge — option writers are active, price needs to move to confirm direction',
-      emoji: '↔️',
-    };
+  // 4. Activity Synthesizer
+  if (isCallBuildup || isPutUnwinding || isFutShorting) {
+    const buildup = isCallBuildup && isPutUnwinding ? 'Short Buildup & Unwinding' : isCallBuildup ? 'Short Buildup' : 'Long Unwinding';
+    activity    = buildup;
+    strength    = Math.min(10, Math.round((Math.abs(priceChangePct) * 10) + Math.abs(totalOIChangePct) * 2));
+    if (isFutShorting) strength += 2; // Futures confirmation bonus
+    emoji       = '📉';
+    description = `${activity} ${ctx} — Call OI ${callOIChangePct > 0 ? '+' : ''}${callOIChangePct.toFixed(1)}%, Put OI ${putOIChangePct.toFixed(1)}%, price ${priceChangePct.toFixed(2)}%`;
+    actionable  = strength > 7 ? 'Strong bearish move — avoid aggressive longs' : 'Bears dominant — watch for continuation on support break';
+  } 
+  else if (isPutBuildup || isCallUnwinding || isFutLonging) {
+    const buildup = isPutBuildup && isCallUnwinding ? 'Long Buildup & Covering' : isPutBuildup ? 'Long Buildup' : 'Short Covering';
+    activity    = buildup;
+    strength    = Math.min(10, Math.round((priceChangePct * 10) + Math.abs(totalOIChangePct) * 2));
+    if (isFutLonging) strength += 2; // Futures confirmation bonus
+    emoji       = '🚀';
+    description = `${activity} ${ctx} — Put OI ${putOIChangePct > 0 ? '+' : ''}${putOIChangePct.toFixed(1)}%, Call OI ${callOIChangePct.toFixed(1)}%, price +${priceChangePct.toFixed(2)}%`;
+    actionable  = strength > 7 ? 'Strong bullish momentum — stay with the trend' : 'Bulls in control — supports likely to hold on dips';
+  }
+  else if (isTrendingPrice) {
+    // Price moving but OI hasn't caught up or is conflicting
+    const dir   = priceChangePct > 0 ? 'Up' : 'Down';
+    activity    = `Price ${dir} Drift`;
+    strength    = 3;
+    emoji       = priceChangePct > 0 ? '📈' : '📉';
+    description = `Price moving ${dir} (${priceChangePct.toFixed(2)}%) but OI ${ctx} remains neutral or conflicting.`;
+    actionable  = 'Weak conviction move — wait for OI confirmation before large bets';
+  } else {
+    activity    = 'Range Formation';
+    strength    = 3;
+    emoji       = '↔️';
+    description = `OI shifting while price remains stalled. Call OI ${callOIChangePct.toFixed(1)}%, Put OI ${putOIChangePct.toFixed(1)}%`;
+    actionable  = 'Option writers active — price needs to move to reveal actual trend';
   }
 
-  // ── Long Buildup: Price ↑ + OI ↑ (Bullish) ──
-  if (priceChange > 0 && totalOIChange > 0) {
-    activity = 'Long Buildup';
-    strength = Math.min(10, Math.round((priceChangePct + totalOIChangePct) * 1.5));
-    emoji = '🚀';
-    // Show both OI legs — avoids "which one is growing faster" confusion on re-reads
-    const dominant = callOIChangePct >= putOIChangePct ? 'call buyers' : 'put writers';
-    description = `Fresh longs ${ctx} (${dominant}) — Call OI +${callOIChangePct.toFixed(1)}%, Put OI +${putOIChangePct.toFixed(1)}%, price +${priceChangePct.toFixed(2)}%`;
-    actionable = strength > 6
-      ? 'Strong bullish setup — consider longs on dips'
-      : callOIChangePct >= putOIChangePct
-        ? 'Moderate buying — watch for continuation'
-        : 'Bulls defending levels — supports forming';
-  }
-
-  // ── Short Buildup: Price ↓ + OI ↑ (Bearish) ──
-  else if (priceChange < 0 && totalOIChange > 0) {
-    activity = 'Short Buildup';
-    strength = Math.min(10, Math.round((Math.abs(priceChangePct) + totalOIChangePct) * 1.5));
-    emoji = '📉';
-    // Show both OI legs — avoids confusion when call OI or put OI dominates on different refreshes
-    const dominant = putOIChangePct >= callOIChangePct ? 'put buyers' : 'call writers';
-    description = `Fresh shorts ${ctx} (${dominant}) — Put OI +${putOIChangePct.toFixed(1)}%, Call OI +${callOIChangePct.toFixed(1)}%, price ${priceChangePct.toFixed(2)}%`;
-    actionable = strength > 6
-      ? 'Strong bearish setup — consider shorts on rallies'
-      : putOIChangePct >= callOIChangePct
-        ? 'Moderate selling — watch for breakdown'
-        : 'Bears capping rallies — resistance forming';
-  }
-
-  // ── Long Unwinding: Price ↓ + OI ↓ (Bearish) ──
-  else if (priceChange < 0 && totalOIChange < 0) {
-    activity = 'Long Unwinding';
-    strength = Math.min(10, Math.round((Math.abs(priceChangePct) + Math.abs(totalOIChangePct)) * 1.5));
-    emoji = '😰';
-    const dominant = Math.abs(callOIChangePct) >= Math.abs(putOIChangePct) ? 'call longs' : 'put longs';
-    description = `Longs exiting ${ctx} (${dominant}) — Call OI ${callOIChangePct.toFixed(1)}%, Put OI ${putOIChangePct.toFixed(1)}%, price ${priceChangePct.toFixed(2)}%`;
-    actionable = strength > 6
-      ? 'Heavy unwinding — avoid longs, wait for stabilisation'
-      : Math.abs(callOIChangePct) >= Math.abs(putOIChangePct)
-        ? 'Profit booking — supports may hold'
-        : 'Bears losing conviction but price weak — stay cautious';
-  }
-
-  // ── Short Covering: Price ↑ + OI ↓ (Bullish) ──
-  else if (priceChange > 0 && totalOIChange < 0) {
-    activity = 'Short Covering';
-    strength = Math.min(10, Math.round((priceChangePct + Math.abs(totalOIChangePct)) * 1.5));
-    emoji = '🎯';
-
-    if (Math.abs(putOIChangePct) > Math.abs(callOIChangePct)) {
-      description = `Shorts covering ${ctx} — Put OI ${putOIChangePct.toFixed(1)}%, price +${priceChangePct.toFixed(2)}%`;
-      actionable = strength > 6
-        ? 'Strong covering rally — momentum trade, tight stops'
-        : 'Bears retreating — longs have edge';
-    } else {
-      description = `Call unwinding ${ctx} — Call OI ${callOIChangePct.toFixed(1)}%, price +${priceChangePct.toFixed(2)}%`;
-      actionable = 'Profit booking in calls but price rising — mixed signals';
-    }
-  }
-
-  // ── Edge cases ──
-  else {
-    activity = 'Mixed Signals';
-    strength = 3;
-    description = `Conflicting moves ${ctx} — OI ${totalOIChangePct > 0 ? '+' : ''}${totalOIChangePct.toFixed(1)}%, price ${priceChangePct > 0 ? '+' : ''}${priceChangePct.toFixed(2)}%`;
-    actionable = 'No clear direction — wait for clarity';
-    emoji = '❓';
-  }
-
-  return { activity, strength, description, actionable, emoji };
+  return { activity, strength: Math.min(10, strength), description, actionable, emoji };
 }
 
 /**
