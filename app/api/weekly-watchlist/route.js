@@ -73,7 +73,6 @@ export async function POST(request) {
     }
 
     // ── Build Ref Price Map ──────────────────────────────────────────────────
-    // Find stocks missing referencePrice
     const missingRef = list.filter(s => !s.referencePrice && s.symbol);
     const refPrices = {};
 
@@ -81,11 +80,12 @@ export async function POST(request) {
       try {
         const dp = await getDataProvider();
         if (dp.isConnected()) {
-          const instrumentKeys = [...new Set(missingRef.map(s => `NSE:${s.symbol}`))];
+          // Force uppercase symbols for Kite request
+          const instrumentKeys = [...new Set(missingRef.map(s => `NSE:${s.symbol.toUpperCase()}`))];
           const quotes = await dp.getOHLC(instrumentKeys);
           Object.keys(quotes).forEach(key => {
-            const sym = key.split(':')[1];
-            refPrices[sym] = quotes[key].last_price;
+            const sym = key.split(':')[1].toUpperCase();
+            refPrices[sym] = quotes[key].ohlc?.close || quotes[key].last_price;
           });
         }
       } catch (err) {
@@ -95,16 +95,20 @@ export async function POST(request) {
     
     // Stamp dateAdded and referencePrice
     const stampedList = list.map(s => {
-      const existing = (currentData[tab] || []).find(ex => ex.symbol === s.symbol);
+      // Normalize current symbol for comparison
+      const upperSymbol = (s.symbol || '').toUpperCase();
+      
+      const existing = (currentData[tab] || []).find(ex => (ex.symbol || '').toUpperCase() === upperSymbol);
       let refPrice = s.referencePrice || existing?.referencePrice;
       
-      // If still missing and we have a fresh quote, use it
-      if (!refPrice && refPrices[s.symbol]) {
-        refPrice = refPrices[s.symbol];
+      // If still missing and we have a fresh quote, use it (lookup by upper key)
+      if (!refPrice && refPrices[upperSymbol]) {
+        refPrice = refPrices[upperSymbol];
       }
 
       return {
         ...s,
+        symbol: upperSymbol, // Ensure symbol itself is normalized in the DB
         dateAdded: s.dateAdded ?? existing?.dateAdded ?? new Date().toISOString(),
         referencePrice: refPrice || null,
       };

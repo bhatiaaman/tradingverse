@@ -42,8 +42,10 @@ export default function WeeklyWatchlist() {
   const [performanceData, setPerformanceData] = useState({})
   const [isTrackerLoading, setIsTrackerLoading] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState(null)
-  const [editingSymbolIndex, setEditingSymbolIndex] = useState(null)
   const [tempSymbol, setTempSymbol] = useState('')
+  const [promptPriceMap, setPromptPriceMap] = useState({})
+  const [isPromptPriceLoading, setIsPromptPriceLoading] = useState(false)
+  const [editingSymbolIndex, setEditingSymbolIndex] = useState(null)
 
   // Archive state
   const [archiveIndex, setArchiveIndex] = useState([])
@@ -137,7 +139,10 @@ export default function WeeklyWatchlist() {
       const res = await fetch('/api/weekly-watchlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tab: activeTab, list: finalList }),
+        body: JSON.stringify({ 
+          tab: activeTab, 
+          list: finalList.map(s => ({ ...s, symbol: (s.symbol || '').toUpperCase() })) 
+        }),
       })
 
       if (res.ok) {
@@ -178,6 +183,21 @@ export default function WeeklyWatchlist() {
       }
     }
     setEditingSymbolIndex(null)
+  }
+
+  const handleSyncMissingBaselines = async () => {
+    setIsTrackerLoading(true)
+    try {
+      const res = await fetch('/api/weekly-watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tab: activeTab, list: watchlistObj[activeTab] }),
+      })
+      if (res.ok) {
+        const saved = await res.json()
+        setWatchlistObj(prev => ({ ...prev, [activeTab]: saved.watchlist?.[activeTab] || prev[activeTab] }))
+      }
+    } catch {} finally { setIsTrackerLoading(false) }
   }
 
   // ── Unified Consolidation Logic ─────────────────────────────────────────────
@@ -221,6 +241,25 @@ export default function WeeklyWatchlist() {
     }
   }, [])
 
+  const handleFetchPromptPrices = async () => {
+    if (!userStocks) return
+    setIsPromptPriceLoading(true)
+    try {
+      const symbols = userStocks.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+      const res = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`)
+      const data = await res.json()
+      if (data.quotes) {
+        const mapped = {}
+        data.quotes.forEach(q => { mapped[q.symbol] = q.ltp })
+        setPromptPriceMap(mapped)
+      }
+    } catch (err) {
+      console.error('Prompt price fetch failed:', err)
+    } finally {
+      setIsPromptPriceLoading(false)
+    }
+  }
+
   useEffect(() => {
     const syms = consolidated20.map(s => s.symbol)
     if (syms.length > 0) {
@@ -254,8 +293,15 @@ export default function WeeklyWatchlist() {
 ]`
     const base = `You are an expert Indian NSE swing-trading scanner.\n\n`
     const constraints = `Output the response as a single, valid JSON array of objects using this exact schema. Do not use markdown wrappers outside the JSON, strictly JSON.\nCRITICAL MANDATE: You MUST use exact, official NSE ticker symbols in the "symbol" field. Do NOT use company names or include trailing spaces.\nCorrect Examples: Use "ELGIEQUIP" instead of "ElgiEquipments", "GET&D" instead of "GEVT&D", "BEPL" instead of "BhansaliEngg".\n\n${schemaString}`
+    
+    let priceContext = ""
+    const priceEntries = Object.entries(promptPriceMap)
+    if (priceEntries.length > 0) {
+      priceContext = `\nCRITICAL CONTEXT (Current Prices): Use these prices to ensure your Entry Zones and Targets are realistic and mathematically sound mapping to the current Friday Close:\n${priceEntries.map(([s, p]) => `- ${s}: ~${p}`).join('\n')}\n\n`
+    }
+
     if (activeTab === 'expertsResearch') {
-      return `${base}I have already selected the following specific stocks based on my own research:\n\nSTOCKS: [ ${userStocks || 'INFY, TCS'} ]\n\nFor EACH of the specific stocks listed above, provide a comprehensive swing-trading setup analysis using daily and weekly data up to the most recent Friday close.\nDo not find other stocks. Only analyze the ones provided.\n\n${constraints}`
+      return `${base}I have already selected the following specific stocks based on my own research:\n\nSTOCKS: [ ${userStocks || 'INFY, TCS'} ]\n${priceContext}\nFor EACH of the specific stocks listed above, provide a comprehensive swing-trading setup analysis using daily and weekly data up to the most recent Friday close.\nDo not find other stocks. Only analyze the ones provided.\n\n${constraints}`
     }
     return `${base}I need you to find up to 15 stocks for next week's watchlist with the highest probability of follow-through. Use data up to Friday's close and build the watchlist for the upcoming week starting Monday.\n\nPreferences: Liquid stocks, daily volume >2x 20-day avg, clean breakout/momentum continuation, high relative strength.\n\n${constraints}`
   }
@@ -401,8 +447,25 @@ export default function WeeklyWatchlist() {
           <div className="font-bold text-red-500">{stock.stopLoss}</div>
         </div>
         <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-100 dark:border-white/5">
-          <div className="text-slate-400 mb-1">Targets</div>
-          <div className="font-bold text-emerald-500">{stock.target1} • {stock.target2}</div>
+          <div className="text-slate-400 mb-1">Baseline</div>
+          <div className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1">
+            {stock.referencePrice ? (
+              <>
+                <span className="text-[10px]">🏁</span> {stock.referencePrice.toLocaleString('en-IN')}
+              </>
+            ) : (
+              <>
+                <span className="text-[10px]" title="Fallback to Entry Zone">🀄</span> 
+                {(() => {
+                  const parts = stock.entryZone?.split(/[-–—/]/).map(p => parseFloat(p.replace(/[^0-9.]/g, '')))
+                  const nums = parts?.filter(n => !isNaN(n))
+                  if (nums?.length === 2) return ((nums[0] + nums[1]) / 2).toLocaleString('en-IN')
+                  if (nums?.length === 1) return nums[0].toLocaleString('en-IN')
+                  return '--'
+                })()}
+              </>
+            )}
+          </div>
         </div>
         <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-100 dark:border-white/5">
           <div className="text-slate-400 mb-1">Risk : Reward</div>
@@ -596,10 +659,21 @@ export default function WeeklyWatchlist() {
           )}
 
           {activeTab !== 'consolidated' && (
-            <button onClick={() => { setJsonInput(JSON.stringify(currentList, null, 2)); setIsEditing('replace') }}
-              className="text-xs font-bold text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/30 px-3 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800/50 hover:bg-violet-200 dark:hover:bg-violet-800/50 transition-colors">
-              {currentList.length > 0 ? 'Edit Watchlist' : 'Add Watchlist'}
-            </button>
+            <div className="flex items-center gap-2">
+              {activeTab === 'expertsResearch' && currentList.length > 0 && (
+                <button
+                  onClick={handleSyncMissingBaselines}
+                  title="Fix missing baseline prices for the current list"
+                  className="p-1.5 text-slate-500 hover:text-violet-500 bg-slate-100 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-white/5 transition-colors"
+                >
+                  <svg className={`w-3.5 h-3.5 ${isTrackerLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                </button>
+              )}
+              <button onClick={() => { setJsonInput(JSON.stringify(currentList, null, 2)); setIsEditing('replace') }}
+                className="text-xs font-bold text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/30 px-3 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800/50 hover:bg-violet-200 dark:hover:bg-violet-800/50 transition-colors">
+                {currentList.length > 0 ? 'Edit Watchlist' : 'Add Watchlist'}
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -715,12 +789,35 @@ export default function WeeklyWatchlist() {
                   />
                 </div>
               )}
-              <div className="flex items-center gap-3">
-                <button onClick={handleCopyPrompt}
-                  className="px-4 py-2 text-xs font-bold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors">
-                  {copied ? '✅ Copied to Clipboard!' : '📋 Copy Prompt'}
-                </button>
-                <span className="text-xs text-slate-500">Paste this into Claude.</span>
+              <div className="flex flex-col gap-3">
+                {activeTab === 'expertsResearch' && (
+                  <div className="flex items-center gap-2 p-2 bg-white dark:bg-[#060a0f] border border-slate-200 dark:border-slate-800 rounded-lg">
+                    <button
+                      onClick={handleFetchPromptPrices}
+                      disabled={!userStocks || isPromptPriceLoading}
+                      className="px-3 py-1.5 text-[10px] font-black uppercase tracking-wider bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors shrink-0"
+                    >
+                      {isPromptPriceLoading ? 'Fetching...' : '1. Fetch Prices'}
+                    </button>
+                    <div className="flex-1 overflow-x-auto whitespace-nowrap text-[10px] font-mono text-slate-500 scrollbar-none">
+                      {Object.keys(promptPriceMap).length > 0 ? (
+                        Object.entries(promptPriceMap).map(([s, p]) => (
+                          <span key={s} className="mr-3 text-indigo-400 font-bold">{s}: <span className="text-slate-400">{p}</span></span>
+                        ))
+                      ) : (
+                        <span className="italic">Fetch prices to prevent AI hallucinations</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-3">
+                  <button onClick={handleCopyPrompt}
+                    className="px-4 py-2 text-xs font-bold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors">
+                    {copied ? '✅ Copied to Clipboard!' : `${activeTab === 'expertsResearch' ? '2.' : ''} Copy Prompt`}
+                  </button>
+                  <span className="text-xs text-slate-500">Paste this into Claude.</span>
+                </div>
               </div>
             </div>
 
