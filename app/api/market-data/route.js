@@ -421,17 +421,6 @@ export async function GET() {
   try {
     const cached = await redisGet(CACHE_KEY);
 
-    if (cached?.updatedAt) {
-      const age = Date.now() - new Date(cached.updatedAt).getTime();
-      // Pre-market (8–9 AM weekdays): 3 min — GIFT Nifty moves; stale data gives wrong gap
-      // Market hours: 1 min — live data, refresh fast
-      // After close / weekends: 15 min — indices don't move
-      const istNow2 = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-      const istHour = istNow2.getUTCHours();
-      const istDay2 = istNow2.getUTCDay();
-      const isWeekday = istDay2 >= 1 && istDay2 <= 5;
-      const isPreMarketWindow = isWeekday && istHour >= 7 && istHour < 9;
-      const maxAge = isMarketHours() ? FRESH_TTL : isPreMarketWindow ? 3 * 60 * 1000 : 15 * 60 * 1000;
       if (age < maxAge) {
         return Response.json({ ...cached, fromCache: true, offMarketHours: !isMarketHours(), cacheAge: age });
       }
@@ -582,6 +571,16 @@ export async function GET() {
     let niftyExpectedGap        = giftNiftyChange;
     let niftyExpectedGapPercent = giftNiftyChangePercent;
 
+    // Independent Regime Detection (Higher TF context)
+    // Add a 0.20% "Trend Buffer" to prevent EMA9 flip-flopping during consolidation
+    let displayBias = bias;
+    if (niftyData?.price && niftyEMA9) {
+      const distPct = (niftyData.price - niftyEMA9) / niftyEMA9 * 100;
+      if (distPct > 0.20) displayBias = 'Bullish';
+      else if (distPct < -0.20) displayBias = 'Bearish';
+      else displayBias = 'Neutral';
+    }
+
     const marketData = {
       indices: {
         nifty:               niftyData?.price           ? niftyData.price.toFixed(2)           : null,
@@ -621,7 +620,7 @@ export async function GET() {
         daxChangePercent: globalIndices?.dax?.changePercent ? globalIndices.dax.changePercent.toFixed(2) : null,
       },
       sentiment: {
-        bias:       bias,
+        bias:       displayBias,
         advDecline: breadthData?.display || '---',
         advances:   breadthData?.advances || 0,
         declines:   breadthData?.declines || 0,
