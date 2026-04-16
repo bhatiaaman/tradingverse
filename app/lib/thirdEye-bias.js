@@ -109,14 +109,14 @@ export function applyBiasTransition(state, thirdEyeResult, context, candle) {
       nextDown = 0; nextUp = 0;
       changed = true; reason = `Confirmed bear BOS — clearing bull bias`;
     }
-    // 4. Reality check: sustained downtrend + below VWAP for 1 candle (Expert: 2 was still too slow for fast moves)
+    // 4. Reality check: sustained downtrend + below VWAP for 2 candles
     else {
       if (trend === 'downtrend' && aboveVwap === false) {
         nextDown = downtrendCount + 1;
-        if (nextDown >= 1) {
+        if (nextDown >= 2) {
           nextBias = 'NEUTRAL'; nextPending = null;
           nextDown = 0;
-          changed = true; reason = `Reality check — Price below VWAP with bearish structure`;
+          changed = true; reason = `Reality check — Price sustained below VWAP for 2 candles`;
         }
       } else {
         nextDown = 0;

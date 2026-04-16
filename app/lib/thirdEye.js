@@ -553,18 +553,21 @@ export function detectPatterns(candles, pre) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function buildContext(candles, pre) {
-  // Trend from swing sequence, fallback to linear price direction
-  let trend = 'ranging', trendStrength = 'weak';
+  // Trend detection: prioritize recent momentum over morning bias
   if (pre.swingSequence) {
     trend = pre.swingSequence.type;
     const { highs, lows } = pre.swingPivots2;
     trendStrength = highs.length >= 3 && lows.length >= 3 ? 'strong' : 'weak';
-  } else if (candles.length >= 10) {
-    const first  = candles[candles.length - 10].close;
-    const last   = candles[candles.length - 1].close;
+  } else if (candles.length >= 5) {
+    // Shorter lookback for intraday reversals
+    const recentSlice = candles.slice(-5);
+    const first = recentSlice[0].close;
+    const last  = recentSlice[recentSlice.length - 1].close;
     const chgPct = (last - first) / first * 100;
-    if (chgPct > 0.5)  trend = 'uptrend';
-    if (chgPct < -0.5) trend = 'downtrend';
+    
+    if (chgPct > 0.15)  trend = 'uptrend';
+    else if (chgPct < -0.15) trend = 'downtrend';
+    else trend = 'ranging';
   }
 
   // BOS context — most recently detected
