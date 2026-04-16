@@ -732,16 +732,31 @@ function getNiftyLevelAlerts(indices) {
       return () => clearInterval(interval);
     }, []);
 
+    // Monotonic counter — each call to fetchCommentaryNow gets a unique ID.
+    // If a newer call completes first, older responses are silently dropped.
+    const commentaryFetchIdRef = useRef(0);
+
     // Fetch commentary (used by both interval and manual refresh button)
     const fetchCommentaryNow = useCallback(async (forceRefresh = false) => {
+      if (!isVisibleRef.current && !forceRefresh) return;
+      const myId = ++commentaryFetchIdRef.current;
       setCommentaryLoading(true);
       try {
         const params = new URLSearchParams({ interval: chartInterval });
         if (forceRefresh) params.set('refresh', '1');
         const response = await fetch(`/api/market-commentary?${params}`);
         const data = await response.json();
+
+        // Drop this response if a newer fetch already committed
+        if (myId < commentaryFetchIdRef.current) return;
+
         const next = data.commentary;
         const prev = prevCommentaryRef.current;
+
+        // Only update if this response is newer than what we already have
+        if (next?.timestamp && prev?.timestamp) {
+          if (new Date(next.timestamp) <= new Date(prev.timestamp) && !forceRefresh) return;
+        }
 
         if (soundEnabledRef.current && next && prev) {
           const biasChanged  = next.bias !== prev.bias;
@@ -771,7 +786,7 @@ function getNiftyLevelAlerts(indices) {
       } catch (error) {
         console.error('Failed to fetch commentary:', error);
       } finally {
-        setCommentaryLoading(false);
+        if (myId === commentaryFetchIdRef.current) setCommentaryLoading(false);
       }
     }, [chartInterval]); // re-fetch when TF changes
 
