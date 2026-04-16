@@ -269,12 +269,18 @@ export async function POST(req) {
           }
           return count;
         })();
-        const forcePeriodicEntry = narrative.type === 'observe' && consecutiveObserves >= 5;
+
+        // Restore Pride: stop the 5-min chatter. Only force log every 15 candles (75 mins)
+        // if the observation is strictly identical.
+        const forcePeriodicEntry = narrative.type === 'observe' && consecutiveObserves >= 15;
+        
+        // Fuzzy Reason Check: Remove digits and decimals to prevent 0.3% vs 0.4% from triggering new entries
+        const fuzzyReason = (r) => r?.replace(/\d+\.?\d*%/g, 'XX%');
         const isDuplicateObserve = !forcePeriodicEntry &&
                                   narrative.type === 'observe' &&
                                   lastAdded?.narrative?.type === 'observe' &&
                                   lastAdded?.narrative?.headline === narrative.headline &&
-                                  lastAdded?.narrative?.reason === narrative.reason;
+                                  fuzzyReason(lastAdded?.narrative?.reason) === fuzzyReason(narrative.reason);
 
         if (!isDuplicateObserve) {
           newEntries.push({

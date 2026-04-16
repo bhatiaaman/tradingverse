@@ -162,30 +162,50 @@ export function applyBiasTransition(state, thirdEyeResult, context, candle) {
 
   // ── NEUTRAL state ──────────────────────────────────────────────────────────
   else {
-    nextDown = 0; nextUp = 0;
-
     // Check if a pending flip has a confirming signal this candle
     if (pendingFlip === 'BULL' && setupDir === 'bull' && setupScore >= 5) {
       nextBias = 'BULL'; nextPending = null;
       changed = true; reason = `Pending bull confirm — ${setupId} (score ${setupScore})`;
+      nextUp = 0; nextDown = 0;
     }
     else if (pendingFlip === 'BEAR' && setupDir === 'bear' && setupScore >= 5) {
       nextBias = 'BEAR'; nextPending = null;
       changed = true; reason = `Pending bear confirm — ${setupId} (score ${setupScore})`;
+      nextUp = 0; nextDown = 0;
     }
-    // Fresh hard bull signal from neutral (no pending needed)
+    // Fresh hard bull signal from neutral
     else if (setupId && HARD_BULL_IDS.has(setupId) && setupScore >= 6) {
       nextBias = 'BULL'; nextPending = null;
       changed = true; reason = `${setupId} (score ${setupScore}) — going BULL`;
+      nextUp = 0; nextDown = 0;
     }
     // Fresh hard bear signal from neutral
     else if (setupId && HARD_BEAR_IDS.has(setupId) && setupScore >= 6) {
       nextBias = 'BEAR'; nextPending = null;
       changed = true; reason = `${setupId} (score ${setupScore}) — going BEAR`;
+      nextUp = 0; nextDown = 0;
     }
-    // Stale pending flip — expire after 2 candles with no confirming signal
-    // (pendingFlip is cleared when the 2nd neutral candle passes without confirmation)
-    // This is handled by the caller maintaining a pendingFlipAge counter
+    // ── STRUCTURAL BIAS ADOPTION (Restore Pride Update) ──
+    // If we've had 3 consecutive candles of clear structure (LL/LH or HH/HL) 
+    // without a hard pattern, we adopted the trend as our bias anyway.
+    else if (trend === 'uptrend' && aboveVwap === true) {
+      nextUp = (uptrendCount || 0) + 1;
+      nextDown = 0;
+      if (nextUp >= 3) {
+        nextBias = 'BULL'; nextUp = 0;
+        changed = true; reason = 'Structural Bias — 3 candles of clean bullish structure';
+      }
+    }
+    else if (trend === 'downtrend' && aboveVwap === false) {
+      nextDown = (downtrendCount || 0) + 1;
+      nextUp = 0;
+      if (nextDown >= 3) {
+        nextBias = 'BEAR'; nextDown = 0;
+        changed = true; reason = 'Structural Bias — 3 candles of clean bearish structure';
+      }
+    } else {
+      nextUp = 0; nextDown = 0;
+    }
   }
 
   return {
