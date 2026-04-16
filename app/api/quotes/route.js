@@ -42,7 +42,7 @@ export async function GET(request) {
 
     const symbols = [...new Set(
       symbolsParam.split(',')
-        .map(s => s.trim().toUpperCase().replace(/[^A-Z0-9&]/g, ''))
+        .map(s => s.trim().toUpperCase().replace(/[^A-Z0-9&-]/g, ''))
         .filter(Boolean)
     )].slice(0, 50);
     if (symbols.length === 0) {

@@ -206,7 +206,7 @@ export default function WeeklyWatchlist() {
     if (!symbols?.length) return
     setIsTrackerLoading(true)
     try {
-      const res = await fetch(`/api/quotes?symbols=${symbols.join(',')}`)
+      const res = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`)
       const data = await res.json()
       if (data.quotes) {
         const mapped = {}
@@ -433,7 +433,7 @@ export default function WeeklyWatchlist() {
 
   const PerformanceSidebar = () => {
     return (
-      <div className="bg-white dark:bg-[#0b101a] border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden flex flex-col h-fit sticky top-6">
+      <div className="bg-white dark:bg-[#0b101a] border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden flex flex-col max-h-[calc(100vh-100px)] sticky top-20 shadow-xl">
         <div className="px-4 py-3 bg-slate-50 dark:bg-[#0e1420] border-b border-slate-200 dark:border-white/10 flex items-center justify-between">
           <div>
             <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">
@@ -452,7 +452,7 @@ export default function WeeklyWatchlist() {
           </button>
         </div>
 
-        <div className="p-0">
+        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-white/10">
           {consolidated20.length === 0 ? (
             <div className="p-4 text-center text-[10px] text-slate-500 italic">No consolidated stocks yet.</div>
           ) : (
