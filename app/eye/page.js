@@ -169,10 +169,6 @@ function getNiftyLevelAlerts(indices) {
     const isVisibleRef = useRef(isVisible);
     useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
 
-    // ── Restore Pride Cleanup: Consolidate intelligence alerts ────────────────
-    const latestPowerCandle = powerCandles.length > 0 ? powerCandles[powerCandles.length - 1] : null;
-    const isPowerCandleActive = latestPowerCandle && powerCandleDismissed !== latestPowerCandle.time;
-
     const [marketData, setMarketData] = useState(null);
     const [sectorData, setSectorData] = useState([]);
     const [sectorError, setSectorError] = useState('');
@@ -277,6 +273,11 @@ function getNiftyLevelAlerts(indices) {
     const [rsiValue, setRsiValue] = useState(null);
     const [powerCandles, setPowerCandles] = useState([]);
     const [powerCandleDismissed, setPowerCandleDismissed] = useState(null); // dismissed candle time
+
+    // ── Intelligence alert helpers (derived from state, safe to compute here) ──
+    const latestPowerCandle = powerCandles.length > 0 ? powerCandles[powerCandles.length - 1] : null;
+    const isPowerCandleActive = latestPowerCandle && powerCandleDismissed !== latestPowerCandle.time;
+
     const candleDataRef = useRef([]);
 
     // Short Covering setup state
@@ -355,7 +356,7 @@ function getNiftyLevelAlerts(indices) {
       let scanTimer;
 
       const runScan = async () => {
-        if (!isMarketHours()) return;
+        if (!isMarketHours() || !isVisibleRef.current) return;
         try {
           const res = await fetch('/api/third-eye/scan', {
             method: 'POST',
@@ -467,6 +468,7 @@ function getNiftyLevelAlerts(indices) {
     // ── Short Covering: poll + sound + browser notification ──────────────────
     useEffect(() => {
       const fetchSC = async (isSilent = false) => {
+        if (!isVisibleRef.current) return;
         try {
           const r = await fetch(`/api/short-covering${isSilent ? '' : '?refresh=1'}`);
           const d = await r.json();
@@ -775,6 +777,7 @@ function getNiftyLevelAlerts(indices) {
 
     // Fetch option chain data
     const fetchOptionChain = useCallback(async (forceRefresh = false) => {
+      if (!isVisibleRef.current && !forceRefresh) return;
       setOptionLoading(true);
       try {
         const url = `/api/option-chain?underlying=${optionUnderlying}&expiry=${optionExpiry}${forceRefresh ? '&refresh=1' : ''}`;
@@ -849,6 +852,7 @@ function getNiftyLevelAlerts(indices) {
     // Fetch sentiment data
     useEffect(() => {
       const fetchSentiment = async () => {
+        if (!isVisibleRef.current) return;
         setSentimentLoading(true);
         try {
           const pcr = optionChainData?.pcr;
@@ -1909,173 +1913,1473 @@ function getNiftyLevelAlerts(indices) {
     };
 
     return (
-      <div className="flex flex-col h-screen overflow-hidden bg-[#020817] text-slate-100 font-sans">
-        <Nav kiteAuth={kiteAuth} userRole={userRole} />
+      <div className="min-h-screen bg-[#060b14] text-slate-100">
+        <Nav />
 
-        {/* ── Context Banners ─────────────────────────────────────────────── */}
-        <div className="flex flex-col min-h-max border-b border-blue-900/30">
-          <ShortCoveringBanner
-            scData={scData}
-            scDismissed={scDismissed}
-            setScDismissed={setScDismissed}
-            scConfirming={scConfirming}
-            setScConfirming={setScConfirming}
-            scPlacing={scPlacing}
-            scOrderResult={scOrderResult}
-            kiteAuth={kiteAuth}
-            onPlaceScOrder={handleScPlaceOrder}
-          />
-          <PositionConflictBanner
-            positionAlert={positionAlert}
-            positionAlertDismissedBias={positionAlertDismissedBias}
-            setPositionAlertDismissedBias={setPositionAlertDismissedBias}
-            exitingSymbol={exitingSymbol}
-            exitResult={exitResult}
-            onExitPosition={exitConflictingPosition}
-          />
-          {isPowerCandleActive && latestPowerCandle && (
-            <div className={`relative flex items-center justify-between gap-3 px-4 py-3 border-b ${latestPowerCandle.direction === 'bull' ? 'bg-amber-500/15 border-amber-500/30' : 'bg-red-500/15 border-red-500/30'}`}>
-              <div className="flex items-center gap-3">
-                <span className="relative flex h-3 w-3">
-                  <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping ${latestPowerCandle.direction === 'bull' ? 'bg-amber-400' : 'bg-red-400'}`} />
-                  <span className={`relative inline-flex h-full w-full rounded-full ${latestPowerCandle.direction === 'bull' ? 'bg-amber-400' : 'bg-red-400'}`} />
+        {/* ── Short Covering Setup Card ─────────────────────────────────────── */}
+        <ShortCoveringBanner
+          scData={scData}
+          scDismissed={scDismissed}
+          setScDismissed={setScDismissed}
+          scConfirming={scConfirming}
+          setScConfirming={setScConfirming}
+          scPlacing={scPlacing}
+          scOrderResult={scOrderResult}
+          kiteAuth={kiteAuth}
+          onPlaceScOrder={handleScPlaceOrder}
+        />
+
+        {/* ── Position Conflict Banner ───────────────────────────────────────── */}
+        <PositionConflictBanner
+          positionAlert={positionAlert}
+          positionAlertDismissedBias={positionAlertDismissedBias}
+          setPositionAlertDismissedBias={setPositionAlertDismissedBias}
+          exitingSymbol={exitingSymbol}
+          exitResult={exitResult}
+          onExitPosition={exitConflictingPosition}
+        />
+
+        {/* Sub-bar: Kite status + quick links */}
+        <div className="border-b border-white/5 bg-[#060b14]">
+          <div className="max-w-[1400px] mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between">
+            {/* Notification permission button — shown until granted */}
+            {notifPermission !== 'granted' && (
+              notifPermission === 'denied' ? (
+                <a
+                  href="chrome://settings/content/notifications"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-lg border border-slate-600/50 bg-slate-800/60 text-slate-500 hover:text-slate-400 transition-colors"
+                  title="Notifications blocked — open Chrome settings to allow"
+                  onClick={e => { e.preventDefault(); window.open('chrome://settings/content/notifications'); }}
+                >
+                  🔔 Notifications blocked
+                </a>
+              ) : (
+                <button
+                  onClick={requestNotifPermission}
+                  className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors"
+                  title="Allow browser notifications for SC alerts"
+                >
+                  🔔 Enable alerts
+                </button>
+              )
+            )}
+
+            {/* Kite status — admin only */}
+            {userRole === 'admin' ? (
+              <button
+                onClick={openKiteSettings}
+                className="flex items-center gap-2 text-sm hover:opacity-80 transition-opacity"
+                title={kiteAuth.checking ? 'Checking...' : kiteAuth.isLoggedIn ? 'Kite Connected — click to manage' : 'Kite Disconnected — click to connect'}
+              >
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  kiteAuth.isLoggedIn ? 'bg-emerald-400' :
+                  kiteAuth.checking  ? 'bg-slate-500' :
+                  'bg-rose-500'
+                }`} />
+                <span className={`font-medium ${
+                  kiteAuth.isLoggedIn ? 'text-emerald-400' :
+                  kiteAuth.checking  ? 'text-slate-500' :
+                  'text-rose-400'
+                }`}>
+                  {kiteAuth.checking ? 'Checking…' : kiteAuth.isLoggedIn ? 'Kite Connected' : 'Kite Disconnected'}
                 </span>
-                <div>
-                  <div className={`text-xs font-black tracking-widest ${latestPowerCandle.direction === 'bull' ? 'text-amber-300' : 'text-red-300'}`}>⚡ REGIME SHIFT: {latestPowerCandle.direction?.toUpperCase()} POWER CANDLE</div>
-                  <div className="text-[11px] text-slate-200 mt-0.5">Expansion {latestPowerCandle.rangeMult}x ATR. Reassess aggressive positions.</div>
-                </div>
-              </div>
-              <button onClick={() => setPowerCandleDismissed(latestPowerCandle.time)} className="px-2 py-1 text-[10px] font-bold uppercase tracking-tight rounded bg-white/5 hover:bg-white/10 text-white/60">Dismiss</button>
-            </div>
-          )}
-        </div>
+              </button>
+            ) : <div />}
 
-        <div className="flex-1 flex overflow-hidden">
-          <main className="flex-1 overflow-y-auto bg-[#020817] custom-scrollbar">
-            <div className="max-w-[1600px] mx-auto p-4 sm:p-6 pb-20">
-              
-              {/* 1. Intelligence Section */}
-              <div className="mb-6 rounded-xl border border-blue-800/20 bg-blue-900/10 p-4">
-                {!commentary ? (
-                  <div className="text-slate-500 text-sm">Intelligence offline — waiting for data</div>
-                ) : (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                       <span className="text-sm font-bold text-slate-200">{commentary.headline}</span>
-                       <div className={`px-2 py-0.5 rounded text-[10px] font-bold ${commentary.bias === 'BULLISH' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{commentary.bias}</div>
-                    </div>
-                    <p className="text-cyan-300 text-sm">{commentary.action}</p>
+            {/* Live ticker — Nifty · BankNifty · VIX */}
+            {marketData?.indices && (
+              <div className="flex items-center gap-4">
+                {/* NIFTY */}
+                {marketData.indices.nifty && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-500 font-medium">NIFTY</span>
+                    <span className="text-sm font-mono font-bold text-white tabular-nums">
+                      {parseFloat(marketData.indices.nifty).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    {marketData.indices.niftyChangePercent && (
+                      <span className={`text-xs font-semibold tabular-nums ${parseFloat(marketData.indices.niftyChangePercent) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {parseFloat(marketData.indices.niftyChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.indices.niftyChangePercent).toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                )}
+                {/* BankNifty */}
+                {marketData.indices.bankNifty && (
+                  <div className="hidden sm:flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-500 font-medium">BANK</span>
+                    <span className="text-xs font-mono font-semibold text-slate-200 tabular-nums">
+                      {parseFloat(marketData.indices.bankNifty).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    {marketData.indices.bankNiftyChangePercent && (
+                      <span className={`text-[11px] font-semibold tabular-nums ${parseFloat(marketData.indices.bankNiftyChangePercent) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {parseFloat(marketData.indices.bankNiftyChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.indices.bankNiftyChangePercent).toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                )}
+                {/* VIX */}
+                {marketData.indices.vix && (
+                  <div className="hidden sm:flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-500 font-medium">VIX</span>
+                    <span className={`text-xs font-mono font-semibold tabular-nums ${parseFloat(marketData.indices.vix) > 18 ? 'text-rose-400' : parseFloat(marketData.indices.vix) > 13 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      {parseFloat(marketData.indices.vix).toFixed(2)}
+                    </span>
+                    {marketData.indices.vixChange && (
+                      <span className={`text-[10px] tabular-nums ${parseFloat(marketData.indices.vixChange) >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                        {parseFloat(marketData.indices.vixChange) >= 0 ? '+' : ''}{parseFloat(marketData.indices.vixChange).toFixed(2)}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
+            )}
 
-              {/* 2. Market Context Section */}
-              <div className="mb-6">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                  <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-3">
-                    <div className="text-[10px] text-blue-300 font-semibold mb-1">Nifty 50</div>
-                    <div className="text-sm font-mono text-slate-100">{marketData?.indices?.nifty || '---'}</div>
+            {/* Quick links */}
+            <div className="hidden sm:flex items-center gap-1">
+              {[
+                { href: '/terminal',       label: 'Terminal'    },
+                { href: '/trades/pre-market', label: 'Pre-Market' },
+              ].map(l => (
+                <Link key={l.href} href={l.href}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-white border border-transparent hover:border-white/10 rounded-lg transition-all">
+                  {l.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* MAIN CONTENT */}
+        <main className="max-w-[1400px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
+
+          {/* NEW: glow commentary border when price approaching a key level */}
+          {(() => {
+            const isApproaching = niftyLevels?.levels?.some(l => l.dist !== null && Math.abs(l.dist) <= 0.5);
+            return (
+          <div className={`mb-4 rounded-xl backdrop-blur-sm overflow-hidden transition-all duration-500 ${
+            isApproaching
+              ? 'bg-gradient-to-r from-amber-900/40 via-blue-900/50 to-amber-900/40 border border-amber-500/60 shadow-[0_0_20px_rgba(245,158,11,0.15)]'
+              : 'bg-gradient-to-r from-purple-900/50 via-blue-900/50 to-purple-900/50 border border-purple-700/50'
+          }`}>
+          {/* OLD: <div className="mb-4 bg-gradient-to-r from-purple-900/50 via-blue-900/50 to-purple-900/50 border border-purple-700/50 rounded-xl backdrop-blur-sm overflow-hidden"> */}
+            {commentaryLoading && !commentary ? (
+              /* Loading skeleton */
+              <div className="p-4 flex items-center gap-3">
+                <div className="w-4 h-4 rounded-full border-2 border-purple-400/40 border-t-purple-400 animate-spin flex-shrink-0" />
+                <span className="text-sm text-slate-400">Loading market summary…</span>
+              </div>
+            ) : !commentary ? (
+              /* Market closed / no data */
+              <div className="p-4 flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-slate-500 flex-shrink-0" />
+                <span className="text-sm text-slate-400">Market closed — summary available during trading hours (9:15 AM – 4:00 PM IST)</span>
+                {niftyRegime && (() => {
+                  const REGIME_STYLE = {
+                    TREND_DAY_UP: { text: 'text-green-400', label: 'Trend Up' }, TREND_DAY_DOWN: { text: 'text-red-400', label: 'Trend Down' },
+                    RANGE_DAY: { text: 'text-yellow-400', label: 'Range Day' }, TRAP_DAY: { text: 'text-amber-400', label: 'Trap Day' },
+                  };
+                  const s = REGIME_STYLE[niftyRegime.regime] ?? { text: 'text-slate-400', label: niftyRegime.regime };
+                  return <span className={`ml-auto text-xs font-semibold ${s.text}`}>Last regime: {s.label}</span>;
+                })()}
+              </div>
+            ) : (
+              <div>{/* commentary content starts */}
+              {/* Collapsible Header */}
+              <div
+                onClick={() => setCommentaryCollapsed(!commentaryCollapsed)}
+                className="w-full flex items-start sm:items-center justify-between p-3 sm:p-4 hover:bg-blue-900/20 transition-colors cursor-pointer gap-2"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 min-w-0">
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className={`px-2.5 py-1 rounded-lg font-semibold text-xs sm:text-sm flex items-center gap-1.5 ${
+                      commentary.bias === 'BULLISH' ? 'bg-green-900/50 text-green-300 border border-green-700/50' :
+                      commentary.bias === 'BEARISH' ? 'bg-red-900/50 text-red-300 border border-red-700/50' :
+                      'bg-yellow-900/50 text-yellow-300 border border-yellow-700/50'
+                    }`}>
+                      <span>{commentary.stateEmoji}</span>
+                      <span>{commentary.state}</span>
+                    </div>
+                    <span className="text-base sm:text-lg">{commentary.biasEmoji}</span>
                   </div>
-                  <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-3">
-                    <div className="text-[10px] text-blue-300 font-semibold mb-1">Global Sentiment</div>
-                    <div className="text-sm text-green-400">{marketData?.indices?.niftyChangePercent || '0.00'}%</div>
-                  </div>
-                  <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-3">
-                    <div className="text-[10px] text-blue-300 font-semibold mb-1">Adv / Dec</div>
-                    <div className="text-sm text-slate-300">{marketData?.sentiment?.advances} / {marketData?.sentiment?.declines}</div>
-                  </div>
-                  <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-3">
-                    <div className="text-[10px] text-blue-300 font-semibold mb-1">India VIX</div>
-                    <div className="text-sm text-amber-400">{marketData?.indices?.vix || '---'}</div>
-                  </div>
+                  <h3 className="text-sm sm:text-base font-bold text-white leading-snug">
+                    {commentary.headline}
+                  </h3>
+                </div>
+                
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {!isMarketHours() && (
+                    <span className="hidden sm:inline text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-400 border border-slate-600/50">
+                      Markets Closed
+                    </span>
+                  )}
+                  <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
+                    commentary.bias === 'BULLISH' ? 'text-green-400' :
+                    commentary.bias === 'BEARISH' ? 'text-red-400' :
+                    'text-yellow-400'
+                  }`}>
+                    {commentary.bias}
+                  </span>
+                  {commentaryLastUpdated && !commentaryLoading && (
+                    <span className="hidden sm:flex items-center gap-1.5 text-[10px] text-slate-500 tabular-nums">
+                      <span className="w-1 h-1 rounded-full bg-blue-500 animate-pulse-slow" />
+                      {commentaryLastUpdated}
+                    </span>
+                  )}
+                  <button
+                    onClick={e => { e.stopPropagation(); fetchCommentaryNow(true); }}
+                    disabled={commentaryLoading}
+                    className="p-1 hover:bg-blue-900/40 rounded transition-colors disabled:opacity-40"
+                    title="Refresh commentary"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${commentaryLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                  {commentaryCollapsed ? (
+                    <div className="flex items-center gap-1 text-slate-400">
+                      <span className="text-[10px] font-medium">expand</span>
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  ) : (
+                    <ChevronUp className="w-4 h-4 text-slate-400" />
+                  )}
                 </div>
               </div>
 
-              {/* 3. Main Grid */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6">
-                {/* Left */}
-                <div className="lg:col-span-2 space-y-3">
-                  <div className="bg-[#112240] border border-blue-800/40 rounded-xl p-3">
-                    <h2 className="text-xs font-bold text-blue-300 mb-2 uppercase">Scanners</h2>
-                    <Link href="/stock-updates/scanner/bullish-bo-15min" className="block p-2 text-xs text-slate-300 hover:text-white hover:bg-white/5 rounded transition-colors">Bullish Breakout</Link>
-                    <Link href="/stock-updates/scanner/bearish-bo-15min" className="block p-2 text-xs text-slate-300 hover:text-white hover:bg-white/5 rounded transition-colors">Bearish Breakout</Link>
+              {/* Power Candle — Regime Shift Alert (always visible, blinks until dismissed) */}
+              {powerCandles.length > 0 && (() => {
+                const pc = powerCandles[powerCandles.length - 1];
+                if (powerCandleDismissed === pc.time) return null;
+                const isBull = pc.direction === 'bull';
+                return (
+                  <div className={`relative flex items-start gap-2 px-3 py-2 border-t border-b ${isBull ? 'bg-amber-500/10 border-amber-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+                    {/* Pinging dot — grabs attention */}
+                    <span className="relative flex-shrink-0 mt-0.5">
+                      <span className={`absolute inline-flex h-2.5 w-2.5 rounded-full opacity-75 animate-ping ${isBull ? 'bg-amber-400' : 'bg-red-400'}`} />
+                      <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${isBull ? 'bg-amber-400' : 'bg-red-400'}`} />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-xs font-bold tracking-wide animate-pulse ${isBull ? 'text-amber-300' : 'text-red-300'}`}>
+                        ⚡ REGIME SHIFT ALERT
+                      </div>
+                      <div className="text-[11px] text-slate-300 mt-0.5 leading-snug">
+                        {isBull ? 'Bullish' : 'Bearish'} power candle — {pc.volMult != null ? `Vol ${pc.volMult}× avg, ` : ''}Range {pc.rangeMult}× ATR.
+                        {' '}<span className="text-slate-400">Trend may be reversing. Reassess bias and position size.</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setPowerCandleDismissed(pc.time)}
+                      className="flex-shrink-0 text-slate-500 hover:text-slate-300 text-xs leading-none mt-0.5 px-1"
+                      title="Dismiss"
+                    >✕</button>
                   </div>
-                </div>
-                {/* Center */}
-                <div className="lg:col-span-7">
-                  <div className="bg-[#112240] border border-blue-800/40 rounded-xl overflow-hidden min-h-[500px] flex flex-col">
-                    <div className="p-4 border-b border-blue-800/40 text-sm font-bold text-blue-300">Market Chart: {chartSymbol}</div>
-                    <div className="flex-1 relative" ref={customChartCtnRef}>
-                       {hoverOHLC && (
-                        <div className="absolute top-2 left-2 z-10 text-[10px] font-mono bg-black/80 rounded px-2 py-1 text-slate-300">
-                          {hoverOHLC.close.toFixed(0)}
+                );
+              })()}
+
+              {/* Collapsible Content */}
+              {!commentaryCollapsed && (
+                <div className="px-4 pb-4">
+                  {/* Confluent S/R levels */}
+                  {(commentary.srLevels?.support || commentary.srLevels?.resistance) && (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-xs">
+                      {commentary.srLevels.support && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-400">Support:</span>
+                          <span className={`font-mono font-semibold ${commentary.srLevels.support.strong ? 'text-sky-300' : 'text-sky-500'}`}>
+                            {commentary.srLevels.support.price}
+                          </span>
+                          <span className="text-slate-500">{commentary.srLevels.support.label}</span>
+                          {commentary.srLevels.support.strong && <span className="text-[10px] px-1 py-0.5 rounded bg-sky-900/40 text-sky-400">strong</span>}
+                        </div>
+                      )}
+                      {commentary.srLevels.resistance && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-400">Resistance:</span>
+                          <span className={`font-mono font-semibold ${commentary.srLevels.resistance.strong ? 'text-amber-300' : 'text-amber-500'}`}>
+                            {commentary.srLevels.resistance.price}
+                          </span>
+                          <span className="text-slate-500">{commentary.srLevels.resistance.label}</span>
+                          {commentary.srLevels.resistance.strong && <span className="text-[10px] px-1 py-0.5 rounded bg-amber-900/40 text-amber-400">strong</span>}
                         </div>
                       )}
                     </div>
+                  )}
+
+                  {/* Two-column layout: left = commentary feed, right = signal panel */}
+                  <div className="mt-2 flex flex-col sm:flex-row gap-3 sm:gap-4">
+
+                    {/* LEFT: text commentary feed */}
+                    <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+                      {/* Current action — top line, prominent */}
+                      <p className="text-cyan-300 text-sm font-medium leading-snug">
+                        {commentary.action}
+                      </p>
+                      {/* Last 2 biasHistory entries — session trail */}
+                      {commentary.biasHistory?.length > 0 && (
+                        <div className="flex flex-col gap-0.5">
+                          {commentary.biasHistory.slice(0, 2).map((h, i) => {
+                            const label = h.state || h.bias || '';
+                            return (
+                              <span key={i} className="text-sm font-medium text-cyan-300 leading-snug truncate">
+                                {h.time && <span className="mr-1">{h.time}</span>}{label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {commentaryRefreshedAt && (
+                        <span className="text-[10px] text-slate-600">
+                          updated {commentaryRefreshedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* RIGHT: signal panel */}
+                    <div className="border-t sm:border-t-0 sm:border-l border-blue-800/40 pt-2 sm:pt-0 sm:pl-4 flex flex-col gap-1.5 sm:min-w-[220px]">
+                      {/* 5m Regime */}
+                      {niftyRegime && (() => {
+                        const REGIME_STYLE = {
+                          TREND_DAY_UP:     { dot: 'bg-green-400',   text: 'text-green-300',   label: 'Trend Up'      },
+                          TREND_DAY_DOWN:   { dot: 'bg-red-400',     text: 'text-red-300',     label: 'Trend Down'    },
+                          RANGE_DAY:        { dot: 'bg-yellow-400',  text: 'text-yellow-300',  label: 'Range Day'     },
+                          BREAKOUT_DAY:     { dot: 'bg-blue-400',    text: 'text-blue-300',    label: 'Breakout'      },
+                          SHORT_SQUEEZE:    { dot: 'bg-emerald-400', text: 'text-emerald-300', label: 'Short Squeeze' },
+                          LONG_LIQUIDATION: { dot: 'bg-orange-400',  text: 'text-orange-300',  label: 'Long Liq.'     },
+                          TRAP_DAY:         { dot: 'bg-amber-400',   text: 'text-amber-300',   label: 'Trap Day'      },
+                          LOW_VOL_DRIFT:    { dot: 'bg-slate-400',   text: 'text-slate-300',   label: 'Low Vol Drift' },
+                        };
+                        const CONF_COLOR = { HIGH: 'text-emerald-400', MEDIUM: 'text-amber-400', LOW: 'text-slate-500' };
+                        const style = REGIME_STYLE[niftyRegime.regime] ?? { dot: 'bg-slate-400', text: 'text-slate-300', label: niftyRegime.regime };
+                        return (
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span className="text-slate-500 w-8 flex-shrink-0">5m</span>
+                            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${style.dot}`} />
+                            <span className={`font-semibold ${style.text}`}>{style.label}</span>
+                            <span className={`text-[10px] font-bold ${CONF_COLOR[niftyRegime.confidence]}`}>{niftyRegime.confidence}</span>
+                            {niftyRegime.vwapPosition && niftyRegime.vwapPosition !== 'UNKNOWN' && (
+                              <span className={`text-[10px] px-1 py-0.5 rounded ${niftyRegime.vwapPosition === 'ABOVE' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'}`}>
+                                {niftyRegime.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* 15m Regime */}
+                      {fifteenMinBias && (() => {
+                        const bDot  = b => b === 'BULLISH' ? 'bg-green-400' : b === 'BEARISH' ? 'bg-red-400' : 'bg-yellow-400';
+                        const bText = b => b === 'BULLISH' ? 'text-green-300' : b === 'BEARISH' ? 'text-red-300' : 'text-yellow-300';
+                        const CONF_COLOR = { HIGH: 'text-emerald-400', MEDIUM: 'text-amber-400', LOW: 'text-slate-500' };
+                        return (
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span className="text-slate-500 w-8 flex-shrink-0">15m</span>
+                            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${bDot(fifteenMinBias.bias)}`} />
+                            <span className={`font-semibold ${bText(fifteenMinBias.bias)}`}>{fifteenMinBias.label}</span>
+                            <span className={`text-[10px] font-bold ${CONF_COLOR[fifteenMinBias.confidence]}`}>{fifteenMinBias.confidence}</span>
+                            {fifteenMinBias.vwapPosition && fifteenMinBias.vwapPosition !== 'UNKNOWN' && (
+                              <span className={`text-[10px] px-1 py-0.5 rounded ${fifteenMinBias.vwapPosition === 'ABOVE' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'}`}>
+                                {fifteenMinBias.vwapPosition === 'ABOVE' ? '▲' : '▼'} VWAP
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Synthesis */}
+                      {fifteenMinBias && niftyRegime && (() => {
+                        const fb = fifteenMinBias.bias;
+                        const r  = niftyRegime.regime;
+                        const isBullishDay = r === 'TREND_DAY_UP' || r === 'SHORT_SQUEEZE';
+                        const isBearishDay = r === 'TREND_DAY_DOWN' || r === 'LONG_LIQUIDATION';
+                        let msg = null;
+                        if (isBullishDay && fb === 'BULLISH')   msg = 'Aligned — ride momentum, trail stops';
+                        else if (isBullishDay && fb === 'BEARISH') msg = '5m bullish, 15m pullback — wait for dip entry';
+                        else if (isBullishDay && fb === 'NEUTRAL') msg = '5m bullish, 15m consolidating — look for 15m break';
+                        else if (isBearishDay && fb === 'BEARISH') msg = 'Aligned — sell bounces, trail stops';
+                        else if (isBearishDay && fb === 'BULLISH') msg = '5m bearish, 15m bouncing — sell into strength';
+                        if (!msg) return null;
+                        return (
+                          <div className="flex items-start gap-1 text-[10px] text-slate-400 pt-0.5 border-t border-blue-800/30">
+                            <span className="text-amber-400 flex-shrink-0 mt-px">→</span>
+                            <span>{msg}</span>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Station proximity alerts — always NIFTY, independent of chart symbol */}
+                      {niftyLevels?.levels?.length > 0 && niftyLevels.spot && (() => {
+                        const spot = niftyLevels.spot;
+                        const levels = niftyLevels.levels;
+
+                        // Levels within 0.5% = "approaching station"
+                        const approaching = levels.filter(l => Math.abs(l.dist) <= 0.5);
+
+                        // Nearest resistance above and support below
+                        const above = levels.filter(l => l.dist > 0.5).sort((a, b) => a.dist - b.dist)[0];
+                        const below = levels.filter(l => l.dist < -0.5).sort((a, b) => b.dist - a.dist)[0];
+
+                        const fullName = LEVEL_FULL_NAME;
+
+                        return (
+                          <div className="flex flex-col gap-1 pt-0.5 border-t border-blue-800/30">
+                            {/* Approaching alerts */}
+                            {approaching.map(l => (
+                              <div key={l.label} className="flex items-center gap-1.5 animate-pulse">
+                                <span className="text-amber-400 text-[11px]">⚡</span>
+                                <span className="text-[10px] font-semibold text-amber-300">
+                                  Approaching {fullName[l.label] || l.label}
+                                </span>
+                                <span className="text-[10px] font-mono text-amber-400">
+                                  ₹{l.price.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                </span>
+                                <span className="text-[9px] text-amber-600">
+                                  ({l.dist >= 0 ? '+' : ''}{l.dist.toFixed(2)}%)
+                                </span>
+                              </div>
+                            ))}
+                            {/* Next stations */}
+                            <div className="flex items-center gap-2 text-[9px] text-slate-500">
+                              {below && (
+                                <span>
+                                  ↓ <span className="text-sky-500 font-medium">{fullName[below.label] || below.label}</span>
+                                  {' '}
+                                  <span className="font-mono text-sky-600">₹{below.price.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                                  <span className="text-slate-600"> ({below.dist.toFixed(1)}%)</span>
+                                </span>
+                              )}
+                              {above && (
+                                <span>
+                                  ↑ <span className="text-rose-500 font-medium">{fullName[above.label] || above.label}</span>
+                                  {' '}
+                                  <span className="font-mono text-rose-600">₹{above.price.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                                  <span className="text-slate-600"> (+{above.dist.toFixed(1)}%)</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
-                {/* Right */}
-                <div className="lg:col-span-3">
-                  <ThirdEyePanel
-                    thirdEyeData={thirdEyeData}
-                    thirdEyeOpen={thirdEyeOpen}
-                    setThirdEyeOpen={setThirdEyeOpen}
-                    thirdEyeLog={thirdEyeLog}
-                    thirdEyeLive={thirdEyeLive}
-                    thirdEyeMode={thirdEyeMode}
-                    setThirdEyeMode={setThirdEyeMode}
-                    thirdEyeEnv={thirdEyeEnv}
-                    setThirdEyeEnv={setThirdEyeEnv}
-                    thirdEyeTestMode={thirdEyeTestMode}
-                    serverBiasState={serverBiasState}
-                    liveTick={liveTick}
-                    activeTrade={activeTrade}
-                    tradeLTP={tradeLTP}
-                    tradeExiting={tradeExiting}
-                    tradeExited={tradeExited}
-                    thirdEyePlaced={thirdEyePlaced}
-                    thirdEyePlacing={thirdEyePlacing}
-                    scanStatus={scanStatus}
-                    openPositions={openPositions}
-                    semiAutoQty={semiAutoQty}
-                    setSemiAutoQty={setSemiAutoQty}
-                    chartSymbol={chartSymbol}
-                    SEMI_AUTO_IDS={SEMI_AUTO_IDS}
-                    getAtmInfo={getAtmInfo}
-                    isMarketHours={isMarketHours}
-                    positionDir={positionDir}
-                    onPlaceThirdEyeOrder={placeThirdEyeOrder}
-                    onExitThirdEyeTrade={exitThirdEyeTrade}
-                  />
+              )}
+            </div>
+            )}  {/* end commentary content / ternary */}
+          </div>
+            ); // end IIFE return
+          })()} {/* end approaching glow IIFE */}
+
+          {/* Top Market Data Grid — collapsible "Market Context" */}
+          {/* OLD: always visible grid */}
+          <div className="mb-4">
+            <button
+              onClick={() => setMarketContextCollapsed(v => !v)}
+              className="flex items-center gap-2 text-[11px] font-semibold text-slate-500 hover:text-slate-300 transition-colors mb-1.5 w-full"
+            >
+              <span>Market Context</span>
+              <span className="text-[9px]">{marketContextCollapsed ? '↓ show' : '↑ hide'}</span>
+              <span className="flex-1 border-t border-white/5 ml-1" />
+            </button>
+            {!marketContextCollapsed && <div className="grid grid-cols-2 lg:grid-cols-4 gap-1">
+            {/* Market Indices card removed — Nifty/BankNifty/VIX now in sub-bar ticker */}
+            {false && <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-1.5 lg:p-2 flex flex-col justify-center min-h-14 lg:min-h-16">
+              <h4 className="text-blue-300 text-[10px] font-semibold mb-1 lg:mb-1.5 text-center">Market Indices</h4>
+              <div className="space-y-0.5 lg:space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">Nifty 50</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-100 text-[9px] lg:text-xs font-mono font-medium">{marketData?.indices?.nifty || '---'}</span>
+                    {(() => {
+                      const chg = parseFloat(marketData?.indices?.niftyChange);
+                      const pct = parseFloat(marketData?.indices?.niftyChangePercent);
+                      const gift = parseFloat(marketData?.indices?.giftNifty);
+                      const prev = parseFloat(marketData?.indices?.niftyPrevClose);
+                      // When market is closed, niftyChange is 0 — show GIFT Nifty implied gap instead
+                      if ((isNaN(chg) || chg === 0) && gift > 0 && prev > 0) {
+                        const impliedChg = gift - prev;
+                        const impliedPct = (impliedChg / prev) * 100;
+                        return (
+                          <>
+                            <span className={`text-[8px] font-mono ${impliedChg >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {impliedChg >= 0 ? '+' : ''}{impliedChg.toFixed(0)}
+                            </span>
+                            <span className={`text-[8px] font-mono ${impliedPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              ({impliedPct >= 0 ? '+' : ''}{impliedPct.toFixed(2)}%)*
+                            </span>
+                          </>
+                        );
+                      }
+                      return (chg !== 0 && !isNaN(chg)) ? (
+                        <>
+                          <span className={`text-[8px] font-mono ${chg >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {chg >= 0 ? '+' : ''}{chg.toFixed(2)}
+                          </span>
+                          {!isNaN(pct) && (
+                            <span className={`text-[8px] font-mono ${pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              ({pct >= 0 ? '+' : ''}{pct.toFixed(2)}%)
+                            </span>
+                          )}
+                        </>
+                      ) : null;
+                    })()}
+                  </div>
                 </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">Bank Nifty</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-100 text-[9px] lg:text-xs font-mono font-medium">{marketData?.indices?.bankNifty || '---'}</span>
+                    {marketData?.indices?.bankNiftyChange && (
+                      <span className={`text-[8px] font-mono ${parseFloat(marketData.indices.bankNiftyChange) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {parseFloat(marketData.indices.bankNiftyChange) >= 0 ? '+' : ''}{parseFloat(marketData.indices.bankNiftyChange).toFixed(2)}
+                      </span>
+                    )}
+                    {marketData?.indices?.bankNiftyChangePercent && (
+                      <span className={`text-[8px] font-mono ${parseFloat(marketData.indices.bankNiftyChangePercent) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        ({parseFloat(marketData.indices.bankNiftyChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.indices.bankNiftyChangePercent).toFixed(2)}%)
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">Sensex</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-100 text-[9px] lg:text-xs font-mono font-medium">{marketData?.indices?.sensex || '---'}</span>
+                    {marketData?.indices?.sensexChange && (
+                      <span className={`text-[8px] font-mono ${parseFloat(marketData.indices.sensexChange) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {parseFloat(marketData.indices.sensexChange) >= 0 ? '+' : ''}{parseFloat(marketData.indices.sensexChange).toFixed(2)}
+                      </span>
+                    )}
+                    {marketData?.indices?.sensexChangePercent && (
+                      <span className={`text-[8px] font-mono ${parseFloat(marketData.indices.sensexChangePercent) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        ({parseFloat(marketData.indices.sensexChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.indices.sensexChangePercent).toFixed(2)}%)
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">India VIX</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-amber-400 text-[9px] lg:text-xs font-mono font-medium">{marketData?.indices?.vix || '---'}</span>
+                    {marketData?.indices?.vixChange && (
+                      <span className={`text-[8px] font-mono ${parseFloat(marketData.indices.vixChange) >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                        {parseFloat(marketData.indices.vixChange) >= 0 ? '+' : ''}{parseFloat(marketData.indices.vixChange).toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>}
+
+            {/* Global Indices */}
+            <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-1.5 lg:p-2 flex flex-col justify-center min-h-14 lg:min-h-16">
+              <h4 className="text-blue-300 text-[10px] font-semibold mb-1 lg:mb-1.5 text-center">Global Indices</h4>
+              <div className="space-y-0.5 lg:space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">DOW</span>
+                  <span className="text-slate-100 text-[9px] lg:text-xs font-mono font-medium">{marketData?.global?.dow || '---'}</span>
+                  {marketData?.global?.dowChange && (
+                    <span className={`text-[8px] font-mono ${parseFloat(marketData.global.dowChange) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {parseFloat(marketData.global.dowChange) >= 0 ? '+' : ''}{parseFloat(marketData.global.dowChange).toFixed(2)}
+                    </span>
+                  )}
+                  {marketData?.global?.dowChangePercent && (
+                    <span className={`text-[8px] font-mono ${parseFloat(marketData.global.dowChangePercent) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      ({parseFloat(marketData.global.dowChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.global.dowChangePercent).toFixed(2)}%)
+                    </span>
+                  )}
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">GIFT Nifty</span>
+                  <span className="text-slate-100 text-[9px] lg:text-xs font-mono font-medium">{marketData?.indices?.giftNifty || '---'}</span>
+                  {marketData?.indices?.giftNiftyChange && (
+                    <span className={`text-[8px] font-mono ${parseFloat(marketData.indices.giftNiftyChange) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {parseFloat(marketData.indices.giftNiftyChange) >= 0 ? '+' : ''}{parseFloat(marketData.indices.giftNiftyChange).toFixed(2)}
+                    </span>
+                  )}
+                  {marketData?.indices?.giftNiftyChangePercent && (
+                    <span className={`text-[8px] font-mono ${parseFloat(marketData.indices.giftNiftyChangePercent) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      ({parseFloat(marketData.indices.giftNiftyChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.indices.giftNiftyChangePercent).toFixed(2)}%)
+                    </span>
+                  )}
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">NASDAQ</span>
+                  <span className="text-slate-100 text-[9px] lg:text-xs font-mono font-medium">{marketData?.global?.nasdaq || '---'}</span>
+                  {marketData?.global?.nasdaqChange && (
+                    <span className={`text-[8px] font-mono ${parseFloat(marketData.global.nasdaqChange) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {parseFloat(marketData.global.nasdaqChange) >= 0 ? '+' : ''}{parseFloat(marketData.global.nasdaqChange).toFixed(2)}
+                    </span>
+                  )}
+                  {marketData?.global?.nasdaqChangePercent && (
+                    <span className={`text-[8px] font-mono ${parseFloat(marketData.global.nasdaqChangePercent) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      ({parseFloat(marketData.global.nasdaqChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.global.nasdaqChangePercent).toFixed(2)}%)
+                    </span>
+                  )}
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">DAX</span>
+                  <span className="text-slate-100 text-[9px] lg:text-xs font-mono font-medium">{marketData?.global?.dax || '---'}</span>
+                  {marketData?.global?.daxChange && (
+                    <span className={`text-[8px] font-mono ${parseFloat(marketData.global.daxChange) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {parseFloat(marketData.global.daxChange) >= 0 ? '+' : ''}{parseFloat(marketData.global.daxChange).toFixed(2)}
+                    </span>
+                  )}
+                  {marketData?.global?.daxChangePercent && (
+                    <span className={`text-[8px] font-mono ${parseFloat(marketData.global.daxChangePercent) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      ({parseFloat(marketData.global.daxChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.global.daxChangePercent).toFixed(2)}%)
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Market Sentiment */}
+            <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-1.5 lg:p-2 flex flex-col justify-center min-h-14 lg:min-h-16">
+              <h4 className="text-blue-300 text-[10px] font-semibold mb-1 lg:mb-1.5 text-center">Market Sentiment</h4>
+              <div className="space-y-0.5 lg:space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">Daily Trend</span>
+                  <span className={`text-[9px] lg:text-xs font-mono font-medium ${marketData?.sentiment?.bias === 'Bullish' ? 'text-emerald-400' : marketData?.sentiment?.bias === 'Bearish' ? 'text-red-400' : 'text-slate-300'}`}>
+                    {marketData?.sentiment?.bias || 'Neutral'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">Adv/Decline</span>
+                  <span className="text-[9px] lg:text-xs font-mono font-medium">
+                    {marketData?.sentiment?.advances > 0 || marketData?.sentiment?.declines > 0 ? (
+                      <>
+                        <span className="text-emerald-400">{marketData.sentiment.advances}↑</span>
+                        <span className="text-slate-500 mx-0.5">/</span>
+                        <span className="text-red-400">{marketData.sentiment.declines}↓</span>
+                      </>
+                    ) : (
+                      <span className="text-slate-100">---</span>
+                    )}
+                  </span>
+                </div>
+
+
+                <div className="bg-slate-800/50 rounded-lg p-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-slate-400 text-[9px]">Market Activity</div>
+                    {optionChainData?.marketActivity?.emoji && (
+                      <span className="text-sm">{optionChainData.marketActivity.emoji}</span>
+                    )}
+                  </div>
+                  <div className="text-white font-bold text-[10px] mb-1">
+                    {optionChainData?.marketActivity?.activity || 'Loading...'}
+                  </div>
+                  <div className="text-[9px] text-slate-400">
+                    PCR: {(optionChainData && (optionChainData.totalCallOI === 0 || optionChainData.totalPutOI === 0)) ? 'N/A' : optionChainData?.pcr > 0 ? optionChainData.pcr.toFixed(2) : '---'}
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Nifty Range */}
+            {(() => {
+              const idx = marketData?.indices;
+              const price = parseFloat(idx?.nifty);
+              const alerts = idx ? getNiftyLevelAlerts(idx) : [];
+              const nearLabel = alerts.length > 0
+                ? alerts.map(a => `Near ${a.label}`).join(' · ')
+                : null;
+              const fmt = v => v && !isNaN(v) ? parseFloat(v).toFixed(0) : '---';
+              const isNearHigh = (key) => {
+                const v = parseFloat(idx?.[key]);
+                return price && v && !isNaN(v) && Math.abs(price - v) <= price * 0.003;
+              };
+              return (
+                <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-1.5 lg:p-2 flex flex-col justify-center min-h-14 lg:min-h-16">
+                  <h4 className="text-blue-300 text-[10px] font-semibold mb-1 lg:mb-1.5 text-center">Nifty Range</h4>
+                  <div className="space-y-1">
+                    <div>
+                      <div className="text-slate-500 text-[8px] mb-0.5">Daily</div>
+                      <div className="flex justify-between items-center">
+                        <span className={`text-sm font-mono font-semibold ${isNearHigh('niftyHigh') ? 'text-amber-300 animate-pulse' : 'text-emerald-400'}`}>{fmt(idx?.niftyHigh)}</span>
+                        <span className="text-slate-600 text-[8px]">H/L</span>
+                        <span className={`text-sm font-mono font-semibold ${isNearHigh('niftyLow') ? 'text-sky-300 animate-pulse' : 'text-red-400'}`}>{fmt(idx?.niftyLow)}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500 text-[8px] mb-0.5">Weekly</div>
+                      <div className="flex justify-between items-center">
+                        <span className={`text-sm font-mono font-semibold ${isNearHigh('niftyWeeklyHigh') ? 'text-amber-300 animate-pulse' : 'text-emerald-600'}`}>{fmt(idx?.niftyWeeklyHigh)}</span>
+                        <span className="text-slate-600 text-[8px]">H/L</span>
+                        <span className={`text-sm font-mono font-semibold ${isNearHigh('niftyWeeklyLow') ? 'text-sky-300 animate-pulse' : 'text-red-700'}`}>{fmt(idx?.niftyWeeklyLow)}</span>
+                      </div>
+                    </div>
+                    {nearLabel && (
+                      <div className="text-[8px] text-amber-400 font-medium text-center mt-0.5">⚡ {nearLabel}</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Commodities */}
+            <div className="bg-[#112240] border border-blue-800/40 rounded-lg p-1.5 lg:p-2 flex flex-col justify-center min-h-14 lg:min-h-16">
+              <h4 className="text-blue-300 text-[10px] font-semibold mb-1 lg:mb-1.5 text-center">Commodities</h4>
+              <div className="space-y-0.5 lg:space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">Crude Oil</span>
+                  <span className={`text-[9px] lg:text-xs font-mono font-medium ${(marketData?.commodities?.crudeChange ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {marketData?.commodities?.crude || '---'} {marketData?.commodities?.crudeChange != null && (marketData.commodities.crudeChange >= 0 ? '▲' : '▼')}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">Silver</span>
+                  <span className={`text-[9px] lg:text-xs font-mono font-medium ${(marketData?.commodities?.silverChange ?? 0) >= 0 ? 'text-slate-100' : 'text-red-400'}`}>
+                    {marketData?.commodities?.silver || '---'} {marketData?.commodities?.silverChange != null && (marketData.commodities.silverChange >= 0 ? '▲' : '▼')}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">Gold</span>
+                  <span className={`text-[9px] lg:text-xs font-mono font-medium ${(marketData?.commodities?.goldChange ?? 0) >= 0 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {marketData?.commodities?.gold || '---'} {marketData?.commodities?.goldChange != null && (marketData.commodities.goldChange >= 0 ? '▲' : '▼')}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[9px]">Nat. Gas</span>
+                  <span className={`text-[9px] lg:text-xs font-mono font-medium ${(marketData?.commodities?.natGasChange ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {marketData?.commodities?.natGas || '---'} {marketData?.commodities?.natGasChange != null && (marketData.commodities.natGasChange >= 0 ? '▲' : '▼')}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>}  {/* closes grid + !marketContextCollapsed expression */}
+        </div> {/* end Market Context collapsible wrapper */}
+
+          {/* Main 3-Column Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mb-4">
+
+            {/* LEFT COLUMN */}
+            <div className="lg:col-span-2 space-y-3 order-2 lg:order-none">
+
+              {/* Scanners */}
+              <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-3">
+                <h2 className="text-sm font-semibold mb-2 text-blue-300">Scanners</h2>
+                <ul className="space-y-2">
+                  <li>
+                    <Link href="/stock-updates/scanner/bullish-bo-15min" className="flex items-center justify-between rounded-lg px-2 py-2 bg-emerald-900/30 hover:bg-emerald-800/40 border border-emerald-700/40 hover:border-emerald-600/60 transition-all text-xs text-slate-200">
+                      <span className="font-medium">Bullish BO</span>
+                      <span className="text-emerald-400">→</span>
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/stock-updates/scanner/bearish-bo-15min" className="flex items-center justify-between rounded-lg px-2 py-2 bg-red-900/30 hover:bg-red-800/40 border border-red-700/40 hover:border-red-600/60 transition-all text-xs text-slate-200">
+                      <span className="font-medium">Bearish BO</span>
+                      <span className="text-red-400">→</span>
+                    </Link>
+                  </li>
+                </ul>
               </div>
 
-              {/* 4. Bottom Grid */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="bg-[#112240] border border-blue-800/40 rounded-xl p-4">
-                  <h2 className="text-sm font-bold text-blue-300 mb-3">Market Headlines</h2>
-                  <div className="space-y-2 max-h-48 overflow-y-auto text-xs text-slate-400">
-                    {newsData.length > 0 ? newsData.slice(0, 5).map((n, i) => (
-                      <div key={i} className="border-b border-white/5 pb-2 last:border-0">{n.title}</div>
-                    )) : <div>Loading news...</div>}
+              {/* Bias + Sectors Tabbed Widget */}
+              <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-3">
+                {/* Tab bar */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex w-full bg-white/[0.05] rounded-lg p-0.5 gap-0.5">
+                    <button
+                      onClick={() => setLeftTab('sectors')}
+                      className={`flex-1 text-xs py-1.5 rounded-md font-semibold transition-all ${leftTab === 'sectors' ? 'bg-[#1e3a5f] text-blue-300 shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                    >Sectors</button>
+                    <button
+                      onClick={() => setLeftTab('bias')}
+                      className={`flex-1 text-xs py-1.5 rounded-md font-semibold transition-all ${leftTab === 'bias' ? 'bg-[#1e3a5f] text-blue-300 shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                    >Bias</button>
                   </div>
                 </div>
-                <OptionsAnalysisPanel
-                  chainData={optionChainData}
-                  scData={scData}
-                  scLastUpdated={scLastUpdated}
-                  loading={optionLoading}
-                  underlying={optionUnderlying}
-                  expiry={optionExpiry}
-                  onRefresh={() => fetchOptionChain(true)}
-                  onUnderlyingChange={setOptionUnderlying}
-                  onExpiryChange={setOptionExpiry}
-                />
+
+                {/* Sectors tab */}
+                {leftTab === 'sectors' && (
+                  <>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] text-slate-500">vs Prev Close</span>
+                  </div>
+                  <div className="space-y-1 max-h-[420px] overflow-y-auto pr-0.5">
+                    {sectorData.length > 0 ? (
+                      [...sectorData].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).map((sector) => {
+                        const v = sector.value ?? 0;
+                        const pos = v >= 0;
+                        const intensity = Math.min(Math.abs(v) / 2.5, 1);
+                        const barPct = Math.min((Math.abs(v) / 3) * 100, 100);
+                        const tvSymbol = sector.tvSymbol || sector.symbol?.replace(/ /g, '') || sector.name?.toUpperCase().replace(/ /g, '');
+                        return (
+                          <a
+                            key={sector.name}
+                            href={`https://www.tradingview.com/chart/?symbol=NSE:${tvSymbol}&interval=15`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border transition-all cursor-pointer ${
+                              pos
+                                ? 'bg-emerald-950/40 border-emerald-800/20 hover:border-emerald-600/50 hover:bg-emerald-950/60'
+                                : 'bg-red-950/40 border-red-900/20 hover:border-red-700/50 hover:bg-red-950/60'
+                            }`}
+                          >
+                            <div
+                              className={`w-0.5 h-5 rounded-full flex-shrink-0 ${pos ? 'bg-emerald-400' : 'bg-red-400'}`}
+                              style={{ opacity: 0.35 + intensity * 0.65 }}
+                            />
+                            <span className="text-[11px] text-slate-200 flex-1 truncate font-medium leading-none">{sector.name}</span>
+                            <div className="w-10 h-1 bg-white/5 rounded-full overflow-hidden flex-shrink-0">
+                              <div
+                                className={`h-full rounded-full ${pos ? 'bg-emerald-400' : 'bg-red-400'}`}
+                                style={{ width: `${Math.max(barPct, 6)}%`, opacity: 0.45 + intensity * 0.55 }}
+                              />
+                            </div>
+                            <span className={`text-[11px] font-mono font-bold w-11 text-right flex-shrink-0 ${pos ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {pos ? '+' : ''}{v.toFixed(2)}%
+                            </span>
+                          </a>
+                        );
+                      })
+                    ) : (
+                      <div className="text-center py-6 text-slate-500 text-xs">
+                        {sectorLoading ? 'Loading...' : (sectorError || 'No data')}
+                      </div>
+                    )}
+                  </div>
+                  </>
+                )}
+
+                {/* Bias tab */}
+                {leftTab === 'bias' && (<div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-blue-300">Bias Gauge</span>
+                  <button
+                    onClick={async () => {
+                      setSentimentLoading(true);
+                      try {
+                        const pcr = optionChainData?.pcr;
+                        const url = pcr ? `/api/sentiment?pcr=${pcr}&refresh=1` : '/api/sentiment?refresh=1';
+                        const response = await fetch(url);
+                        const data = await response.json();
+                        setSentimentData(data);
+                      } catch (error) {
+                        console.error('Error refreshing sentiment:', error);
+                      } finally {
+                        setSentimentLoading(false);
+                      }
+                    }}
+                    className="p-1 hover:bg-blue-800/40 rounded transition-colors"
+                    title="Refresh sentiment"
+                  >
+                    <RefreshCw className={`w-3 h-3 text-blue-400 ${sentimentLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+
+                {sentimentData ? (
+                  <div className="space-y-2 text-xs">
+
+                    {/* Overall Score */}
+                    <div className="text-center py-2 border-b border-blue-800/40">
+                      <div className={`text-2xl font-bold ${
+                        sentimentData.overall?.score >= 60 ? 'text-green-400' :
+                        sentimentData.overall?.score <= 40 ? 'text-red-400' : 'text-yellow-400'
+                      }`}>
+                        {sentimentData.overall?.score || '—'}
+                      </div>
+                      <div className={`text-[10px] uppercase tracking-wider ${
+                        sentimentData.overall?.mood?.includes('bullish') ? 'text-green-500' :
+                        sentimentData.overall?.mood?.includes('bearish') ? 'text-red-500' : 'text-yellow-500'
+                      }`}>
+                        {sentimentData.overall?.mood?.replace(/_/g, ' ') || 'Loading...'}
+                      </div>
+                    </div>
+
+                    {/* Intraday sentiment sparkline — last 10 periods, centered at 50 */}
+                    {sentimentData.timeframes?.intraday?.score != null && (() => {
+                      const score = sentimentData.timeframes.intraday.score;
+                      const color = score >= 60 ? '#34d399' : score <= 40 ? '#f87171' : '#fbbf24';
+                      const history = sentimentData.intradayHistory || [];
+                      // Build points: use history if available, else single current value
+                      const pts = history.length >= 2
+                        ? history.slice(-10)
+                        : [{ score: 50 }, { score }];
+
+                      const W = 200, H = 56, pad = 6;
+                      const iW = W - pad * 2, iH = H - pad * 2;
+                      const toY = (s) => pad + iH * (1 - Math.max(0, Math.min(100, s)) / 100);
+                      const centerY = toY(50);
+
+                      const coords = pts.map((p, i) => ({
+                        x: pad + (pts.length === 1 ? iW / 2 : (i / (pts.length - 1)) * iW),
+                        y: toY(p.score),
+                      }));
+
+                      // Smooth cubic bezier through all points (monotone-style tension 0.4)
+                      const smoothPath = (pts) => {
+                        if (pts.length < 2) return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+                        let d = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+                        for (let i = 1; i < pts.length; i++) {
+                          const cp = (pts[i].x - pts[i - 1].x) * 0.4;
+                          d += ` C${(pts[i-1].x + cp).toFixed(1)},${pts[i-1].y.toFixed(1)} ${(pts[i].x - cp).toFixed(1)},${pts[i].y.toFixed(1)} ${pts[i].x.toFixed(1)},${pts[i].y.toFixed(1)}`;
+                        }
+                        return d;
+                      };
+                      const linePath = smoothPath(coords);
+                      const areaPath = `${linePath} L${coords[coords.length-1].x.toFixed(1)},${H} L${coords[0].x.toFixed(1)},${H} Z`;
+                      const last = coords[coords.length - 1];
+
+                      return (
+                        <div className="pb-2 border-b border-blue-800/40">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[9px] text-slate-500 uppercase tracking-wider">Intraday Trend</span>
+                            <span className="text-[9px] font-mono" style={{ color }}>{score}</span>
+                          </div>
+                          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: '52px', display: 'block' }}>
+                            <defs>
+                              <linearGradient id="sGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+                                <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+                              </linearGradient>
+                            </defs>
+                            {/* Center line at 50 */}
+                            <line x1={pad} y1={centerY} x2={W - pad - 14} y2={centerY} stroke="#64748b" strokeWidth="0.8" strokeDasharray="3 3" />
+                            <text x={W - pad - 12} y={centerY + 2.5} fill="#94a3b8" fontSize="7" textAnchor="start">50</text>
+                            {/* Area fill */}
+                            <path d={areaPath} fill="url(#sGrad)" />
+                            {/* Line */}
+                            <path d={linePath} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+                            {/* Latest dot */}
+                            <circle cx={last.x} cy={last.y} r="2.5" fill={color} />
+                          </svg>
+                          <div className="flex justify-between mt-0.5">
+                            <span className="text-[8px] text-slate-600">{pts.length > 1 ? `${pts.length} periods` : 'Current'}</span>
+                            <span className="text-[8px] text-slate-600">{score >= 60 ? 'Bullish' : score <= 40 ? 'Bearish' : 'Neutral'}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Daily vs Intraday Timeframes */}
+                    {sentimentData.timeframes && (
+                      <div className="bg-slate-900/50 rounded-lg p-2 border border-blue-800/30">
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                          <div className="text-center">
+                            <div className="text-[9px] text-slate-500 uppercase mb-1">Daily</div>
+                            <div className="text-lg">{biasEmoji(sentimentData.timeframes.daily?.bias)}</div>
+                            <div className={`text-[9px] font-mono mt-0.5 ${
+                              sentimentData.timeframes.daily?.score >= 60 ? 'text-green-400' :
+                              sentimentData.timeframes.daily?.score <= 40 ? 'text-red-400' : 'text-yellow-400'
+                            }`}>
+                              {sentimentData.timeframes.daily?.score}
+                            </div>
+                            <div className="text-[8px] text-slate-500 capitalize">
+                              {sentimentData.timeframes.daily?.bias?.replace(/_/g, ' ')}
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-[9px] text-slate-500 uppercase mb-1">Intraday</div>
+                            <div className="text-lg">{biasEmoji(sentimentData.timeframes.intraday?.bias)}</div>
+                            <div className={`text-[9px] font-mono mt-0.5 ${
+                              sentimentData.timeframes.intraday?.score >= 60 ? 'text-green-400' :
+                              sentimentData.timeframes.intraday?.score <= 40 ? 'text-red-400' : 'text-yellow-400'
+                            }`}>
+                              {sentimentData.timeframes.intraday?.score}
+                            </div>
+                            <div className="text-[8px] text-slate-500 capitalize">
+                              {sentimentData.timeframes.intraday?.bias?.replace(/_/g, ' ')}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Divergence Warning */}
+                        {sentimentData.timeframes.divergence && (
+                          <div className="bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1 flex items-center gap-1.5 mb-2">
+                            <span className="text-amber-400">⚠</span>
+                            <span className="text-amber-300 text-[10px] font-medium">Divergence — Caution</span>
+                          </div>
+                        )}
+
+                        {/* Intraday Signals collapsible */}
+                        {sentimentData.timeframes.intraday?.signals?.length > 0 && (
+                          <details className="mt-1">
+                            <summary className="text-[9px] text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+                              Intraday signals ▾
+                            </summary>
+                            <div className="mt-1.5 space-y-0.5">
+                              {sentimentData.timeframes.intraday.signals.map((sig, i) => (
+                                <div key={i} className="flex items-center justify-between px-1">
+                                  <span className="text-[9px] text-slate-400">{sig.factor}</span>
+                                  <span className={`text-[9px] font-medium ${
+                                    sig.signal === 'bullish' ? 'text-green-400' :
+                                    sig.signal === 'bearish' ? 'text-red-400' : 'text-slate-400'
+                                  }`}>
+                                    {sig.detail}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Sentiment Factors */}
+                    {sentimentData.overall?.factors?.map((factor, idx) => (
+                      <div key={idx} className="flex justify-between items-center py-1 border-b border-blue-800/30">
+                        <span className="text-slate-400 flex items-center gap-1">
+                          {factor.name}
+                          <span className="text-[9px] text-slate-500">({factor.weight}%)</span>
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-mono text-[10px] ${
+                            factor.score >= 60 ? 'text-green-400' :
+                            factor.score <= 40 ? 'text-red-400' : 'text-yellow-400'
+                          }`}>
+                            {factor.score}
+                          </span>
+                          <span className="text-slate-500 text-[10px] capitalize">{factor.detail}</span>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* FII/DII */}
+                    {sentimentData.fiiDii && (
+                      <div className="pt-1">
+                        <div className="text-[10px] text-slate-500 mb-1">FII/DII Flow (₹ Cr)</div>
+                        <div className="grid grid-cols-2 gap-1 text-[10px]">
+                          <div className="bg-slate-800/50 rounded px-2 py-1">
+                            <span className="text-slate-400">FII: </span>
+                            <span className={sentimentData.fiiDii.fii.net >= 0 ? 'text-green-400' : 'text-red-400'}>
+                              {sentimentData.fiiDii.fii.net >= 0 ? '+' : ''}{Math.round(sentimentData.fiiDii.fii.net)}
+                            </span>
+                          </div>
+                          <div className="bg-slate-800/50 rounded px-2 py-1">
+                            <span className="text-slate-400">DII: </span>
+                            <span className={sentimentData.fiiDii.dii.net >= 0 ? 'text-green-400' : 'text-red-400'}>
+                              {sentimentData.fiiDii.dii.net >= 0 ? '+' : ''}{Math.round(sentimentData.fiiDii.dii.net)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* TradingView Technical */}
+                    {sentimentData.indices?.nifty && (
+                      <div className="pt-1">
+                        <div className="text-[10px] text-slate-500 mb-1">Technical Rating</div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400">NIFTY:</span>
+                            <span className={`font-medium px-1.5 py-0.5 rounded text-[10px] ${
+                              sentimentData.indices.nifty.overall?.includes('buy') ? 'bg-green-900/50 text-green-400' :
+                              sentimentData.indices.nifty.overall?.includes('sell') ? 'bg-red-900/50 text-red-400' :
+                              'bg-yellow-900/50 text-yellow-400'
+                            }`}>
+                              {sentimentData.indices.nifty.overall?.replace(/_/g, ' ').toUpperCase() || '—'}
+                            </span>
+                          </div>
+                          <span className="text-slate-500 text-[10px]">
+                            RSI: {sentimentData.indices.nifty.rsi?.toFixed(0) || '—'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Gauge */}
+                    <div className="pt-2">
+                      <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                        <span>Fear</span>
+                        <span>Neutral</span>
+                        <span>Greed</span>
+                      </div>
+                      <div className="h-2 bg-gradient-to-r from-red-600 via-yellow-500 to-green-600 rounded-full relative">
+                        <div
+                          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full border-2 border-slate-800 shadow-lg transition-all duration-500"
+                          style={{ left: `${Math.max(5, Math.min(95, sentimentData.overall?.score || 50))}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Timestamp */}
+                    {sentimentData.timestamp && (
+                      <div className="flex items-center justify-between pt-2 border-t border-blue-800/30 mt-1">
+                        <span className="text-[9px] text-slate-500">Last computed</span>
+                        <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.5 rounded flex items-center gap-1">
+                          <span className="w-1 h-1 rounded-full bg-blue-500 animate-pulse-slow" />
+                          {new Date(sentimentData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-slate-500 text-xs">
+                    {sentimentLoading ? 'Loading sentiment...' : 'No data available'}
+                  </div>
+                )}
+                </div>)}
               </div>
+            </div>
+
+            {/* CENTER COLUMN: Chart */}
+            <div className="lg:col-span-7 order-1 lg:order-none">
+              {/* OLD: min-h-[500px] */}
+              <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl overflow-hidden h-full flex flex-col min-h-[380px] sm:min-h-[640px]">
+                <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 sm:py-3 border-b border-blue-800/40">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <h2 className="text-sm sm:text-lg font-semibold text-blue-300">Market Chart</h2>
+                    <select
+                      className="bg-[#0a1628] border border-blue-700/50 rounded-lg px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm text-slate-200 focus:outline-none focus:border-blue-500"
+                      value={chartSymbol}
+                      onChange={(e) => setChartSymbol(e.target.value)}
+                    >
+                      <option value="NIFTY">NIFTY 50</option>
+                      <option value="BANKNIFTY">BANK NIFTY</option>
+                      <option value="NIFTYFUT">NIFTY FUT</option>
+                      <option value="BANKNIFTYFUT">BANKNIFTY FUT</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                    {/* Interval selector */}
+                    <div className="flex bg-[#0a1628] rounded-lg p-0.5">
+                      {[{ value: '5minute', label: '5m' }, { value: '15minute', label: '15m' }, { value: 'day', label: 'D' }, { value: 'week', label: 'W' }].map((int) => (
+                        <button
+                          key={int.value}
+                          onClick={() => setChartInterval(int.value)}
+                          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${chartInterval === int.value ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          {int.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* ⚙ Chart settings dropdown */}
+                    <div className="relative" ref={chartSettingsRef}>
+                      <button
+                        onClick={() => setShowChartSettings(v => !v)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors ${showChartSettings ? 'bg-slate-700 border-slate-500 text-white' : 'bg-[#0a1628] border-white/10 text-slate-400 hover:text-white'}`}
+                        title="Chart settings"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Indicators
+                      </button>
+                      {showChartSettings && (
+                        <div className="absolute top-full left-0 mt-1 z-50 bg-[#0d1f38] border border-blue-800/50 rounded-xl shadow-2xl p-3 w-52">
+                          {/* EMA Lines */}
+                          <div className="mb-2.5">
+                            <div className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider mb-1.5">EMA Lines</div>
+                            <div className="grid grid-cols-4 gap-1">
+                              {[9, 21, 50, 200].map((period) => (
+                                <label key={period} className="flex flex-col items-center gap-0.5 cursor-pointer group">
+                                  <div
+                                    onClick={() => setEmaPeriods(prev => prev.includes(period) ? prev.filter(p => p !== period) : [...prev, period])}
+                                    className={`w-full text-center py-1 text-xs font-medium rounded cursor-pointer transition-colors ${emaPeriods.includes(period) ? 'bg-amber-600/80 text-white' : 'bg-white/5 text-slate-500 hover:text-slate-300'}`}
+                                  >
+                                    {period}
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Overlays */}
+                          <div className="mb-2.5">
+                            <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">Overlays</div>
+                            <div className="flex flex-col gap-1.5">
+                              {[
+                                { id: 'vwap',  label: 'VWAP', sub: 'intraday only', val: showVwap,      set: setShowVwap,      disabled: chartInterval !== '5minute' && chartInterval !== '15minute' },
+                                { id: 'zone',  label: 'Zone Lines', sub: 'S/R levels',  val: showZoneLines, set: setShowZoneLines },
+                                { id: 'bos',   label: 'BOS',  sub: 'Break of Structure', val: showBOS,  set: setShowBOS },
+                              ].map(({ id, label, sub, val, set, disabled }) => (
+                                <label key={id} className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-40' : ''}`}>
+                                  <div
+                                    onClick={() => !disabled && set(v => !v)}
+                                    className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-colors ${val && !disabled ? 'bg-blue-600 border-blue-500' : 'bg-transparent border-slate-600'}`}
+                                  >
+                                    {val && !disabled && (
+                                      <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="text-xs text-slate-200">{label}</div>
+                                    {sub && <div className="text-[10px] text-slate-500">{sub}</div>}
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Sub-panels */}
+                          <div>
+                            <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">Sub-panels</div>
+                            <div className="flex flex-col gap-1.5">
+                              {[
+                                { id: 'vol', label: 'Volume',  sub: 'bars below candles', val: showVolume,     set: setShowVolume },
+                                { id: 'rsi', label: 'RSI(14)', sub: 'value in header',    val: showIndicators, set: setShowIndicators },
+                              ].map(({ id, label, sub, val, set }) => (
+                                <label key={id} className="flex items-center gap-2 cursor-pointer">
+                                  <div
+                                    onClick={() => set(v => !v)}
+                                    className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-colors ${val ? 'bg-blue-600 border-blue-500' : 'bg-transparent border-slate-600'}`}
+                                  >
+                                    {val && (
+                                      <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="text-xs text-slate-200">{label}</div>
+                                    {sub && <div className="text-[10px] text-slate-500">{sub}</div>}
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* External links */}
+                    <a
+                      href="/options"
+                      className="hidden sm:flex px-3 py-1.5 bg-violet-700 hover:bg-violet-600 text-white text-xs font-medium rounded-lg transition-colors items-center gap-1"
+                      title="Options Analytics — IV, Greeks, Probabilities"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                      Options
+                    </a>
+                    <a
+                      href={`https://www.tradingview.com/chart/?symbol=${chartSymbol === 'BANKNIFTYFUT' ? 'NSE:BANKNIFTY1!' : chartSymbol === 'NIFTYFUT' ? 'NSE:NIFTY1!' : chartSymbol === 'BANKNIFTY' ? 'NSE:BANKNIFTY' : 'NSE:NIFTY'}&interval=${chartInterval === 'day' ? 'D' : chartInterval === 'week' ? 'W' : chartInterval.replace('minute', '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hidden sm:flex px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors items-center gap-1"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      TradingView
+                    </a>
+                  </div>
+                </div>
+                {/* Key Levels Bar */}
+                {keyLevels?.levels && (
+                  <KeyLevelsBar levels={keyLevels.levels} spot={keyLevels.spot} />
+                )}
+                {/* Power Candle Alert */}
+                {powerCandles.length > 0 && (() => {
+                  const pc = powerCandles[powerCandles.length - 1];
+                  const isBull = pc.direction === 'bull';
+                  return (
+                    <div className={`flex items-center gap-2 px-3 py-1.5 text-xs border-b ${isBull ? 'bg-amber-500/10 border-amber-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                      <span className={`font-bold ${isBull ? 'text-amber-400' : 'text-red-400'}`}>
+                        ⚡ Power Candle
+                      </span>
+                      <span className={`font-medium ${isBull ? 'text-amber-300' : 'text-red-300'}`}>
+                        {isBull ? '▲ Bullish' : '▼ Bearish'}
+                      </span>
+                      <span className="text-slate-400">
+                        {pc.volMult != null ? `Vol ${pc.volMult}× avg · ` : ''}Range {pc.rangeMult}× ATR
+                      </span>
+                      <span className={`${isBull ? 'text-amber-200/60' : 'text-red-200/60'}`}>
+                        · {isBull ? 'Possible bullish reversal or strong continuation — watch next candle' : 'Possible bearish reversal or strong continuation — watch next candle'}
+                      </span>
+                    </div>
+                  );
+                })()}
+                <div className="flex-1 relative" ref={customChartCtnRef} key={`custom-${chartSymbol}-${chartInterval}`}>
+                    {/* OHLC + line values overlay */}
+                    <div className="absolute top-2 left-2 z-10 flex flex-col gap-0.5 pointer-events-none">
+                      {hoverOHLC && (
+                        <div className="flex items-center gap-2 text-[10px] font-mono bg-[#0a1628]/90 border border-blue-800/30 rounded px-2 py-1">
+                          <span className="text-slate-400">O</span><span className="text-slate-200">{hoverOHLC.open.toFixed(2)}</span>
+                          <span className="text-slate-400">H</span><span className="text-emerald-400">{hoverOHLC.high.toFixed(2)}</span>
+                          <span className="text-slate-400">L</span><span className="text-red-400">{hoverOHLC.low.toFixed(2)}</span>
+                          <span className="text-slate-400">C</span><span className={hoverOHLC.close >= hoverOHLC.open ? 'text-emerald-400' : 'text-red-400'}>{hoverOHLC.close.toFixed(2)}</span>
+                          {hoverOHLC.volume > 0 && <><span className="text-slate-400">V</span><span className="text-slate-300">{hoverOHLC.volume >= 1e6 ? (hoverOHLC.volume / 1e6).toFixed(2) + 'M' : hoverOHLC.volume >= 1e3 ? (hoverOHLC.volume / 1e3).toFixed(1) + 'K' : hoverOHLC.volume}</span></>}
+                        </div>
+                      )}
+                      {hoverLineValues && (
+                        <div className="flex items-center gap-3 text-[10px] font-mono bg-[#0a1628]/90 border border-blue-800/30 rounded px-2 py-1">
+                          {emaPeriods.map((period, idx) => {
+                            const colors = ['#f59e0b','#3b82f6','#10b981','#ef4444','#a21caf'];
+                            const val = hoverLineValues[`ema${period}`];
+                            return val != null ? (
+                              <span key={period} style={{ color: colors[idx % colors.length] }}>EMA{period} {val.toFixed(2)}</span>
+                            ) : null;
+                          })}
+                          {showVwap && hoverLineValues['vwap'] != null && (
+                            <span className="text-violet-400">VWAP {hoverLineValues['vwap'].toFixed(2)}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                </div>
+                {showIndicators && (
+                  <div className="border-t border-blue-800/30">
+                    <div className="flex items-center gap-3 px-3 py-1 text-[9px] bg-[#0c1a2e]/60">
+                      <span className="text-indigo-400 font-medium">RSI(14)</span>
+                      {rsiValue != null && (
+                        <span className={`font-mono font-bold ${rsiValue >= 70 ? 'text-red-400' : rsiValue <= 30 ? 'text-emerald-400' : 'text-slate-200'}`}>
+                          {rsiValue.toFixed(1)}
+                        </span>
+                      )}
+                      <span className="text-slate-600">· 70 overbought · 30 oversold</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT COLUMN: Sectors + Third Eye */}
+            <div className="lg:col-span-3 space-y-3 order-3 lg:order-none">
+
+              {/* ── Third Eye ────────────────────────────────────────── */}
+              <ThirdEyePanel
+                thirdEyeData={thirdEyeData}
+                thirdEyeOpen={thirdEyeOpen}
+                setThirdEyeOpen={setThirdEyeOpen}
+                thirdEyeLog={thirdEyeLog}
+                thirdEyeLive={thirdEyeLive}
+                thirdEyeMode={thirdEyeMode}
+                setThirdEyeMode={setThirdEyeMode}
+                thirdEyeEnv={thirdEyeEnv}
+                setThirdEyeEnv={setThirdEyeEnv}
+                thirdEyeTestMode={thirdEyeTestMode}
+                serverBiasState={serverBiasState}
+                liveTick={liveTick}
+                activeTrade={activeTrade}
+                tradeLTP={tradeLTP}
+                tradeExiting={tradeExiting}
+                tradeExited={tradeExited}
+                thirdEyePlaced={thirdEyePlaced}
+                thirdEyePlacing={thirdEyePlacing}
+                scanStatus={scanStatus}
+                openPositions={openPositions}
+                semiAutoQty={semiAutoQty}
+                setSemiAutoQty={setSemiAutoQty}
+                chartSymbol={chartSymbol}
+                SEMI_AUTO_IDS={SEMI_AUTO_IDS}
+                getAtmInfo={getAtmInfo}
+                isMarketHours={isMarketHours}
+                positionDir={positionDir}
+                onPlaceThirdEyeOrder={placeThirdEyeOrder}
+                onExitThirdEyeTrade={exitThirdEyeTrade}
+              />
 
             </div>
-          </main>
-        </div>
+          </div>
+
+          {/* Bottom: News + Options */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+
+            {/* News & Events */}
+            <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-blue-300 flex items-center gap-2">
+                  <span className="w-1 h-5 bg-blue-500 rounded"></span>
+                  Market Events & News
+                </h2>
+                <button
+                  onClick={async () => {
+                    setNewsLoading(true);
+                    try {
+                      const response = await fetch('/api/market-events?refresh=1');
+                      const data = await response.json();
+                      if (data.news) setNewsData(data.news);
+                      if (data.events) setEventsData(data.events);
+                    } catch (error) {
+                      console.error('Error refreshing:', error);
+                    } finally {
+                      setNewsLoading(false);
+                    }
+                  }}
+                  className="p-1.5 hover:bg-blue-800/40 rounded transition-colors"
+                >
+                  <RefreshCw className={`w-4 h-4 text-blue-400 ${newsLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+              {newsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {eventsData.length > 0 && (
+                    <div>
+                      <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                        <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+                        Upcoming Events
+                      </h3>
+                      <div className="space-y-2 max-h-32 overflow-y-auto">
+                        {eventsData.slice(0, 6).map((event, idx) => (
+                          <div key={idx} className={`flex items-center justify-between text-xs p-2 rounded ${event.urgent ? 'bg-red-900/30 border border-red-700/50' : 'bg-slate-800/50'}`}>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                event.category === 'expiry' ? 'bg-orange-900/50 text-orange-400' :
+                                event.category === 'results' ? 'bg-blue-900/50 text-blue-400' :
+                                event.category === 'dividend' ? 'bg-green-900/50 text-green-400' :
+                                event.category === 'holiday' ? 'bg-purple-900/50 text-purple-400' :
+                                event.category === 'regulatory' ? 'bg-cyan-900/50 text-cyan-400' :
+                                'bg-slate-700 text-slate-400'
+                              }`}>
+                                {event.category?.toUpperCase() || 'EVENT'}
+                              </span>
+                              <span className={event.urgent ? 'text-red-300 font-medium' : 'text-slate-300'}>
+                                {event.subject?.slice(0, 50)}{event.subject?.length > 50 ? '...' : ''}
+                              </span>
+                            </div>
+                            <span className={`text-[10px] font-mono ${event.urgent ? 'text-red-400 font-bold' : 'text-slate-500'}`}>
+                              {event.symbol || (event.daysAway !== undefined ? (event.daysAway === 0 ? 'TODAY' : `${event.daysAway}d`) : new Date(event.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }))}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {newsData.length > 0 && (
+                    <div>
+                      <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                        <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                        Latest News (24h)
+                      </h3>
+                      <ul className="space-y-2 max-h-40 overflow-y-auto">
+                        {newsData.map((item, index) => (
+                          <li key={index} className="flex items-start gap-2 text-xs">
+                            <span className="text-slate-500 font-mono text-[10px] mt-0.5 min-w-[32px]">
+                              {item.hoursAgo === 0 ? 'now' : `${item.hoursAgo}h`}
+                            </span>
+                            <a href={item.link} target="_blank" rel="noopener noreferrer" className="text-slate-300 hover:text-blue-300 transition-colors line-clamp-2 flex-1">
+                              {item.title}
+                              <span className="text-slate-600 text-[10px] ml-1">[{item.source}]</span>
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {eventsData.length === 0 && newsData.length === 0 && (
+                    <div className="text-slate-400 text-sm py-4 text-center">No events or news available</div>
+                  )}
+                </div>
+              )}
+            </div>
+            
+            {/* Options Analysis */}
+            <OptionsAnalysisPanel
+              chainData={optionChainData}
+              scData={scData}
+              scLastUpdated={scLastUpdated}
+              loading={optionLoading}
+              underlying={optionUnderlying}
+              expiry={optionExpiry}
+              onRefresh={() => fetchOptionChain(true)}
+              onUnderlyingChange={setOptionUnderlying}
+              onExpiryChange={setOptionExpiry}
+            />
+       
+
+          </div>
+        </main>
       </div>
     );
   }
