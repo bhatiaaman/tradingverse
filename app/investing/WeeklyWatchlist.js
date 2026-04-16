@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 
 // ── Week helpers (client-side mirror of server utils) ─────────────────────────
@@ -180,8 +180,29 @@ export default function WeeklyWatchlist() {
     setEditingSymbolIndex(null)
   }
 
+  // ── Unified Consolidation Logic ─────────────────────────────────────────────
+  const consolidated20 = useMemo(() => {
+    const combined = [
+      ...watchlistObj.aiResearch.map(s => ({ ...s, source: 'AI' })),
+      ...watchlistObj.expertsResearch.map(s => ({ ...s, source: 'Exp' })),
+      ...watchlistObj.chartink.map(s => ({ ...s, source: 'Chart' })),
+    ]
+    
+    const map = {}
+    for (const item of combined) {
+      const sym = item.symbol
+      if (!sym) continue
+      if (!map[sym] || (item.confidenceScore || 0) > (map[sym].confidenceScore || 0)) {
+        map[sym] = item
+      }
+    }
+    return Object.values(map)
+      .sort((a, b) => (b.confidenceScore || 0) - (a.confidenceScore || 0))
+      .slice(0, 20)
+  }, [watchlistObj])
+
   // ── Performance Tracker Fetcher ──────────────────────────────────────────────
-  const fetchPerformance = async (symbols) => {
+  const fetchPerformance = useCallback(async (symbols) => {
     if (!symbols?.length) return
     setIsTrackerLoading(true)
     try {
@@ -198,21 +219,14 @@ export default function WeeklyWatchlist() {
     } finally {
       setIsTrackerLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    // Determine consolidated symbols for the tracker
-    const combined = [
-      ...watchlistObj.aiResearch,
-      ...watchlistObj.expertsResearch,
-      ...watchlistObj.chartink
-    ]
-    const uniqueSymbols = Array.from(new Set(combined.map(s => s.symbol))).slice(0, 20)
-    
-    if (uniqueSymbols.length > 0) {
-      fetchPerformance(uniqueSymbols)
+    const syms = consolidated20.map(s => s.symbol)
+    if (syms.length > 0) {
+      fetchPerformance(syms)
     }
-  }, [watchlistObj])
+  }, [consolidated20, fetchPerformance])
 
   if (loading) return null
 
@@ -418,24 +432,6 @@ export default function WeeklyWatchlist() {
   )
 
   const PerformanceSidebar = () => {
-    const combined = [
-      ...watchlistObj.aiResearch.map(s => ({ ...s, source: 'AI' })),
-      ...watchlistObj.expertsResearch.map(s => ({ ...s, source: 'Exp' })),
-      ...watchlistObj.chartink.map(s => ({ ...s, source: 'Chart' })),
-    ]
-    
-    // De-duplicate like in terminal API
-    const map = {}
-    for (const item of combined) {
-      const sym = item.symbol
-      if (!map[sym] || (item.confidenceScore || 0) > (map[sym].confidenceScore || 0)) {
-        map[sym] = item
-      }
-    }
-    const consol20 = Object.values(map)
-      .sort((a, b) => (b.confidenceScore || 0) - (a.confidenceScore || 0))
-      .slice(0, 20)
-
     return (
       <div className="bg-white dark:bg-[#0b101a] border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden flex flex-col h-fit sticky top-6">
         <div className="px-4 py-3 bg-slate-50 dark:bg-[#0e1420] border-b border-slate-200 dark:border-white/10 flex items-center justify-between">
@@ -446,7 +442,7 @@ export default function WeeklyWatchlist() {
             <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">ROI vs Fri Close</p>
           </div>
           <button 
-            onClick={() => fetchPerformance(consol20.map(s => s.symbol))}
+            onClick={() => fetchPerformance(consolidated20.map(s => s.symbol))}
             disabled={isTrackerLoading}
             className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50"
           >
@@ -457,7 +453,7 @@ export default function WeeklyWatchlist() {
         </div>
 
         <div className="p-0">
-          {consol20.length === 0 ? (
+          {consolidated20.length === 0 ? (
             <div className="p-4 text-center text-[10px] text-slate-500 italic">No consolidated stocks yet.</div>
           ) : (
             <div className="overflow-x-auto">
@@ -469,9 +465,25 @@ export default function WeeklyWatchlist() {
                   </tr>
                 </thead>
                 <tbody>
-                  {consol20.map((s, idx) => {
+                  {consolidated20.map((s, idx) => {
                     const quote = performanceData[s.symbol]
-                    const ref = s.referencePrice
+                    
+                    // Fallback logic: Use mid of entry zone if refPrice is missing
+                    let ref = s.referencePrice
+                    let isMidFallback = false
+                    
+                    if (!ref && s.entryZone) {
+                      const parts = s.entryZone.split(/[-–—/]/).map(p => parseFloat(p.replace(/[^0-9.]/g, '')))
+                      const nums = parts.filter(n => !isNaN(n))
+                      if (nums.length === 2) {
+                        ref = (nums[0] + nums[1]) / 2
+                        isMidFallback = true
+                      } else if (nums.length === 1) {
+                        ref = nums[0]
+                        isMidFallback = true
+                      }
+                    }
+
                     const roi = (quote?.ltp && ref) ? ((quote.ltp - ref) / ref) * 100 : null
                     const isPositive = roi !== null ? roi >= 0 : null
                     
@@ -479,14 +491,14 @@ export default function WeeklyWatchlist() {
                       <tr key={s.symbol} className="border-b border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
                         <td className="px-4 py-2.5">
                           <div className="text-[11px] font-black text-slate-700 dark:text-slate-300">{s.symbol}</div>
-                          <div className="text-[9px] text-slate-400 dark:text-slate-500 font-mono">
-                            {ref ? `Ref: ${ref.toLocaleString('en-IN')}` : 'No Ref Price'}
+                          <div className={`text-[9px] font-mono ${isMidFallback ? 'text-amber-500/80' : 'text-slate-400 dark:text-slate-500'}`}>
+                            {ref ? `${isMidFallback ? '🀄' : '🏁'} ${ref.toLocaleString('en-IN')}` : 'No Baseline'}
                           </div>
                         </td>
                         <td className="px-3 py-2.5 text-right">
                           {roi !== null ? (
                             <div className={`text-[11px] font-mono font-black ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
-                              {isPositive ? '▲' : '▼'} {roi.toFixed(2)}%
+                              {isPositive ? '▲' : '▼'}{Math.abs(roi).toFixed(2)}%
                             </div>
                           ) : (
                             <div className="text-[10px] text-slate-400 dark:text-slate-600">---</div>

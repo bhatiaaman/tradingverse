@@ -1258,7 +1258,9 @@ function generatePreMarketCommentary(marketData, optionChain) {
   // Nifty ticker's change%, NOT for gap reference. Using it here showed Monday
   // pre-market gap vs Thursday instead of vs Friday.
   const gapRef = parseFloat(marketData.indices?.niftyLastSessionClose || 0) || prevClose;
-  const gapPercent = (gapRef > 0 && giftNifty > 0) ? (giftNifty - gapRef) / gapRef * 100 : 0;
+  const gapPercent = marketData.indices?.niftyExpectedGapPercent != null 
+    ? parseFloat(marketData.indices.niftyExpectedGapPercent)
+    : ((gapRef > 0 && giftNifty > 0) ? (giftNifty - gapRef) / gapRef * 100 : 0);
   const expectedOpen = gapRef * (1 + gapPercent / 100);
 
   const pcr         = optionChain?.pcr        || null;
@@ -1334,8 +1336,8 @@ export async function GET(request) {
       ? searchParams.get('interval')
       : '5minute';
 
-    const CACHE_KEY    = `${NS}:commentary:v2:${interval}${marketIsOpen ? ':live' : ':pre'}`;
     const marketIsOpen = isMarketOpen();
+    const CACHE_KEY    = `${NS}:commentary:v2:${interval}${marketIsOpen ? ':live' : ':pre'}`;
     const forceRefresh = searchParams.get('refresh') === '1';
 
     if (!forceRefresh) {

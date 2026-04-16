@@ -570,9 +570,17 @@ export async function GET() {
     // We must compare GIFT Nifty to where NIFTY 50 SPOT last closed (e.g. 23,842).
     //
     // strictGiftPrevClose is kept for reference / Redis caching but NOT used for displayed %
-    const giftRef = niftyLastSessionClose ?? strictGiftPrevClose ?? null;
-    let giftNiftyChange        = (giftNiftyPrice && giftRef) ? giftNiftyPrice - giftRef : null;
-    let giftNiftyChangePercent = (giftNiftyChange !== null && giftRef) ? (giftNiftyChange / giftRef) * 100 : null;
+    // ── Expected Nifty 50 Gap (Primary Display) ───────────────────────────────
+    // For Indian traders, the meaningful number is the delta vs Nifty Spot's 
+    // last close (the "Gap"). Showing session change of the GIFT contract 
+    // itself can be misleading if GIFT is down but still trading far above Spot.
+    const gapRef = niftyLastSessionClose ?? null;
+    let giftNiftyChange        = (giftNiftyPrice && gapRef) ? giftNiftyPrice - gapRef : null;
+    let giftNiftyChangePercent = (giftNiftyChange !== null && gapRef) ? (giftNiftyChange / gapRef) * 100 : null;
+
+    // Redundant for backward compatibility with the commentary fix
+    let niftyExpectedGap        = giftNiftyChange;
+    let niftyExpectedGapPercent = giftNiftyChangePercent;
 
     const marketData = {
       indices: {
@@ -590,8 +598,10 @@ export async function GET() {
         bankNiftyChangePercent: bankNifty?.changePercent ? bankNifty.changePercent.toFixed(2) : null,
         bankNiftyPrevClose:  bankNifty?.prevClose       ? bankNifty.prevClose.toFixed(2)       : null,
         giftNifty:           giftNiftyPrice             ? (typeof giftNiftyPrice === 'number' ? giftNiftyPrice.toFixed(2) : giftNiftyPrice) : null,
-        giftNiftyChange:     (giftNiftyChange !== undefined && giftNiftyChange !== null) ? giftNiftyChange.toFixed(2) : null,
-        giftNiftyChangePercent: (giftNiftyChangePercent !== undefined && giftNiftyChangePercent !== null) ? giftNiftyChangePercent.toFixed(2) : null,
+        giftNiftyChange:     (giftNiftyChange !== null) ? giftNiftyChange.toFixed(2) : null,
+        giftNiftyChangePercent: (giftNiftyChangePercent !== null) ? giftNiftyChangePercent.toFixed(2) : null,
+        niftyExpectedGap:    (niftyExpectedGap !== null) ? niftyExpectedGap.toFixed(2) : null,
+        niftyExpectedGapPercent: (niftyExpectedGapPercent !== null) ? niftyExpectedGapPercent.toFixed(2) : null,
         niftyLastSessionClose: niftyLastSessionClose      ? niftyLastSessionClose.toFixed(2)     : null,
         niftyWeeklyHigh:     niftyWeeklyHigh            ? niftyWeeklyHigh.toFixed(2)           : null,
         niftyWeeklyLow:      niftyWeeklyLow             ? niftyWeeklyLow.toFixed(2)            : null,
