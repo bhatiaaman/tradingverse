@@ -9,7 +9,7 @@ import { NextResponse } from 'next/server'
 // Cache the token → { email, role } for 60 seconds so Neon is only hit once per
 // session per minute. Sessions are 30-day tokens, so 60s staleness is safe.
 const SESSION_CACHE     = new Map();   // token → { email, role, cachedAt }
-const SESSION_CACHE_TTL = 60_000;      // 60 seconds
+const SESSION_CACHE_TTL = 300_000;     // 5 minutes
 
 function getCached(token) {
   const entry = SESSION_CACHE.get(token);
@@ -21,11 +21,11 @@ function getCached(token) {
 export async function requireSession() {
   const cookieStore = await cookies()
   const token = cookieStore.get('tv_session')?.value
-  if (!token) return null
+  if (!token) return { session: null }
 
   // Cache hit → skip Neon round-trip entirely
   const cached = getCached(token);
-  if (cached) return { email: cached.email, role: cached.role };
+  if (cached) return { session: { email: cached.email, role: cached.role } };
 
   let rows
   try {
@@ -36,34 +36,35 @@ export async function requireSession() {
     `
   } catch (err) {
     // Neon cold-start, connection error, etc.
-    // Return null (unauthenticated) rather than crashing the API route.
     console.error('[session] DB error in requireSession:', err?.message ?? err)
-    return null
+    return { session: null, error: 'database_error' }
   }
 
-  if (!rows.length) return null
+  if (!rows.length) return { session: null }
 
   const email = rows[0].email
   const role  = resolveRole(email)
 
-  // Store in cache so next poll within 60s skips Neon
+  // Store in cache so next poll within 5m skips Neon
   SESSION_CACHE.set(token, { email, role, cachedAt: Date.now() });
 
-  return { email, role }
+  return { session: { email, role } }
 }
 
 
 export async function requireOwner() {
-  const session = await requireSession()
-  if (!session || session.role !== 'admin') return null
-  return session
+  const { session, error } = await requireSession()
+  if (error) return { session: null, error }
+  if (!session || session.role !== 'admin') return { session: null }
+  return { session }
 }
 
 export async function requireTrader() {
-  const session = await requireSession()
-  if (!session) return null
-  if (session.role === 'admin' || session.role === 'trader') return session
-  return null
+  const { session, error } = await requireSession()
+  if (error) return { session: null, error }
+  if (!session) return { session: null }
+  if (session.role === 'admin' || session.role === 'trader') return { session }
+  return { session: null }
 }
 
 function resolveRole(email) {
@@ -78,4 +79,8 @@ export function unauthorized() {
 
 export function forbidden() {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+}
+
+export function serviceUnavailable(error = 'database_error') {
+  return NextResponse.json({ error: 'Service Unavailable', detail: error }, { status: 503 })
 }

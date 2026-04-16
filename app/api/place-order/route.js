@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getBroker, getDataProvider } from '@/app/lib/providers';
 import { orderLimiter, checkLimit } from '@/app/lib/rate-limit';
-import { requireOwner, requireSession, unauthorized, forbidden } from '@/app/lib/session';
+import { requireOwner, requireSession, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 import { redis } from '@/app/lib/redis';
 import { sql } from '@/app/lib/db';
 
@@ -114,7 +114,8 @@ function buildOrderParams(body) {
 
 // ─── POST handler ─────────────────────────────────────────────────────────────
 export async function POST(request) {
-  const session = await requireSession();
+  const { session, error } = await requireSession();
+  if (error) return serviceUnavailable(error);
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
@@ -246,7 +247,8 @@ export async function POST(request) {
 
 // ─── GET handler (unchanged) ──────────────────────────────────────────────────
 export async function GET(request) {
-  const getSession = await requireSession();
+  const { session: getSession, error } = await requireSession();
+  if (error) return serviceUnavailable(error);
   if (!getSession) return unauthorized();
   if (getSession.role !== 'admin') return forbidden();
 

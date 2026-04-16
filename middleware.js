@@ -16,7 +16,7 @@ function getSql() {
 // Session cache — avoids a Neon round-trip on every page navigation.
 // Sessions are 30-day tokens; a 60s in-memory TTL is safe and invisible to users.
 const SESSION_CACHE     = new Map()   // token → { email, plan, cachedAt }
-const SESSION_CACHE_TTL = 60_000      // 60 seconds
+const SESSION_CACHE_TTL = 300_000      // 5 minutes
 
 function getCachedSession(token) {
   const entry = SESSION_CACHE.get(token)

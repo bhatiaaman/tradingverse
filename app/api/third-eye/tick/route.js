@@ -6,7 +6,7 @@
 // Returns: { ltp, change, changePct, vwapDist, vwapPct, bias, updatedAt }
 
 import { NextResponse } from 'next/server';
-import { requireSession, unauthorized } from '@/app/lib/session';
+import { requireSession, unauthorized, serviceUnavailable } from '@/app/lib/session';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -27,7 +27,9 @@ async function redisGet(key) {
 }
 
 export async function GET(req) {
-  if (!await requireSession()) return unauthorized();
+  const { session, error } = await requireSession();
+  if (error) return serviceUnavailable(error);
+  if (!session) return unauthorized();
 
   const { searchParams } = new URL(req.url);
   const symbol = (searchParams.get('symbol') || 'NIFTY').toUpperCase();

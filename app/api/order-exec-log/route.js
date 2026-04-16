@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireSession, unauthorized, forbidden } from '@/app/lib/session';
+import { requireSession, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 import { sql } from '@/app/lib/db';
 
 export async function GET() {

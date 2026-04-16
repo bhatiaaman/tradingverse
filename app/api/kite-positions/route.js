@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getBroker } from '@/app/lib/providers';
-import { requireOwner, unauthorized } from '@/app/lib/session';
+import { requireOwner, unauthorized, serviceUnavailable } from '@/app/lib/session';
 
 function isMarketHours() {
   const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -10,7 +10,9 @@ function isMarketHours() {
 
 export async function GET() {
   try {
-    if (!await requireOwner()) return unauthorized();
+    const { session, error } = await requireOwner();
+    if (error) return serviceUnavailable(error);
+    if (!session) return unauthorized();
 
     const broker = await getBroker();
 

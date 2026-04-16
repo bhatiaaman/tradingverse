@@ -15,7 +15,7 @@
 // The page is a read-only consumer — no bias logic in the client.
 
 import { NextResponse } from 'next/server';
-import { requireSession, unauthorized } from '@/app/lib/session';
+import { requireSession, unauthorized, serviceUnavailable } from '@/app/lib/session';
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit';
 import { runThirdEye, precompute, buildContext } from '@/app/lib/thirdEye.js';
 import { applyBiasTransition, freshBiasState, isNewTradingDay, todayIST } from '@/app/lib/thirdEye-bias.js';
@@ -127,7 +127,9 @@ function isMarketHours() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function POST(req) {
-  if (!await requireSession()) return unauthorized();
+  const { session, error } = await requireSession();
+  if (error) return serviceUnavailable(error);
+  if (!session) return unauthorized();
 
   const rl = await checkLimit(intelligenceLimiter, req);
   if (rl.limited) {
