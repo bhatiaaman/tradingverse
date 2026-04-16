@@ -660,7 +660,7 @@ export default function WeeklyWatchlist() {
 
           {activeTab !== 'consolidated' && (
             <div className="flex items-center gap-2">
-              {activeTab === 'expertsResearch' && currentList.length > 0 && (
+              {['aiResearch', 'expertsResearch', 'chartink'].includes(activeTab) && currentList.length > 0 && (
                 <button
                   onClick={handleSyncMissingBaselines}
                   title="Fix missing baseline prices for the current list"
