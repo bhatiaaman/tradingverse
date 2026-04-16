@@ -692,6 +692,15 @@ export default function OrderModal({
     }
   }, [isOpen, defaultType, price, optionType, symbol]);
 
+  // ── Sync quantity to lot size when API returns it (FnO only) ─────────────────
+  // This reactive effect is more reliable than setting qty inside the async fetch,
+  // because it runs AFTER the state update regardless of call order.
+  useEffect(() => {
+    if (optionType && lotSize > 1) {
+      setQuantity(lotSize);
+    }
+  }, [lotSize, optionType]);
+
   // ─── FETCH DEEP INTELLIGENCE (5 agents) ─────────────────────────────
   const fetchDeepIntel = async () => {
     if (!symbol || !transactionType) return;
