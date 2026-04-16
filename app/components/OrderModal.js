@@ -597,7 +597,7 @@ export default function OrderModal({
     if ((symbol === 'NIFTY' || symbol === 'BANKNIFTY') && !selectedExpiryDate) return;
 
     fetchOptionDetails();
-  }, [isOpen, optionType, symbol, price, isLoggedIn, selectedExpiryDate]);
+  }, [isOpen, optionType, symbol, price, isLoggedIn, selectedExpiryDate, optionExpiry, optionExpiryType]);
 
   const fetchOptionDetails = async () => {
     setFetchingLtp(true);
@@ -632,7 +632,10 @@ export default function OrderModal({
         setOptionLtp(data.ltp);
         setStrike(data.strike);
         setExpiryDay(data.expiryDay);
-        if (data.lotSize) setLotSize(data.lotSize);
+        if (data.lotSize) {
+          setLotSize(data.lotSize);
+          setQuantity(data.lotSize); // Auto-set quantity to 1 lot
+        }
         setLimitPrice(data.ltp?.toString() || '');
       } else if (res.status === 401) {
         setIsLoggedIn(false);
@@ -663,7 +666,8 @@ export default function OrderModal({
   useEffect(() => {
     if (isOpen) {
       setTransactionType(defaultType);
-      setQuantity(optionType ? 1 : 1);
+      setQuantity(0); // Start at 0 until lotSize is fetched
+      setLotSize(1);
       setProduct(optionType ? 'NRML' : 'CNC');
       setOrderType(optionType ? 'LIMIT' : 'MARKET');
       setLimitPrice(price?.toString() || '');

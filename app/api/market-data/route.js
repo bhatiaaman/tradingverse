@@ -421,6 +421,14 @@ export async function GET() {
   try {
     const cached = await redisGet(CACHE_KEY);
 
+    if (cached?.updatedAt) {
+      const age = Date.now() - new Date(cached.updatedAt).getTime();
+      const istNow2 = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+      const istHour = istNow2.getUTCHours();
+      const istDay2 = istNow2.getUTCDay();
+      const isWeekday = istDay2 >= 1 && istDay2 <= 5;
+      const isPreMarketWindow = isWeekday && istHour >= 7 && istHour < 9;
+      const maxAge = isMarketHours() ? FRESH_TTL : isPreMarketWindow ? 3 * 60 * 1000 : 15 * 60 * 1000;
       if (age < maxAge) {
         return Response.json({ ...cached, fromCache: true, offMarketHours: !isMarketHours(), cacheAge: age });
       }
