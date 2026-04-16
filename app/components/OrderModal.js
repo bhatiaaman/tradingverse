@@ -666,7 +666,7 @@ export default function OrderModal({
   useEffect(() => {
     if (isOpen) {
       setTransactionType(defaultType);
-      setQuantity(0); // Start at 0 until lotSize is fetched
+      setQuantity(1);  // temporary — FnO will update to lotSize once API responds
       setLotSize(1);
       setProduct(optionType ? 'NRML' : 'CNC');
       setOrderType(optionType ? 'LIMIT' : 'MARKET');
