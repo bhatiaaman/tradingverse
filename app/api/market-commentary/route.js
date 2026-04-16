@@ -394,12 +394,13 @@ async function getOIChange5Min(currentCallOI, currentPutOI) {
     return { callOIChange5min: 0, putOIChange5min: 0 };
   }
 
-  // Only refresh snapshot if existing one is > 5 minutes old (300s)
-  // This ensures we detect a genuine 5-min trend rather than just 'change since last poll'.
   const SNAP_THRESHOLD_MS = 5 * 60 * 1000;
-  if (!snapshot || (Date.now() - snapshot.time) > SNAP_THRESHOLD_MS) {
+  if ((Date.now() - snapshot.time) > SNAP_THRESHOLD_MS) {
     await redisSet(KEY, { callOI: currentCallOI, putOI: currentPutOI, time: Date.now() }, 360);
   }
+
+  const callOIChange5min = currentCallOI - snapshot.callOI;
+  const putOIChange5min  = currentPutOI - snapshot.putOI;
 
   return { callOIChange5min, putOIChange5min };
 }
