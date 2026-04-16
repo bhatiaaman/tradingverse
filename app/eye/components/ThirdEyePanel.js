@@ -198,7 +198,8 @@ export default function ThirdEyePanel({
         const tickChange   = liveTick?.changePct;
         const tickVwapDist = liveTick?.vwapPct;
         const aboveVwap    = liveTick?.aboveVwap ?? thirdEyeLive.context?.vwap?.above;
-        const lastLogDir   = thirdEyeLog[0]?.topSetup?.pattern?.direction;
+        const lastLogEntry = thirdEyeLog[0];
+        const lastLogDir   = (lastLogEntry?.narrative?.type !== 'observe') ? lastLogEntry?.topSetup?.pattern?.direction : null;
         const liveHasBullReversal = thirdEyeLive.rawPatterns?.some(p => BULL_REVERSAL_IDS.has(p.pattern?.id));
         const liveHasBearReversal = thirdEyeLive.rawPatterns?.some(p => BEAR_REVERSAL_IDS.has(p.pattern?.id));
         const staleWarning =

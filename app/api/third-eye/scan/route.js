@@ -259,17 +259,22 @@ export async function POST(req) {
           biasState = { ...biasState, ...newBiasState, date: today, lastUpdated: timeStr };
         }
 
-        newEntries.push({
-          time:        timeStr,
-          topSetup,
-          context,
-          candle:      { open: targetCandle.open, high: targetCandle.high, low: targetCandle.low, close: targetCandle.close },
-          rawPatterns: result.rawPatterns ?? [],
-          narrative,
-          bias:        biasState.bias,
-          biasChanged: newBiasState.changed,
-          biasReason:  newBiasState.reason,
-        });
+        const lastAdded = newEntries[newEntries.length - 1] || log[0];
+        const isDuplicateObserve = narrative.type === 'observe' && lastAdded?.narrative?.type === 'observe';
+
+        if (!isDuplicateObserve) {
+          newEntries.push({
+            time:        timeStr,
+            topSetup,
+            context,
+            candle:      { open: targetCandle.open, high: targetCandle.high, low: targetCandle.low, close: targetCandle.close },
+            rawPatterns: result.rawPatterns ?? [],
+            narrative,
+            bias:        biasState.bias,
+            biasChanged: newBiasState.changed,
+            biasReason:  newBiasState.reason,
+          });
+        }
 
       } catch (err) {
         console.error(`[third-eye/scan] candle ${timeStr} error:`, err.message);
