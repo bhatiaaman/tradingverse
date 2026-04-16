@@ -333,14 +333,7 @@ export default function ThirdEyePanel({
 
       {/* ── Sealed Log ────────────────────────────────────────────────────── */}
       {thirdEyeOpen && (() => {
-        const FAKE_TEST_ENTRY = {
-          time: '⚠ TEST', isTest: true,
-          topSetup: { pattern: { id: 's3_orb_bull', name: 'ORB Breakout [TEST]', direction: 'bull', strength: 5, sl: 21950 }, score: 8 },
-          context:  { sessionTime: 'midday', trend: 'uptrend', bos: null, vwap: { above: true, distPct: 0.2 }, volume: { mult: 1.8, context: 'high' }, rsi: 58 },
-          candle:   { open: 22000, high: 22050, low: 21980, close: 22020 },
-          rawPatterns: [],
-        };
-        const displayLog = thirdEyeTestMode ? [FAKE_TEST_ENTRY, ...thirdEyeLog] : thirdEyeLog;
+        const displayLog = thirdEyeLog;
         return (
           <div className="divide-y divide-white/[0.04] max-h-[560px] overflow-y-auto">
             {scanStatus && scanStatus.pushed < scanStatus.total && (

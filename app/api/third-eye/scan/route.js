@@ -276,12 +276,20 @@ export async function POST(req) {
           });
         }
 
+        // Advance baseline state for the next toProcess candle
+        biasState = newBiasState;
       } catch (err) {
         console.error(`[third-eye/scan] candle ${timeStr} error:`, err.message);
         // Advance past failed candle — don't retry forever
         biasState.lastUpdated = timeStr;
       }
     }
+
+    // ── Update Log and Bias State ──────────────────────────────────────────────
+    // Final sanity sort: ensure newest candles are ALWAYS at the top regardless of push order
+    const updatedLog = [...newEntries, ...log]
+      .sort((a, b) => b.time.localeCompare(a.time)) // Descending HH:MM
+      .slice(0, 15);
 
     // ── Live candle (current forming, not yet sealed) ─────────────────────────
     const liveCandle = todayCandles[todayCandles.length - 1];
