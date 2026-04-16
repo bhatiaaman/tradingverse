@@ -50,10 +50,11 @@ export async function POST(request) {
       console.error('Failed to set scanner-specific scan:', e);
     }
 
-    console.log('📊 Scan received:', enrichedData.id, '— stocks:', enrichedData.stocks?.length ?? 0, '— ct:', ct.split(';')[0]);
+    // Parse stocks for logging and enrichment
+    const stocks = parseStocks(scanData).filter(s => s.symbol);
+    console.log('📊 Scan received:', enrichedData.id, '— stocks:', stocks.length);
 
     // ── Run enrichment synchronously — Chartink tolerates slow webhook responses ──
-    const stocks = parseStocks(scanData).filter(s => s.symbol);
     if (stocks.length > 0) {
       await enrichScan(enrichedData.id, stocks, scanData.scan_name || '').catch(e => {
         console.error('[webhook] enrichment failed:', e.message);

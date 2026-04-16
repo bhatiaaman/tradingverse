@@ -60,7 +60,15 @@ function getScannerSlug(scanOrSlug) {
     } catch { /* fall through */ }
   }
 
-  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  let slug = str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+  // Alias common abbreviations to names used in URLs
+  slug = slug.replace(/-bo-/, '-breakout-')
+             .replace(/-bd-/, '-breakdown-')
+             .replace(/^bo-/, 'breakout-')
+             .replace(/^bd-/, 'breakdown-');
+
+  return slug;
 }
 
 
@@ -110,17 +118,24 @@ export async function setScannerScan(scan) {
 export async function getScannerLatest(slug) {
   if (!slug) return null;
   const s = getScannerSlug(slug);
+  // Also try searching for common aliases if exact match fails
   const rows = await sql`
-    SELECT * FROM scans WHERE slug = ${s} ORDER BY triggered_at DESC LIMIT 1
+    SELECT * FROM scans 
+    WHERE slug = ${s} 
+       OR slug = ${s.replace(/-breakout-/, '-bo-').replace(/-breakdown-/, '-bd-')}
+    ORDER BY triggered_at DESC LIMIT 1
   `;
   return rows[0] ? rowToScan(rows[0]) : null;
 }
 
 export async function getScannerHistory(slug) {
   if (!slug) return [];
-  const s = getScannerSlug(slug);
+  // Also try searching for common aliases if exact match fails
   const rows = await sql`
-    SELECT * FROM scans WHERE slug = ${s} ORDER BY triggered_at DESC LIMIT 20
+    SELECT * FROM scans 
+    WHERE slug = ${s} 
+       OR slug = ${s.replace(/-breakout-/, '-bo-').replace(/-breakdown-/, '-bd-')}
+    ORDER BY triggered_at DESC LIMIT 20
   `;
   return rows.map(rowToScan);
 }
