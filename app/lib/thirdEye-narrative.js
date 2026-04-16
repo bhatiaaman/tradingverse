@@ -234,48 +234,47 @@ export function buildNarrative(entry, biasState, quietCount = 0) {
   }
 
   // ── Neutral, no setup — describe actual market state intelligently ────────
-  const vwap    = c?.vwap;
-  const vol     = c?.volume;
-  const trend   = c?.trend;
-  const rsi     = c?.rsi;
+  const _vwap    = c?.vwap;
+  const _vol     = c?.volume;
+  const _trend   = c?.trend;
+  const _rsi     = c?.rsi;
+  const _below   = _vwap && !_vwap.above && !_vwap.atVwap;
+  const _above   = _vwap && _vwap.above  && !_vwap.atVwap;
+  const _atVwap  = !!_vwap?.atVwap;
+  const _down    = _trend === 'downtrend';
+  const _up      = _trend === 'uptrend';
+  const _hiVol   = _vol?.context === 'high' || _vol?.context === 'climax';
+  const _loVol   = _vol?.context === 'dryup' || _vol?.context === 'low';
+  const _dist    = _vwap?.distPct;
 
-  // --- Build a SPECIFIC headline based on where price is vs VWAP ---
-  let headline, reason;
+  const _obs = (() => {
+    if (_below && _down) return {
+      headline: _hiVol ? 'Selling with volume — bears in control.' : 'Bears pressing below VWAP. No bounce yet.',
+      reason: `Price is ${_dist?.toFixed(1) ?? '?'}% below VWAP and trending down. Structure is bearish. No reversal signal yet — wait for a VWAP reclaim or oversold bounce${_rsi != null && _rsi < 35 ? ` (RSI ${_rsi.toFixed(0)} oversold)` : ''}.`,
+    };
+    if (_below && !_down) return {
+      headline: 'Slipping below VWAP — structure weakening.',
+      reason: `Price has drifted ${_dist?.toFixed(1) ?? '?'}% below VWAP despite no clear downtrend. Watch for sellers to accelerate or VWAP reclaim. Bias edge is shifting bearish.`,
+    };
+    if (_above && _down) return {
+      headline: 'Fading above VWAP — trend turning.',
+      reason: 'Price is above VWAP but momentum has reversed lower. Structure is breaking down. Bearish signs building.',
+    };
+    if (_above && _up) return {
+      headline: _loVol ? 'Holding above VWAP. Low volume — watch for expansion.' : 'Holding above VWAP. Bullish structure intact.',
+      reason: `Price is ${_dist?.toFixed(1) ?? '?'}% above VWAP in an uptrend. No breakout trigger yet. Dips toward VWAP are potential long entries.`,
+    };
+    if (_atVwap) return {
+      headline: 'At VWAP — key decision point.',
+      reason: 'Price is hugging VWAP. This is the battle zone between bulls and bears. Watch which side breaks — a close above adds bull confidence, below hands control to bears.',
+    };
+    const mom = _down ? 'Momentum is bearish' : (_up ? 'Momentum is bullish' : 'No clear momentum');
+    const loc = _atVwap ? 'Price at VWAP.' : (_below ? 'Below VWAP.' : 'Above VWAP.');
+    return {
+      headline: 'Market in transition — no clear setup.',
+      reason: `Mixed signals. ${mom}. ${loc} Wait for structure to clarify.`,
+    };
+  })();
 
-  const belowVwap   = vwap && !vwap.above && !vwap.atVwap;
-  const aboveVwap   = vwap && vwap.above  && !vwap.atVwap;
-  const atVwap      = vwap?.atVwap;
-  const isDowntrend = trend === 'downtrend';
-  const isUptrend   = trend === 'uptrend';
-  const highVol     = vol?.context === 'high' || vol?.context === 'climax';
-  const lowVol      = vol?.context === 'dryup' || vol?.context === 'low';
-  const distPct     = vwap?.distPct;
-
-  if (belowVwap && isDowntrend) {
-    headline = highVol
-      ? `Selling with volume — bears in control.`
-      : `Bears pressing below VWAP. No bounce yet.`;
-    reason = `Price is ${distPct?.toFixed(1) ?? '?'}% below VWAP and trending down. Structure is bearish. No reversal signal yet — wait for a VWAP reclaim or oversold bounce${rsi != null && rsi < 35 ? ` (RSI ${rsi.toFixed(0)} oversold)` : ''}.`;
-  } else if (belowVwap && !isDowntrend) {
-    headline = `Slipping below VWAP — structure weakening.`;
-    reason = `Price has drifted ${distPct?.toFixed(1) ?? '?'}% below VWAP despite no clear downtrend. Watch for sellers to accelerate or VWAP reclaim. Bias edge is shifting bearish.`;
-  } else if (aboveVwap && isDowntrend) {
-    headline = `Fading above VWAP — trend turning.`;
-    reason = `Price is above VWAP but momentum has reversed lower. Structure is breaking down. Bearish signs building.`;
-  } else if (aboveVwap && isUptrend) {
-    headline = lowVol
-      ? `Holding above VWAP. Low volume — watch for expansion.`
-      : `Holding above VWAP. Bullish structure intact.`;
-    reason = `Price is ${distPct?.toFixed(1) ?? '?'}% above VWAP in an uptrend. No breakout trigger yet. Dips toward VWAP are potential long entries.`;
-  } else if (atVwap) {
-    headline = `At VWAP — key decision point.`;
-    reason = `Price is hugging VWAP. This is the battle zone between bulls and bears. Watch which side breaks — a close above adds bull confidence, below hands control to bears.`;
-  } else {
-    const momentumDesc = isDowntrend ? 'Momentum is bearish' : (isUptrend ? 'Momentum is bullish' : 'No clear momentum');
-    const locationDesc = atVwap ? 'Price at VWAP.' : (belowVwap ? 'Below VWAP.' : 'Above VWAP.');
-    headline = `Market in transition — no clear setup.`;
-    reason   = `Mixed signals. ${momentumDesc}. ${locationDesc} Wait for structure to clarify.`;
-  }
-
-  return { type: 'observe', action: 'OBSERVE', headline, reason };
+  return { type: 'observe', action: 'OBSERVE', headline: _obs.headline, reason: _obs.reason };
 }
