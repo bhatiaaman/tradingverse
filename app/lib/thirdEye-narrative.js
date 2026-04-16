@@ -235,9 +235,12 @@ export function buildNarrative(entry, biasState, quietCount = 0) {
 
   // ── Neutral, no signal — just observing ───────────────────────────────────
   const volumeNote = c?.volume?.context === 'dryup' ? ' Volume drying up — expect a move soon.' : '';
+  const vwapCtx    = c?.vwap?.atVwap ? 'Consolidating at VWAP.' : (c?.vwap?.above ? 'Holding above VWAP.' : 'Struggling below VWAP.');
+  const trendCtx   = trendNote(c);
+
   return {
     type: 'observe', action: 'OBSERVE',
-    headline: `Flat — watching for direction`,
-    reason: `${trendNote(c)}${vwapNote(c)}.${volumeNote} No bias, no setup. Don't force a trade.`,
+    headline: `${vwapCtx} Waiting for expansion.`,
+    reason: `${trendCtx}${volumeNote} Price action is neutral. No high-conviction setup detected yet. Watching for structure break.`,
   };
 }

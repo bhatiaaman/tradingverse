@@ -195,14 +195,11 @@ export async function POST(req) {
     // ── Determine which sealed candles haven't been processed yet ─────────────
     const todayCandles = allCandles.filter(c => candleDateIST(c) === today);
     // All candles except the current forming one are "sealed"
-    const sealedCandles = todayCandles.slice(0, -1);
-    const lastProcessedTime = biasState.lastUpdated
-      ? sealedCandles.findIndex(c => candleTimeStr(c) > biasState.lastUpdated) === -1
-        ? 'processed_all'
-        : null
-      : null;
+    // Use a 60s buffer to avoid skipping candles that just sealed but have a lag
+    const nowTs = Math.floor(Date.now() / 1000);
+    const sealedCandles = todayCandles.filter(c => c.time < nowTs - 10); 
 
-    // Find sealed candles not yet in log (compare by HH:MM string)
+    // Find scaled candles not yet in log (compare by HH:MM string)
     const loggedTimes = new Set(log.map(e => e.time));
     const toProcess = sealedCandles.filter(c => !loggedTimes.has(candleTimeStr(c)));
 
@@ -260,7 +257,10 @@ export async function POST(req) {
         }
 
         const lastAdded = newEntries[newEntries.length - 1] || log[0];
-        const isDuplicateObserve = narrative.type === 'observe' && lastAdded?.narrative?.type === 'observe';
+        const isDuplicateObserve = narrative.type === 'observe' && 
+                                  lastAdded?.narrative?.type === 'observe' &&
+                                  lastAdded?.narrative?.headline === narrative.headline &&
+                                  lastAdded?.narrative?.reason === narrative.reason;
 
         if (!isDuplicateObserve) {
           newEntries.push({

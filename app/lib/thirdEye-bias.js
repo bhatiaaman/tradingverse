@@ -86,12 +86,16 @@ export function applyBiasTransition(state, thirdEyeResult, context, candle) {
 
   // ── BULL state ─────────────────────────────────────────────────────────────
   if (bias === 'BULL') {
-    // 1. FAST INVALIDATION (0.6% against trend with volume or momentum)
+    // 1. FAST INVALIDATION (0.6% against trend or Swing Low break)
     const movePct = candle ? (candle.close - candle.open) / candle.open * 100 : 0;
-    if (movePct <= -0.6) {
+    const brokeSwingLow = context?.swingSequence?.lastHL && candle?.close < context.swingSequence.lastHL.price;
+
+    if (movePct <= -0.6 || brokeSwingLow) {
       nextBias = 'NEUTRAL'; nextPending = null;
       nextDown = 0; nextUp = 0;
-      changed = true; reason = `Hard Invalidation — strong bearish candle (${movePct.toFixed(2)}%) clears bull bias`;
+      changed = true; reason = brokeSwingLow 
+        ? `Structural Reversal — price broke below last swing low (${context.swingSequence.lastHL.price})`
+        : `Hard Invalidation — strong bearish candle (${movePct.toFixed(2)}%) clears bull bias`;
     }
     // 2. Hard exit: CHoCH or Upthrust against bull
     else if (setupId && FORCE_NEUTRAL_AFTER_BULL.has(setupId)) {
@@ -105,14 +109,14 @@ export function applyBiasTransition(state, thirdEyeResult, context, candle) {
       nextDown = 0; nextUp = 0;
       changed = true; reason = `Confirmed bear BOS — clearing bull bias`;
     }
-    // 4. Reality check: sustained downtrend + below VWAP for 2 candles (Expert: 3 was too slow)
+    // 4. Reality check: sustained downtrend + below VWAP for 1 candle (Expert: 2 was still too slow for fast moves)
     else {
       if (trend === 'downtrend' && aboveVwap === false) {
         nextDown = downtrendCount + 1;
-        if (nextDown >= 2) {
+        if (nextDown >= 1) {
           nextBias = 'NEUTRAL'; nextPending = null;
           nextDown = 0;
-          changed = true; reason = `Reality check — 2 candles downtrend + below VWAP`;
+          changed = true; reason = `Reality check — Price below VWAP with bearish structure`;
         }
       } else {
         nextDown = 0;
