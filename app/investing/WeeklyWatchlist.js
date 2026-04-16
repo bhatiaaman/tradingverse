@@ -595,9 +595,9 @@ export default function WeeklyWatchlist() {
       {/* ── Week Archive Bar ────────────────────────────────────────────────── */}
       <div className="mb-4 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
         {/* Toggle header */}
-        <button
+        <div
           onClick={() => setArchiveOpen(v => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-[#0b101a] hover:bg-slate-100 dark:hover:bg-white/[0.03] transition-colors"
+          className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-[#0b101a] hover:bg-slate-100 dark:hover:bg-white/[0.03] transition-colors cursor-pointer"
         >
           <div className="flex items-center gap-2">
             <span className="text-sm">📅</span>
@@ -625,7 +625,7 @@ export default function WeeklyWatchlist() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
             </svg>
           </div>
-        </button>
+        </div>
 
         {/* Saved weeks list */}
         {archiveOpen && (
