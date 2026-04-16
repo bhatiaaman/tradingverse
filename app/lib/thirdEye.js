@@ -554,6 +554,7 @@ export function detectPatterns(candles, pre) {
 
 export function buildContext(candles, pre) {
   // Trend detection: prioritize recent momentum over morning bias
+  let trend = 'ranging', trendStrength = 'weak';
   if (pre.swingSequence) {
     trend = pre.swingSequence.type;
     const { highs, lows } = pre.swingPivots2;
@@ -564,10 +565,10 @@ export function buildContext(candles, pre) {
     const first = recentSlice[0].close;
     const last  = recentSlice[recentSlice.length - 1].close;
     const chgPct = (last - first) / first * 100;
-    
-    if (chgPct > 0.15)  trend = 'uptrend';
+
+    if (chgPct > 0.15)       trend = 'uptrend';
     else if (chgPct < -0.15) trend = 'downtrend';
-    else trend = 'ranging';
+    else                     trend = 'ranging';
   }
 
   // BOS context — most recently detected
