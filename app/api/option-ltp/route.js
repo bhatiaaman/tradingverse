@@ -92,14 +92,12 @@ const NS          = process.env.REDIS_NAMESPACE || 'default';
 
 async function getValidStrikes(symbol, expiry, optionType, dp) {
   try {
-    // Try Redis cache first (populated by chart-data or previous calls)
     const cacheKey = `${NS}:fno-ts-tokens:${symbol}`;
     const res  = await fetch(`${REDIS_URL}/get/${cacheKey}`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
     const data = await res.json();
     let tokenMap = data.result ? JSON.parse(data.result) : null;
 
     if (!tokenMap) {
-      // Not cached — fetch NFO instruments CSV
       const csvText = await dp.getInstrumentsCSV('NFO');
       if (!csvText || typeof csvText !== 'string') return null;
       const lines = csvText.trim().split('\n');
@@ -111,22 +109,17 @@ async function getValidStrikes(symbol, expiry, optionType, dp) {
         const name  = sym?.match(/^([A-Z&]+)/)?.[1];
         if (name === symbol && sym && token) tokenMap[sym] = token;
       }
-      // Cache for 1h
       const enc = encodeURIComponent(JSON.stringify(tokenMap));
       await fetch(`${REDIS_URL}/set/${cacheKey}/${enc}?ex=3600`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
     }
 
-    // Extract strikes matching expiry + optionType from token map keys
-    // Kite format: NTPC26MAR380CE — extract expiry date from symbol name
-    const suffix = optionType; // CE or PE
+    const suffix = optionType;
     const strikes = [];
     for (const sym of Object.keys(tokenMap)) {
       if (!sym.endsWith(suffix)) continue;
-      // Parse strike number: remove underlying prefix + expiry part (YYMMM or YYMMDD) + suffix
       const m = sym.match(/^[A-Z&]+(\d{2})([A-Z]{3})(\d+)(CE|PE)$/);
       if (!m) continue;
       const symYY = m[1], symMMM = m[2], strike = parseInt(m[3]);
-      // Check expiry matches: compare YY+MMM with our expiry
       const expYY  = String(expiry.getFullYear()).slice(-2);
       const expMMM = expiry.toLocaleString('en-US', { month: 'short' }).toUpperCase();
       if (symYY === expYY && symMMM === expMMM && !isNaN(strike)) {
@@ -134,6 +127,41 @@ async function getValidStrikes(symbol, expiry, optionType, dp) {
       }
     }
     return strikes.length ? strikes.sort((a, b) => a - b) : null;
+  } catch { return null; }
+}
+
+// Fetch lot size for a given underlying from NFO instruments
+async function getLotSize(symbol, dp) {
+  try {
+    const cacheKey = `${NS}:fno-lot-size:${symbol}`;
+    // Check Redis cache first
+    const res = await fetch(`${REDIS_URL}/get/${cacheKey}`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
+    const cached = await res.json();
+    if (cached.result) return parseInt(JSON.parse(cached.result));
+
+    const csvText = await dp.getInstrumentsCSV('NFO');
+    if (!csvText) return null;
+    const lines = csvText.trim().split('\n');
+    // Header: instrument_token,exchange_token,tradingsymbol,name,last_price,expiry,strike,tick_size,lot_size,...
+    const header = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    const lotIdx  = header.indexOf('lot_size');
+    const nameIdx = header.indexOf('name');
+    if (lotIdx === -1 || nameIdx === -1) return null;
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      const name = cols[nameIdx]?.replace(/"/g, '').trim();
+      if (name === symbol) {
+        const lotSize = parseInt(cols[lotIdx]);
+        if (!isNaN(lotSize) && lotSize > 0) {
+          // Cache for 24h — lot sizes rarely change mid-day
+          const enc = encodeURIComponent(JSON.stringify(lotSize));
+          await fetch(`${REDIS_URL}/set/${cacheKey}/${enc}?ex=86400`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
+          return lotSize;
+        }
+      }
+    }
+    return null;
   } catch { return null; }
 }
 
@@ -271,10 +299,13 @@ export async function GET(request) {
       }
     }
 
+    // Fetch lot size from NFO instruments (cached in Redis)
+    const lotSize = await getLotSize(symbol, dp);
+
     return NextResponse.json({
       symbol,
-      optionSymbol: kiteSymbol,      // Kite format for orders: TCS26FEB2950CE
-      tvSymbol: tvSymbol,            // TradingView format for charts: NIFTY260217C25500
+      optionSymbol: kiteSymbol,
+      tvSymbol: tvSymbol,
       exchange: 'NFO',
       strike: atmStrike,
       optionType,
@@ -283,7 +314,8 @@ export async function GET(request) {
       expiry: expiry.toISOString(),
       expiryDay: expiry.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
       step,
-      probOTM,  // % probability option expires worthless (out of the money)
+      lotSize: lotSize ?? null,
+      probOTM,
     });
     
   } catch (error) {
