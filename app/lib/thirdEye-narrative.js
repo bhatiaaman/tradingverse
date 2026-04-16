@@ -271,8 +271,10 @@ export function buildNarrative(entry, biasState, quietCount = 0) {
     headline = `At VWAP — key decision point.`;
     reason = `Price is hugging VWAP. This is the battle zone between bulls and bears. Watch which side breaks — a close above adds bull confidence, below hands control to bears.`;
   } else {
+    const momentumDesc = isDowntrend ? 'Momentum is bearish' : (isUptrend ? 'Momentum is bullish' : 'No clear momentum');
+    const locationDesc = atVwap ? 'Price at VWAP.' : (belowVwap ? 'Below VWAP.' : 'Above VWAP.');
     headline = `Market in transition — no clear setup.`;
-    reason = `Mixed signals. ${isDowntrend ? 'Momentum is bearish' : isUptrend ? 'Momentum is bullish' : 'No clear momentum'}. ${atVwap ? 'Price at VWAP.' : belowVwap ? 'Below VWAP.' : 'Above VWAP.'} Wait for structure to clarify.`;
+    reason   = `Mixed signals. ${momentumDesc}. ${locationDesc} Wait for structure to clarify.`;
   }
 
   return { type: 'observe', action: 'OBSERVE', headline, reason };
