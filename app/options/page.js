@@ -548,16 +548,29 @@ function generateTradeDesk(chainData, straddleData) {
     );
 
   if (iv < 0.85 && buys.length === 0 && cheapIvGate) {
-    const ltp = atmCe?.ltp;
-    buys.push({ strike: atm, type: 'CE/PE', confidence: 'MEDIUM', trigger: 'cheap_iv',
-      reasons: [
-        `IV/HV ${iv.toFixed(2)}× — options priced below realized volatility`,
-        `Mathematical buyer edge: historical vol suggests bigger moves than priced`,
-        `But: only act when expansion/momentum starts (today is showing early pickup).`,
-        pcr < 0.8 ? `PCR ${pcr.toFixed(2)} — put writers dominant, reversal risk` :
-        pcr > 1.3 ? `PCR ${pcr.toFixed(2)} — extreme, contrarian buy signal` :
-        `PCR ${pcr.toFixed(2)} — positioning context`,
-      ], ltp, sl: ltp ? (ltp * 0.60).toFixed(0) : null });
+    const commonReasons = [
+      `IV/HV ${iv.toFixed(2)}× — options priced below realized volatility`,
+      `Mathematical buyer edge: historical vol suggests bigger moves than priced`,
+      `But: only act when expansion/momentum starts (today is showing early pickup).`,
+      pcr < 0.8 ? `PCR ${pcr.toFixed(2)} — put writers dominant, reversal risk` :
+      pcr > 1.3 ? `PCR ${pcr.toFixed(2)} — extreme, contrarian buy signal` :
+      `PCR ${pcr.toFixed(2)} — positioning context`,
+    ];
+
+    // Add CE recommendation
+    if (atmCe?.ltp) {
+      buys.push({ 
+        strike: atm, type: 'CE', confidence: 'MEDIUM', trigger: 'cheap_iv',
+        reasons: commonReasons, ltp: atmCe.ltp, sl: (atmCe.ltp * 0.60).toFixed(0) 
+      });
+    }
+    // Add PE recommendation
+    if (atmPe?.ltp) {
+      buys.push({ 
+        strike: atm, type: 'PE', confidence: 'MEDIUM', trigger: 'cheap_iv',
+        reasons: commonReasons, ltp: atmPe.ltp, sl: (atmPe.ltp * 0.60).toFixed(0) 
+      });
+    }
   }
 
   // ── SELL SIGNALS ─────────────────────────────────────────────────────────────
