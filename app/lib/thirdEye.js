@@ -194,7 +194,7 @@ function computeVwapPosition(candles, vwapData) {
     price:   lastVwap,
     above:   lastClose >= lastVwap,
     distPct,
-    atVwap:  distPct <= 0.15,
+    atVwap:  distPct <= 0.10,
   };
 }
 
