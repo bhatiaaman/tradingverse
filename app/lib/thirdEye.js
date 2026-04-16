@@ -1107,6 +1107,7 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
 
   // ── S20: EMA9 × EMA21 Crossover + VWAP confirmation ─────────────────────────
   if (en('s20') && candles.length >= 30) {
+    const c1  = candles[n - 2]; // previous candle (used for SL calculation)
     const h9  = computeEMAHistory(candles, 9);
     const h21 = computeEMAHistory(candles, 21);
 

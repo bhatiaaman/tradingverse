@@ -548,27 +548,43 @@ function generateTradeDesk(chainData, straddleData) {
     );
 
   if (iv < 0.85 && buys.length === 0 && cheapIvGate) {
-    const commonReasons = [
+    const baseReasons = [
       `IV/HV ${iv.toFixed(2)}× — options priced below realized volatility`,
       `Mathematical buyer edge: historical vol suggests bigger moves than priced`,
       `But: only act when expansion/momentum starts (today is showing early pickup).`,
-      pcr < 0.8 ? `PCR ${pcr.toFixed(2)} — put writers dominant, reversal risk` :
-      pcr > 1.3 ? `PCR ${pcr.toFixed(2)} — extreme, contrarian buy signal` :
-      `PCR ${pcr.toFixed(2)} — positioning context`,
     ];
 
-    // Add CE recommendation
+    // CE-specific reasons: focus on upside reversal context
     if (atmCe?.ltp) {
-      buys.push({ 
+      const ceReasons = [
+        ...baseReasons,
+        pcr < 0.8
+          ? `PCR ${pcr.toFixed(2)} — put writers dominant, upside reversal risk for bears`
+          : pcr > 1.3
+          ? `PCR ${pcr.toFixed(2)} — heavy put loading; any relief rally amplifies CE`
+          : `PCR ${pcr.toFixed(2)} — neutral positioning, CE viable on upside catalyst`,
+        `CE edge: buy only on momentum pickup or bullish price confirmation`,
+      ];
+      buys.push({
         strike: atm, type: 'CE', confidence: 'MEDIUM', trigger: 'cheap_iv',
-        reasons: commonReasons, ltp: atmCe.ltp, sl: (atmCe.ltp * 0.60).toFixed(0) 
+        reasons: ceReasons, ltp: atmCe.ltp, sl: (atmCe.ltp * 0.60).toFixed(0),
       });
     }
-    // Add PE recommendation
+
+    // PE-specific reasons: focus on downside continuation context
     if (atmPe?.ltp) {
-      buys.push({ 
+      const peReasons = [
+        ...baseReasons,
+        pcr > 1.3
+          ? `PCR ${pcr.toFixed(2)} — extreme put loading, sellers aggressively positioning downside`
+          : pcr < 0.8
+          ? `PCR ${pcr.toFixed(2)} — low PCR; if put writers capitulate, PE accelerates`
+          : `PCR ${pcr.toFixed(2)} — neutral positioning, PE viable on bearish price confirmation`,
+        `PE edge: buy only on breakdown confirmation or bearish price action`,
+      ];
+      buys.push({
         strike: atm, type: 'PE', confidence: 'MEDIUM', trigger: 'cheap_iv',
-        reasons: commonReasons, ltp: atmPe.ltp, sl: (atmPe.ltp * 0.60).toFixed(0) 
+        reasons: peReasons, ltp: atmPe.ltp, sl: (atmPe.ltp * 0.60).toFixed(0),
       });
     }
   }
@@ -681,13 +697,29 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
   }, []);
 
   // ── Sound/TTS alert: new BUY OP near ATM±1 ────────────────────────────────
+  // Only fire for high-conviction, directionally-aligned signals:
+  //   • Skip cheap_iv triggers — informational only, not urgent enough to beep
+  //   • Skip CE alerts when market bias is BEARISH (no call buying in crash)
+  //   • Skip PE alerts when market bias is BULLISH
   useEffect(() => {
     if (!buys?.length || atm == null || !resolvedExpiry) return;
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
 
+    const currentBias = String(marketBias || '').toUpperCase();
+    const isBearishMarket = currentBias.includes('BEAR');
+    const isBullishMarket = currentBias.includes('BULL');
+
     const step = symbol === 'BANKNIFTY' ? 100 : 50;
     const near = buys
-      .filter(o => o?.strike != null && Math.abs(o.strike - atm) <= step)
+      .filter(o => {
+        if (!o?.strike || Math.abs(o.strike - atm) > step) return false;
+        // Never alert on low-urgency cheap IV signals
+        if (o.trigger === 'cheap_iv') return false;
+        // Never alert on counter-bias direction
+        if (o.type === 'CE' && isBearishMarket) return false;
+        if (o.type === 'PE' && isBullishMarket) return false;
+        return true;
+      })
       .sort((a, b) => Math.abs(a.strike - atm) - Math.abs(b.strike - atm))[0];
     if (!near) return;
 
@@ -696,7 +728,7 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
     lastBuyOpAlertRef.current = key;
 
     triggerBuyOpAlert();
-  }, [buys, atm, resolvedExpiry, symbol]);
+  }, [buys, atm, resolvedExpiry, symbol, marketBias]);
 
   const REGIME_META = {
     breakout:  { label: 'BREAKOUT',       color: 'text-violet-400',  dot: 'bg-violet-400',  tip: 'Sharp directional momentum — buy the moving leg' },
