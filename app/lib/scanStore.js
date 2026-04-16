@@ -130,6 +130,7 @@ export async function getScannerLatest(slug) {
 
 export async function getScannerHistory(slug) {
   if (!slug) return [];
+  const s = getScannerSlug(slug);
   // Also try searching for common aliases if exact match fails
   const rows = await sql`
     SELECT * FROM scans 
