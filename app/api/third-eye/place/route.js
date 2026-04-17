@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDataProvider, getBroker } from '@/app/lib/providers';
 import { redis } from '@/app/lib/redis';
-import { requireSession, unauthorized } from '@/app/lib/session';
+import { requireSession, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 
 // ── VPS queue helpers (same as place-order) ───────────────────────────────────
 const QUEUE_KEY  = 'tradingverse:order_queue';
@@ -103,7 +103,9 @@ function buildNiftyKiteSymbol(niftyPrice, direction, expiry) {
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req) {
-  if (!await requireSession()) return unauthorized();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
+  if (!session) return unauthorized();
   try {
     const { niftyPrice, direction, qty, niftySl } = await req.json();
 

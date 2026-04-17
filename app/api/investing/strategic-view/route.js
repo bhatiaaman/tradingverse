@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 import { Redis } from '@upstash/redis'
 import { SYSTEM_PROMPT, buildUserPrompt } from '@/app/lib/prompts/strategic-view'
-import { requireSession, unauthorized } from '@/app/lib/session'
+import { requireSession, unauthorized, serviceUnavailable } from '@/app/lib/session'
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -128,7 +128,8 @@ function cacheKey(asset) {
 }
 
 export async function POST(req) {
-  const session = await requireSession()
+  const { session, error } = await requireSession()
+  if (error === 'database_error') return serviceUnavailable(error)
   if (!session) return unauthorized()
 
   const rl = await checkLimit(intelligenceLimiter, req)

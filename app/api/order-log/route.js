@@ -3,7 +3,8 @@ import { requireSession, unauthorized, forbidden, serviceUnavailable } from '@/a
 import { sql } from '@/app/lib/db';
 
 export async function GET() {
-  const session = await requireSession();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
@@ -35,7 +36,8 @@ export async function GET() {
 }
 
 export async function DELETE() {
-  const session = await requireSession();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 

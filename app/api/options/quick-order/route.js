@@ -86,7 +86,8 @@ async function pushAndPoll(params, timeoutMs = 10000) {
 // - entryLimitPrice: number (optional; auto-filled with buffer)
 // - entryTriggerPrice: number (required for SL entry; optional if auto-filled)
 export async function POST(req) {
-  const session = await requireSession();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 

@@ -267,6 +267,15 @@ export default function WeeklyWatchlist() {
     }
   }, [consolidated20, fetchPerformance])
 
+  // ── Auto-fetch expert prompt prices ────────────────────────────────────────
+  useEffect(() => {
+    if (activeTab !== 'expertsResearch' || !userStocks) return;
+    const timer = setTimeout(() => {
+      handleFetchPromptPrices();
+    }, 1500); // 1.5s debounce
+    return () => clearTimeout(timer);
+  }, [userStocks, activeTab]);
+
   if (loading) return null
 
   const handleLimitChange = (lim) => {
@@ -301,7 +310,7 @@ export default function WeeklyWatchlist() {
     }
 
     if (activeTab === 'expertsResearch') {
-      return `${base}I have already selected the following specific stocks based on my own research:\n\nSTOCKS: [ ${userStocks || 'INFY, TCS'} ]\n${priceContext}\nFor EACH of the specific stocks listed above, provide a comprehensive swing-trading setup analysis using daily and weekly data up to the most recent Friday close.\nDo not find other stocks. Only analyze the ones provided.\n\n${constraints}`
+      return `${base}I have already selected the following specific stocks based on my own research:\n\nSTOCKS: [ ${userStocks || 'INFY, TCS'} ]\n${priceContext}\n${priceEntries.length > 0 ? "CRITICAL: You MUST use the provided prices above as the baseline for 'entryZone', 'stopLoss', etc. DO NOT hallucinate or estimate prices if a current price is provided." : ""}\n\nFor EACH of the specific stocks listed above, provide a comprehensive swing-trading setup analysis using daily and weekly data up to the most recent Friday close.\nDo not find other stocks. Only analyze the ones provided.\n\n${constraints}`
     }
     return `${base}I need you to find up to 15 stocks for next week's watchlist with the highest probability of follow-through. Use data up to Friday's close and build the watchlist for the upcoming week starting Monday.\n\nPreferences: Liquid stocks, daily volume >2x 20-day avg, clean breakout/momentum continuation, high relative strength.\n\n${constraints}`
   }
@@ -781,42 +790,59 @@ export default function WeeklyWatchlist() {
             <div className="mb-6 bg-slate-50 dark:bg-[#0b101a] border border-slate-200 dark:border-white/5 rounded-xl p-4">
               <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-2">Step 1: Generate AI Prompt</h4>
               {activeTab === 'expertsResearch' && (
-                <div className="mb-3">
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Enter Stocks (Comma Separated)</label>
-                  <input type="text" value={userStocks} onChange={e => setUserStocks(e.target.value)}
-                    placeholder="e.g. INFY, TCS, RELIANCE"
-                    className="w-full bg-white dark:bg-[#060a0f] border border-slate-200 dark:border-slate-700 rounded-md p-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-violet-500"
-                  />
+                <div className="mb-4">
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Enter Symbols (NSE Tickers)</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={userStocks}
+                      onChange={e => setUserStocks(e.target.value)}
+                      placeholder="e.g. INFY, TCS, RELIANCE"
+                      className="flex-1 bg-white dark:bg-[#060a0f] border border-slate-200 dark:border-slate-800 rounded-lg px-4 py-2 text-sm text-slate-900 dark:text-white outline-none focus:border-violet-500 transition-colors"
+                    />
+                    {isPromptPriceLoading ? (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-white/5 animate-pulse">
+                        <div className="w-1.5 h-1.5 bg-violet-500 rounded-full animate-bounce" />
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Syncing...</span>
+                      </div>
+                    ) : Object.keys(promptPriceMap).length > 0 ? (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-emerald-100/50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800/30">
+                        <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-tighter">Prices Ready</span>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               )}
+              
               <div className="flex flex-col gap-3">
-                {activeTab === 'expertsResearch' && (
-                  <div className="flex items-center gap-2 p-2 bg-white dark:bg-[#060a0f] border border-slate-200 dark:border-slate-800 rounded-lg">
-                    <button
-                      onClick={handleFetchPromptPrices}
-                      disabled={!userStocks || isPromptPriceLoading}
-                      className="px-3 py-1.5 text-[10px] font-black uppercase tracking-wider bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors shrink-0"
-                    >
-                      {isPromptPriceLoading ? 'Fetching...' : '1. Fetch Prices'}
-                    </button>
-                    <div className="flex-1 overflow-x-auto whitespace-nowrap text-[10px] font-mono text-slate-500 scrollbar-none">
-                      {Object.keys(promptPriceMap).length > 0 ? (
-                        Object.entries(promptPriceMap).map(([s, p]) => (
-                          <span key={s} className="mr-3 text-indigo-400 font-bold">{s}: <span className="text-slate-400">{p}</span></span>
-                        ))
-                      ) : (
-                        <span className="italic">Fetch prices to prevent AI hallucinations</span>
-                      )}
-                    </div>
+                {activeTab === 'expertsResearch' && Object.keys(promptPriceMap).length > 0 && (
+                  <div className="flex flex-wrap gap-2 p-3 bg-white dark:bg-[#060a0f] border border-slate-200 dark:border-slate-800 rounded-lg shadow-inner">
+                    {Object.entries(promptPriceMap).map(([s, p]) => (
+                      <div key={s} className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 dark:bg-white/[0.03] rounded border border-slate-100 dark:border-white/5">
+                        <span className="text-[10px] font-bold text-slate-400">{s}</span>
+                        <span className="text-[10px] font-mono font-bold text-violet-500">{p.toLocaleString('en-IN')}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
                 
                 <div className="flex items-center gap-3">
-                  <button onClick={handleCopyPrompt}
-                    className="px-4 py-2 text-xs font-bold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors">
-                    {copied ? '✅ Copied to Clipboard!' : `${activeTab === 'expertsResearch' ? '2.' : ''} Copy Prompt`}
+                  <button
+                    onClick={handleCopyPrompt}
+                    className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-lg active:scale-[0.98] ${
+                      copied 
+                        ? 'bg-emerald-500 text-white shadow-emerald-500/20' 
+                        : 'bg-violet-600 text-white hover:bg-violet-700 shadow-violet-500/20'
+                    }`}
+                  >
+                    <span>{copied ? '✅ Prompt Copied' : '📋 Copy Prompt for Claude'}</span>
                   </button>
-                  <span className="text-xs text-slate-500">Paste this into Claude.</span>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tight">
+                    {activeTab === 'expertsResearch' 
+                      ? 'Baseline prices included for accuracy' 
+                      : 'Claude will scan for best setups'}
+                  </span>
                 </div>
               </div>
             </div>

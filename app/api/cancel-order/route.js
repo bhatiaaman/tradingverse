@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getBroker } from '@/app/lib/providers';
-import { requireOwner, unauthorized } from '@/app/lib/session';
+import { requireOwner, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 
 export async function POST(request) {
-  if (!await requireOwner()) return unauthorized();
+  const { session, error } = await requireOwner();
+  if (error === 'database_error') return serviceUnavailable(error);
+  if (!session) return unauthorized();
 
   const broker = await getBroker();
   if (!broker.isConnected()) {

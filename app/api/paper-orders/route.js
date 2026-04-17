@@ -1,5 +1,4 @@
-import { NextResponse } from 'next/server';
-import { requireSession, unauthorized, forbidden } from '@/app/lib/session';
+import { requireSession, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 import { sql } from '@/app/lib/db';
 
 function computePositions(orders) {
@@ -29,7 +28,8 @@ function computePositions(orders) {
 }
 
 export async function GET() {
-  const session = await requireSession();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
@@ -63,7 +63,8 @@ export async function GET() {
 }
 
 export async function DELETE() {
-  const session = await requireSession();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 

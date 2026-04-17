@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/app/lib/providers';
-import { requireSession, unauthorized } from '@/app/lib/session';
+import { requireSession, unauthorized, serviceUnavailable } from '@/app/lib/session';
 
 export async function GET(request) {
-  const session = await requireSession();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
   if (!session) return unauthorized();
 
   const { searchParams } = new URL(request.url);

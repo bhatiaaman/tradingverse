@@ -1,7 +1,4 @@
-import { NextResponse } from 'next/server';
-import { getDataProvider } from '@/app/lib/providers';
-import { detectStations } from './lib/station-detector.js';
-import { requireSession, unauthorized } from '@/app/lib/session';
+import { requireSession, unauthorized, serviceUnavailable } from '@/app/lib/session';
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit';
 import { getVIXInsight } from '@/app/lib/vix-messaging';
 
@@ -309,7 +306,10 @@ async function findInstrumentToken(symbol, exchange, apiKey, accessToken) {
 // MAIN HANDLER
 // ─────────────────────────────────────────────
 export async function POST(request) {
-  if (!await requireSession()) return unauthorized();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
+  if (!session) return unauthorized();
+
   const rl = await checkLimit(intelligenceLimiter, request);
   if (rl.limited) return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
 

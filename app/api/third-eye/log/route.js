@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireSession, unauthorized } from '@/app/lib/session';
+import { requireSession, unauthorized, serviceUnavailable } from '@/app/lib/session';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -34,14 +34,19 @@ async function redisSet(key, value, ttl) {
 
 // GET — restore today's log on page load
 export async function GET(req) {
-  if (!await requireSession()) return unauthorized();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
+  if (!session) return unauthorized();
+
   const entries = await redisGet(cacheKey());
   return NextResponse.json({ entries: entries ?? [], date: todayIST() });
 }
 
 // POST — save latest log (called after every new candle entry)
 export async function POST(req) {
-  if (!await requireSession()) return unauthorized();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
+  if (!session) return unauthorized();
   try {
     const { entries } = await req.json();
     if (!Array.isArray(entries)) return NextResponse.json({ error: 'entries must be array' }, { status: 400 });

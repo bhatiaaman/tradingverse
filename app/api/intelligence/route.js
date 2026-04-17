@@ -8,7 +8,7 @@
 
 import { NextResponse }     from 'next/server';
 import { getIntelligence }  from '@/app/lib/intelligence/manager.js';
-import { requireSession, unauthorized } from '@/app/lib/session';
+import { requireSession, unauthorized, serviceUnavailable } from '@/app/lib/session';
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
@@ -39,7 +39,9 @@ function baseUrl(req) {
 }
 
 export async function GET(req) {
-  if (!await requireSession()) return unauthorized();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
+  if (!session) return unauthorized();
 
   const rl = await checkLimit(intelligenceLimiter, req);
   if (rl.limited) {

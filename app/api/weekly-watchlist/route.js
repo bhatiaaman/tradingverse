@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/app/lib/providers';
+import { requireSession, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -34,6 +35,10 @@ async function redisSet(key, value) {
 }
 
 export async function GET() {
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
+  if (!session) return unauthorized();
+
   let data = await redisGet(CACHE_KEY);
   
   // Migrate legacy array to object structure
@@ -52,6 +57,11 @@ export async function GET() {
 }
 
 export async function POST(request) {
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
+  if (!session) return unauthorized();
+  if (session.role !== 'admin') return forbidden();
+
   try {
     const { tab, list } = await request.json();
     

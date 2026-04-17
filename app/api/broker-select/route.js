@@ -6,7 +6,8 @@ const KEY = 'tradingverse:active_broker';
 const VALID_BROKERS = ['kite', 'paper'];
 
 export async function GET(request) {
-  const session = await requireSession();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
@@ -19,7 +20,8 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const session = await requireSession();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireSession, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -61,6 +62,10 @@ function getWeekLabel(isoWeekKey) {
 // (no params)     → return index of saved weeks with labels
 // ─────────────────────────────────────────────────────────────────────────────
 export async function GET(request) {
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
+  if (!session) return unauthorized();
+
   const { searchParams } = new URL(request.url);
   const weekParam = searchParams.get('week');
 
@@ -84,6 +89,11 @@ export async function GET(request) {
 // Snapshots the current live watchlist into this week's archive key.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST() {
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
+  if (!session) return unauthorized();
+  if (session.role !== 'admin') return forbidden();
+
   try {
     // Fetch current live watchlist
     const current = await redisGet(WATCHLIST_KEY);

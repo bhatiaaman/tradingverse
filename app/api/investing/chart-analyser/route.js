@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 import { Redis } from '@upstash/redis'
 import { SYSTEM_PROMPT, TIMEFRAME_DETECT_PROMPT, buildUserPrompt } from '@/app/lib/prompts/chart-analyser'
-import { requireSession } from '@/app/lib/session'
+import { requireSession, serviceUnavailable } from '@/app/lib/session'
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -31,7 +31,8 @@ async function callClaude({ system, userPrompt, image, mediaType, maxTokens }) {
 }
 
 export async function POST(req) {
-  const session = await requireSession()
+  const { session, error } = await requireSession()
+  if (error === 'database_error') return serviceUnavailable(error)
   if (!session) return NextResponse.json({ error: 'Unauthorized', loginRequired: true }, { status: 401 })
 
   const rl = await checkLimit(intelligenceLimiter, req)

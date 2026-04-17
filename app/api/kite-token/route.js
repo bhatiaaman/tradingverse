@@ -2,10 +2,12 @@ import { NextResponse } from 'next/server';
 import { KiteBroker } from '@/app/lib/providers/kite/KiteBroker.js';
 import { kiteRedisGet } from '@/app/lib/providers/kite/kite-redis.js';
 import { invalidateCredentialsCache } from '@/app/lib/kite-credentials';
-import { requireOwner, unauthorized } from '@/app/lib/session';
+import { requireOwner, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 
 export async function POST(request) {
-  if (!await requireOwner()) return unauthorized();
+  const { session, error } = await requireOwner();
+  if (error === 'database_error') return serviceUnavailable(error);
+  if (!session) return unauthorized();
 
   try {
     const { requestToken, apiSecret, useEnvSecret } = await request.json();

@@ -1,10 +1,11 @@
 import bcrypt from 'bcryptjs'
 import { NextResponse } from 'next/server'
-import { requireSession, unauthorized } from '@/app/lib/session'
+import { requireSession, unauthorized, serviceUnavailable } from '@/app/lib/session'
 import { sql } from '@/app/lib/db'
 
 export async function POST(req) {
-  const session = await requireSession()
+  const { session, error } = await requireSession()
+  if (error === 'database_error') return serviceUnavailable(error)
   if (!session) return unauthorized()
 
   const { currentPassword, newPassword } = await req.json()

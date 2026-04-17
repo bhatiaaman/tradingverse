@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDataProvider, getBroker } from '@/app/lib/providers';
-import { requireSession, unauthorized, forbidden } from '@/app/lib/session';
+import { requireSession, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 import { redis } from '@/app/lib/redis';
 
 // ── VPS queue helpers ─────────────────────────────────────────────────────────
@@ -53,7 +53,8 @@ async function redisGet(key) {
 // ── POST { symbol, price, optionType, qty } ───────────────────────────────────
 // Resolves ATM tradingsymbol for the given index + places via VPS queue
 export async function POST(req) {
-  const session = await requireSession();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 

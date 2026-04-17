@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getBroker } from '@/app/lib/providers';
-import { requireSession, unauthorized, forbidden } from '@/app/lib/session';
+import { requireSession, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 
 // POST { exchange, tradingsymbol, transaction_type, order_type, product, quantity, price?, trigger_price? }
 export async function POST(req) {
-  const session = await requireSession();
+  const { session, error } = await requireSession();
+  if (error === 'database_error') return serviceUnavailable(error);
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
