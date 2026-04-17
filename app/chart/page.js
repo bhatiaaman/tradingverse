@@ -124,14 +124,31 @@ function isMarketHours() {
   return total >= 540 && total <= 935;
 }
 
+// ── Parse NFO option tradingsymbol (e.g. NIFTY2642124250CE → { underlying, expiry, strike, type }) ──
+// Returns null for equity symbols. Handles NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, and stock options.
+function parseOptionSymbol(sym) {
+  if (!sym) return null;
+  // NFO tradingsymbols: <NAME><YYMMDD><STRIKE><CE|PE>  e.g. NIFTY2642124250CE, HDFCBANK2642180001500CE
+  const m = sym.match(/^([A-Z&]+?)(\d{2})(\d{2})(\d{2})(\d+\.?\d*)(CE|PE)$/);
+  if (!m) return null;
+  const [, underlying, yy, mm, dd, strikeStr, type] = m;
+  const year = 2000 + parseInt(yy, 10);
+  const expiry = `${year}-${mm}-${dd}`;
+  return { underlying, expiry, strike: parseFloat(strikeStr), type };
+}
+
 // ── Inner chart component (uses useSearchParams) ──────────────────────────────
 function ChartPageInner() {
   const params    = useSearchParams();
   const symbol    = params.get('symbol') || 'NIFTY';
-  const atParam   = params.get('at')    || null;   // Unix sec from scanner — highlights signal candle
-  const atDirParam= params.get('atdir') || 'bull'; // 'bull' | 'bear' — arrow direction
-  const backParam = params.get('back');            // dynamic back navigation
-  const themeParam = params.get('theme');          // 'dark' | 'light'
+  const atParam   = params.get('at')    || null;
+  const atDirParam= params.get('atdir') || 'bull';
+  const backParam = params.get('back');
+  const themeParam = params.get('theme');
+
+  // Detect when we're viewing an NFO option's chart (e.g. NIFTY2642124250CE)
+  const parsedOption = parseOptionSymbol(symbol);
+  const isOptionChart = !!parsedOption;
 
   const [chartInterval, setChartInterval] = useState(params.get('interval') || '5minute');
   const [candles, setCandles]             = useState([]);
@@ -654,7 +671,7 @@ function ChartPageInner() {
   const anyEma = settings.showEma9 || settings.showEma21 || settings.showEma50 ||
                  (settings.showEma9D && isIntraday) || (settings.showEma9W && chartInterval === 'day');
 
-  const isIndex   = symbol in INDEX_STRIKE_STEP;
+  const isIndex   = !isOptionChart && (symbol in INDEX_STRIKE_STEP);
   const step      = INDEX_STRIKE_STEP[symbol] ?? 1;
   const lastClose = candles.length ? candles[candles.length - 1].close : null;
 
@@ -957,7 +974,8 @@ function ChartPageInner() {
         {lastPriceY !== null && candles.length > 0 && (
           <button
             onClick={() => {
-              if (isIndex) { setIndexPicker(v => !v); }
+              if (isOptionChart) { setOrderModalOpen(true); }
+              else if (isIndex) { setIndexPicker(v => !v); }
               else { setOrderModalOpen(true); }
             }}
             style={{ top: lastPriceY - 11, right: 80 }}
@@ -1290,10 +1308,11 @@ function ChartPageInner() {
     <OrderModal
       isOpen={orderModalOpen}
       onClose={() => { setOrderModalOpen(false); setOrderOptionType(null); }}
-      symbol={symbol}
-      price={isIndex ? atmStrike : lastClose}
+      symbol={isOptionChart ? parsedOption.underlying : symbol}
+      price={isOptionChart ? parsedOption.strike : (isIndex ? atmStrike : lastClose)}
       defaultType="BUY"
-      optionType={orderOptionType}
+      optionType={isOptionChart ? parsedOption.type : orderOptionType}
+      optionExpiry={isOptionChart ? parsedOption.expiry : null}
       onOrderPlaced={() => { setOrderModalOpen(false); setOrderOptionType(null); }}
       intelligence={intelligence}
     />

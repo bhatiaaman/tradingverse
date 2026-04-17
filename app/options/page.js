@@ -1080,7 +1080,7 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
         {(opp?.reasons?.length || (isAtm && baseWhy.length)) ? (
           <details className="border-t border-white/[0.06] px-3 py-2" open={!!opp?.reasons?.length}>
             <summary className="cursor-pointer select-none text-[10px] font-mono text-slate-500 hover:text-slate-300">
-              Why ({(opp?.reasons?.length || 0) + (isAtm ? baseWhy.length : 0)})
+              Why ({(opp?.reasons?.length || 0) + (isAtm ? baseWhy.filter(r => !opp?.reasons?.some(or => or.startsWith('PCR') && r.startsWith('PCR'))).length : 0)})
             </summary>
             <ul className="mt-2 space-y-0.5">
               {(opp?.reasons?.length ? opp.reasons : []).map((r, j) => (
@@ -1088,7 +1088,9 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
                   <span className={isBuy ? 'text-emerald-600 mt-0.5 flex-shrink-0' : 'text-red-700 mt-0.5 flex-shrink-0'}>•</span>{r}
                 </li>
               ))}
-              {isAtm && baseWhy.map((r, j) => (
+              {isAtm && baseWhy
+                .filter(r => !opp?.reasons?.some(or => or.startsWith('PCR') && r.startsWith('PCR')))
+                .map((r, j) => (
                 <li key={`base_${j}`} className="flex items-start gap-1.5 text-[11px] text-slate-300">
                   <span className={isBuy ? 'text-emerald-600 mt-0.5 flex-shrink-0' : 'text-red-700 mt-0.5 flex-shrink-0'}>•</span>{r}
                 </li>
