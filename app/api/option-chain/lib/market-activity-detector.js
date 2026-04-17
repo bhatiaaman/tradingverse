@@ -66,7 +66,7 @@ export function detectMarketActivity(current, previous, sinceOpen = false, futOI
 
   // 4. Activity Synthesizer
   if (isCallBuildup || isPutUnwinding || isFutShorting) {
-    const buildup = isCallBuildup && isPutUnwinding ? 'Short Buildup & Unwinding' : isCallBuildup ? 'Short Buildup' : 'Long Unwinding';
+    const buildup = isCallBuildup && isPutUnwinding ? 'Short Buildup & Long Unwinding' : isCallBuildup ? 'Short Buildup' : 'Long Unwinding';
     activity    = buildup;
     strength    = Math.min(10, Math.round((Math.abs(priceChangePct) * 10) + Math.abs(totalOIChangePct) * 2));
     if (isFutShorting) strength += 2; // Futures confirmation bonus
@@ -75,7 +75,7 @@ export function detectMarketActivity(current, previous, sinceOpen = false, futOI
     actionable  = strength > 7 ? 'Strong bearish move — avoid aggressive longs' : 'Bears dominant — watch for continuation on support break';
   } 
   else if (isPutBuildup || isCallUnwinding || isFutLonging) {
-    const buildup = isPutBuildup && isCallUnwinding ? 'Long Buildup & Covering' : isPutBuildup ? 'Long Buildup' : 'Short Covering';
+    const buildup = isPutBuildup && isCallUnwinding ? 'Long Buildup & Short Covering' : isPutBuildup ? 'Long Buildup' : 'Short Covering';
     activity    = buildup;
     strength    = Math.min(10, Math.round((priceChangePct * 10) + Math.abs(totalOIChangePct) * 2));
     if (isFutLonging) strength += 2; // Futures confirmation bonus
