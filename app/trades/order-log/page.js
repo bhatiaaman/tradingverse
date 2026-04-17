@@ -362,7 +362,7 @@ export default function OrderLogPage() {
                       {paperOrders.map((e, i) => (
                         <tr key={i} className="transition-colors hover:bg-white/[0.025]">
                           <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{fmt(e.ts)}</td>
-                          <td className="px-4 py-3 font-semibold text-white">{e.tradingsymbol}</td>
+                          <td className="px-4 py-3 font-semibold text-white">{e.symbol}</td>
                           <td className="px-4 py-3"><Badge type={e.transaction_type} /></td>
                           <td className="px-4 py-3"><Badge type={e.order_type} /></td>
                           <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{e.quantity}</td>

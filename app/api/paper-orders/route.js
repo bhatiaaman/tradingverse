@@ -1,3 +1,4 @@
+import { NextResponse } from 'next/server';
 import { requireSession, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 import { sql } from '@/app/lib/db';
 

@@ -1,3 +1,4 @@
+import { NextResponse } from 'next/server';
 import { requireSession, unauthorized, serviceUnavailable } from '@/app/lib/session';
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit';
 import { getVIXInsight } from '@/app/lib/vix-messaging';
