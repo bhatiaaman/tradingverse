@@ -8,7 +8,7 @@ const NS          = process.env.REDIS_NAMESPACE || 'default';
 
 const NIFTY_TOKEN  = 256265; // NSE:NIFTY 50 index token
 const SNAP_KEY     = `${NS}:sc-snap:NIFTY`;
-const SNAP_TTL     = 8 * 60; // 8 minutes
+const SNAP_TTL     = 45 * 60; // 45 minutes
 const RESULT_TTL   = 55;     // 55s cache — one tick behind the 60s poll
 
 const SCORE_THRESHOLD = 7;
@@ -226,23 +226,38 @@ function scoreVwapReclaim(candles, vwapSeries) {
   };
 }
 
-function scoreFutOIDrop(snap, futOI, spot) {
+function scoreFutOIDrop(snap, futOI, spot, candles = []) {
   if (!snap || snap.futOI == null || futOI == null) {
     return { score: 0, hit: false, detail: 'No OI snapshot yet — will score next poll' };
   }
-  const priceMoved = spot > snap.spot * 1.0003; // ≥ ~7 pts on Nifty 24000
-  const oiFell     = futOI < snap.futOI * 0.985; // ≥1.5% drop
+  
+  // Calculate price move since snapshot
+  const pctSinceSnap = ((spot - snap.spot) / snap.spot * 100);
+  
+  // Also calculate price move since day's low for stability during long trends
+  let pctSinceLow = 0;
+  if (candles.length > 0) {
+    const dayLow = Math.min(...candles.map(c => c.low));
+    pctSinceLow = ((spot - dayLow) / dayLow * 100);
+  }
+
+  const priceMoved = pctSinceSnap > 0.03 || pctSinceLow > 0.08; 
+  const oiFell     = futOI < snap.futOI * 0.985; // ≥1.5% drop from recent baseline
   const oiPct      = snap.futOI > 0 ? ((futOI - snap.futOI) / snap.futOI * 100).toFixed(1) : '—';
 
   if (priceMoved && oiFell) {
     return {
       score:  4,
       hit:    true,
-      detail: `Futures OI ↓${Math.abs(oiPct)}% while spot +${((spot - snap.spot) / snap.spot * 100).toFixed(2)}%`,
+      detail: `Futures OI ↓${Math.abs(oiPct)}% while price up ${pctSinceLow > pctSinceSnap ? pctSinceLow.toFixed(2) : pctSinceSnap.toFixed(2)}%`,
     };
   }
-  if (!priceMoved) return { score: 0, hit: false, detail: `Spot not moved enough (+${((spot - snap.spot) / snap.spot * 100).toFixed(2)}%)` };
-  return { score: 0, hit: false, detail: `Futures OI unchanged (${oiPct}%)` };
+  
+  if (!priceMoved) {
+    const bestMove = Math.max(pctSinceSnap, pctSinceLow);
+    return { score: 0, hit: false, detail: `Spot expansion (+${bestMove.toFixed(2)}%) insufficient for squeeze confirmation` };
+  }
+  return { score: 0, hit: false, detail: `Futures OI unchanged (${oiPct}%) or not falling enough` };
 }
 
 function scoreOptOIBonus(snap, chain) {
@@ -281,15 +296,23 @@ function scoreVolumeSpike(candles) {
   return { score: 0, hit: false, detail: `Nifty Fut volume only ${mult.toFixed(1)}x avg (need 1.5x)` };
 }
 
-function scoreStraddleContraction(snap, chain, spot) {
+function scoreStraddleContraction(snap, chain, spot, candles = []) {
   if (!snap || !chain?.atmCE || !chain?.atmPE || snap.straddle == null) {
     return { score: 0, hit: false, detail: 'No straddle snapshot yet' };
   }
+  
+  const pctSinceSnap = ((spot - snap.spot) / snap.spot * 100);
+  let pctSinceLow = 0;
+  if (candles.length > 0) {
+    const dayLow = Math.min(...candles.map(c => c.low));
+    pctSinceLow = ((spot - dayLow) / dayLow * 100);
+  }
+
   const currStraddle = chain.atmCE.ltp + chain.atmPE.ltp;
   const straddleFell = currStraddle < snap.straddle * 0.97;  // ≥3% drop
   const putFalling   = chain.atmPE.ltp < snap.atmPELTP * 0.95; // PE specifically crushed
   const callStable   = chain.atmCE.ltp >= snap.atmCELTP * 0.98;
-  const priceMoved   = spot > snap.spot * 1.0003;
+  const priceMoved   = pctSinceSnap > 0.03 || pctSinceLow > 0.08;
   const pct          = snap.straddle > 0 ? ((currStraddle - snap.straddle) / snap.straddle * 100).toFixed(1) : '—';
 
   if (straddleFell && putFalling && callStable && priceMoved) {
@@ -306,7 +329,7 @@ function scoreStraddleContraction(snap, chain, spot) {
       detail: `Straddle ↓${Math.abs(pct)}% but not fully directional yet`,
     };
   }
-  return { score: 0, hit: false, detail: `Straddle down only ${pct}% (need ≥3%)` };
+  return { score: 0, hit: false, detail: `Straddle change (${pct}%)` };
 }
 
 function scorePCRSpike(snap, pcr) {
@@ -406,10 +429,10 @@ export async function GET(request) {
 
     // 5. Score each signal
     const sigVwap      = scoreVwapReclaim(candles, vwapSeries);
-    const sigFutOI     = scoreFutOIDrop(snap, futOI, spot);
+    const sigFutOI     = scoreFutOIDrop(snap, futOI, spot, candles);
     const sigOptOI     = scoreOptOIBonus(snap, chain);
     const sigVolume    = scoreVolumeSpike(candles);
-    const sigStraddle  = scoreStraddleContraction(snap, chain, spot);
+    const sigStraddle  = scoreStraddleContraction(snap, chain, spot, candles);
     const sigPCR       = scorePCRSpike(snap, chain?.pcr ?? 0);
 
     const score = sigVwap.score + sigFutOI.score + sigOptOI.score +
@@ -419,7 +442,7 @@ export async function GET(request) {
     // 6. Save new snapshot only if no snapshot exists or existing one is older than 10 mins
     // This provides a STABLE baseline for price/OI divergence scoring.
     // If we overwrite every session, the 'delta' is always zero.
-    const SNAP_REFRESH_THRESHOLD_MS = 10 * 60 * 1000;
+    const SNAP_REFRESH_THRESHOLD_MS = 45 * 60 * 1000;
     const isStale = !snap || (Date.now() - snap.ts) > SNAP_REFRESH_THRESHOLD_MS;
     const forceRefresh = request.nextUrl.searchParams.get('refresh') === '1';
 
