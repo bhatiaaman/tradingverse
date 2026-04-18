@@ -13,8 +13,10 @@ export default function WatchlistDrawer({
   isOpen, 
   onToggle, 
   onSelectSymbol, 
-  currentSymbol 
+  currentSymbol,
+  theme = 'dark'
 }) {
+  const isDark = theme === 'dark';
   const [activeListId, setActiveListId] = useState('fno');
   const [watchlists, setWatchlists] = useState(DEFAULT_LISTS);
   const [loading, setLoading] = useState(false);
@@ -51,18 +53,15 @@ export default function WatchlistDrawer({
     localStorage.setItem(LS_KEY, JSON.stringify(toSave));
   }, [watchlists]);
 
-  // 3. Fetch Fixed Data (FnO, Movers)
+  // 3. Fetch Pricing Data (FnO, Movers, Custom)
   useEffect(() => {
+    if (!activeListId) return;
+
     if (activeListId === 'fno') {
       setLoading(true);
-      fetch('/api/option-meta?action=symbols')
+      fetch('/api/option-meta?action=quotes')
         .then(r => r.json())
-        .then(d => {
-          if (d.symbols) {
-            const syms = d.symbols.map(s => ({ symbol: s.name, type: 'fno' }));
-            updateFixedList('fno', syms);
-          }
-        })
+        .then(d => { if (d.symbols) updateFixedList('fno', d.symbols); })
         .finally(() => setLoading(false));
     } else if (activeListId === 'movers') {
       setLoading(true);
@@ -72,7 +71,6 @@ export default function WatchlistDrawer({
           if (d.success) {
             const gainers = (d.gainers || []).map(s => ({ ...s, type: 'gainer' }));
             const losers = (d.losers || []).map(s => ({ ...s, type: 'loser' }));
-            // Add Volume Shakers? Movers API has 'volRatio'. Let's sort all for that too.
             const all = [...(d.gainers || []), ...(d.losers || [])];
             const volumeShakers = all
               .filter(s => s.volRatio > 1.2)
@@ -80,24 +78,44 @@ export default function WatchlistDrawer({
               .slice(0, 10)
               .map(s => ({ ...s, type: 'volume' }));
 
-            // We combine them into one list for simplicity or we can separate. 
-            // The user asked for "Movers and Shakers" as one watchlist.
             const combined = [...gainers, ...losers, ...volumeShakers];
-            // Remove duplicates
             const unique = [];
             const seen = new Set();
             for (const item of combined) {
-              if (!seen.has(item.symbol)) {
-                unique.push(item);
-                seen.add(item.symbol);
-              }
+              if (!seen.has(item.symbol)) { unique.push(item); seen.add(item.symbol); }
             }
             updateFixedList('movers', unique);
           }
         })
         .finally(() => setLoading(false));
+    } else if (activeListId.startsWith('custom_')) {
+      const list = watchlists.find(w => w.id === activeListId);
+      if (!list || list.symbols.length === 0) return;
+
+      // Only fetch if symbols are missing price data
+      const needsPrice = list.symbols.some(s => s.lastPrice === undefined || s.lastPrice === null);
+      if (!needsPrice) return;
+
+      const symString = list.symbols.map(s => s.symbol).join(',');
+      fetch(`/api/option-meta?action=quotes&symbols=${symString}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.symbols) {
+            // Update the specific custom list with prices
+            setWatchlists(prev => prev.map(w => {
+              if (w.id === activeListId) {
+                const pricedSymbols = w.symbols.map(orig => {
+                  const match = d.symbols.find(qs => qs.symbol === orig.symbol);
+                  return match ? { ...orig, ...match } : orig;
+                });
+                return { ...w, symbols: pricedSymbols };
+              }
+              return w;
+            }));
+          }
+        });
     }
-  }, [activeListId]);
+  }, [activeListId, watchlists.find(w => w.id === activeListId)?.symbols.length]);
 
   const updateFixedList = (id, symbols) => {
     setWatchlists(prev => prev.map(w => w.id === id ? { ...w, symbols } : w));
@@ -150,46 +168,58 @@ export default function WatchlistDrawer({
     }));
   };
 
-  // Basic search for adding stocks (can be expanded to use a real API)
+  // Global search for adding any NSE symbol
   const handleSearch = (q) => {
     setSearchQuery(q);
     if (q.length < 2) { setSearchSymbols([]); return; }
-    // Fetch search from existing API or use common symbols
-    fetch(`/api/option-meta?action=symbols`)
+    
+    fetch(`/api/search-symbols?q=${q}`)
       .then(r => r.json())
       .then(d => {
         if (d.symbols) {
-          const filtr = d.symbols.filter(s => s.name.includes(q.toUpperCase())).slice(0, 5);
-          setSearchSymbols(filtr.map(s => s.name));
+          setSearchSymbols(d.symbols);
         }
       });
   };
 
   return (
     <div 
-      className={`relative h-full bg-[#0a0e1a] border-l border-white/10 z-[100] transition-all duration-300 flex flex-col overflow-visible
+      className={`relative h-full border-l transition-all duration-300 flex flex-col overflow-visible
+        ${isDark ? 'bg-[#0a0e1a] border-white/10' : 'bg-white border-slate-200'}
         ${isOpen ? 'w-80' : 'w-0'}`}
     >
-      {/* Toggle Handle (Vertical strip) - Absolute to the drawer container */}
+      {/* Toggle Handle - Professional 'Tab' that sticks out from the right edge */}
       <button 
         onClick={onToggle}
-        className="absolute left-[-22px] top-1/2 -translate-y-1/2 w-6 h-20 bg-[#0f1d33] border border-white/10 border-r-0 rounded-l-xl flex items-center justify-center text-slate-400 hover:text-white transition-colors group z-20"
+        className={`absolute left-[-24px] top-1/2 -translate-y-1/2 w-6 h-24 flex items-center justify-center transition-all z-20 rounded-l-xl border-y border-l shadow-2xl group
+          ${isDark 
+            ? 'bg-[#0f1d33]/80 border-white/10 text-blue-400 hover:bg-[#152a4a] hover:w-8 hover:left-[-32px]' 
+            : 'bg-white/90 border-slate-200 text-indigo-600 hover:bg-slate-50 hover:w-8 hover:left-[-32px]'}
+        `}
+        title={isOpen ? "Close Watchlist" : "Open Watchlist"}
       >
-        {isOpen ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+        <div className="flex flex-col items-center gap-1">
+          {isOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          <div className={`w-[2px] h-6 rounded-full opacity-40 group-hover:h-8 transition-all
+            ${isDark ? 'bg-blue-500' : 'bg-indigo-500'}
+          `} />
+        </div>
       </button>
 
       {isOpen && (
         <>
           {/* Header & Selector */}
-          <div className="p-4 border-b border-white/10 space-y-3">
+          <div className={`p-4 border-b space-y-3 ${isDark ? 'border-white/10' : 'border-slate-100 bg-slate-50/50'}`}>
             <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Watchlist</h2>
+              <h2 className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                Watchlist
+              </h2>
               <button 
                 onClick={() => setShowAddList(!showAddList)}
-                className="p-1 hover:bg-white/10 rounded transition-colors"
+                className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200/50'}`}
                 title="Create New List"
               >
-                <Plus size={16} className="text-blue-400" />
+                <Plus size={14} className={isDark ? 'text-blue-400' : 'text-indigo-600'} />
               </button>
             </div>
 
@@ -202,9 +232,11 @@ export default function WatchlistDrawer({
                   value={newListName}
                   onChange={e => setNewListName(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleAddList()}
-                  className="flex-1 bg-white/5 border border-white/10 px-2 py-1 text-xs rounded outline-none focus:border-blue-500/50"
+                  className={`flex-1 px-2 py-1.5 text-xs rounded outline-none border transition-all
+                    ${isDark ? 'bg-white/5 border-white/10 focus:border-blue-500/50 text-white' : 'bg-white border-slate-200 focus:border-indigo-500 text-slate-900'}
+                  `}
                 />
-                <button onClick={handleAddList} className="px-2 py-1 bg-blue-600 text-white text-[10px] font-bold rounded">ADD</button>
+                <button onClick={handleAddList} className={`px-2 py-1 text-[10px] font-bold rounded shadow-sm ${isDark ? 'bg-blue-600 text-white' : 'bg-indigo-600 text-white'}`}>ADD</button>
               </div>
             )}
 
@@ -212,27 +244,31 @@ export default function WatchlistDrawer({
               <select 
                 value={activeListId}
                 onChange={e => setActiveListId(e.target.value)}
-                className="w-full bg-[#111827] border border-white/10 px-3 py-2 rounded-lg text-sm text-white appearance-none outline-none focus:ring-1 focus:ring-blue-500/30 cursor-pointer"
+                className={`w-full border px-3 py-2 rounded-lg text-xs appearance-none outline-none focus:ring-1 cursor-pointer transition-all font-semibold
+                  ${isDark ? 'bg-[#111827] border-white/10 text-white focus:ring-blue-500/30' : 'bg-white border-slate-200 text-slate-700 focus:ring-indigo-500/20'}
+                `}
               >
                 {watchlists.map(w => (
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
               </select>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500 group-hover:text-slate-300">
-                <ChevronLeft size={14} className="-rotate-90" />
+              <div className={`absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${isDark ? 'text-slate-500 group-hover:text-slate-300' : 'text-slate-400 group-hover:text-slate-600'}`}>
+                <ChevronLeft size={12} className="-rotate-90" />
               </div>
             </div>
           </div>
 
           {/* Search bar inside drawer for custom lists */}
           {!currentList.isFixed && (
-            <div className="px-4 py-2 relative">
-              <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-2 py-1.5 rounded-lg focus-within:border-blue-500/30">
-                <Search size={14} className="text-slate-500" />
+            <div className="px-4 py-2.5 relative">
+              <div className={`flex items-center gap-2 border px-2.5 py-1.5 rounded-lg focus-within:ring-1 transition-all
+                ${isDark ? 'bg-white/5 border-white/10 focus-within:ring-blue-500/30' : 'bg-slate-50 border-slate-200 focus-within:ring-indigo-500/20'}
+              `}>
+                <Search size={14} className={isDark ? 'text-slate-500' : 'text-slate-400'} />
                 <input 
                   type="text" 
-                  placeholder="Add stock (e.g. RELIANCE)"
-                  className="bg-transparent border-none outline-none text-xs text-white w-full"
+                  placeholder="Analyze symbols..."
+                  className={`bg-transparent border-none outline-none text-xs w-full ${isDark ? 'text-white' : 'text-slate-900'}`}
                   value={searchQuery}
                   onChange={e => handleSearch(e.target.value)}
                   onFocus={() => setShowSearch(true)}
@@ -245,15 +281,19 @@ export default function WatchlistDrawer({
               </div>
 
               {showSearch && searchSymbols.length > 0 && (
-                <div className="absolute left-4 right-4 top-full mt-1 bg-[#111827] border border-white/10 rounded-lg shadow-2xl z-50 overflow-hidden divide-y divide-white/5">
+                <div className={`absolute left-4 right-4 top-full mt-1 border rounded-lg shadow-2xl z-50 overflow-hidden divide-y
+                  ${isDark ? 'bg-[#111827] border-white/10 divide-white/5' : 'bg-white border-slate-200 divide-slate-100'}
+                `}>
                   {searchSymbols.map(s => (
                     <button 
                       key={s} 
                       onClick={() => addToCustomList(s)}
-                      className="w-full text-left px-3 py-2 text-xs text-white hover:bg-blue-600/20 transition-colors flex items-center justify-between"
+                      className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between
+                        ${isDark ? 'text-white hover:bg-blue-600/20' : 'text-slate-700 hover:bg-slate-50'}
+                      `}
                     >
-                      <span>{s}</span>
-                      <Plus size={12} className="text-blue-500" />
+                      <span className="font-medium">{s}</span>
+                      <Plus size={12} className={isDark ? 'text-blue-500' : 'text-indigo-600'} />
                     </button>
                   ))}
                 </div>
@@ -262,55 +302,62 @@ export default function WatchlistDrawer({
           )}
 
           {/* Active Watchlist List */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar pt-2">
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
             {loading && (
               <div className="flex flex-col items-center justify-center h-40 gap-3">
-                <span className="w-5 h-5 border-2 border-slate-700 border-t-blue-500 rounded-full animate-spin" />
-                <span className="text-[10px] text-slate-500 font-medium">Fetching Data...</span>
+                <span className={`w-5 h-5 border-2 rounded-full animate-spin ${isDark ? 'border-slate-700 border-t-blue-500' : 'border-slate-200 border-t-indigo-500'}`} />
+                <span className="text-[10px] text-slate-500 font-medium uppercase tracking-tight">Syncing Data...</span>
               </div>
             )}
 
             {!loading && currentList.symbols.length === 0 && (
               <div className="px-8 py-20 text-center">
-                <ListFilter size={32} className="mx-auto text-slate-700 mb-4" />
-                <p className="text-xs text-slate-500">Waitlist is empty.</p>
-                {!currentList.isFixed && <p className="text-[10px] text-slate-600 mt-1">Search above to add symbols.</p>}
+                <ListFilter size={24} className={`mx-auto mb-3 opacity-20 ${isDark ? 'text-white' : 'text-slate-900'}`} />
+                <p className="text-[11px] font-medium text-slate-500">Waitlist is empty.</p>
+                {!currentList.isFixed && <p className="text-[9px] text-slate-400 mt-1">Search above to add companies.</p>}
               </div>
             )}
 
             {!loading && currentList.symbols.map((s, idx) => {
               const isSelected = currentSymbol === s.symbol;
+              const positive = (s.changePercent ?? 0) >= 0;
               return (
                 <div 
                   key={s.symbol + idx}
                   onClick={() => onSelectSymbol(s.symbol)}
-                  className={`px-4 py-3 border-b border-white/[0.04] flex items-center justify-between cursor-pointer transition-all hover:bg-white/[0.03] active:bg-white/[0.06] group
-                    ${isSelected ? 'bg-blue-600/10 border-l-2 border-l-blue-500' : ''}`}
+                  className={`px-4 py-3 border-b group flex items-center justify-between cursor-pointer transition-all
+                    ${isDark ? 'border-white/[0.04] hover:bg-white/[0.03]' : 'border-slate-100 hover:bg-slate-50/80'}
+                    ${isSelected ? (isDark ? 'bg-blue-600/10' : 'bg-indigo-600/5') : ''}`}
                 >
-                  <div className="flex flex-col gap-0.5 overflow-hidden">
+                  <div className="flex flex-col gap-1 overflow-hidden">
                     <div className="flex items-center gap-2">
-                      <span className={`text-sm font-bold truncate ${isSelected ? 'text-blue-400' : 'text-slate-200'}`}>
+                      <span className={`text-[13px] font-bold truncate transition-colors
+                        ${isSelected ? (isDark ? 'text-blue-400' : 'text-indigo-600') : (isDark ? 'text-slate-200' : 'text-slate-800')}
+                      `}>
                         {s.symbol}
                       </span>
                       {s.type === 'gainer' && <TrendingUp size={12} className="text-emerald-500 flex-shrink-0" />}
                       {s.type === 'loser' && <TrendingDown size={12} className="text-red-500 flex-shrink-0" />}
                       {s.type === 'volume' && <Volume2 size={12} className="text-amber-500 flex-shrink-0" />}
                     </div>
-                    {/* Reason/Meta */}
-                    <div className="text-[10px] font-mono text-slate-500 truncate lowercase">
-                      {s.type === 'gainer' ? 'Top Gainer' : s.type === 'loser' ? 'Top Loser' : s.type === 'volume' ? 'Volume Shaker' : 'NSE Equity'}
+                    <div className={`text-[9px] font-mono uppercase tracking-tight ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {s.type === 'gainer' ? 'Gainer' : s.type === 'loser' ? 'Loser' : s.type === 'volume' ? 'Shocking Volume' : 'Equity'}
                     </div>
                   </div>
 
-                  <div className="flex flex-col items-end gap-1">
+                  <div className="flex flex-col items-end gap-0.5">
                     {s.lastPrice != null && (
-                      <div className="text-xs font-mono font-bold text-white">
-                        ₹{s.lastPrice.toFixed(2)}
+                      <div className={`text-xs font-mono font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {s.lastPrice.toLocaleString('en-IN', { minimumFractionDigits: 1 })}
                       </div>
                     )}
                     {s.changePercent != null && (
-                      <div className={`text-[10px] font-mono font-medium ${s.changePercent >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                        {s.changePercent >= 0 ? '+' : ''}{s.changePercent.toFixed(2)}%
+                      <div className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                        positive 
+                          ? (isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-100 text-emerald-700') 
+                          : (isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-100 text-red-700')
+                      }`}>
+                        {positive ? '+' : ''}{s.changePercent.toFixed(2)}%
                       </div>
                     )}
                     
@@ -318,7 +365,7 @@ export default function WatchlistDrawer({
                     {!currentList.isFixed && (
                       <button 
                         onClick={(e) => removeFromCustomList(s.symbol, e)}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 text-slate-600 transition-all"
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 text-slate-400 transition-all transform hover:scale-110"
                       >
                         <Trash2 size={12} />
                       </button>
@@ -329,12 +376,17 @@ export default function WatchlistDrawer({
             })}
           </div>
 
-          {/* Footer stats or contextual info */}
-          <div className="p-3 bg-white/[0.02] border-t border-white/10 flex items-center justify-between">
-            <span className="text-[10px] text-slate-600 font-medium">{currentList.symbols.length} Symbols</span>
+          {/* Footer stats */}
+          <div className={`p-3 border-t flex items-center justify-between text-[10px] font-semibold tracking-tight
+            ${isDark ? 'bg-white/[0.01] border-white/10 text-slate-600' : 'bg-slate-50 border-slate-100 text-slate-500'}
+          `}>
+            <span>{currentList.symbols.length} Assets</span>
             {!currentList.isFixed && (
-              <button onClick={(e) => handleDeleteList(currentList.id, e)} className="text-[10px] text-red-900/40 hover:text-red-500 font-bold transition-colors">
-                DELETE LIST
+              <button 
+                onClick={(e) => handleDeleteList(currentList.id, e)} 
+                className={`transition-colors uppercase font-bold ${isDark ? 'text-red-900/40 hover:text-red-500' : 'text-red-400 hover:text-red-600'}`}
+              >
+                Delete
               </button>
             )}
           </div>

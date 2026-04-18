@@ -1312,6 +1312,7 @@ function OptionsChartInner() {
       onToggle={toggleWatchlist}
       onSelectSymbol={handleSelectSymbol}
       currentSymbol={symbol}
+      theme="dark"
     />
     </div>
   );

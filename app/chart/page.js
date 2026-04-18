@@ -1507,6 +1507,7 @@ function ChartPageInner() {
       onToggle={toggleWatchlist}
       onSelectSymbol={handleSelectSymbol}
       currentSymbol={symbol}
+      theme={chartTheme}
     />
     </div>
   );

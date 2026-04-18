@@ -278,6 +278,59 @@ export async function GET(request) {
       return NextResponse.json({ ltp, symbol });
     }
 
+    // New: Returns real-time quotes for FnO symbols in bulk or specific symbols
+    if (action === 'quotes') {
+      const targetSymbolsStr = searchParams.get('symbols'); // comma-separated
+      const QUOTES_CACHE_KEY = targetSymbolsStr ? null : `${NS}:fno-quotes-all`;
+      
+      if (QUOTES_CACHE_KEY && !bust) {
+        const cached = await redisGet(QUOTES_CACHE_KEY);
+        if (cached) return NextResponse.json({ symbols: cached, fromCache: true });
+      }
+
+      // 1. Determine symbols list
+      let symbolsToFetch = [];
+      if (targetSymbolsStr) {
+        symbolsToFetch = targetSymbolsStr.split(',').map(s => ({ name: s.trim().toUpperCase() }));
+      } else {
+        let symbols = await redisGet(SYMBOLS_KEY);
+        if (!symbols) {
+          const meta = await parseAndCacheNFO(dp);
+          symbols = meta.symbols;
+        }
+        symbolsToFetch = symbols;
+      }
+
+      if (!symbolsToFetch.length) return NextResponse.json({ symbols: [] });
+
+      // 2. Fetch OHLC in bulk
+      const instrumentKeys = symbolsToFetch.map(s => `NSE:${s.name}`);
+      const ohlcData = await dp.getOHLC(instrumentKeys);
+
+      // 3. Map to final format
+      const result = symbolsToFetch.map(s => {
+        const key = `NSE:${s.name}`;
+        const data = ohlcData[key];
+        if (!data) return { symbol: s.name, lastPrice: null, changePercent: null };
+
+        const lp = data.last_price;
+        const pc = data.ohlc?.close;
+        const cp = pc ? ((lp - pc) / pc) * 100 : 0;
+
+        return {
+          symbol: s.name,
+          lastPrice: lp,
+          changePercent: parseFloat(cp.toFixed(2))
+        };
+      });
+
+      // 4. Cache if it's the full list
+      if (QUOTES_CACHE_KEY) {
+        await redisSet(QUOTES_CACHE_KEY, result, 60);
+      }
+      return NextResponse.json({ symbols: result });
+    }
+
     // Prefetch: expiries + strikes for first expiry + spot — all in one call from cache.
     // Used by options chart page to preload all symbols on mount so symbol switches are instant.
     if (action === 'prefetch') {
