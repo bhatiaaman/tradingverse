@@ -1,4 +1,4 @@
-// ── Third Eye Bias State Machine ─────────────────────────────────────────────
+// ── Setup Eye Bias State Machine ─────────────────────────────────────────────
 // Pure JS — no React, no Redis, no side effects. Fully testable.
 //
 // States: NEUTRAL | BULL | BEAR
@@ -54,15 +54,15 @@ const FORCE_NEUTRAL_AFTER_BEAR = new Set(['s13_choch_bull', 's16_spring']);
 // Called once per sealed candle, in chronological order.
 // Inputs:
 //   state        : current bias state { bias: 'NEUTRAL'|'BULL'|'BEAR', downtrendCount, uptrendCount, pendingFlip, addsToday }
-//   thirdEyeResult: output of runThirdEye() for this candle
+//   setupEyeResult: output of runSetupEye() for this candle
 //   context      : context from buildContext() — includes .trend, .vwap.above, .bos
 // Returns: new state object (immutable — always returns a fresh copy)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function applyBiasTransition(state, thirdEyeResult, context, candle) {
+export function applyBiasTransition(state, setupEyeResult, context, candle) {
   const { bias, downtrendCount = 0, uptrendCount = 0, pendingFlip = null } = state;
 
-  const topSetup  = thirdEyeResult.strongSetups?.[0] ?? thirdEyeResult.watchList?.[0] ?? null;
+  const topSetup  = setupEyeResult.strongSetups?.[0] ?? setupEyeResult.watchList?.[0] ?? null;
   const setupId   = topSetup?.pattern?.id ?? null;
   const setupDir  = topSetup?.pattern?.direction ?? null;
   const setupScore = topSetup?.score ?? 0;

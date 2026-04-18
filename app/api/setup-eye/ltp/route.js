@@ -15,7 +15,7 @@ export async function GET(req) {
     const ltp  = data.data?.[instrument]?.last_price ?? null;
     return NextResponse.json({ ltp });
   } catch (err) {
-    console.error('[third-eye/ltp]', err.message);
+    console.error('[setup-eye/ltp]', err.message);
     return NextResponse.json({ error: err.message }, { status: 502 });
   }
 }

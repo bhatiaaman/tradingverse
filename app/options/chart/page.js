@@ -7,7 +7,8 @@ import Nav from '../../components/Nav';
 import { createChart } from '../../lib/chart/Chart';
 import { useChartRefresh } from '@/app/lib/chart/useChartRefresh';
 import DrawingToolbar from '../../components/DrawingToolbar';
-import OrderModal from '../../components/OrderModal';
+import OrderModal     from '../../components/OrderModal';
+import QuickOrder     from '@/app/components/QuickOrder';
 import { nseStrikeSteps } from '../../lib/nseStrikeSteps';
 import {
   computeVWAP, computeEMA, computeRSI,
@@ -88,9 +89,18 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
   const [activeTool,     setActiveTool]     = useState(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState(null);
 
+  // Performance Refs for Ultra-Smooth Crosshair (Kite-style)
+  const crosshairLineRef   = useRef(null);
+  const crosshairButtonRef = useRef(null);
+  const crosshairPillRef   = useRef(null);
+  const crosshairPriceRef  = useRef(null);
+  const hoverPriceRef      = useRef(null);
+
   // Quick-order state (lotSize updated once tradingsymbol resolves)
-  const [quickQty,     setQuickQty]     = useState(65);
-  const [quickLotSize, setQuickLotSize] = useState(65);
+  const [quickQty,     setQuickQty]     = useState(symbol === 'BANKNIFTY' ? 30 : 65);
+  const [quickLotSize, setQuickLotSize] = useState(symbol === 'BANKNIFTY' ? 30 : 65);
+  const [quickOrderOpen, setQuickOrderOpen] = useState(false);
+  const [quickOrderPrice, setQuickOrderPrice] = useState(null);
   const [quickStatus,  setQuickStatus]  = useState(null); // null | 'loading' | { ok, msg }
   const quickTimerRef = useRef(null);
 
@@ -264,15 +274,53 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
       chartCreatedForRef.current = { el, interval };
 
       chart.onCrosshairMove(data => {
-        if (data) {
+        if (data && data.y !== null) {
           setHoverData({ bar: data.bar, lineValues: data.lineValues });
           onCrosshairIndex?.(data.index);
+
+          const price = chart.yToPrice(data.y);
+          hoverPriceRef.current = parseFloat(price.toFixed(1));
+
+          // Direct DOM updates for butter-smooth movement
+          if (crosshairLineRef.current) {
+            crosshairLineRef.current.style.top = `${data.y}px`;
+            crosshairLineRef.current.style.display = 'block';
+          }
+          if (crosshairButtonRef.current) {
+            crosshairButtonRef.current.style.top = `${data.y - 12}px`;
+            crosshairButtonRef.current.style.display = 'flex';
+          }
+          if (crosshairPillRef.current) {
+            crosshairPillRef.current.style.top = `${data.y - 10}px`;
+            crosshairPillRef.current.style.display = 'flex';
+          }
+          if (crosshairPriceRef.current) crosshairPriceRef.current.textContent = price.toFixed(1);
         } else {
           setHoverData(null);
           onCrosshairIndex?.(null);
         }
       });
-      chart.onLastPriceY(y => setLastPriceY(y));
+      chart.onLastPriceY(y => {
+        setLastPriceY(y);
+        // Initial setup at Close price on load
+        if (y !== null && hoverPriceRef.current === null && candlesRef.current?.length) {
+          const price = candlesRef.current[candlesRef.current.length - 1].close;
+          hoverPriceRef.current = parseFloat(price.toFixed(1));
+          if (crosshairLineRef.current) {
+             crosshairLineRef.current.style.top = `${y}px`;
+             crosshairLineRef.current.style.display = 'block';
+          }
+          if (crosshairButtonRef.current) {
+             crosshairButtonRef.current.style.top = `${y - 12}px`;
+             crosshairButtonRef.current.style.display = 'flex';
+          }
+          if (crosshairPillRef.current) {
+             crosshairPillRef.current.style.top = `${y - 10}px`;
+             crosshairPillRef.current.style.display = 'flex';
+          }
+          if (crosshairPriceRef.current) crosshairPriceRef.current.textContent = price.toFixed(1);
+        }
+      });
       chart.onViewportChange(({ atEnd }) => setAtRightEdge(atEnd));
       chart.onDrawingSelect(id => setSelectedDrawingId(id ?? null));
 
@@ -531,16 +579,48 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
           </button>
         )}
 
-        {/* Order entry button */}
-        {lastPriceY !== null && (
-          <button
-            onClick={() => setOrderModalOpen(true)}
-            style={{ top: lastPriceY - 11, right: 80 }}
-            className="absolute z-20 w-[22px] h-[22px] rounded-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 border border-indigo-400/60 shadow-lg flex items-center justify-center text-white text-sm font-bold leading-none transition-colors"
-            title={`Place order — ${symbol} ${strike} ${type}`}
-          >+</button>
-        )}
+        {/* Horizontal Dash Crosshair — Direct DOM Managed */}
+        <div 
+          ref={crosshairLineRef}
+          className="absolute left-0 right-0 border-t border-dashed border-white/20 pointer-events-none z-30"
+          style={{ display: 'none', top: 0 }}
+        />
+
+        {/* Floating Trading Tooling */}
+        <div 
+          ref={crosshairPillRef}
+          className="absolute z-40 right-1 h-[20px] w-[70px] bg-black border border-white/20 rounded items-center justify-center pointer-events-none"
+          style={{ display: 'none', top: 0 }}
+        >
+          <span ref={crosshairPriceRef} className="text-[10px] text-white font-mono font-bold" />
+        </div>
+
+        <button
+          ref={crosshairButtonRef}
+          onClick={(e) => {
+            e.stopPropagation();
+            const price = hoverPriceRef.current;
+            if (price === null) return;
+            setQuickOrderPrice(price);
+            setQuickOrderOpen(true);
+          }}
+          style={{ display: 'none', top: 0, right: 74 }}
+          className="absolute z-50 w-[24px] h-[24px] rounded-full bg-indigo-600 hover:bg-indigo-500 border border-indigo-400 shadow-[0_0_15px_rgba(79,70,229,0.5)] flex items-center justify-center text-white text-base font-black leading-none transition-all active:scale-90 cursor-pointer pointer-events-auto"
+          title={`Quick order at ₹${hoverPriceRef.current?.toFixed(1)}`}
+        >
+          <span className="mb-0.5">+</span>
+        </button>
       </div>
+
+      <QuickOrder
+        isOpen={quickOrderOpen}
+        onClose={() => setQuickOrderOpen(false)}
+        symbol={info?.tradingSymbol || `${symbol} ${strike} ${type}`}
+        price={quickOrderPrice}
+        lotSize={quickLotSize}
+        type="BUY"
+        onOrderPlaced={() => setQuickOrderOpen(false)}
+      />
 
       <OrderModal
         isOpen={orderModalOpen}

@@ -13,6 +13,7 @@ export default function QuickOrder({
   intelligence = null,
   onOrderPlaced,
   onOpenFullAnalysis,
+  lotSize = 1,
 }) {
   const { status, loading: providerLoading } = useProviderStatus();
   const [quantity, setQuantity] = useState(1);
@@ -35,8 +36,11 @@ export default function QuickOrder({
       setTriggerPrice('');
       setError('');
       setSuccess('');
+      // Snap to 1 lot on open for FnO instruments
+      if (lotSize > 1) setQuantity(lotSize);
+      else setQuantity(1);
     }
-  }, [isOpen, price, type]);
+  }, [isOpen, price, type, lotSize]);
 
 
   const handleSubmit = async (e) => {
@@ -146,14 +150,17 @@ export default function QuickOrder({
               <div className="space-y-1">
                 <label className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Quantity</label>
                 <div className="flex bg-white/5 rounded-xl border border-white/10 overflow-hidden h-9">
-                  <button type="button" onClick={() => setQuantity(Math.max(1, quantity - 1))} className="w-9 flex items-center justify-center hover:bg-white/5 border-r border-white/10 transition-colors text-slate-400 text-sm font-bold">-</button>
+                  <button type="button" onClick={() => setQuantity(Math.max(lotSize, quantity - lotSize))} className="w-9 flex items-center justify-center hover:bg-white/5 border-r border-white/10 transition-colors text-slate-400 text-sm font-bold">-</button>
                   <input 
                     type="number" 
                     value={quantity} 
-                    onChange={e => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                    onChange={e => {
+                       const val = parseInt(e.target.value) || lotSize;
+                       setQuantity(Math.max(lotSize, val));
+                    }}
                     className="flex-1 bg-transparent text-center text-[13px] font-bold font-mono focus:outline-none" 
                   />
-                  <button type="button" onClick={() => setQuantity(quantity + 1)} className="w-9 flex items-center justify-center hover:bg-white/5 border-l border-white/10 transition-colors text-slate-400 text-sm font-bold">+</button>
+                  <button type="button" onClick={() => setQuantity(quantity + lotSize)} className="w-9 flex items-center justify-center hover:bg-white/5 border-l border-white/10 transition-colors text-slate-400 text-sm font-bold">+</button>
                 </div>
               </div>
 

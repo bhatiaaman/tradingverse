@@ -1,25 +1,25 @@
-// ── POST /api/third-eye/scan ──────────────────────────────────────────────────
-// Server-side Third Eye scan engine.
+// ── POST /api/setup-eye/scan ──────────────────────────────────────────────────
+// Server-side Setup Eye scan engine.
 //
 // Architecture:
 //   1. Fetch candles from /api/nifty-chart (Redis-cached, no direct Kite calls)
 //   2. Read bias state from Redis (persists across page refreshes)
 //   3. Detect new trading day → auto-reset bias to NEUTRAL
-//   4. Run thirdEye.js scan for each unsealed candle newer than last processed
-//   5. Apply bias transitions via thirdEye-bias.js (guarded, no flip-flopping)
-//   6. Generate narrative via thirdEye-narrative.js (decisive labels)
+//   4. Run setupEye.js scan for each unsealed candle newer than last processed
+//   5. Apply bias transitions via setupEye-bias.js (guarded, no flip-flopping)
+//   6. Generate narrative via setupEye-narrative.js (decisive labels)
 //   7. Write updated bias + rolling log back to Redis
 //   8. Return { biasState, log, live, scanStatus }
 //
-// Called by the Third Eye panel every 30 seconds.
+// Called by the Setup Eye panel every 30 seconds.
 // The page is a read-only consumer — no bias logic in the client.
 
 import { NextResponse } from 'next/server';
 import { requireSession, unauthorized, serviceUnavailable } from '@/app/lib/session';
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit';
-import { runThirdEye, precompute, buildContext } from '@/app/lib/thirdEye.js';
-import { applyBiasTransition, freshBiasState, isNewTradingDay, todayIST } from '@/app/lib/thirdEye-bias.js';
-import { buildNarrative } from '@/app/lib/thirdEye-narrative.js';
+import { runSetupEye, precompute, buildContext } from '@/app/lib/setupEye.js';
+import { applyBiasTransition, freshBiasState, isNewTradingDay, todayIST } from '@/app/lib/setupEye-bias.js';
+import { buildNarrative } from '@/app/lib/setupEye-narrative.js';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -220,7 +220,7 @@ export async function POST(req) {
 
       try {
         const rsiVal = computeRSIAt(allCandles, candleIdx);
-        const result = runThirdEye(candlesUpTo, vwapData, rsiVal, env, cfg);
+        const result = runSetupEye(candlesUpTo, vwapData, rsiVal, env, cfg);
         const context = result.context;
         const topSetup = result.strongSetups?.[0] ?? result.watchList?.[0] ?? null;
 
@@ -301,7 +301,7 @@ export async function POST(req) {
         // Advance baseline state for the next toProcess candle
         biasState = newBiasState;
       } catch (err) {
-        console.error(`[third-eye/scan] candle ${timeStr} error:`, err.message);
+        console.error(`[setup-eye/scan] candle ${timeStr} error:`, err.message);
         // Advance past failed candle — don't retry forever
         biasState.lastUpdated = timeStr;
       }
@@ -319,7 +319,7 @@ export async function POST(req) {
     if (liveCandle && allCandles.length >= 3) {
       try {
         const liveRSI    = computeLastRSI(allCandles);
-        const liveResult = runThirdEye(allCandles, vwapData, liveRSI, env, cfg);
+        const liveResult = runSetupEye(allCandles, vwapData, liveRSI, env, cfg);
         const liveTimeStr = candleTimeStr(liveCandle);
         const now = new Date(Date.now() + 19800 * 1000);
         const nowStr = `${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`;
@@ -380,7 +380,7 @@ export async function POST(req) {
     });
 
   } catch (err) {
-    console.error('[third-eye/scan]', err.message);
+    console.error('[setup-eye/scan]', err.message);
     return NextResponse.json({ error: 'Scan failed', detail: err.message }, { status: 500 });
   }
 }

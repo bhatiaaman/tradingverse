@@ -5,28 +5,28 @@ import Link from 'next/link';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
 /**
- * ThirdEyePanel — the full right-column Third Eye card.
+ * SetupEyePanel — the full right-column Setup Eye card.
  *
  * Receives all state + handlers from EyePage as props.
  * No local state except the ATM qty input which is lifted to the page.
  */
-export default function ThirdEyePanel({
+export default function SetupEyePanel({
   // Data
-  thirdEyeData,
-  thirdEyeOpen, setThirdEyeOpen,
-  thirdEyeLog,
-  thirdEyeLive,
-  thirdEyeMode, setThirdEyeMode,
-  thirdEyeEnv, setThirdEyeEnv,
-  thirdEyeTestMode,
+  setupEyeData,
+  setupEyeOpen, setSetupEyeOpen,
+  setupEyeLog,
+  setupEyeLive,
+  setupEyeMode, setSetupEyeMode,
+  setupEyeEnv, setSetupEyeEnv,
+  setupEyeTestMode,
   serverBiasState,
   liveTick,
   activeTrade,
   tradeLTP,
   tradeExiting,
   tradeExited,
-  thirdEyePlaced,
-  thirdEyePlacing,
+  setupEyePlaced,
+  setupEyePlacing,
   scanStatus,
   openPositions,
   semiAutoQty, setSemiAutoQty,
@@ -37,8 +37,8 @@ export default function ThirdEyePanel({
   isMarketHours,
   positionDir,
   // Handlers
-  onPlaceThirdEyeOrder,
-  onExitThirdEyeTrade,
+  onPlaceSetupEyeOrder,
+  onExitSetupEyeTrade,
 }) {
   // ── Stale signal reversal sets (used in live card) ────────────────────────
   const BULL_REVERSAL_IDS = new Set(['morning_star','hammer','bull_pin','bull_engulfing','tweezer_bottom']);
@@ -70,8 +70,8 @@ export default function ThirdEyePanel({
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <span className="text-base">👁</span>
-            <span className="text-sm font-bold text-white">Third Eye</span>
-            {thirdEyeData?.strongSetups?.length > 0 && (
+            <span className="text-sm font-bold text-white">Setup Eye</span>
+            {setupEyeData?.strongSetups?.length > 0 && (
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
             )}
           </div>
@@ -87,8 +87,8 @@ export default function ThirdEyePanel({
               </svg>
               Setups
             </Link>
-            <button onClick={() => setThirdEyeOpen(o => !o)} className="text-slate-500 hover:text-slate-300">
-              {thirdEyeOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            <button onClick={() => setSetupEyeOpen(o => !o)} className="text-slate-500 hover:text-slate-300">
+              {setupEyeOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
           </div>
         </div>
@@ -96,9 +96,9 @@ export default function ThirdEyePanel({
         {/* Row 2: mode + environment toggles */}
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setThirdEyeMode('semi')}
+            onClick={() => setSetupEyeMode('semi')}
             className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide transition-all ${
-              thirdEyeMode === 'semi'
+              setupEyeMode === 'semi'
                 ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
                 : 'text-slate-600 hover:text-slate-400 border border-transparent'
             }`}
@@ -113,9 +113,9 @@ export default function ThirdEyePanel({
           {[['light','L','sky'],['medium','M','amber'],['tight','T','rose']].map(([env, label, col]) => (
             <button
               key={env}
-              onClick={() => setThirdEyeEnv(env)}
+              onClick={() => setSetupEyeEnv(env)}
               className={`w-7 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide transition-all ${
-                thirdEyeEnv === env
+                setupEyeEnv === env
                   ? col === 'sky'   ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
                   : col === 'amber' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                   :                   'bg-rose-500/20 text-rose-300 border border-rose-500/30'
@@ -128,7 +128,7 @@ export default function ThirdEyePanel({
       </div>
 
       {/* ── Active Trade Card ─────────────────────────────────────────────── */}
-      {thirdEyeOpen && activeTrade && (
+      {setupEyeOpen && activeTrade && (
         <div className={`mx-3 my-2 p-3 rounded-xl border ${
           activeTrade.direction === 'bull'
             ? 'bg-emerald-500/[0.06] border-emerald-500/20'
@@ -176,7 +176,7 @@ export default function ThirdEyePanel({
             </div>
           ) : (
             <button
-              onClick={onExitThirdEyeTrade}
+              onClick={onExitSetupEyeTrade}
               disabled={tradeExiting}
               className="w-full py-1.5 rounded-lg text-[11px] font-bold tracking-wide transition-all bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-50"
             >
@@ -187,21 +187,21 @@ export default function ThirdEyePanel({
       )}
 
       {/* ── Live Card (10s tick) ───────────────────────────────────────────── */}
-      {thirdEyeOpen && thirdEyeLive && isMarketHours() && (() => {
-        const ln         = thirdEyeLive.narrative ?? null;
-        const liveDir    = thirdEyeLive.topSetup?.pattern?.direction;
-        const liveScore  = thirdEyeLive.topSetup?.score;
-        const liveClose  = thirdEyeLive.candle?.close;
-        const liveSl     = thirdEyeLive.topSetup?.pattern?.sl;
+      {setupEyeOpen && setupEyeLive && isMarketHours() && (() => {
+        const ln         = setupEyeLive.narrative ?? null;
+        const liveDir    = setupEyeLive.topSetup?.pattern?.direction;
+        const liveScore  = setupEyeLive.topSetup?.score;
+        const liveClose  = setupEyeLive.candle?.close;
+        const liveSl     = setupEyeLive.topSetup?.pattern?.sl;
         const tickLtp      = liveTick?.ltp;
         const displayPrice = tickLtp ?? liveClose;
         const tickChange   = liveTick?.changePct;
         const tickVwapDist = liveTick?.vwapPct;
-        const aboveVwap    = liveTick?.aboveVwap ?? thirdEyeLive.context?.vwap?.above;
-        const lastLogEntry = thirdEyeLog[0];
+        const aboveVwap    = liveTick?.aboveVwap ?? setupEyeLive.context?.vwap?.above;
+        const lastLogEntry = setupEyeLog[0];
         const lastLogDir   = (lastLogEntry?.narrative?.type !== 'observe') ? lastLogEntry?.topSetup?.pattern?.direction : null;
-        const liveHasBullReversal = thirdEyeLive.rawPatterns?.some(p => BULL_REVERSAL_IDS.has(p.pattern?.id));
-        const liveHasBearReversal = thirdEyeLive.rawPatterns?.some(p => BEAR_REVERSAL_IDS.has(p.pattern?.id));
+        const liveHasBullReversal = setupEyeLive.rawPatterns?.some(p => BULL_REVERSAL_IDS.has(p.pattern?.id));
+        const liveHasBearReversal = setupEyeLive.rawPatterns?.some(p => BEAR_REVERSAL_IDS.has(p.pattern?.id));
         const staleWarning =
           (lastLogDir === 'bear' && liveHasBullReversal) ? '⚠ Prior short — bounce pattern forming, hold fire' :
           (lastLogDir === 'bull' && liveHasBearReversal) ? '⚠ Prior long — rejection pattern forming, tighten stops' :
@@ -229,8 +229,8 @@ export default function ThirdEyePanel({
                     {ln.action ?? 'WATCH'}
                   </span>
                 )}
-                {thirdEyeLive.topSetup?.pattern?.name && (
-                  <span className="text-[10px] text-white font-medium truncate">{thirdEyeLive.topSetup.pattern.name}</span>
+                {setupEyeLive.topSetup?.pattern?.name && (
+                  <span className="text-[10px] text-white font-medium truncate">{setupEyeLive.topSetup.pattern.name}</span>
                 )}
                 {liveScore != null && <span className="text-[9px] text-slate-500 ml-auto shrink-0">{liveScore}/10</span>}
               </div>
@@ -250,7 +250,7 @@ export default function ThirdEyePanel({
                 )}
                 {liveSl && <span className="text-rose-500/80">SL {liveSl.toFixed(0)}</span>}
                 <span className="ml-auto text-slate-700">
-                  {thirdEyeLive.time} · upd {liveTick?.updatedAt ?? thirdEyeLive.updatedAt ?? thirdEyeLive.time}
+                  {setupEyeLive.time} · upd {liveTick?.updatedAt ?? setupEyeLive.updatedAt ?? setupEyeLive.time}
                 </span>
               </div>
             </div>
@@ -325,15 +325,15 @@ export default function ThirdEyePanel({
       })()}
 
       {/* ── Test mode banner ──────────────────────────────────────────────── */}
-      {thirdEyeOpen && thirdEyeTestMode && (
+      {setupEyeOpen && setupEyeTestMode && (
         <div className="mx-3 mb-1 px-2 py-1 rounded text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/20 font-bold tracking-wider text-center">
           TEST MODE · Ctrl+Shift+T to exit
         </div>
       )}
 
       {/* ── Sealed Log ────────────────────────────────────────────────────── */}
-      {thirdEyeOpen && (() => {
-        const displayLog = thirdEyeLog;
+      {setupEyeOpen && (() => {
+        const displayLog = setupEyeLog;
         return (
           <div className="divide-y divide-white/[0.04] max-h-[560px] overflow-y-auto">
             {scanStatus && scanStatus.pushed < scanStatus.total && (
@@ -363,8 +363,8 @@ export default function ThirdEyePanel({
                 const sl      = s.sl;
                 const dist    = sl ? Math.abs(close - sl) : null;
                 const target  = sl ? (isBull ? close + 2 * dist : close - 2 * dist) : null;
-                const placed  = thirdEyePlaced[entry.time];
-                const placing = thirdEyePlacing === entry.time;
+                const placed  = setupEyePlaced[entry.time];
+                const placing = setupEyePlacing === entry.time;
                 const atm     = getAtmInfo(close);
                 const optLabel = `${atm.strike} ${isBull ? 'CE' : 'PE'}`;
                 return (
@@ -446,7 +446,7 @@ export default function ThirdEyePanel({
                       )
                     ) : (
                       <button
-                        onClick={() => onPlaceThirdEyeOrder(entry)}
+                        onClick={() => onPlaceSetupEyeOrder(entry)}
                         disabled={placing}
                         className={`w-full py-2 rounded-lg text-[11px] font-bold tracking-wide transition-all disabled:opacity-50 ${isBull ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'} text-white`}
                       >

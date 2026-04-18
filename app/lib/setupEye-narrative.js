@@ -1,4 +1,4 @@
-// ── Third Eye Narrative Generator ─────────────────────────────────────────────
+// ── Setup Eye Narrative Generator ─────────────────────────────────────────────
 // Pure function — takes a scan entry + bias state, returns a narrative object.
 // No React, no Redis, no side effects. Server-safe and testable.
 //

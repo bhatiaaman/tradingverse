@@ -1,4 +1,4 @@
-// ── GET /api/third-eye/tick ───────────────────────────────────────────────────
+// ── GET /api/setup-eye/tick ───────────────────────────────────────────────────
 // Lightweight live-price tick endpoint — called every 10 seconds by the live card.
 // Does NOT run the full scan — just fetches spot LTP and computes live VWAP distance.
 //
@@ -82,7 +82,7 @@ export async function GET(req) {
     });
 
   } catch (err) {
-    console.error('[third-eye/tick]', err.message);
+    console.error('[setup-eye/tick]', err.message);
     return NextResponse.json({ error: 'Tick failed' }, { status: 500 });
   }
 }

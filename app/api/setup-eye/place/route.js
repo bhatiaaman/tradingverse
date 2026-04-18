@@ -19,7 +19,7 @@ async function pushAndPoll(params, timeoutMs = 10000) {
     redis.set(`${DEDUP_PFX}${orderId}`, '1',      { ex: 30  }),
     redis.set(statusKey,                 'QUEUED', { ex: 600 }),
   ]);
-  await redis.lpush(QUEUE_KEY, JSON.stringify({ orderId, ts: Date.now(), source: 'third-eye', variety: 'regular', ...params }));
+  await redis.lpush(QUEUE_KEY, JSON.stringify({ orderId, ts: Date.now(), source: 'setup-eye', variety: 'regular', ...params }));
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -232,7 +232,7 @@ export async function POST(req) {
     });
 
   } catch (err) {
-    console.error('[third-eye/place]', err.message);
+    console.error('[setup-eye/place]', err.message);
     return NextResponse.json({ error: err.message || 'Order placement failed' }, { status: 500 });
   }
 }

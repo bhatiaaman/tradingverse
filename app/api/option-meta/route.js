@@ -244,12 +244,19 @@ export async function GET(request) {
       if (!lookup) return NextResponse.json({ error: `No data for ${symbol} ${expiry}` }, { status: 404 });
       const ts = lookup[`${strike}_${type}`];
       if (!ts) return NextResponse.json({ error: `No tradingsymbol for ${symbol} ${strike} ${type} expiry ${expiry}` }, { status: 404 });
-      let lotSize = await redisGet(`${NS}:fno-lotsize:${symbol}`);
+      
+      const [ohlcRes, lotSizeRes] = await Promise.all([
+        dp.getOHLC([`NFO:${ts}`]),
+        redisGet(`${NS}:fno-lotsize:${symbol}`)
+      ]);
+      
+      let lotSize = lotSizeRes;
       if (lotSize === null) {
-        // Key not yet in cache (first load after code change) — reparse to populate it
         try { const { symbolMap } = await parseAndCacheNFO(dp); lotSize = symbolMap[symbol]?.lotSize ?? null; } catch { /* non-critical */ }
       }
-      return NextResponse.json({ tradingSymbol: ts, lotSize });
+      const ltp = ohlcRes?.[`NFO:${ts}`]?.last_price ?? null;
+      
+      return NextResponse.json({ tradingSymbol: ts, lotSize, ltp });
     }
 
     // Returns lot size for a symbol from cache

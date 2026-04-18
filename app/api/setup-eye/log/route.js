@@ -12,7 +12,7 @@ function todayIST() {
 }
 
 function cacheKey() {
-  return `${NS}:third-eye-log:${todayIST()}`;
+  return `${NS}:setup-eye-log:${todayIST()}`;
 }
 
 async function redisGet(key) {

@@ -24,7 +24,7 @@ export async function POST(req) {
 
     return NextResponse.json({ ok: true, orderId: order.order_id });
   } catch (err) {
-    console.error('[third-eye/exit]', err.message);
+    console.error('[setup-eye/exit]', err.message);
     return NextResponse.json({ error: err.message || 'Exit failed' }, { status: 500 });
   }
 }

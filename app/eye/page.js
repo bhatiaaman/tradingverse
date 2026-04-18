@@ -11,7 +11,7 @@
   import KeyLevelsBar from './components/KeyLevelsBar';
   import ShortCoveringBanner from './components/ShortCoveringBanner';
   import PositionConflictBanner from './components/PositionConflictBanner';
-  import ThirdEyePanel from './components/ThirdEyePanel';
+  import SetupEyePanel from './components/SetupEyePanel';
   import { usePageVisibility } from '@/app/hooks/usePageVisibility';
 
   // ── Determine directional bias of an open position ────────────────────────
@@ -298,24 +298,24 @@ function getNiftyLevelAlerts(indices) {
     const [exitingSymbol,     setExitingSymbol]     = useState(null);
     const [exitResult,        setExitResult]        = useState(null);
 
-    // Third Eye state
-    const [thirdEyeData, setThirdEyeData] = useState(null);
-    const [thirdEyeLog, setThirdEyeLog]   = useState([]);   // rolling candle log
+    // Setup Eye state
+    const [setupEyeData, setSetupEyeData] = useState(null);
+    const [setupEyeLog, setSetupEyeLog]   = useState([]);   // rolling candle log
     const [scanStatus, setScanStatus]     = useState(null); // { lastTime, pushed, errors }
-    const [thirdEyeEnv, setThirdEyeEnv]   = useState('medium');
-    const [thirdEyeOpen, setThirdEyeOpen] = useState(true);
-    const [thirdEyePlacing, setThirdEyePlacing] = useState(null);  // entry.time being placed
-    const [thirdEyePlaced,  setThirdEyePlaced]  = useState({});    // { [entry.time]: result }
-    const [thirdEyeMode,    setThirdEyeMode]    = useState('semi'); // 'semi' | 'auto' (auto = coming soon)
+    const [setupEyeEnv, setSetupEyeEnv]   = useState('medium');
+    const [setupEyeOpen, setSetupEyeOpen] = useState(true);
+    const [setupEyePlacing, setSetupEyePlacing] = useState(null);  // entry.time being placed
+    const [setupEyePlaced,  setSetupEyePlaced]  = useState({});    // { [entry.time]: result }
+    const [setupEyeMode,    setSetupEyeMode]    = useState('semi'); // 'semi' | 'auto' (auto = coming soon)
     const [activeTrade,     setActiveTrade]     = useState(null);   // placed trade object
     const [tradeLTP,        setTradeLTP]        = useState(null);   // live option LTP
     const [semiAutoQty,     setSemiAutoQty]     = useState(65);     // user-editable qty for semi-auto orders
     const [tradeExiting,    setTradeExiting]    = useState(false);
     const [tradeExited,     setTradeExited]     = useState(null);   // exit result
-    const [thirdEyeLive,    setThirdEyeLive]    = useState(null);   // current forming candle (updates every 30s)
-    const [thirdEyeTestMode, setThirdEyeTestMode] = useState(false); // Ctrl+Shift+T toggles test card
+    const [setupEyeLive,    setSetupEyeLive]    = useState(null);   // current forming candle (updates every 30s)
+    const [setupEyeTestMode, setSetupEyeTestMode] = useState(false); // Ctrl+Shift+T toggles test card
     const [leftTab, setLeftTab]           = useState('sectors');
-    const thirdEyeEnvRef      = useRef('medium');
+    const setupEyeEnvRef      = useRef('medium');
     const setupConfigRef      = useRef({});
     const lastCandleTimeRef   = useRef(''); // 'HH:MM' of last logged candle
     // Cooldown for system log: { "symbol|tf|setupId": lastLoggedEpochMs }
@@ -330,11 +330,11 @@ function getNiftyLevelAlerts(indices) {
     const [serverBiasState, setServerBiasState] = useState(null); // { bias, since, pendingFlip }
     const [liveTick, setLiveTick] = useState(null); // { ltp, change, vwapDist, aboveVwap } from 10s tick
 
-    // Restore Third Eye log from Redis on mount → now handled by /api/third-eye/scan.
-    // Keeps backward compat: also loads from /api/third-eye/log for immediate display
+    // Restore Setup Eye log from Redis on mount → now handled by /api/setup-eye/scan.
+    // Keeps backward compat: also loads from /api/setup-eye/log for immediate display
     // while scan initializes.
     useEffect(() => {
-      fetch('/api/third-eye/log')
+      fetch('/api/setup-eye/log')
         .then(r => r.json())
         .then(d => {
           if (!d.entries?.length) return;
@@ -342,14 +342,14 @@ function getNiftyLevelAlerts(indices) {
           const nowStr = `${String(ist.getUTCHours()).padStart(2,'0')}:${String(ist.getUTCMinutes()).padStart(2,'0')}`;
           const todayEntries = d.entries.filter(e => e.time && e.time <= nowStr);
           if (!todayEntries.length) return;
-          setThirdEyeLog(todayEntries);
+          setSetupEyeLog(todayEntries);
           if (todayEntries[0]?.time) lastCandleTimeRef.current = todayEntries[0].time;
         })
         .catch(() => {});
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── Server-side scan polling (primary bias + log source) ─────────────────
-    // Polls /api/third-eye/scan every 30s during market hours.
+    // Polls /api/setup-eye/scan every 30s during market hours.
     // Writes bias to serverBiasState (and syncs biasRef for backward compat).
     // Log from server overwrites client log (server is source of truth).
     useEffect(() => {
@@ -358,13 +358,13 @@ function getNiftyLevelAlerts(indices) {
       const runScan = async () => {
         if (!isMarketHours() || !isVisibleRef.current) return;
         try {
-          const res = await fetch('/api/third-eye/scan', {
+          const res = await fetch('/api/setup-eye/scan', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               symbol:   chartSymbol,
               interval: chartInterval,
-              env:      thirdEyeEnvRef.current,
+              env:      setupEyeEnvRef.current,
               cfg:      setupConfigRef.current,
             }),
           });
@@ -381,13 +381,13 @@ function getNiftyLevelAlerts(indices) {
 
           // Update log from server (authoritative)
           if (data.log?.length) {
-            setThirdEyeLog(data.log);
+            setSetupEyeLog(data.log);
             if (data.log[0]?.time) lastCandleTimeRef.current = data.log[0].time;
           }
 
           // Update live card from server
           if (data.live) {
-            setThirdEyeLive(data.live);
+            setSetupEyeLive(data.live);
           }
 
           if (data.scanStatus) setScanStatus(data.scanStatus);
@@ -415,7 +415,7 @@ function getNiftyLevelAlerts(indices) {
       const runTick = async () => {
         if (!isMarketHours() || !isVisibleRef.current) return;
         try {
-          const res  = await fetch(`/api/third-eye/tick?symbol=${chartSymbol}`);
+          const res  = await fetch(`/api/setup-eye/tick?symbol=${chartSymbol}`);
           if (!res.ok) return;
           const data = await res.json();
           setLiveTick(data);
@@ -644,15 +644,15 @@ function getNiftyLevelAlerts(indices) {
     // Keep showBOSRef in sync (used by fetchData closure)
     useEffect(() => { showBOSRef.current = showBOS; }, [showBOS]);
 
-    // Keep thirdEyeEnvRef in sync (used by fetchData closure)
-    useEffect(() => { thirdEyeEnvRef.current = thirdEyeEnv; }, [thirdEyeEnv]);
+    // Keep setupEyeEnvRef in sync (used by fetchData closure)
+    useEffect(() => { setupEyeEnvRef.current = setupEyeEnv; }, [setupEyeEnv]);
 
     // Poll live LTP for active trade every 30s
     useEffect(() => {
       if (!activeTrade) return;
       const poll = async () => {
         try {
-          const res  = await fetch(`/api/third-eye/ltp?instrument=NFO:${activeTrade.symbol}`);
+          const res  = await fetch(`/api/setup-eye/ltp?instrument=NFO:${activeTrade.symbol}`);
           const data = await res.json();
           if (data.ltp) setTradeLTP(data.ltp);
         } catch { /* ignore */ }
@@ -662,10 +662,10 @@ function getNiftyLevelAlerts(indices) {
       return () => clearInterval(id);
     }, [activeTrade?.symbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Ctrl+Shift+T — toggle Third Eye test mode (injects a fake semi-auto card)
+    // Ctrl+Shift+T — toggle Setup Eye test mode (injects a fake semi-auto card)
     useEffect(() => {
       const onKey = (e) => {
-        if (e.ctrlKey && e.shiftKey && e.key === 'T') setThirdEyeTestMode(p => !p);
+        if (e.ctrlKey && e.shiftKey && e.key === 'T') setSetupEyeTestMode(p => !p);
       };
       window.addEventListener('keydown', onKey);
       return () => window.removeEventListener('keydown', onKey);
@@ -1152,19 +1152,19 @@ function getNiftyLevelAlerts(indices) {
               chart.clearLine('vwap');
             }
 
-            // Third Eye scan — only meaningful during live market hours
+            // Setup Eye scan — only meaningful during live market hours
             if (!isMarketHours()) {
-              setThirdEyeData(null);
-              setThirdEyeLive(null);
+              setSetupEyeData(null);
+              setSetupEyeLive(null);
             }
             if (!isMarketHours()) return; // skip scan + live card outside hours
 
             try {
-              const { runThirdEye } = await import('@/app/lib/thirdEye.js');
+              const { runSetupEye } = await import('@/app/lib/setupEye.js');
               const vwapForHE  = customVwapDataRef.current;
               const rsiVal     = rsiData[rsiData.length - 1]?.value ?? null;
-              const heResult   = runThirdEye(data.candles, vwapForHE, rsiVal, thirdEyeEnvRef.current, setupConfigRef.current);
-              setThirdEyeData(heResult);
+              const heResult   = runSetupEye(data.candles, vwapForHE, rsiVal, setupEyeEnvRef.current, setupConfigRef.current);
+              setSetupEyeData(heResult);
 
               // Always update live card (current forming candle) — runs every 30s
               {
@@ -1175,7 +1175,7 @@ function getNiftyLevelAlerts(indices) {
                 const now = new Date(Date.now() + 19800 * 1000);
                 const nhh = String(now.getUTCHours()).padStart(2, '0');
                 const nmm = String(now.getUTCMinutes()).padStart(2, '0');
-                setThirdEyeLive({
+                setSetupEyeLive({
                   time:        `${lhh}:${lmm}`,   // candle open time
                   updatedAt:   `${nhh}:${nmm}`,    // wall-clock refresh time
                   topSetup:    heResult.strongSetups?.[0] ?? heResult.watchList?.[0] ?? null,
@@ -1223,7 +1223,7 @@ function getNiftyLevelAlerts(indices) {
                       if (candlesUpTo.length < 3) { lastCandleTimeRef.current = timeStr; continue; }
 
                       const rsiVal = rsiData[candleIdx]?.value ?? null;
-                      const result = runThirdEye(candlesUpTo, vwapForHE, rsiVal, thirdEyeEnvRef.current, setupConfigRef.current);
+                      const result = runSetupEye(candlesUpTo, vwapForHE, rsiVal, setupEyeEnvRef.current, setupConfigRef.current);
                       const topSetup = result.strongSetups?.[0] ?? result.watchList?.[0] ?? null;
 
                       const entry = {
@@ -1271,7 +1271,7 @@ function getNiftyLevelAlerts(indices) {
                       newEntries.push(entry);
                       lastCandleTimeRef.current = timeStr; // advance ref only after successful processing
                     } catch (candleErr) {
-                      console.error('[Third Eye] candle processing error at', timeStr, candleErr);
+                      console.error('[Setup Eye] candle processing error at', timeStr, candleErr);
                       lastCandleTimeRef.current = timeStr; // advance past failed candle to avoid infinite retry
                     }
                   }
@@ -1279,7 +1279,7 @@ function getNiftyLevelAlerts(indices) {
                   setScanStatus({ lastTime: lastCandleTimeRef.current, pushed: newEntries.length, total: toProcess.length });
 
                   if (newEntries.length > 0) {
-                    setThirdEyeLog(prev => {
+                    setSetupEyeLog(prev => {
                       // newEntries is oldest-first; prepend newest-first to log
                       const merged = [...[...newEntries].reverse(), ...prev];
                       // Deduplicate by time
@@ -1288,7 +1288,7 @@ function getNiftyLevelAlerts(indices) {
                         if (seen.has(e.time)) return false;
                         seen.add(e.time); return true;
                       }).slice(0, 12);
-                      fetch('/api/third-eye/log', {
+                      fetch('/api/setup-eye/log', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ entries: deduped }),
                       }).catch(() => {});
@@ -1298,7 +1298,7 @@ function getNiftyLevelAlerts(indices) {
                 }
               }
             } catch (heErr) {
-              console.error('[Third Eye] scan error:', heErr);
+              console.error('[Setup Eye] scan error:', heErr);
             }
 
             // Zone lines
@@ -1414,7 +1414,7 @@ function getNiftyLevelAlerts(indices) {
       return '🟡';
     };
 
-    // Third Eye: semi-auto order placement for S3/S6 on Nifty
+    // Setup Eye: semi-auto order placement for S3/S6 on Nifty
     // Build semi-auto IDs from saved config — any setup with semiAuto:true
     // maps to its bull+bear variant IDs (e.g. s21 → s21_vwap_reclaim_bull/bear)
     const cfg = setupConfigRef.current;
@@ -1428,18 +1428,18 @@ function getNiftyLevelAlerts(indices) {
                           `${id}_bb_bull`, `${id}_bb_bear`,
                           `${id}_flag_bull`, `${id}_flag_bear`]);
 
-    const placeThirdEyeOrder = async (entry) => {
+    const placeSetupEyeOrder = async (entry) => {
       // Test mode: simulate placement without hitting the API
       if (entry.isTest) {
-        setThirdEyePlaced(prev => ({ ...prev, [entry.time]: { ok: true, symbol: 'NIFTY25APR22000CE [TEST]', limitPrice: 120, strike: 22000, optionType: 'CE' } }));
+        setSetupEyePlaced(prev => ({ ...prev, [entry.time]: { ok: true, symbol: 'NIFTY25APR22000CE [TEST]', limitPrice: 120, strike: 22000, optionType: 'CE' } }));
         setActiveTrade({ symbol: 'NIFTY25APR22000CE [TEST]', strike: 22000, optionType: 'CE', limitPrice: 120, qty: 65, direction: 'bull', setupName: 'ORB Breakout [TEST]', slLevel: 21950, entryClose: 22020 });
         setTradeLTP(120);
         setTradeExited(null);
         return;
       }
-      setThirdEyePlacing(entry.time);
+      setSetupEyePlacing(entry.time);
       try {
-        const res  = await fetch('/api/third-eye/place', {
+        const res  = await fetch('/api/setup-eye/place', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({
@@ -1450,7 +1450,7 @@ function getNiftyLevelAlerts(indices) {
           }),
         });
         const data = await res.json();
-        setThirdEyePlaced(prev => ({ ...prev, [entry.time]: data }));
+        setSetupEyePlaced(prev => ({ ...prev, [entry.time]: data }));
         if (data.ok) {
           setActiveTrade({
             symbol:     data.symbol,
@@ -1467,13 +1467,13 @@ function getNiftyLevelAlerts(indices) {
           setTradeExited(null);
         }
       } catch (err) {
-        setThirdEyePlaced(prev => ({ ...prev, [entry.time]: { error: err.message } }));
+        setSetupEyePlaced(prev => ({ ...prev, [entry.time]: { error: err.message } }));
       } finally {
-        setThirdEyePlacing(null);
+        setSetupEyePlacing(null);
       }
     };
 
-    const exitThirdEyeTrade = async () => {
+    const exitSetupEyeTrade = async () => {
       if (!activeTrade) return;
       // Test mode: simulate exit without hitting the API
       if (activeTrade.symbol.includes('[TEST]')) {
@@ -1483,7 +1483,7 @@ function getNiftyLevelAlerts(indices) {
       }
       setTradeExiting(true);
       try {
-        const res  = await fetch('/api/third-eye/exit', {
+        const res  = await fetch('/api/setup-eye/exit', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ symbol: activeTrade.symbol, qty: activeTrade.qty }),
@@ -1527,7 +1527,7 @@ function getNiftyLevelAlerts(indices) {
       return { strike, isMonthly, expiryLabel: isMonthly ? `${dd} ${mm} Monthly` : `${dd} ${mm} Weekly` };
     }
 
-    // Third Eye: bias-persistent, trader inner-monologue narrative builder.
+    // Setup Eye: bias-persistent, trader inner-monologue narrative builder.
     // Speaks as an experienced trader watching the screen — position-aware, continuous,
     // action-oriented. NOT a pattern scanner announcement. Tracks quiet candle count
     // to distinguish "1st candle after entry" vs "3 candles consolidating".
@@ -1907,7 +1907,7 @@ function getNiftyLevelAlerts(indices) {
       setExitResult(null);
       try {
         const qty = Math.abs(position.quantity);
-        const res = await fetch('/api/third-eye/exit', {
+        const res = await fetch('/api/setup-eye/exit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ symbol: position.tradingsymbol, qty }),
@@ -3245,29 +3245,29 @@ function getNiftyLevelAlerts(indices) {
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Sectors + Third Eye */}
+            {/* RIGHT COLUMN: Sectors + Setup Eye */}
             <div className="lg:col-span-3 space-y-3 order-3 lg:order-none">
 
-              {/* ── Third Eye ────────────────────────────────────────── */}
-              <ThirdEyePanel
-                thirdEyeData={thirdEyeData}
-                thirdEyeOpen={thirdEyeOpen}
-                setThirdEyeOpen={setThirdEyeOpen}
-                thirdEyeLog={thirdEyeLog}
-                thirdEyeLive={thirdEyeLive}
-                thirdEyeMode={thirdEyeMode}
-                setThirdEyeMode={setThirdEyeMode}
-                thirdEyeEnv={thirdEyeEnv}
-                setThirdEyeEnv={setThirdEyeEnv}
-                thirdEyeTestMode={thirdEyeTestMode}
+              {/* ── Setup Eye ────────────────────────────────────────── */}
+              <SetupEyePanel
+                setupEyeData={setupEyeData}
+                setupEyeOpen={setupEyeOpen}
+                setSetupEyeOpen={setSetupEyeOpen}
+                setupEyeLog={setupEyeLog}
+                setupEyeLive={setupEyeLive}
+                setupEyeMode={setupEyeMode}
+                setSetupEyeMode={setSetupEyeMode}
+                setupEyeEnv={setupEyeEnv}
+                setSetupEyeEnv={setSetupEyeEnv}
+                setupEyeTestMode={setupEyeTestMode}
                 serverBiasState={serverBiasState}
                 liveTick={liveTick}
                 activeTrade={activeTrade}
                 tradeLTP={tradeLTP}
                 tradeExiting={tradeExiting}
                 tradeExited={tradeExited}
-                thirdEyePlaced={thirdEyePlaced}
-                thirdEyePlacing={thirdEyePlacing}
+                setupEyePlaced={setupEyePlaced}
+                setupEyePlacing={setupEyePlacing}
                 scanStatus={scanStatus}
                 openPositions={openPositions}
                 semiAutoQty={semiAutoQty}
@@ -3277,8 +3277,8 @@ function getNiftyLevelAlerts(indices) {
                 getAtmInfo={getAtmInfo}
                 isMarketHours={isMarketHours}
                 positionDir={positionDir}
-                onPlaceThirdEyeOrder={placeThirdEyeOrder}
-                onExitThirdEyeTrade={exitThirdEyeTrade}
+                onPlaceSetupEyeOrder={placeSetupEyeOrder}
+                onExitSetupEyeTrade={exitSetupEyeTrade}
               />
 
             </div>

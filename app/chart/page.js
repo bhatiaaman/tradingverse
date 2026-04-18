@@ -12,6 +12,7 @@ import {
   computeSMAAligned, computeBB, computeSMC, computeCPR,
 } from '@/app/lib/chart-indicators';
 import { useChartRefresh } from '@/app/lib/chart/useChartRefresh';
+import { Loader2 } from 'lucide-react';
 
 const RSI_MIN_H = 50;
 const RSI_MAX_H = 200;
@@ -149,6 +150,8 @@ function ChartPageInner() {
   // Detect when we're viewing an NFO option's chart (e.g. NIFTY2642124250CE)
   const parsedOption = parseOptionSymbol(symbol);
   const isOptionChart = !!parsedOption;
+  const isIndex   = !isOptionChart && (symbol in INDEX_STRIKE_STEP);
+  const step      = INDEX_STRIKE_STEP[symbol] ?? 1;
 
   const [chartInterval, setChartInterval] = useState(params.get('interval') || '5minute');
   const [candles, setCandles]             = useState([]);
@@ -183,19 +186,40 @@ function ChartPageInner() {
 
 
   // Quick-order state (indices only)
-  const [quickQty,     setQuickQty]     = useState(65);
-  const [quickLotSize, setQuickLotSize] = useState(65);
+  const [quickQty,     setQuickQty]     = useState(symbol === 'BANKNIFTY' ? 30 : 65);
+  const [quickLotSize, setQuickLotSize] = useState(symbol === 'BANKNIFTY' ? 30 : 65);
   const [quickStatus,  setQuickStatus]  = useState(null); // null | 'loading' | { ok, rows, error }
+  const [indexExpiries, setIndexExpiries] = useState([]);
+  const [resolvingOption, setResolvingOption] = useState(null); // 'CE' | 'PE' | null
   const quickTimerRef = useRef(null);
 
-  // Fetch lot size when index symbol changes
+  // Fetch lot size when FnO symbol or underlying changes
   useEffect(() => {
-    if (!(symbol in INDEX_STRIKE_STEP)) return;
-    fetch(`/api/option-meta?action=lotsize&symbol=${symbol}`)
+    const baseSymbol = isOptionChart ? parsedOption.underlying : symbol;
+    fetch(`/api/option-meta?action=lotsize&symbol=${baseSymbol}`)
       .then(r => r.json())
-      .then(d => { if (d.lotSize) { setQuickLotSize(d.lotSize); setQuickQty(d.lotSize); } })
-      .catch(() => {});
-  }, [symbol]);
+      .then(d => { 
+        if (d.lotSize) { 
+          setQuickLotSize(d.lotSize); 
+          setQuickQty(d.lotSize); 
+        } else {
+          setQuickLotSize(1);
+          setQuickQty(1);
+        }
+      })
+      .catch(() => {
+        setQuickLotSize(1);
+        setQuickQty(1);
+      });
+
+    // Also fetch expiries if it's an index
+    if (isIndex) {
+      fetch(`/api/option-meta?action=expiries&symbol=${symbol}`)
+        .then(r => r.json())
+        .then(d => { if (d.expiries) setIndexExpiries(d.expiries); })
+        .catch(() => {});
+    }
+  }, [symbol, isOptionChart, parsedOption?.underlying, isIndex]);
 
   const containerRef   = useRef(null);
   const chartRef       = useRef(null);
@@ -729,11 +753,30 @@ function ChartPageInner() {
   const anyEma = settings.showEma9 || settings.showEma21 || settings.showEma50 ||
                  (settings.showEma9D && isIntraday) || (settings.showEma9W && chartInterval === 'day');
 
-  const isIndex   = !isOptionChart && (symbol in INDEX_STRIKE_STEP);
-  const step      = INDEX_STRIKE_STEP[symbol] ?? 1;
   const lastClose = candles.length ? candles[candles.length - 1].close : null;
 
   // ── ATM quick-order handler (indices only) ──────────────────────────────────
+  const handlePickOption = async (type) => {
+    if (!atmStrike || !indexExpiries.length || resolvingOption) return;
+    setResolvingOption(type);
+    try {
+      const expiry = indexExpiries[0].date;
+      const res = await fetch(`/api/option-meta?action=tradingsymbol&symbol=${symbol}&expiry=${expiry}&strike=${atmStrike}&type=${type}`);
+      const data = await res.json();
+      if (data.tradingSymbol && data.ltp !== null) {
+        setQuickOrderPrice(data.ltp);
+        setQuickOrderSide('BUY');
+        setOrderOptionType(type);
+        setIndexPicker(false);
+        setQuickOrderOpen(true);
+      }
+    } catch (e) {
+      console.error('Failed to resolve option:', e);
+    } finally {
+      setResolvingOption(null);
+    }
+  };
+
   const handleAtmQuick = useCallback(async (optionType) => {
     if (!ltp || quickStatus === 'loading') return;
     setQuickStatus('loading');
@@ -1085,25 +1128,19 @@ function ChartPageInner() {
           >
             <span className="text-[11px] text-slate-400 font-mono mr-0.5">ATM {atmStrike}</span>
             <button
-              onClick={() => { 
-                setQuickOrderPrice(atmStrike);
-                setQuickOrderSide('BUY');
-                setOrderOptionType('CE'); 
-                setIndexPicker(false); 
-                setQuickOrderOpen(true); 
-              }}
-              className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-emerald-700 hover:bg-emerald-600 text-white transition-colors"
-            >CE</button>
+              disabled={!!resolvingOption}
+              onClick={() => handlePickOption('CE')}
+              className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-emerald-700 hover:bg-emerald-600 text-white transition-colors flex items-center gap-1.5 min-w-[38px] justify-center"
+            >
+              {resolvingOption === 'CE' ? <Loader2 size={10} className="animate-spin" /> : 'CE'}
+            </button>
             <button
-              onClick={() => { 
-                setQuickOrderPrice(atmStrike);
-                setQuickOrderSide('BUY');
-                setOrderOptionType('PE'); 
-                setIndexPicker(false); 
-                setQuickOrderOpen(true); 
-              }}
-              className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-red-700 hover:bg-red-600 text-white transition-colors"
-            >PE</button>
+              disabled={!!resolvingOption}
+              onClick={() => handlePickOption('PE')}
+              className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-red-700 hover:bg-red-600 text-white transition-colors flex items-center gap-1.5 min-w-[38px] justify-center"
+            >
+              {resolvingOption === 'PE' ? <Loader2 size={10} className="animate-spin" /> : 'PE'}
+            </button>
             <button
               onClick={() => setIndexPicker(false)}
               className="ml-0.5 text-slate-500 hover:text-slate-300 text-xs leading-none"
@@ -1430,6 +1467,7 @@ function ChartPageInner() {
       price={quickOrderPrice}
       type={quickOrderSide}
       intelligence={intelligence}
+      lotSize={quickLotSize}
       onOpenFullAnalysis={() => {
         setQuickOrderOpen(false);
         setOrderModalOpen(true);
