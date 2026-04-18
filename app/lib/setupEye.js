@@ -1,9 +1,9 @@
-// ── Human Eye — Pattern Observer Engine ──────────────────────────────────────
+// ── Setup Eye — Pattern Observer Engine ───────────────────────────────────────
 // Architecture:
 //   1. precompute()       — runs once per scan, all expensive calculations
 //   2. detectPatterns()   — uses precomputed data, no re-scanning
 //   3. buildContext()     — assembles context object from precomputed data
-//   4. detectSetups()     — multi-condition setups (S1–S18)
+//   4. detectSetups()     — multi-condition setups (S1–S21)
 //   5. scoreSetup()       — adds context bonuses to setup base strength
 //   6. runSetupEye()      — orchestrates all layers
 
@@ -18,9 +18,9 @@ function getSessionTime(candles) {
   const ist = new Date((ts + 5.5 * 3600) * 1000);
   const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
   if (mins < 555)  return 'premarket';
-  if (mins <= 555) return 'opening';    // 9:15 candle only (closes at 9:29)
-  if (mins < 870)  return 'midday';    // 9:30 onwards
-  if (mins <= 930) return 'closing';   // 14:30–15:30
+  if (mins === 555) return 'opening';  // 9:15 candle only
+  if (mins < 870)  return 'midday';   // 9:16–14:29
+  if (mins <= 930) return 'closing';  // 14:30–15:30
   return 'postmarket';
 }
 
@@ -392,7 +392,7 @@ export function precompute(candles, vwapData, rsiValue) {
   return {
     bosLevels,
     orderBlocks:    computeOrderBlocks(candles, bosLevels),
-    swingPivots:    findSwingPivots(candles, 3),
+    swingPivots:    findSwingPivots(candles, 2),              // STR=2 catches more real pivots on 5m/15m
     swingPivots2:   findSwingPivots(candles.slice(-20), 2),  // short-term structure
     swingSequence:  computeSwingSequence(candles),
     volume:         getVolumeContext(candles),
@@ -809,11 +809,13 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   //   4. Wick rejection ≥ 40% of candle range (clear bounce/rejection candle)
   //   5. Price must be retesting FROM the correct side (not just near the level)
   if (en('s9') && pre.bosLevels.length) {
-    const recentBOS9 = pre.bosLevels.reduce((a, b) =>
-      (b.breakIdx ?? 0) > (a.breakIdx ?? 0) ? b : a
-    );
-    const breakAge = recentBOS9.breakIdx !== undefined ? (n - 1 - recentBOS9.breakIdx) : 999;
-    if (breakAge <= 30 && recentBOS9.breakIdx !== undefined && recentBOS9.breakIdx >= 5) {
+    // Only consider BOS levels that have a confirmed breakIdx — levels without one are unbroken
+    const brokenLevels = pre.bosLevels.filter(b => b.breakIdx !== undefined);
+    const recentBOS9   = brokenLevels.length
+      ? brokenLevels.reduce((a, b) => b.breakIdx > a.breakIdx ? b : a)
+      : null;
+    const breakAge = recentBOS9 ? (n - 1 - recentBOS9.breakIdx) : 999;
+    if (recentBOS9 && breakAge <= 30 && recentBOS9.breakIdx >= 5) {
       const s9DistPct   = t('s9', 'distPct', 0.30);   // how close price must be to the flip level
       const s9Touches   = t('s9', 'touchCount', 3);    // minimum prior touches (strict: 3 not 2)
       const s9VolMult   = t('s9', 'volMult', 1.5);     // volume at the retest candle
@@ -997,8 +999,11 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   // BOS with impulse ≥ 1.5%, price retraces into 62–79% zone.
   // BOS must be recent (within last 50 candles).
   if (en('s15') && pre.bosLevels.length) {
-    const bos15 = pre.bosLevels.reduce((a, b) => b.idx > a.idx ? b : a);
-    if (bos15.breakIdx !== undefined && (n - 1 - bos15.breakIdx) <= 50) {
+    const brokenLevels15 = pre.bosLevels.filter(b => b.breakIdx !== undefined);
+    const bos15 = brokenLevels15.length
+      ? brokenLevels15.reduce((a, b) => b.breakIdx > a.breakIdx ? b : a)
+      : null;
+    if (bos15 && (n - 1 - bos15.breakIdx) <= 50) {
       const iS = candles[bos15.idx], iE = candles[bos15.breakIdx];
       if (iS && iE) {
         const iH = bos15.type === 'bull' ? iE.high : iS.high;
