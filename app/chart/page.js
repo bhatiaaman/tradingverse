@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
 import OrderModal         from '@/app/components/OrderModal';
+import QuickOrder          from '@/app/components/QuickOrder';
 import IntelligencePill   from '@/app/components/IntelligencePill';
 import SymbolSearch        from '@/app/components/SymbolSearch';
 import DrawingToolbar      from '@/app/components/DrawingToolbar';
@@ -171,6 +171,16 @@ function ChartPageInner() {
   const [orderOptionType, setOrderOptionType] = useState(null);  // 'CE' | 'PE' | null
   const [activeTool, setActiveTool]         = useState(null);    // drawing tool id or null
   const [selectedDrawingId, setSelectedDrawingId] = useState(null);
+  const [quickOrderOpen,   setQuickOrderOpen]     = useState(false);
+  const [quickOrderSide,   setQuickOrderSide]     = useState('BUY');
+  const [quickOrderPrice,  setQuickOrderPrice]    = useState(null);
+  // Performance Refs for Ultra-Smooth Crosshair (Kite-style)
+  const crosshairLineRef   = useRef(null);
+  const crosshairButtonRef = useRef(null);
+  const crosshairPillRef   = useRef(null);
+  const crosshairPriceRef  = useRef(null);
+  const hoverPriceRef      = useRef(null);  // price at cursor — read by click handler, never causes re-render
+
 
   // Quick-order state (indices only)
   const [quickQty,     setQuickQty]     = useState(65);
@@ -565,10 +575,58 @@ function ChartPageInner() {
       chartCreatedForRef.current = { el, candles, interval: chartInterval, theme: chartTheme };
 
       chart.onCrosshairMove(info => {
-        if (info?.bar) setHoverOHLC(info.bar);
-        else           setHoverOHLC(null);
+        if (info && info.y !== null) {
+          if (info.bar) setHoverOHLC(info.bar);
+          else          setHoverOHLC(null);
+
+          const price = chart.yToPrice(info.y);
+          // Store price in ref — click handler reads hoverPriceRef, no setState needed
+          // Round to 1 decimal place as requested
+          hoverPriceRef.current = parseFloat(price.toFixed(1));
+
+          // Direct DOM updates only — no setState to avoid re-render flicker
+          if (crosshairLineRef.current) {
+            crosshairLineRef.current.style.top     = `${info.y}px`;
+            crosshairLineRef.current.style.display = 'block';
+          }
+          if (crosshairButtonRef.current) {
+            crosshairButtonRef.current.style.top     = `${info.y - 12}px`;
+            crosshairButtonRef.current.style.display = 'flex';
+          }
+          if (crosshairPillRef.current) {
+            crosshairPillRef.current.style.top     = `${info.y - 10}px`;
+            crosshairPillRef.current.style.display = 'flex';
+          }
+          if (crosshairPriceRef.current) crosshairPriceRef.current.textContent = price.toFixed(1);
+        } else {
+          setHoverOHLC(null);
+          // Do NOT hide crosshair elements here — cursor may have moved onto the button.
+          // Elements are hidden only when mouse leaves the chart container (onMouseLeave above).
+        }
       });
-      chart.onLastPriceY(y => setLastPriceY(y));
+      chart.onLastPriceY(y => {
+        setLastPriceY(y);
+        // Initial setup: move crosshair to current price on load if no hover has happened
+        const lastCandle = candlesRef.current?.[candlesRef.current.length - 1];
+        if (y !== null && hoverPriceRef.current === null && lastCandle) {
+          const price = lastCandle.close;
+          hoverPriceRef.current = parseFloat(price.toFixed(1));
+          
+          if (crosshairLineRef.current) {
+            crosshairLineRef.current.style.top = `${y}px`;
+            crosshairLineRef.current.style.display = 'block';
+          }
+          if (crosshairButtonRef.current) {
+            crosshairButtonRef.current.style.top = `${y - 12}px`;
+            crosshairButtonRef.current.style.display = 'flex';
+          }
+          if (crosshairPillRef.current) {
+            crosshairPillRef.current.style.top = `${y - 10}px`;
+            crosshairPillRef.current.style.display = 'flex';
+          }
+          if (crosshairPriceRef.current) crosshairPriceRef.current.textContent = price.toFixed(1);
+        }
+      });
       chart.onViewportChange(({ atEnd }) => setAtRightEdge(atEnd));
 
       chart.setCandles(candles); // fitContent called inside — shows all bars
@@ -851,7 +909,12 @@ function ChartPageInner() {
       </header>
 
       {/* ── Chart area ───────────────────────────────────────────────────────── */}
-      <div className="flex-1 relative min-h-0">
+      <div className="flex-1 relative min-h-0" onMouseLeave={() => {
+        if (crosshairLineRef.current)   crosshairLineRef.current.style.display   = 'none';
+        if (crosshairButtonRef.current) crosshairButtonRef.current.style.display = 'none';
+        if (crosshairPillRef.current)   crosshairPillRef.current.style.display   = 'none';
+        setHoverOHLC(null);
+      }}>
 
         {/* Loading spinner */}
         {loading && (
@@ -970,18 +1033,48 @@ function ChartPageInner() {
           </button>
         )}
 
-        {/* Order entry button — floats beside the last-price pill */}
-        {lastPriceY !== null && candles.length > 0 && (
+        {/* Horizontal Dash Crosshair — always in DOM, shown/hidden via direct style */}
+        <div
+          ref={crosshairLineRef}
+          className="absolute left-0 right-0 border-t border-dashed border-white/20 pointer-events-none z-30"
+          style={{ display: 'none', top: 0 }}
+        />
+
+        {/* Cursor-floating order button + price pill — always in DOM, no flicker */}
+        {/* Price Pill on Axis */}
+        <div
+          ref={crosshairPillRef}
+          className="absolute z-40 right-1 h-[20px] w-[70px] bg-black border border-white/20 rounded items-center justify-center pointer-events-none"
+          style={{ display: 'none', top: 0 }}
+        >
+          <span ref={crosshairPriceRef} className="text-[10px] text-white font-mono font-bold" />
+        </div>
+
+        {/* Blue + Button */}
+        {!indexPicker && (
           <button
-            onClick={() => {
-              if (isOptionChart) { setOrderModalOpen(true); }
-              else if (isIndex) { setIndexPicker(v => !v); }
-              else { setOrderModalOpen(true); }
+            ref={crosshairButtonRef}
+            onClick={(e) => {
+              e.stopPropagation();
+              const price = hoverPriceRef.current;
+              if (price === null || price === undefined) return;
+              setQuickOrderPrice(price);
+              if (isOptionChart) {
+                setQuickOrderSide('BUY');
+                setQuickOrderOpen(true);
+              } else if (isIndex) {
+                setIndexPicker(true);
+              } else {
+                setQuickOrderSide('BUY');
+                setQuickOrderOpen(true);
+              }
             }}
-            style={{ top: lastPriceY - 11, right: 80 }}
-            className="absolute z-20 w-[22px] h-[22px] rounded-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 border border-indigo-400/60 shadow-lg flex items-center justify-center text-white text-sm font-bold leading-none transition-colors"
-            title={isIndex ? `Trade ${symbol} options — ATM ${atmStrike}` : `Place order — ₹${lastClose?.toFixed(2)}`}
-          >+</button>
+            style={{ display: 'none', top: 0, right: 74 }}
+            className="absolute z-50 w-[24px] h-[24px] rounded-full bg-indigo-600 hover:bg-indigo-500 border border-indigo-400 shadow-[0_0_15px_rgba(79,70,229,0.5)] flex items-center justify-center text-white text-base font-black leading-none transition-colors active:scale-90 cursor-pointer pointer-events-auto"
+            title="Quick order at cursor price"
+          >
+            <span className="mb-0.5">+</span>
+          </button>
         )}
 
         {/* Index CE/PE picker — appears when + is clicked on NIFTY/BANKNIFTY/etc */}
@@ -992,11 +1085,23 @@ function ChartPageInner() {
           >
             <span className="text-[11px] text-slate-400 font-mono mr-0.5">ATM {atmStrike}</span>
             <button
-              onClick={() => { setOrderOptionType('CE'); setIndexPicker(false); setOrderModalOpen(true); }}
+              onClick={() => { 
+                setQuickOrderPrice(atmStrike);
+                setQuickOrderSide('BUY');
+                setOrderOptionType('CE'); 
+                setIndexPicker(false); 
+                setQuickOrderOpen(true); 
+              }}
               className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-emerald-700 hover:bg-emerald-600 text-white transition-colors"
             >CE</button>
             <button
-              onClick={() => { setOrderOptionType('PE'); setIndexPicker(false); setOrderModalOpen(true); }}
+              onClick={() => { 
+                setQuickOrderPrice(atmStrike);
+                setQuickOrderSide('BUY');
+                setOrderOptionType('PE'); 
+                setIndexPicker(false); 
+                setQuickOrderOpen(true); 
+              }}
               className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-red-700 hover:bg-red-600 text-white transition-colors"
             >PE</button>
             <button
@@ -1315,6 +1420,20 @@ function ChartPageInner() {
       optionExpiry={isOptionChart ? parsedOption.expiry : null}
       onOrderPlaced={() => { setOrderModalOpen(false); setOrderOptionType(null); }}
       intelligence={intelligence}
+    />
+
+    {/* Quick Order Drawer */}
+    <QuickOrder
+      isOpen={quickOrderOpen}
+      onClose={() => setQuickOrderOpen(false)}
+      symbol={orderOptionType ? `${symbol} ${atmStrike} ${orderOptionType}` : (isOptionChart ? symbol : symbol)}
+      price={quickOrderPrice}
+      type={quickOrderSide}
+      intelligence={intelligence}
+      onOpenFullAnalysis={() => {
+        setQuickOrderOpen(false);
+        setOrderModalOpen(true);
+      }}
     />
     </div>
   );

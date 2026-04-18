@@ -617,6 +617,12 @@ export function createChart(container, options = {}) {
       ro.disconnect();
       canvas.remove();
     },
+
+    // ── Coordinate Conversion (Public API) ───────────────────────────────────
+    yToPrice(y)     { return vp.yToPrice(y); },
+    priceToY(price) { return vp.priceToY(price); },
+    xToIndex(x)     { return vp.xToIndex(x); },
+    barCenterX(idx) { return vp.barCenterX(idx); },
   };
 
   // ── Internal helpers ─────────────────────────────────────────────────────────
