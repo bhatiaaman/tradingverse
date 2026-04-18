@@ -27,6 +27,19 @@ function formatDateAdded(iso) {
   return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+// Derive the week these stocks are FOR from their fridayCloseDate.
+// If stocks have fridayCloseDate "2026-04-17", the target week is the Mon–Fri after that Friday.
+function getTargetWeekLabel(stockLists, fallback) {
+  const allStocks = stockLists.flat()
+  const dates = allStocks.map(s => s.fridayCloseDate).filter(Boolean).sort()
+  if (!dates.length) return fallback
+  const friday = new Date(dates[dates.length - 1])
+  // Monday after this Friday = friday + 3 days
+  const nextMonday = new Date(friday)
+  nextMonday.setDate(friday.getDate() + 3)
+  return getWeekRangeLabel(nextMonday)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 export default function WeeklyWatchlist() {
   const [watchlistObj, setWatchlistObj] = useState({ aiResearch: [], expertsResearch: [], chartink: [] })
@@ -47,6 +60,13 @@ export default function WeeklyWatchlist() {
   const [isPromptPriceLoading, setIsPromptPriceLoading] = useState(false)
   const [editingSymbolIndex, setEditingSymbolIndex] = useState(null)
 
+  // Basket state
+  const [basket,          setBasket]          = useState({ T1: [], T2: [], T3: [] })
+  const [sidebarMode,     setSidebarMode]     = useState('tracker')
+  const [basketLTP,       setBasketLTP]       = useState({})
+  const [basketLoaded,    setBasketLoaded]    = useState(false)
+  const [pendingBasketAdd, setPendingBasketAdd] = useState(null) // symbol awaiting tier assignment
+
   // Archive state
   const [archiveIndex, setArchiveIndex] = useState([])
   const [archiveLabels, setArchiveLabels] = useState({})
@@ -58,6 +78,13 @@ export default function WeeklyWatchlist() {
 
   const currentWeekKey   = getISOWeekKey()
   const currentWeekLabel = getWeekRangeLabel()
+  const nextWeekLabel    = getWeekRangeLabel(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))
+
+  // Derive the "for week" label from stock fridayCloseDate fields — falls back to nextWeekLabel
+  const targetWeekLabel  = getTargetWeekLabel(
+    [watchlistObj.aiResearch, watchlistObj.expertsResearch, watchlistObj.chartink],
+    nextWeekLabel
+  )
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -276,6 +303,45 @@ export default function WeeklyWatchlist() {
     return () => clearTimeout(timer);
   }, [userStocks, activeTab]);
 
+  // ── Basket: load from server on mount ───────────────────────────────────────
+  useEffect(() => {
+    fetch('/api/weekly-basket')
+      .then(res => res.json())
+      .then(data => {
+        if (data.basket && !Array.isArray(data.basket)) {
+          setBasket({ T1: data.basket.T1 || [], T2: data.basket.T2 || [], T3: data.basket.T3 || [] })
+        }
+        setBasketLoaded(true)
+      })
+      .catch(() => setBasketLoaded(true))
+  }, [])
+
+  // ── Basket: save to server whenever it changes (after initial load) ─────────
+  useEffect(() => {
+    if (!basketLoaded) return
+    fetch('/api/weekly-basket', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ basket }),
+    }).catch(err => console.error('[basket] save failed:', err))
+  }, [basket, basketLoaded])
+
+  // ── Basket: fetch LTPs whenever basket symbols change ───────────────────────
+  useEffect(() => {
+    const allSyms = [...(basket.T1 || []), ...(basket.T2 || []), ...(basket.T3 || [])]
+    if (!allSyms.length) { setBasketLTP({}); return }
+    fetch(`/api/quotes?symbols=${encodeURIComponent(allSyms.join(','))}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.quotes) {
+          const map = {}
+          data.quotes.forEach(q => { map[q.symbol] = q.ltp })
+          setBasketLTP(map)
+        }
+      })
+      .catch(() => {})
+  }, [basket])
+
   if (loading) return null
 
   const handleLimitChange = (lim) => {
@@ -284,35 +350,91 @@ export default function WeeklyWatchlist() {
   }
 
   const getDynamicPrompt = () => {
-    const schemaString = `[
+    const schema = `[
   {
-    "symbol": "STOCK_NAME",
+    "symbol": "EXACT_NSE_TICKER",
     "companyName": "Full Company Name in readable format",
     "sector": "Sector Name",
-    "setupType": "e.g. VCP | Breakout | Mean Reversion",
-    "entryZone": "150-153",
+    "setupType": "e.g. Volatility Contraction Pattern (VCP) | Breakout | Pullback | Tight Base",
+    "fridayClose": 152.40,
+    "fridayCloseDate": "YYYY-MM-DD",
+    "entryLow": 150,
+    "entryHigh": 153,
     "stopLoss": 142,
     "target1": 165,
     "target2": 180,
     "rewardToRiskRatio": "1:2.5",
     "confidenceScore": 8,
-    "reasoning": "One line technical reason",
-    "executionNote": "Volume or liquidity risk"
+    "reasoning": "One-line reason why it was selected",
+    "executionNote": "Short note on liquidity and execution risk."
   }
 ]`
-    const base = `You are an expert Indian NSE swing-trading scanner.\n\n`
-    const constraints = `Output the response as a single, valid JSON array of objects using this exact schema. Do not use markdown wrappers outside the JSON, strictly JSON.\nCRITICAL MANDATE: You MUST use exact, official NSE ticker symbols in the "symbol" field. Do NOT use company names or include trailing spaces.\nCorrect Examples: Use "ELGIEQUIP" instead of "ElgiEquipments", "GET&D" instead of "GEVT&D", "BEPL" instead of "BhansaliEngg".\n\n${schemaString}`
-    
-    let priceContext = ""
+
+    const symbolMandate = `CRITICAL MANDATE: You MUST use exact, official NSE ticker symbols in the "symbol" field. Do NOT use company names or include trailing spaces.
+Correct Examples: Use "ELGIEQUIP" instead of "ElgiEquipments", "GET&D" instead of "GEVT&D", "BEPL" instead of "BhansaliEngg".`
+
     const priceEntries = Object.entries(promptPriceMap)
+    let priceContext = ''
     if (priceEntries.length > 0) {
-      priceContext = `\nCRITICAL CONTEXT (Current Prices): Use these prices to ensure your Entry Zones and Targets are realistic and mathematically sound mapping to the current Friday Close:\n${priceEntries.map(([s, p]) => `- ${s}: ~${p}`).join('\n')}\n\n`
+      priceContext = `\nCRITICAL CONTEXT — Current Prices (use as baseline for entry zones, stops, and targets):\n${priceEntries.map(([s, p]) => `- ${s}: ~₹${p}`).join('\n')}\nDo NOT hallucinate or estimate prices if a current price is provided above.\n`
     }
 
     if (activeTab === 'expertsResearch') {
-      return `${base}I have already selected the following specific stocks based on my own research:\n\nSTOCKS: [ ${userStocks || 'INFY, TCS'} ]\n${priceContext}\n${priceEntries.length > 0 ? "CRITICAL: You MUST use the provided prices above as the baseline for 'entryZone', 'stopLoss', etc. DO NOT hallucinate or estimate prices if a current price is provided." : ""}\n\nFor EACH of the specific stocks listed above, provide a comprehensive swing-trading setup analysis using daily and weekly data up to the most recent Friday close.\nDo not find other stocks. Only analyze the ones provided.\n\n${constraints}`
+      return `You are an expert Indian NSE swing-trading analyst.
+
+I have already selected the following specific stocks based on my own research for the upcoming week (${nextWeekLabel}):
+
+STOCKS: [ ${userStocks || 'INFY, TCS'} ]
+${priceContext}
+For EACH stock listed above, analyse the daily and weekly chart structure up to the most recent Friday close and provide a swing-trading setup for the week ahead. Cover:
+- Is the stock in an actionable setup right now (breakout, base, pullback to support, VCP, etc.)?
+- Realistic entry zone based on current price structure — do NOT place entry at extended highs.
+- Stop-loss that technically invalidates the setup (below base, swing low, or breakout candle).
+- Two targets: T1 conservative, T2 for strong follow-through.
+- Confidence score reflecting how clean and timely the setup is this specific week.
+
+Do not add or suggest other stocks. Only analyse the ones provided.
+If a stock has no actionable setup this week, still return it with a low confidenceScore (1–4) and explain why in the reasoning field.
+
+**Output Format:**
+Output a single, valid JSON array only — no markdown blocks, no text outside the JSON.
+CRITICAL: The "fridayClose" field must be the actual NSE closing price on the most recent Friday. The "fridayCloseDate" must be that exact date in YYYY-MM-DD format. Do not omit or estimate these fields.
+${symbolMandate}
+
+${schema}`
     }
-    return `${base}I need you to find up to 15 stocks for next week's watchlist with the highest probability of follow-through. Use data up to Friday's close and build the watchlist for the upcoming week starting Monday.\n\nPreferences: Liquid stocks, daily volume >2x 20-day avg, clean breakout/momentum continuation, high relative strength.\n\n${constraints}`
+
+    return `You are an expert Indian NSE swing-trading scanner.
+
+I need you to find up to 12 stocks for the upcoming week's watchlist (${nextWeekLabel}) with the highest probability of follow-through.
+
+Use data up to the most recent Friday close and build the watchlist for the upcoming week starting Monday.
+
+**Selection Criteria:**
+Prefer lesser-followed, non-popular stocks over obvious blue-chip names, but only if they are liquid enough for clean entries and exits.
+Filter for stocks that meet most of these conditions:
+- Daily volume is at least 2x the 20-day average.
+- Price is above key moving averages (e.g. 50/200 DMA) or has recently reclaimed them.
+- Chart shows a clean breakout, retest, tight base, or momentum continuation.
+- Relative strength is better than the broader market or sector.
+- Visible institutional interest (delivery buildup, unusual volume, or sustained accumulation).
+- Room to the next resistance level (attractive risk-reward). Do NOT select stocks that are already sitting at or within 1–2% of a major horizontal resistance, supply zone, or all-time high — unless there is clear evidence of a confirmed breakout above it with volume.
+- Sector is in demand: the stock's sector should show positive momentum or rotation interest in the current market environment. Avoid stocks in sectors facing broad selling pressure or underperforming the Nifty 50 over the past 2–4 weeks.
+- No major bearish breakdown, weak trend, or obvious event/earnings risk in the coming week.
+
+**Risk Management & Levels:**
+- Entry should be conservative: near the breakout or retest zone, NOT at extended highs.
+- Stop-loss should be technically invalidating (e.g. below the breakout candle or base), not too wide.
+- Target 1 should be realistic; Target 2 should represent a strong follow-through move.
+- Filter strictly: do not force 12 names if setup quality is poor. Returning 4–6 high-conviction names is better than 12 mediocre ones.
+
+**Output Format:**
+Output a single, valid JSON array only — no markdown blocks, no text outside the JSON.
+CRITICAL: Do NOT hallucinate data. Only pick stocks you have verified technical data for up to the most recent Friday close.
+CRITICAL: The "fridayClose" field must be the actual closing price on the most recent Friday. The "fridayCloseDate" must be that exact date in YYYY-MM-DD format. Do not omit or estimate these fields.
+${symbolMandate}
+
+${schema}`
   }
 
   const handleCopyPrompt = () => {
@@ -371,7 +493,9 @@ export default function WeeklyWatchlist() {
     const headers = ['Symbol', 'Company Name', 'Source', 'Sector', 'Setup Type', 'Target 1', 'Target 2', 'Stop Loss', 'Entry Zone', 'R:R', 'Score', 'Date Added', 'Reasoning']
     const rows = uniqueList.map(s => [
       s.symbol, esc(s.companyName), s.source, esc(s.sector), esc(s.setupType),
-      s.target1, s.target2, s.stopLoss, esc(s.entryZone), esc(s.rewardToRiskRatio),
+      s.target1, s.target2, s.stopLoss,
+      s.entryLow && s.entryHigh ? `${s.entryLow}-${s.entryHigh}` : (s.entryZone || ''),
+      esc(s.rewardToRiskRatio),
       s.confidenceScore, s.dateAdded ? formatDateAdded(s.dateAdded) : '',
       esc(s.reasoning),
     ].join(','))
@@ -423,12 +547,96 @@ export default function WeeklyWatchlist() {
             {stock.sector}
           </span>
         </div>
-        <div className={`text-[10px] uppercase font-bold tracking-widest px-2 py-1 rounded-sm border ${
-          stock.confidenceScore >= 8
-            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50 bg-emerald-100 dark:bg-emerald-900/30'
-            : 'text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/50 bg-amber-100 dark:bg-amber-900/30'
-        }`}>
-          SCORE: {stock.confidenceScore}/10
+        <div className="flex items-center gap-1.5">
+          {/* Basket toggle */}
+          {!readOnly && (() => {
+            const TIER_LIMITS = { T1: 3, T2: 3, T3: 4 }
+            const TIER_STYLES = {
+              T1: 'bg-amber-500/20 text-amber-400 border-amber-600/50 hover:bg-amber-500/30',
+              T2: 'bg-sky-500/20 text-sky-400 border-sky-600/50 hover:bg-sky-500/30',
+              T3: 'bg-slate-700 text-slate-400 border-slate-600 hover:bg-slate-600',
+            }
+            const inTier = ['T1', 'T2', 'T3'].find(t => (basket[t] || []).includes(stock.symbol))
+            const totalCount = (basket.T1?.length || 0) + (basket.T2?.length || 0) + (basket.T3?.length || 0)
+
+            // Stock is already in a tier — show removable badge
+            if (inTier) {
+              return (
+                <button
+                  onClick={() => setBasket(b => ({ ...b, [inTier]: b[inTier].filter(s => s !== stock.symbol) }))}
+                  className={`text-[9px] font-black px-1.5 py-0.5 rounded border uppercase tracking-wider transition-colors ${TIER_STYLES[inTier]}`}
+                  title={`Remove from basket (${inTier})`}
+                >
+                  {inTier}
+                </button>
+              )
+            }
+
+            // Tier picker open for this stock — rendered as absolute dropdown
+            if (pendingBasketAdd === stock.symbol) {
+              return (
+                <div className="relative">
+                  <div className="absolute right-0 top-6 z-30 flex flex-col gap-1 bg-[#0e1420] border border-white/10 rounded-lg shadow-xl p-1.5 min-w-[64px]">
+                    {['T1', 'T2', 'T3'].map(t => {
+                      const full = (basket[t] || []).length >= TIER_LIMITS[t]
+                      return (
+                        <button
+                          key={t}
+                          disabled={full}
+                          onClick={() => {
+                            if (!full) setBasket(b => ({ ...b, [t]: [...(b[t] || []), stock.symbol] }))
+                            setPendingBasketAdd(null)
+                          }}
+                          className={`text-[9px] font-black px-2 py-1 rounded border uppercase tracking-wider transition-colors text-center ${
+                            full
+                              ? 'text-slate-700 border-slate-800 cursor-not-allowed'
+                              : TIER_STYLES[t]
+                          }`}
+                          title={full ? `${t} full` : `Add to ${t}`}
+                        >
+                          {t}{full ? ' ✕' : ''}
+                        </button>
+                      )
+                    })}
+                    <button
+                      onClick={() => setPendingBasketAdd(null)}
+                      className="text-[9px] text-slate-500 hover:text-red-400 font-bold py-0.5 transition-colors text-center"
+                      title="Cancel"
+                    >cancel</button>
+                  </div>
+                  {/* The + button that triggered the picker */}
+                  <button
+                    className="text-[11px] font-black px-1.5 py-0.5 rounded border leading-none text-violet-400 border-violet-500"
+                  >+</button>
+                </div>
+              )
+            }
+
+            // Default: + button
+            const allFull = totalCount >= 10
+            return (
+              <button
+                onClick={() => { if (!allFull) setPendingBasketAdd(stock.symbol) }}
+                disabled={allFull}
+                className={`text-[11px] font-black px-1.5 py-0.5 rounded border transition-colors leading-none ${
+                  allFull
+                    ? 'text-slate-600 dark:text-slate-700 border-slate-700 dark:border-slate-800 cursor-not-allowed'
+                    : 'text-slate-400 dark:text-slate-500 border-slate-300 dark:border-slate-700 hover:text-violet-500 hover:border-violet-500'
+                }`}
+                title={allFull ? 'Basket full (10/10)' : 'Add to basket'}
+              >
+                +
+              </button>
+            )
+          })()}
+
+          <div className={`text-[10px] uppercase font-bold tracking-widest px-2 py-1 rounded-sm border ${
+            stock.confidenceScore >= 8
+              ? 'text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50 bg-emerald-100 dark:bg-emerald-900/30'
+              : 'text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/50 bg-amber-100 dark:bg-amber-900/30'
+          }`}>
+            SCORE: {stock.confidenceScore}/10
+          </div>
         </div>
       </div>
 
@@ -444,36 +652,62 @@ export default function WeeklyWatchlist() {
         )}
       </div>
 
+      {/* Friday close */}
+      {stock.fridayClose && (
+        <div className="mb-2 flex items-center gap-1.5">
+          <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Fri Close</span>
+          <span className="text-[10px] font-mono font-bold text-slate-600 dark:text-slate-300">
+            ₹{Number(stock.fridayClose).toLocaleString('en-IN')}
+          </span>
+          {stock.fridayCloseDate && (
+            <span className="text-[9px] text-slate-500">
+              ({new Date(stock.fridayCloseDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })})
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="text-xs font-semibold text-violet-600 dark:text-violet-400 mb-3">{stock.setupType}</div>
 
       <div className="grid grid-cols-2 gap-3 mb-4 text-xs">
         <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-100 dark:border-white/5">
           <div className="text-slate-400 mb-1">Entry Zone</div>
-          <div className="font-bold text-slate-700 dark:text-slate-200">{stock.entryZone}</div>
+          <div className="font-bold text-slate-700 dark:text-slate-200">
+            {stock.entryLow && stock.entryHigh
+              ? `${stock.entryLow}–${stock.entryHigh}`
+              : stock.entryZone || '--'}
+          </div>
         </div>
         <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-100 dark:border-white/5">
           <div className="text-slate-400 mb-1">Stop Loss</div>
           <div className="font-bold text-red-500">{stock.stopLoss}</div>
         </div>
+        {(stock.target1 || stock.target2) && (
+          <>
+            <div className="bg-emerald-50 dark:bg-emerald-900/10 rounded-lg p-2 border border-emerald-100 dark:border-emerald-800/30">
+              <div className="text-slate-400 mb-1">Target 1</div>
+              <div className="font-bold text-emerald-600 dark:text-emerald-400">{stock.target1 ?? '--'}</div>
+            </div>
+            <div className="bg-emerald-50 dark:bg-emerald-900/10 rounded-lg p-2 border border-emerald-100 dark:border-emerald-800/30">
+              <div className="text-slate-400 mb-1">Target 2</div>
+              <div className="font-bold text-emerald-600 dark:text-emerald-400">{stock.target2 ?? '--'}</div>
+            </div>
+          </>
+        )}
         <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-100 dark:border-white/5">
-          <div className="text-slate-400 mb-1">Baseline</div>
+          <div className="text-slate-400 mb-1">Fri Close</div>
           <div className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1">
-            {stock.referencePrice ? (
-              <>
-                <span className="text-[10px]">🏁</span> {stock.referencePrice.toLocaleString('en-IN')}
-              </>
-            ) : (
-              <>
-                <span className="text-[10px]" title="Fallback to Entry Zone">🀄</span> 
-                {(() => {
-                  const parts = stock.entryZone?.split(/[-–—/]/).map(p => parseFloat(p.replace(/[^0-9.]/g, '')))
-                  const nums = parts?.filter(n => !isNaN(n))
-                  if (nums?.length === 2) return ((nums[0] + nums[1]) / 2).toLocaleString('en-IN')
-                  if (nums?.length === 1) return nums[0].toLocaleString('en-IN')
-                  return '--'
-                })()}
-              </>
-            )}
+            {(() => {
+              // Priority: fridayClose → referencePrice → entryZone mid
+              if (stock.fridayClose) return <><span className="text-[10px]">📅</span> {Number(stock.fridayClose).toLocaleString('en-IN')}</>
+              if (stock.referencePrice) return <><span className="text-[10px]">🏁</span> {stock.referencePrice.toLocaleString('en-IN')}</>
+              if (stock.entryLow && stock.entryHigh) return <><span className="text-[10px]">🀄</span> {((stock.entryLow + stock.entryHigh) / 2).toLocaleString('en-IN')}</>
+              const parts = stock.entryZone?.split(/[-–—/]/).map(p => parseFloat(p.replace(/[^0-9.]/g, '')))
+              const nums = parts?.filter(n => !isNaN(n))
+              if (nums?.length === 2) return <><span className="text-[10px]">🀄</span> {((nums[0] + nums[1]) / 2).toLocaleString('en-IN')}</>
+              if (nums?.length === 1) return <><span className="text-[10px]">🀄</span> {nums[0].toLocaleString('en-IN')}</>
+              return '--'
+            })()}
           </div>
         </div>
         <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-100 dark:border-white/5">
@@ -492,14 +726,30 @@ export default function WeeklyWatchlist() {
         </div>
       )}
 
-      <Link
-        href={`/chart?symbol=${encodeURIComponent(stock.symbol)}&interval=day&back=/investing/weekly-watchlist`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mt-auto block text-center w-full bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.04] dark:hover:bg-white/[0.08] text-slate-700 dark:text-slate-300 text-xs font-bold py-2.5 rounded-lg transition-colors border border-transparent dark:border-white/5"
-      >
-        Launch Chart
-      </Link>
+      <div className="mt-auto flex gap-2">
+        <Link
+          href={`/chart?symbol=${encodeURIComponent(stock.symbol)}&interval=day&back=/investing/weekly-watchlist`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex-1 block text-center bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.04] dark:hover:bg-white/[0.08] text-slate-700 dark:text-slate-300 text-xs font-bold py-2.5 rounded-lg transition-colors border border-transparent dark:border-white/5"
+        >
+          Launch Chart
+        </Link>
+        <a
+          href={`https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(stock.symbol)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 px-3 py-2.5 bg-[#2962ff]/10 hover:bg-[#2962ff]/20 text-[#2962ff] dark:text-[#5b9bff] border border-[#2962ff]/20 hover:border-[#2962ff]/40 rounded-lg transition-colors text-xs font-bold whitespace-nowrap"
+          title="Open on TradingView (Daily)"
+        >
+          <svg width="13" height="13" viewBox="0 0 36 28" fill="currentColor">
+            <path d="M14 18H8l6-8 6 8h-6z"/>
+            <path d="M22 18h-2l5-7 5 7h-8z" opacity=".6"/>
+            <path d="M4 18H0l4-5.5L8 18H4z" opacity=".4"/>
+          </svg>
+          TV
+        </a>
+      </div>
     </div>
   )
 
@@ -511,7 +761,7 @@ export default function WeeklyWatchlist() {
             <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">
               Weekly Tracker
             </h3>
-            <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">ROI vs Fri Close</p>
+            <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">{targetWeekLabel} · ROI vs Fri Close</p>
           </div>
           <button 
             onClick={() => fetchPerformance(consolidated20.map(s => s.symbol))}
@@ -540,20 +790,25 @@ export default function WeeklyWatchlist() {
                   {consolidated20.map((s, idx) => {
                     const quote = performanceData[s.symbol]
                     
-                    // Fallback logic: Use mid of entry zone if refPrice is missing
-                    let ref = s.referencePrice
+                    // Priority: fridayClose → referencePrice → entryZone mid
+                    let ref = null
                     let isMidFallback = false
-                    
-                    if (!ref && s.entryZone) {
+
+                    if (s.fridayClose) {
+                      ref = Number(s.fridayClose)
+                    } else if (s.referencePrice) {
+                      ref = s.referencePrice
+                    } else if (s.entryLow && s.entryHigh) {
+                      ref = (s.entryLow + s.entryHigh) / 2
+                      isMidFallback = true
+                    } else if (s.entryLow) {
+                      ref = s.entryLow
+                      isMidFallback = true
+                    } else if (s.entryZone) {
                       const parts = s.entryZone.split(/[-–—/]/).map(p => parseFloat(p.replace(/[^0-9.]/g, '')))
                       const nums = parts.filter(n => !isNaN(n))
-                      if (nums.length === 2) {
-                        ref = (nums[0] + nums[1]) / 2
-                        isMidFallback = true
-                      } else if (nums.length === 1) {
-                        ref = nums[0]
-                        isMidFallback = true
-                      }
+                      if (nums.length === 2) { ref = (nums[0] + nums[1]) / 2; isMidFallback = true }
+                      else if (nums.length === 1) { ref = nums[0]; isMidFallback = true }
                     }
 
                     const roi = (quote?.ltp && ref) ? ((quote.ltp - ref) / ref) * 100 : null
@@ -597,6 +852,108 @@ export default function WeeklyWatchlist() {
     )
   }
 
+  const BasketPanel = () => {
+    const TIERS = [
+      { label: 'Tier 1', tag: 'T1', slots: 3, perStock: 17000, color: 'text-amber-400', border: 'border-amber-800/50', bg: 'bg-amber-900/10' },
+      { label: 'Tier 2', tag: 'T2', slots: 3, perStock: 10000, color: 'text-sky-400',   border: 'border-sky-800/50',   bg: 'bg-sky-900/10'   },
+      { label: 'Tier 3', tag: 'T3', slots: 4, perStock: 6000,  color: 'text-slate-400', border: 'border-slate-700',    bg: 'bg-slate-800/30' },
+    ]
+    const totalCount = (basket.T1?.length || 0) + (basket.T2?.length || 0) + (basket.T3?.length || 0)
+
+    const copyBasket = () => {
+      const lines = []
+      TIERS.forEach(tier => {
+        ;(basket[tier.tag] || []).forEach(sym => {
+          const ltp = basketLTP[sym]
+          const qty = ltp ? Math.floor(tier.perStock / ltp) : '?'
+          lines.push(`${tier.tag} ${sym}: ${qty} qty @ ₹${ltp?.toLocaleString('en-IN') || '--'}`)
+        })
+      })
+      navigator.clipboard.writeText(lines.join('\n'))
+    }
+
+    return (
+      <div className="bg-white dark:bg-[#0b101a] border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden flex flex-col max-h-[calc(100vh-130px)] sticky top-20 shadow-xl">
+        {/* Header */}
+        <div className="px-4 py-3 bg-slate-50 dark:bg-[#0e1420] border-b border-slate-200 dark:border-white/10 flex items-center justify-between">
+          <div>
+            <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Stock Basket</h3>
+            <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">₹1,05,000 • 10 stocks</p>
+          </div>
+          <span className={`text-[10px] font-black tabular-nums ${totalCount === 10 ? 'text-emerald-400' : 'text-slate-500'}`}>
+            {totalCount}/10
+          </span>
+        </div>
+
+        {/* Tiers */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+          {TIERS.map(tier => {
+            const group = basket[tier.tag] || []
+            return (
+              <div key={tier.tag} className={`rounded-xl border ${tier.border} ${tier.bg} p-3`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${tier.color}`}>
+                    {tier.label} — {group.length}/{tier.slots}
+                  </span>
+                  <span className="text-[9px] font-bold text-slate-500">₹{tier.perStock.toLocaleString('en-IN')} ea</span>
+                </div>
+
+                {group.length === 0 ? (
+                  <p className="text-[10px] text-slate-600 dark:text-slate-600 italic">No stocks added</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {group.map(sym => {
+                      const ltp = basketLTP[sym]
+                      const qty = ltp ? Math.floor(tier.perStock / ltp) : null
+                      return (
+                        <div key={sym} className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => setBasket(b => ({ ...b, [tier.tag]: b[tier.tag].filter(s => s !== sym) }))}
+                              className="w-3.5 h-3.5 rounded-full bg-red-500/10 hover:bg-red-500/30 text-red-400 flex items-center justify-center text-[8px] font-bold transition-colors flex-shrink-0"
+                              title="Remove"
+                            >✕</button>
+                            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">{sym}</span>
+                          </div>
+                          <div className="text-right">
+                            {ltp ? (
+                              <>
+                                <div className="text-[10px] font-mono font-bold text-slate-500">{qty} qty</div>
+                                <div className="text-[9px] font-mono text-slate-500/70">@ ₹{ltp.toLocaleString('en-IN')}</div>
+                              </>
+                            ) : (
+                              <div className="text-[10px] text-slate-600">--</div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Footer */}
+        <div className="px-3 pb-3 pt-1 border-t border-slate-200 dark:border-white/5 space-y-2">
+          <div className="flex justify-between text-[9px] font-bold uppercase tracking-widest text-slate-500 pt-1">
+            <span>Total deployed</span>
+            <span>₹1,05,000</span>
+          </div>
+          {totalCount > 0 && (
+            <button
+              onClick={copyBasket}
+              className="w-full text-[10px] font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 bg-slate-100 dark:bg-white/[0.04] hover:bg-slate-200 dark:hover:bg-white/[0.07] py-2 rounded-lg transition-colors border border-slate-200 dark:border-white/5"
+            >
+              📋 Copy Basket
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div className="w-full flex flex-col lg:flex-row gap-8">
@@ -617,7 +974,7 @@ export default function WeeklyWatchlist() {
               <span className="text-slate-400 font-normal">({displayWatchlist.length})</span>
             )}
             <span className="text-base font-semibold text-slate-500 dark:text-slate-400">
-              — {currentWeekLabel}
+              — {targetWeekLabel}
             </span>
           </h2>
           <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">
@@ -931,8 +1288,31 @@ export default function WeeklyWatchlist() {
       </div>
 
       {/* Right Sidebar */}
-      <div className="w-full lg:w-[280px] flex-shrink-0">
-        <PerformanceSidebar />
+      <div className="w-full lg:w-[280px] flex-shrink-0 space-y-3">
+        {/* Tab switcher */}
+        <div className="flex bg-slate-100 dark:bg-[#0e1420] rounded-xl border border-slate-200 dark:border-white/10 p-1 gap-1">
+          <button
+            onClick={() => setSidebarMode('tracker')}
+            className={`flex-1 text-[10px] font-black uppercase tracking-widest py-1.5 rounded-lg transition-colors ${
+              sidebarMode === 'tracker'
+                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            📊 Tracker
+          </button>
+          <button
+            onClick={() => setSidebarMode('basket')}
+            className={`flex-1 text-[10px] font-black uppercase tracking-widest py-1.5 rounded-lg transition-colors ${
+              sidebarMode === 'basket'
+                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            {(() => { const n = (basket.T1?.length||0)+(basket.T2?.length||0)+(basket.T3?.length||0); return n > 0 ? `🧺 Basket ${n}/10` : '🧺 Basket' })()}
+          </button>
+        </div>
+        {sidebarMode === 'tracker' ? <PerformanceSidebar /> : <BasketPanel />}
       </div>
     </div>
   )
