@@ -11,7 +11,8 @@
   import KeyLevelsBar from './components/KeyLevelsBar';
   import ShortCoveringBanner from './components/ShortCoveringBanner';
   import PositionConflictBanner from './components/PositionConflictBanner';
-  import SetupEyePanel from './components/SetupEyePanel';
+  // import SetupEyePanel from './components/SetupEyePanel'; // hidden — replaced by ThirdEyePanel
+  import ThirdEyePanel from './components/ThirdEyePanel';
   import { usePageVisibility } from '@/app/hooks/usePageVisibility';
 
   // ── Determine directional bias of an open position ────────────────────────
@@ -3245,41 +3246,11 @@ function getNiftyLevelAlerts(indices) {
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Sectors + Setup Eye */}
+            {/* RIGHT COLUMN: Sectors + Third Eye */}
             <div className="lg:col-span-3 space-y-3 order-3 lg:order-none">
 
-              {/* ── Setup Eye ────────────────────────────────────────── */}
-              <SetupEyePanel
-                setupEyeData={setupEyeData}
-                setupEyeOpen={setupEyeOpen}
-                setSetupEyeOpen={setSetupEyeOpen}
-                setupEyeLog={setupEyeLog}
-                setupEyeLive={setupEyeLive}
-                setupEyeMode={setupEyeMode}
-                setSetupEyeMode={setSetupEyeMode}
-                setupEyeEnv={setupEyeEnv}
-                setSetupEyeEnv={setSetupEyeEnv}
-                setupEyeTestMode={setupEyeTestMode}
-                serverBiasState={serverBiasState}
-                liveTick={liveTick}
-                activeTrade={activeTrade}
-                tradeLTP={tradeLTP}
-                tradeExiting={tradeExiting}
-                tradeExited={tradeExited}
-                setupEyePlaced={setupEyePlaced}
-                setupEyePlacing={setupEyePlacing}
-                scanStatus={scanStatus}
-                openPositions={openPositions}
-                semiAutoQty={semiAutoQty}
-                setSemiAutoQty={setSemiAutoQty}
-                chartSymbol={chartSymbol}
-                SEMI_AUTO_IDS={SEMI_AUTO_IDS}
-                getAtmInfo={getAtmInfo}
-                isMarketHours={isMarketHours}
-                positionDir={positionDir}
-                onPlaceSetupEyeOrder={placeSetupEyeOrder}
-                onExitSetupEyeTrade={exitSetupEyeTrade}
-              />
+              {/* ── Third Eye ────────────────────────────────────────── */}
+              <ThirdEyePanel />
 
             </div>
           </div>

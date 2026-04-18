@@ -290,3 +290,62 @@ export function computeSMC(candles) {
 
   return { bosLevels: recentBreaks, orderBlocks: [...bullOBs, ...bearOBs], fvgs: [...bullFVGs, ...bearFVGs] };
 }
+
+// ── ADX (Average Directional Index) ──────────────────────────────────────────
+// Returns { adx[], plusDI[], minusDI[] } all aligned to candles.length (null during warmup).
+// Uses Wilder's smoothing — same method as ATR/RSI.
+export function computeADX(candles, period = 14) {
+  const n     = candles.length;
+  const adx    = new Array(n).fill(null);
+  const plusDI  = new Array(n).fill(null);
+  const minusDI = new Array(n).fill(null);
+  if (n < period * 2 + 1) return { adx, plusDI, minusDI };
+
+  // Per-candle TR, +DM, -DM
+  const tr  = new Array(n).fill(0);
+  const pdm = new Array(n).fill(0);
+  const mdm = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) {
+    const h = candles[i].high, l = candles[i].low, pc = candles[i - 1].close;
+    tr[i]  = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+    const up   = h - candles[i - 1].high;
+    const down = candles[i - 1].low - l;
+    pdm[i] = (up > down && up > 0)     ? up   : 0;
+    mdm[i] = (down > up && down > 0)   ? down : 0;
+  }
+
+  // Wilder initial sums (indices 1..period)
+  let sTR  = tr.slice(1, period + 1).reduce((s, v) => s + v, 0);
+  let sPDM = pdm.slice(1, period + 1).reduce((s, v) => s + v, 0);
+  let sMDM = mdm.slice(1, period + 1).reduce((s, v) => s + v, 0);
+
+  const dxArr = new Array(n).fill(null);
+
+  // First DI pair at index `period`
+  const _pdi0 = sTR > 0 ? 100 * sPDM / sTR : 0;
+  const _mdi0 = sTR > 0 ? 100 * sMDM / sTR : 0;
+  plusDI[period]  = parseFloat(_pdi0.toFixed(2));
+  minusDI[period] = parseFloat(_mdi0.toFixed(2));
+  dxArr[period]   = (_pdi0 + _mdi0) > 0 ? 100 * Math.abs(_pdi0 - _mdi0) / (_pdi0 + _mdi0) : 0;
+
+  for (let i = period + 1; i < n; i++) {
+    sTR  = sTR  - sTR  / period + tr[i];
+    sPDM = sPDM - sPDM / period + pdm[i];
+    sMDM = sMDM - sMDM / period + mdm[i];
+    const pdi = sTR > 0 ? 100 * sPDM / sTR : 0;
+    const mdi = sTR > 0 ? 100 * sMDM / sTR : 0;
+    plusDI[i]  = parseFloat(pdi.toFixed(2));
+    minusDI[i] = parseFloat(mdi.toFixed(2));
+    dxArr[i]   = (pdi + mdi) > 0 ? 100 * Math.abs(pdi - mdi) / (pdi + mdi) : 0;
+  }
+
+  // ADX = Wilder smooth of DX; seed = avg of first `period` DX values (indices period..2*period-1)
+  let adxVal = dxArr.slice(period, period * 2).reduce((s, v) => s + (v || 0), 0) / period;
+  adx[period * 2 - 1] = parseFloat(adxVal.toFixed(2));
+  for (let i = period * 2; i < n; i++) {
+    adxVal = (adxVal * (period - 1) + (dxArr[i] || 0)) / period;
+    adx[i] = parseFloat(adxVal.toFixed(2));
+  }
+
+  return { adx, plusDI, minusDI };
+}
