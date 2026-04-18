@@ -367,19 +367,41 @@ export default function ThirdEyePanel() {
   }, []);
 
   // ── Polling setup ───────────────────────────────────────────────────────────
+  // ── Trading window check (9:00–16:00 IST, Mon–Fri) ────────────────────────
+  function isTradingWindow() {
+    const ist  = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const day  = ist.getUTCDay(); // 0=Sun, 6=Sat
+    if (day === 0 || day === 6) return false;
+    const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+    return mins >= 540 && mins < 960; // 09:00–16:00
+  }
+
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
 
   useEffect(() => {
+    if (!isTradingWindow()) {
+      setLoading(false);
+      return;
+    }
+
     // Initial scan
     runScan(tf);
     runTick();
 
     // 30s scan interval
-    scanTimer.current = setInterval(() => runScan(tf), 30_000);
+    scanTimer.current = setInterval(() => {
+      if (isTradingWindow()) runScan(tf);
+      else {
+        clearInterval(scanTimer.current);
+        clearInterval(tickTimer.current);
+      }
+    }, 30_000);
     // 10s tick interval
-    tickTimer.current = setInterval(runTick, 10_000);
+    tickTimer.current = setInterval(() => {
+      if (isTradingWindow()) runTick();
+    }, 10_000);
 
     return () => {
       clearInterval(scanTimer.current);
@@ -639,6 +661,14 @@ export default function ThirdEyePanel() {
           {optCtx?.activityLabel && (
             <p className="text-[10px] text-slate-400 font-mono">{optCtx.activityLabel}</p>
           )}
+        </div>
+      )}
+
+      {/* ── Outside trading window ───────────────────────────────────────── */}
+      {!loading && !scanData && !error && !isTradingWindow() && (
+        <div className="px-3 py-4 text-center space-y-1">
+          <p className="text-xs text-slate-500">Third Eye is dormant</p>
+          <p className="text-[10px] font-mono text-slate-600">Active 9:00 – 16:00 IST, Mon–Fri</p>
         </div>
       )}
 
