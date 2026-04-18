@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Search, Plus, X, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Volume2, ListFilter, Trash2 } from 'lucide-react';
+import { Search, Plus, X, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Volume2, ListFilter, Trash2, RefreshCcw } from 'lucide-react';
+import { isMarketHours } from '@/app/lib/market-hours';
 
 const LS_KEY = 'tradingverse_watchlists';
 const DEFAULT_LISTS = [
@@ -25,6 +26,7 @@ export default function WatchlistDrawer({
   const [newListName, setNewListName] = useState('');
   const [searchSymbols, setSearchSymbols] = useState([]); // for adding to custom list
   const [showSearch, setShowSearch] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const containerRef = useRef(null);
 
@@ -52,6 +54,17 @@ export default function WatchlistDrawer({
     const toSave = watchlists.map(w => ({ id: w.id, name: w.name, symbols: w.symbols }));
     localStorage.setItem(LS_KEY, JSON.stringify(toSave));
   }, [watchlists]);
+
+  // 3. Auto-refresh timer (polls every 30s during market hours)
+  useEffect(() => {
+    if (!isOpen) return;
+    const interval = setInterval(() => {
+      if (isMarketHours()) {
+        setRefreshTrigger(prev => prev + 1);
+      }
+    }, 30000); // 30s refresh for premium feel
+    return () => clearInterval(interval);
+  }, [isOpen]);
 
   // 3. Fetch Pricing Data (FnO, Movers, Custom)
   useEffect(() => {
@@ -94,8 +107,6 @@ export default function WatchlistDrawer({
 
       // Only fetch if symbols are missing price data
       const needsPrice = list.symbols.some(s => s.lastPrice === undefined || s.lastPrice === null);
-      if (!needsPrice) return;
-
       const symString = list.symbols.map(s => s.symbol).join(',');
       fetch(`/api/option-meta?action=quotes&symbols=${symString}`)
         .then(r => r.json())
@@ -115,7 +126,7 @@ export default function WatchlistDrawer({
           }
         });
     }
-  }, [activeListId, watchlists.find(w => w.id === activeListId)?.symbols.length]);
+  }, [activeListId, watchlists.find(w => w.id === activeListId)?.symbols.length, refreshTrigger]);
 
   const updateFixedList = (id, symbols) => {
     setWatchlists(prev => prev.map(w => w.id === id ? { ...w, symbols } : w));
@@ -211,9 +222,17 @@ export default function WatchlistDrawer({
           {/* Header & Selector */}
           <div className={`p-4 border-b space-y-3 ${isDark ? 'border-white/10' : 'border-slate-100 bg-slate-50/50'}`}>
             <div className="flex items-center justify-between">
-              <h2 className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                Watchlist
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                  Watchlist
+                </h2>
+                {isMarketHours() && isOpen && (
+                  <div className="flex items-center gap-1.5 animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
+                    <span className="text-[9px] font-bold text-emerald-500/80 uppercase">Live</span>
+                  </div>
+                )}
+              </div>
               <button 
                 onClick={() => setShowAddList(!showAddList)}
                 className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200/50'}`}
