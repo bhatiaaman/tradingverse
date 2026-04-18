@@ -53,23 +53,34 @@ export async function POST(req) {
   try {
     const body = await req.json();
 
+    // Support both new multi-source format { sources, merged } and legacy flat format
+    const isMultiSource = body.merged && typeof body.merged === 'object';
+    const src = isMultiSource ? body.merged : body;
+
     // Validate required fields
-    if (!body.bias || !body.weeklyView) {
+    if (!src.bias || !src.weeklyView) {
       return NextResponse.json({ error: 'bias and weeklyView are required' }, { status: 400 });
     }
 
+    const merged = {
+      bias:             String(src.bias).trim(),
+      biasStrength:     src.biasStrength   ? String(src.biasStrength).trim()  : 'Moderate',
+      weeklyView:       String(src.weeklyView).trim(),
+      keySupport:       Array.isArray(src.keySupport)    ? src.keySupport.map(Number).filter(Boolean)    : [],
+      keyResistance:    Array.isArray(src.keyResistance) ? src.keyResistance.map(Number).filter(Boolean) : [],
+      niftyFridayClose: src.niftyFridayClose ? Number(src.niftyFridayClose) : null,
+      fridayCloseDate:  src.fridayCloseDate  ? String(src.fridayCloseDate)   : null,
+      watchFor:         src.watchFor   ? String(src.watchFor).trim()   : null,
+      riskEvents:       src.riskEvents ? String(src.riskEvents).trim() : null,
+      strategy:         src.strategy   ? String(src.strategy).trim()   : null,
+      rawText:          src.rawText    ? String(src.rawText)            : null,
+    };
+
     const outlook = {
-      bias:             String(body.bias).trim(),
-      biasStrength:     body.biasStrength   ? String(body.biasStrength).trim()  : 'Moderate',
-      weeklyView:       String(body.weeklyView).trim(),
-      keySupport:       Array.isArray(body.keySupport)    ? body.keySupport.map(Number).filter(Boolean)    : [],
-      keyResistance:    Array.isArray(body.keyResistance) ? body.keyResistance.map(Number).filter(Boolean) : [],
-      niftyFridayClose: body.niftyFridayClose ? Number(body.niftyFridayClose) : null,
-      fridayCloseDate:  body.fridayCloseDate  ? String(body.fridayCloseDate)   : null,
-      watchFor:         body.watchFor   ? String(body.watchFor).trim()   : null,
-      riskEvents:       body.riskEvents ? String(body.riskEvents).trim() : null,
-      strategy:         body.strategy   ? String(body.strategy).trim()   : null,
-      savedAt:          new Date().toISOString(),
+      ...(isMultiSource
+        ? { sources: Array.isArray(body.sources) ? body.sources : [], merged }
+        : merged),
+      savedAt: new Date().toISOString(),
     };
 
     const weekKey  = getISOWeekKey();

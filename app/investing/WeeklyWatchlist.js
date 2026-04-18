@@ -59,13 +59,20 @@ export default function WeeklyWatchlist() {
   const [promptPriceMap, setPromptPriceMap] = useState({})
   const [isPromptPriceLoading, setIsPromptPriceLoading] = useState(false)
   const [editingSymbolIndex, setEditingSymbolIndex] = useState(null)
+  const [isAdmin,            setIsAdmin]            = useState(false)
 
   // Nifty Outlook state
-  const [outlook,          setOutlook]          = useState(null)
-  const [outlookOpen,      setOutlookOpen]      = useState(true)
-  const [outlookEditing,   setOutlookEditing]   = useState(false)
-  const [outlookJson,      setOutlookJson]      = useState('')
-  const [outlookSaveStatus, setOutlookSaveStatus] = useState(null)
+  const [outlook,             setOutlook]             = useState(null)
+  const [outlookOpen,         setOutlookOpen]         = useState(true)
+  const [outlookEditing,      setOutlookEditing]      = useState(false)
+  const [outlookSources,      setOutlookSources]      = useState([
+    { label: 'Claude',      json: '', text: '' },
+    { label: 'Gemini',      json: '', text: '' },
+    { label: 'Perplexity',  json: '', text: '' },
+  ])
+  const [outlookTextOpen,     setOutlookTextOpen]     = useState(false)
+  const [outlookPrimaryIdx,   setOutlookPrimaryIdx]   = useState(0)
+  const [outlookSaveStatus,   setOutlookSaveStatus]   = useState(null)
   const [outlookSchemaCopied, setOutlookSchemaCopied] = useState(false)
 
   // Basket state
@@ -99,6 +106,10 @@ export default function WeeklyWatchlist() {
       const saved = localStorage.getItem('tv_watchlist_limit')
       if (saved) setDisplayLimit(saved === 'All' ? 'All' : parseInt(saved, 10))
     }
+    fetch('/api/auth/me')
+      .then(r => r.json())
+      .then(d => setIsAdmin(d.user?.role === 'admin'))
+      .catch(() => {})
     fetch('/api/weekly-watchlist')
       .then(res => res.json())
       .then(data => {
@@ -332,15 +343,15 @@ export default function WeeklyWatchlist() {
       .catch(() => setBasketLoaded(true))
   }, [])
 
-  // ── Basket: save to server whenever it changes (after initial load) ─────────
+  // ── Basket: save to server whenever it changes (after initial load, admin only) ─
   useEffect(() => {
-    if (!basketLoaded) return
+    if (!basketLoaded || !isAdmin) return
     fetch('/api/weekly-basket', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ basket }),
     }).catch(err => console.error('[basket] save failed:', err))
-  }, [basket, basketLoaded])
+  }, [basket, basketLoaded, isAdmin])
 
   // ── Basket: fetch LTPs whenever basket symbols change ───────────────────────
   useEffect(() => {
@@ -882,26 +893,147 @@ ${schema}`
 }`
 
   const BIAS_STYLES = {
-    'Bullish':             { pill: 'bg-emerald-500/15 text-emerald-400 border-emerald-600/40', dot: 'bg-emerald-400' },
-    'Strong Bullish':      { pill: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50', dot: 'bg-emerald-300' },
-    'Cautiously Bullish':  { pill: 'bg-teal-500/15 text-teal-400 border-teal-600/40',          dot: 'bg-teal-400'   },
-    'Neutral':             { pill: 'bg-slate-500/15 text-slate-400 border-slate-600/40',        dot: 'bg-slate-400'  },
-    'Cautiously Bearish':  { pill: 'bg-orange-500/15 text-orange-400 border-orange-600/40',     dot: 'bg-orange-400' },
-    'Bearish':             { pill: 'bg-rose-500/15 text-rose-400 border-rose-600/40',           dot: 'bg-rose-400'   },
-    'Strong Bearish':      { pill: 'bg-rose-600/20 text-rose-300 border-rose-500/50',           dot: 'bg-rose-300'   },
+    'Bullish':            { pill: 'bg-emerald-500/15 text-emerald-400 border-emerald-600/40', dot: 'bg-emerald-400' },
+    'Strong Bullish':     { pill: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50', dot: 'bg-emerald-300' },
+    'Cautiously Bullish': { pill: 'bg-teal-500/15 text-teal-400 border-teal-600/40',          dot: 'bg-teal-400'   },
+    'Neutral':            { pill: 'bg-slate-500/15 text-slate-400 border-slate-600/40',        dot: 'bg-slate-400'  },
+    'Cautiously Bearish': { pill: 'bg-orange-500/15 text-orange-400 border-orange-600/40',     dot: 'bg-orange-400' },
+    'Bearish':            { pill: 'bg-rose-500/15 text-rose-400 border-rose-600/40',           dot: 'bg-rose-400'   },
+    'Strong Bearish':     { pill: 'bg-rose-600/20 text-rose-300 border-rose-500/50',           dot: 'bg-rose-300'   },
+  }
+
+  // Merge multiple LLM outlook objects into one consensus view
+  function mergeOutlooks(parsed, primaryIdx) {
+    const valid = parsed.filter(p => p && p.bias && p.weeklyView)
+    if (!valid.length) return null
+    if (valid.length === 1) return { ...valid[0] }
+
+    const primary = valid[Math.min(primaryIdx, valid.length - 1)]
+
+    // Bias: majority vote
+    const votes = {}
+    valid.forEach(p => { votes[p.bias] = (votes[p.bias] || 0) + 1 })
+    const bias = Object.entries(votes).sort((a, b) => b[1] - a[1])[0][0]
+
+    // Key levels: union + cluster within 1%
+    function cluster(levels) {
+      if (!levels.length) return []
+      const sorted = [...new Set(levels)].sort((a, b) => a - b)
+      const out = []
+      let group = [sorted[0]]
+      for (let i = 1; i < sorted.length; i++) {
+        if ((sorted[i] - group[0]) / group[0] < 0.01) {
+          group.push(sorted[i])
+        } else {
+          out.push(Math.round(group.reduce((a, b) => a + b, 0) / group.length))
+          group = [sorted[i]]
+        }
+      }
+      out.push(Math.round(group.reduce((a, b) => a + b, 0) / group.length))
+      return out
+    }
+
+    const allSupport    = valid.flatMap(p => (p.keySupport    || []).map(Number)).filter(Boolean)
+    const allResistance = valid.flatMap(p => (p.keyResistance || []).map(Number)).filter(Boolean)
+
+    // niftyFridayClose: median of available values
+    const closes = valid.map(p => p.niftyFridayClose).filter(Boolean).map(Number).sort((a, b) => a - b)
+
+    return {
+      bias,
+      biasStrength:     primary.biasStrength || 'Moderate',
+      weeklyView:       primary.weeklyView,
+      niftyFridayClose: closes.length ? closes[Math.floor(closes.length / 2)] : null,
+      fridayCloseDate:  primary.fridayCloseDate || null,
+      keySupport:       cluster(allSupport).sort((a, b) => b - a),
+      keyResistance:    cluster(allResistance).sort((a, b) => b - a),
+      watchFor:         primary.watchFor   || null,
+      riskEvents:       primary.riskEvents || null,
+      strategy:         primary.strategy   || null,
+    }
   }
 
   const NiftyOutlookCard = ({ isAdmin }) => {
-    const biasStyle = BIAS_STYLES[outlook?.bias] ?? BIAS_STYLES['Neutral']
+    // Determine what to display — merged (multi-source) or single
+    const displayOutlook = outlook?.merged ?? outlook
+
+    const biasStyle = BIAS_STYLES[displayOutlook?.bias] ?? BIAS_STYLES['Neutral']
+    const sources   = outlook?.sources ?? []
+
+    const handleOpenEdit = (e) => {
+      e.stopPropagation()
+      // Pre-fill sources from saved data if available
+      if (outlook?.sources) {
+        setOutlookSources(outlook.sources.map(s => ({
+          label: s.label,
+          text:  s.rawText || '',
+          json:  JSON.stringify(s, null, 2),
+        })))
+        const savedPrimary = outlook.sources.findIndex(s => s.isPrimary)
+        setOutlookPrimaryIdx(savedPrimary >= 0 ? savedPrimary : 0)
+      } else if (outlook && !outlook.sources) {
+        // Legacy single-object: load into first slot
+        setOutlookSources([
+          { label: 'Claude',     text: outlook.rawText || '', json: JSON.stringify(outlook, null, 2) },
+          { label: 'Gemini',     text: '', json: '' },
+          { label: 'Perplexity', text: '', json: '' },
+        ])
+        setOutlookPrimaryIdx(0)
+      } else {
+        setOutlookSources([
+          { label: 'Claude',     text: '', json: '' },
+          { label: 'Gemini',     text: '', json: '' },
+          { label: 'Perplexity', text: '', json: '' },
+        ])
+        setOutlookPrimaryIdx(0)
+      }
+      setOutlookEditing(true)
+    }
+
+    // Extract JSON object from a block of text (finds last { ... } block)
+    function extractJsonBlock(raw) {
+      const start = raw.lastIndexOf('{')
+      const end   = raw.lastIndexOf('}')
+      if (start === -1 || end === -1 || end < start) return null
+      return raw.slice(start, end + 1).trim()
+    }
 
     const handleSave = async () => {
       setOutlookSaveStatus('Saving...')
+
+      // Parse each filled source — prefer explicit json field, else extract from text
+      const parsed = []
+      for (const src of outlookSources) {
+        const rawText  = src.text.trim()
+        const rawJson  = src.json.trim() || (rawText ? extractJsonBlock(rawText) : '')
+        if (!rawJson) { parsed.push(null); continue }
+        try {
+          parsed.push({ ...JSON.parse(rawJson), label: src.label, rawText: rawText || null })
+        } catch {
+          setOutlookSaveStatus(`Invalid JSON in "${src.label}" — check the JSON block at the end`)
+          return
+        }
+      }
+
+      const filledParsed = parsed.filter(Boolean)
+      if (!filledParsed.length) {
+        setOutlookSaveStatus('Paste at least one LLM response')
+        return
+      }
+
+      const merged = mergeOutlooks(filledParsed, outlookPrimaryIdx)
+      // Attach primary source's raw text to merged for display
+      const primarySource = filledParsed[Math.min(outlookPrimaryIdx, filledParsed.length - 1)]
+      if (primarySource?.rawText) merged.rawText = primarySource.rawText
+
+      // Mark primary
+      const sourcesWithFlag = filledParsed.map((s, i) => ({ ...s, isPrimary: i === outlookPrimaryIdx }))
+
       try {
-        const parsed = JSON.parse(outlookJson)
         const res = await fetch('/api/nifty-outlook', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(parsed),
+          body: JSON.stringify({ sources: sourcesWithFlag, merged }),
         })
         const data = await res.json()
         if (data.success) {
@@ -911,8 +1043,8 @@ ${schema}`
         } else {
           setOutlookSaveStatus(`Error: ${data.error}`)
         }
-      } catch {
-        setOutlookSaveStatus('Invalid JSON')
+      } catch (err) {
+        setOutlookSaveStatus(`Error: ${err.message}`)
       }
     }
 
@@ -924,28 +1056,33 @@ ${schema}`
             onClick={() => setOutlookOpen(v => !v)}
             className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-[#0b101a] hover:bg-slate-100 dark:hover:bg-white/[0.03] transition-colors cursor-pointer"
           >
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 flex-wrap">
               <span className="text-sm">🔭</span>
               <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Nifty Outlook</span>
               <span className="text-[10px] font-semibold text-slate-400">— {nextWeekLabel}</span>
-              {outlook?.bias && (
+              {displayOutlook?.bias && (
                 <span className={`flex items-center gap-1 text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${biasStyle.pill}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${biasStyle.dot}`} />
-                  {outlook.biasStrength && outlook.biasStrength !== 'Moderate' ? `${outlook.biasStrength} ` : ''}{outlook.bias}
+                  {displayOutlook.biasStrength && displayOutlook.biasStrength !== 'Moderate' ? `${displayOutlook.biasStrength} ` : ''}{displayOutlook.bias}
                 </span>
               )}
+              {/* Per-source bias badges */}
+              {sources.length > 1 && sources.map((s, i) => {
+                const st = BIAS_STYLES[s.bias] ?? BIAS_STYLES['Neutral']
+                return (
+                  <span key={i} className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${st.pill} opacity-70`}>
+                    {s.label}: {s.bias}
+                  </span>
+                )
+              })}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               {isAdmin && (
                 <button
-                  onClick={e => {
-                    e.stopPropagation()
-                    setOutlookJson(outlook ? JSON.stringify(outlook, null, 2) : OUTLOOK_SCHEMA)
-                    setOutlookEditing(true)
-                  }}
+                  onClick={handleOpenEdit}
                   className="text-[11px] font-bold text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/40 hover:bg-violet-200 dark:hover:bg-violet-900/70 border border-violet-200 dark:border-violet-800/60 px-3 py-1 rounded-lg transition-colors"
                 >
-                  {outlook ? '✏️ Edit' : '+ Add Outlook'}
+                  {displayOutlook ? '✏️ Edit' : '+ Add Outlook'}
                 </button>
               )}
               <svg className={`w-4 h-4 text-slate-400 transition-transform ${outlookOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -957,41 +1094,39 @@ ${schema}`
           {/* Body */}
           {outlookOpen && (
             <div className="px-4 py-4 bg-white dark:bg-[#060a0f] border-t border-slate-200 dark:border-slate-800">
-              {!outlook ? (
+              {!displayOutlook ? (
                 <p className="text-xs text-slate-400 italic">
-                  No outlook added yet for this week.{isAdmin ? ' Click "+ Add Outlook" to paste your analysis.' : ''}
+                  No outlook added yet.{isAdmin ? ' Click "+ Add Outlook" to paste your analysis.' : ''}
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {/* Nifty close + weekly view */}
                   <div className="flex items-start gap-3">
-                    {outlook.niftyFridayClose && (
+                    {displayOutlook.niftyFridayClose && (
                       <div className="flex-shrink-0 bg-slate-100 dark:bg-slate-800/60 rounded-lg px-3 py-2 text-center border border-slate-200 dark:border-white/5">
                         <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Nifty Close</div>
                         <div className="text-sm font-black text-slate-700 dark:text-slate-200 tabular-nums">
-                          {Number(outlook.niftyFridayClose).toLocaleString('en-IN')}
+                          {Number(displayOutlook.niftyFridayClose).toLocaleString('en-IN')}
                         </div>
-                        {outlook.fridayCloseDate && (
+                        {displayOutlook.fridayCloseDate && (
                           <div className="text-[9px] text-slate-400 mt-0.5">
-                            {new Date(outlook.fridayCloseDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                            {new Date(displayOutlook.fridayCloseDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                           </div>
                         )}
                       </div>
                     )}
                     <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed flex-1 italic border-l-2 border-slate-200 dark:border-slate-700 pl-3">
-                      &ldquo;{outlook.weeklyView}&rdquo;
+                      &ldquo;{displayOutlook.weeklyView}&rdquo;
                     </p>
                   </div>
 
-                  {/* Key levels */}
-                  {(outlook.keySupport?.length > 0 || outlook.keyResistance?.length > 0) && (
+                  {(displayOutlook.keySupport?.length > 0 || displayOutlook.keyResistance?.length > 0) && (
                     <div className="flex flex-wrap gap-2 text-[10px] font-mono font-bold">
-                      {outlook.keyResistance?.map(r => (
+                      {displayOutlook.keyResistance?.map(r => (
                         <span key={r} className="px-2 py-1 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
                           R {Number(r).toLocaleString('en-IN')}
                         </span>
                       ))}
-                      {outlook.keySupport?.map(s => (
+                      {displayOutlook.keySupport?.map(s => (
                         <span key={s} className="px-2 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                           S {Number(s).toLocaleString('en-IN')}
                         </span>
@@ -999,27 +1134,55 @@ ${schema}`
                     </div>
                   )}
 
-                  {/* Watch for / Risk events / Strategy */}
                   <div className="grid grid-cols-1 gap-1.5 text-[11px]">
-                    {outlook.watchFor && (
+                    {displayOutlook.watchFor && (
                       <div className="flex gap-2">
                         <span className="text-slate-400 flex-shrink-0">👁 Watch:</span>
-                        <span className="text-slate-600 dark:text-slate-400">{outlook.watchFor}</span>
+                        <span className="text-slate-600 dark:text-slate-400">{displayOutlook.watchFor}</span>
                       </div>
                     )}
-                    {outlook.riskEvents && (
+                    {displayOutlook.riskEvents && (
                       <div className="flex gap-2">
                         <span className="text-slate-400 flex-shrink-0">⚡ Events:</span>
-                        <span className="text-slate-600 dark:text-slate-400">{outlook.riskEvents}</span>
+                        <span className="text-slate-600 dark:text-slate-400">{displayOutlook.riskEvents}</span>
                       </div>
                     )}
-                    {outlook.strategy && (
+                    {displayOutlook.strategy && (
                       <div className="flex gap-2">
                         <span className="text-slate-400 flex-shrink-0">📋 Strategy:</span>
-                        <span className="text-slate-600 dark:text-slate-400">{outlook.strategy}</span>
+                        <span className="text-slate-600 dark:text-slate-400">{displayOutlook.strategy}</span>
                       </div>
                     )}
                   </div>
+
+                  {/* Full analysis toggle */}
+                  {displayOutlook.rawText && (
+                    <div className="border-t border-slate-100 dark:border-white/5 pt-2">
+                      <button
+                        onClick={() => setOutlookTextOpen(o => !o)}
+                        className="flex items-center gap-1.5 text-[11px] font-bold text-violet-500 hover:text-violet-400 transition-colors"
+                      >
+                        <svg className={`w-3.5 h-3.5 transition-transform ${outlookTextOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                        {outlookTextOpen ? 'Hide' : 'View'} Full Analysis
+                        {(() => { const primary = sources.find(s => s.isPrimary) ?? sources[0]; return primary?.label ? <span className="text-[10px] font-normal text-slate-400 ml-1">({primary.label})</span> : null })()}
+                      </button>
+                      {outlookTextOpen && (
+                        <pre className="mt-3 text-[11px] font-mono text-slate-600 dark:text-slate-400 whitespace-pre-wrap leading-relaxed bg-slate-50 dark:bg-[#060a0f] border border-slate-200 dark:border-white/5 rounded-xl p-4 max-h-[60vh] overflow-y-auto">
+                          {displayOutlook.rawText}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Source count footnote */}
+                  {sources.length > 0 && (
+                    <div className="text-[9px] text-slate-500 pt-1 border-t border-slate-100 dark:border-white/5">
+                      Based on {sources.length} source{sources.length > 1 ? 's' : ''}: {sources.map(s => s.label).join(', ')}
+                      {sources.length > 1 && ' · levels merged, narrative from primary'}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1031,41 +1194,122 @@ ${schema}`
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
             <div className="bg-white dark:bg-[#0e1420] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
               <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-1">Nifty Outlook — {nextWeekLabel}</h3>
-              <p className="text-xs text-slate-500 mb-4">Paste the JSON response from Claude / Gemini below.</p>
+              <p className="text-xs text-slate-500 mb-4">
+                Get your Nifty analysis from Claude, Gemini, or Perplexity — then paste the JSON output below. 1–3 sources, all optional.
+              </p>
 
-              {/* Copy schema prompt */}
-              <div className="mb-4 bg-slate-50 dark:bg-[#0b101a] border border-slate-200 dark:border-white/5 rounded-xl p-4">
-                <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-2">
-                  Include this schema at the end of your Nifty outlook prompt:
-                </p>
-                <pre className="text-[10px] font-mono text-slate-500 dark:text-slate-500 whitespace-pre-wrap mb-3 leading-relaxed">{OUTLOOK_SCHEMA}</pre>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(
-                      `Output your analysis as a single valid JSON object matching this exact schema — no markdown, no text outside JSON:\n\n${OUTLOOK_SCHEMA}`
-                    )
-                    setOutlookSchemaCopied(true)
-                    setTimeout(() => setOutlookSchemaCopied(false), 2000)
-                  }}
-                  className={`flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${
-                    outlookSchemaCopied
-                      ? 'bg-emerald-500 text-white'
-                      : 'bg-violet-600 text-white hover:bg-violet-700'
-                  }`}
-                >
-                  {outlookSchemaCopied ? '✅ Copied' : '📋 Copy Schema Instruction'}
-                </button>
+              {/* How-to steps */}
+              <div className="mb-5 space-y-2">
+                {[
+                  {
+                    n: '1',
+                    title: 'Copy the schema below',
+                    desc: 'Click the button to copy a JSON instruction to your clipboard.',
+                    action: (
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`At the end of your response, output ONLY a single valid JSON object — no markdown fences, no text outside the JSON:\n\n${OUTLOOK_SCHEMA}`)
+                          setOutlookSchemaCopied(true)
+                          setTimeout(() => setOutlookSchemaCopied(false), 2000)
+                        }}
+                        className={`mt-2 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${outlookSchemaCopied ? 'bg-emerald-500 text-white' : 'bg-violet-600 text-white hover:bg-violet-700'}`}
+                      >
+                        {outlookSchemaCopied ? '✅ Copied!' : '📋 Copy Schema'}
+                      </button>
+                    ),
+                    preview: <pre className="mt-2 text-[10px] font-mono text-slate-400 whitespace-pre-wrap leading-relaxed max-h-24 overflow-y-auto border border-slate-200 dark:border-white/5 rounded-lg p-2 bg-slate-50 dark:bg-[#060a0f]">{OUTLOOK_SCHEMA}</pre>,
+                  },
+                  {
+                    n: '2',
+                    title: 'Paste at the end of your Nifty prompt',
+                    desc: 'Add it after your analysis instructions so the LLM knows to output structured JSON. Send to Claude.ai, Gemini, or Perplexity.',
+                  },
+                  {
+                    n: '3',
+                    title: 'Paste the full response into a box below',
+                    desc: 'Copy the entire LLM output (text + JSON at the end) and paste it. We auto-extract the JSON — the full commentary is saved too and viewable in the card.',
+                  },
+                ].map(step => (
+                  <div key={step.n} className="flex gap-3 bg-slate-50 dark:bg-[#0b101a] border border-slate-200 dark:border-white/5 rounded-xl p-3">
+                    <div className="flex-shrink-0 w-6 h-6 rounded-full bg-violet-600 text-white text-[11px] font-black flex items-center justify-center mt-0.5">{step.n}</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-bold text-slate-800 dark:text-slate-200">{step.title}</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">{step.desc}</p>
+                      {step.action}
+                      {step.preview}
+                    </div>
+                  </div>
+                ))}
               </div>
 
-              <textarea
-                className="w-full flex-1 min-h-[220px] bg-slate-50 dark:bg-[#060a0f] border border-slate-200 dark:border-slate-800 rounded-lg p-4 font-mono text-xs text-slate-800 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-violet-500 mb-4"
-                value={outlookJson}
-                onChange={e => setOutlookJson(e.target.value)}
-                placeholder={'{\n  "bias": "Bullish",\n  "weeklyView": "...",\n  ...\n}'}
-              />
+              {/* Three source boxes */}
+              <div className="space-y-3 mb-4">
+                {outlookSources.map((src, i) => {
+                  const isPrimary  = outlookPrimaryIdx === i
+                  const hasContent = src.text.trim().length > 0 || src.json.trim().length > 0
+                  // Try to detect auto-extracted JSON preview
+                  const jsonPreview = src.text.trim()
+                    ? (() => { const s = src.text.lastIndexOf('{'); const e = src.text.lastIndexOf('}'); return s !== -1 && e > s ? '✅ JSON detected' : '⚠️ No JSON found at end' })()
+                    : null
+                  return (
+                    <div key={i} className={`rounded-xl border transition-colors ${isPrimary && hasContent ? 'border-violet-500/50 bg-violet-500/5' : 'border-slate-200 dark:border-slate-700'}`}>
+                      <div className="flex items-center justify-between px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">LLM {i + 1}</span>
+                          <input
+                            value={src.label}
+                            onChange={e => setOutlookSources(prev => prev.map((s, j) => j === i ? { ...s, label: e.target.value } : s))}
+                            className="text-xs font-bold bg-transparent text-slate-700 dark:text-slate-300 outline-none border-b border-dashed border-slate-300 dark:border-slate-600 w-24"
+                            placeholder="Label"
+                          />
+                          {hasContent && jsonPreview && (
+                            <span className={`text-[10px] font-bold ${jsonPreview.startsWith('✅') ? 'text-emerald-500' : 'text-amber-500'}`}>{jsonPreview}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {hasContent && (
+                            <button
+                              onClick={() => setOutlookPrimaryIdx(i)}
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-colors ${
+                                isPrimary
+                                  ? 'bg-violet-600 text-white border-violet-600'
+                                  : 'text-slate-500 border-slate-300 dark:border-slate-600 hover:border-violet-500 hover:text-violet-500'
+                              }`}
+                            >
+                              {isPrimary ? '★ Primary' : 'Set Primary'}
+                            </button>
+                          )}
+                          {hasContent && (
+                            <button
+                              onClick={() => setOutlookSources(prev => prev.map((s, j) => j === i ? { ...s, text: '', json: '' } : s))}
+                              className="text-[10px] text-slate-400 hover:text-red-400 transition-colors"
+                            >✕</button>
+                          )}
+                        </div>
+                      </div>
+                      <textarea
+                        className="w-full bg-slate-50 dark:bg-[#060a0f] px-3 pb-3 font-mono text-[11px] text-slate-800 dark:text-slate-300 focus:outline-none resize-none rounded-b-xl"
+                        rows={hasContent ? 8 : 2}
+                        value={src.text || src.json}
+                        onChange={e => {
+                          const val = e.target.value
+                          // If it looks like pure JSON, keep in json field; otherwise store as full text
+                          const trimmed = val.trim()
+                          const looksLikeJson = trimmed.startsWith('{') && !trimmed.includes('\n###')
+                          setOutlookSources(prev => prev.map((s, j) => j === i
+                            ? looksLikeJson ? { ...s, json: val, text: '' } : { ...s, text: val, json: '' }
+                            : s
+                          ))
+                        }}
+                        placeholder={`Paste full ${src.label || `LLM ${i+1}`} output here — text + JSON at the end (optional)`}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
 
               {outlookSaveStatus && (
-                <div className={`text-sm mb-3 font-medium ${outlookSaveStatus.startsWith('Error') || outlookSaveStatus === 'Invalid JSON' ? 'text-red-500' : 'text-violet-500'}`}>
+                <div className={`text-sm mb-3 font-medium ${outlookSaveStatus.startsWith('Error') || outlookSaveStatus.includes('Invalid') || outlookSaveStatus.includes('Paste') ? 'text-red-500' : 'text-violet-500'}`}>
                   {outlookSaveStatus}
                 </div>
               )}
@@ -1256,14 +1500,14 @@ ${schema}`
             </div>
           )}
 
-          {activeTab === 'expertsResearch' && currentList.length > 0 && (
+          {isAdmin && activeTab === 'expertsResearch' && currentList.length > 0 && (
             <button onClick={() => { setJsonInput('[\n\n]'); setIsEditing('append') }}
               className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-200 dark:hover:bg-emerald-800/50 transition-colors mr-2">
               + Add New Stocks
             </button>
           )}
 
-          {activeTab !== 'consolidated' && (
+          {isAdmin && activeTab !== 'consolidated' && (
             <div className="flex items-center gap-2">
               {['aiResearch', 'expertsResearch', 'chartink'].includes(activeTab) && currentList.length > 0 && (
                 <button
@@ -1284,7 +1528,7 @@ ${schema}`
       </div>
 
       {/* ── Nifty Outlook ──────────────────────────────────────────────────── */}
-      <NiftyOutlookCard isAdmin={true} />
+      <NiftyOutlookCard isAdmin={isAdmin} />
 
       {/* ── Week Archive Bar ────────────────────────────────────────────────── */}
       <div className="mb-4 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
@@ -1308,13 +1552,15 @@ ${schema}`
                 {archiveSaveMsg.ok ? '✓' : '✕'} {archiveSaveMsg.text}
               </span>
             )}
-            <button
-              onClick={e => { e.stopPropagation(); handleSaveWeek() }}
-              disabled={archiveSaving}
-              className="text-[11px] font-bold text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/40 hover:bg-violet-200 dark:hover:bg-violet-900/70 border border-violet-200 dark:border-violet-800/60 px-3 py-1 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {archiveSaving ? 'Saving…' : '💾 Save This Week'}
-            </button>
+            {isAdmin && (
+              <button
+                onClick={e => { e.stopPropagation(); handleSaveWeek() }}
+                disabled={archiveSaving}
+                className="text-[11px] font-bold text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/40 hover:bg-violet-200 dark:hover:bg-violet-900/70 border border-violet-200 dark:border-violet-800/60 px-3 py-1 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {archiveSaving ? 'Saving…' : '💾 Save This Week'}
+              </button>
+            )}
             <svg className={`w-4 h-4 text-slate-400 transition-transform ${archiveOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
             </svg>
@@ -1373,7 +1619,7 @@ ${schema}`
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           {displayWatchlist.map((stock, i) => (
-            <StockCard key={i} stock={stock} tabId={activeTab} readOnly={false} />
+            <StockCard key={i} stock={stock} tabId={activeTab} readOnly={!isAdmin} />
           ))}
         </div>
       )}
@@ -1426,23 +1672,25 @@ ${schema}`
                   </div>
                 )}
                 
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleCopyPrompt}
-                    className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-lg active:scale-[0.98] ${
-                      copied 
-                        ? 'bg-emerald-500 text-white shadow-emerald-500/20' 
-                        : 'bg-violet-600 text-white hover:bg-violet-700 shadow-violet-500/20'
-                    }`}
-                  >
-                    <span>{copied ? '✅ Prompt Copied' : '📋 Copy Prompt for Claude'}</span>
-                  </button>
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tight">
-                    {activeTab === 'expertsResearch' 
-                      ? 'Baseline prices included for accuracy' 
-                      : 'Claude will scan for best setups'}
-                  </span>
-                </div>
+                {isAdmin && (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleCopyPrompt}
+                      className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-lg active:scale-[0.98] ${
+                        copied
+                          ? 'bg-emerald-500 text-white shadow-emerald-500/20'
+                          : 'bg-violet-600 text-white hover:bg-violet-700 shadow-violet-500/20'
+                      }`}
+                    >
+                      <span>{copied ? '✅ Prompt Copied' : '📋 Copy Prompt for Claude'}</span>
+                    </button>
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tight">
+                      {activeTab === 'expertsResearch'
+                        ? 'Baseline prices included for accuracy'
+                        : 'Claude will scan for best setups'}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
