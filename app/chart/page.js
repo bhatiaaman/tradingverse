@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import OrderModal         from '@/app/components/OrderModal';
 import QuickOrder          from '@/app/components/QuickOrder';
+import WatchlistDrawer     from '@/app/components/WatchlistDrawer';
 import IntelligencePill   from '@/app/components/IntelligencePill';
 import SymbolSearch        from '@/app/components/SymbolSearch';
 import DrawingToolbar      from '@/app/components/DrawingToolbar';
@@ -141,6 +142,7 @@ function parseOptionSymbol(sym) {
 // ── Inner chart component (uses useSearchParams) ──────────────────────────────
 function ChartPageInner() {
   const params    = useSearchParams();
+  const router    = useRouter();
   const symbol    = params.get('symbol') || 'NIFTY';
   const atParam   = params.get('at')    || null;
   const atDirParam= params.get('atdir') || 'bull';
@@ -183,6 +185,8 @@ function ChartPageInner() {
   const crosshairPillRef   = useRef(null);
   const crosshairPriceRef  = useRef(null);
   const hoverPriceRef      = useRef(null);  // price at cursor — read by click handler, never causes re-render
+  
+  const [isWatchlistOpen, setIsWatchlistOpen] = useState(false);
 
 
   // Quick-order state (indices only)
@@ -244,6 +248,11 @@ function ChartPageInner() {
       if (themeParam === 'dark' || themeParam === 'light') setChartTheme(themeParam);
       else if (saved && saved !== 'dark') setChartTheme(saved);
     } catch {}
+
+    try {
+      const saved = localStorage.getItem('tv_watchlist_open');
+      if (saved !== null) setIsWatchlistOpen(saved === 'true');
+    } catch {}
   }, [themeParam]);
 
   // ── Fetch all data ──────────────────────────────────────────────────────────
@@ -289,6 +298,20 @@ function ChartPageInner() {
   }, [symbol, chartInterval]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const toggleWatchlist = () => {
+    setIsWatchlistOpen(prev => {
+      const next = !prev;
+      localStorage.setItem('tv_watchlist_open', String(next));
+      return next;
+    });
+  };
+
+  const handleSelectSymbol = (newSym) => {
+    const search = new URLSearchParams(window.location.search);
+    search.set('symbol', newSym);
+    router.push(`/chart?${search.toString()}`);
+  };
 
   // ── SL Clusters — fetch only when toggle is on ───────────────────────────────
   useEffect(() => {
@@ -812,7 +835,10 @@ function ChartPageInner() {
   const atmStrike = lastClose ? Math.round(lastClose / step) * step : null;
 
   return (
-    <div className="h-[100dvh] flex flex-col overflow-hidden bg-[#0a0e1a] text-white">
+    <div className="h-[100dvh] flex flex-row overflow-hidden bg-[#0a0e1a] text-white">
+      
+      {/* Main Content Area: Header + Chart */}
+      <div className="flex-1 flex flex-col min-w-0">
 
       {/* ── Header ───────────────────────────────────────────────────────────── */}
       <header className="bg-[#0a0e1a] border-b border-white/[0.06] flex-shrink-0">
@@ -1028,6 +1054,7 @@ function ChartPageInner() {
                 chartRef.current?.setRSIPaneHeight(newH);
                 setChartRsiH(newH);
               };
+
               const onUp = () => {
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
@@ -1472,6 +1499,14 @@ function ChartPageInner() {
         setQuickOrderOpen(false);
         setOrderModalOpen(true);
       }}
+    />
+    </div>{/* end main content area */}
+
+    <WatchlistDrawer
+      isOpen={isWatchlistOpen}
+      onToggle={toggleWatchlist}
+      onSelectSymbol={handleSelectSymbol}
+      currentSymbol={symbol}
     />
     </div>
   );
