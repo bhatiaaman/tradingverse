@@ -60,6 +60,14 @@ export default function WeeklyWatchlist() {
   const [isPromptPriceLoading, setIsPromptPriceLoading] = useState(false)
   const [editingSymbolIndex, setEditingSymbolIndex] = useState(null)
 
+  // Nifty Outlook state
+  const [outlook,          setOutlook]          = useState(null)
+  const [outlookOpen,      setOutlookOpen]      = useState(true)
+  const [outlookEditing,   setOutlookEditing]   = useState(false)
+  const [outlookJson,      setOutlookJson]      = useState('')
+  const [outlookSaveStatus, setOutlookSaveStatus] = useState(null)
+  const [outlookSchemaCopied, setOutlookSchemaCopied] = useState(false)
+
   // Basket state
   const [basket,          setBasket]          = useState({ T1: [], T2: [], T3: [] })
   const [sidebarMode,     setSidebarMode]     = useState('tracker')
@@ -302,6 +310,14 @@ export default function WeeklyWatchlist() {
     }, 1500); // 1.5s debounce
     return () => clearTimeout(timer);
   }, [userStocks, activeTab]);
+
+  // ── Nifty Outlook: load from server on mount ────────────────────────────────
+  useEffect(() => {
+    fetch('/api/nifty-outlook')
+      .then(res => res.json())
+      .then(data => { if (data.outlook) setOutlook(data.outlook) })
+      .catch(() => {})
+  }, [])
 
   // ── Basket: load from server on mount ───────────────────────────────────────
   useEffect(() => {
@@ -852,6 +868,229 @@ ${schema}`
     )
   }
 
+  const OUTLOOK_SCHEMA = `{
+  "bias": "Bullish",
+  "biasStrength": "Strong | Moderate | Weak",
+  "weeklyView": "2-3 sentence directional take on Nifty for the week",
+  "niftyFridayClose": 24234,
+  "fridayCloseDate": "YYYY-MM-DD",
+  "keySupport": [24200, 24000],
+  "keyResistance": [24800, 25200],
+  "watchFor": "What level or event to watch closely this week",
+  "riskEvents": "e.g. Weekly expiry Tue, RBI policy Thu, FII data",
+  "strategy": "Actionable stance — buy dips / sell rallies / stay neutral"
+}`
+
+  const BIAS_STYLES = {
+    'Bullish':             { pill: 'bg-emerald-500/15 text-emerald-400 border-emerald-600/40', dot: 'bg-emerald-400' },
+    'Strong Bullish':      { pill: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50', dot: 'bg-emerald-300' },
+    'Cautiously Bullish':  { pill: 'bg-teal-500/15 text-teal-400 border-teal-600/40',          dot: 'bg-teal-400'   },
+    'Neutral':             { pill: 'bg-slate-500/15 text-slate-400 border-slate-600/40',        dot: 'bg-slate-400'  },
+    'Cautiously Bearish':  { pill: 'bg-orange-500/15 text-orange-400 border-orange-600/40',     dot: 'bg-orange-400' },
+    'Bearish':             { pill: 'bg-rose-500/15 text-rose-400 border-rose-600/40',           dot: 'bg-rose-400'   },
+    'Strong Bearish':      { pill: 'bg-rose-600/20 text-rose-300 border-rose-500/50',           dot: 'bg-rose-300'   },
+  }
+
+  const NiftyOutlookCard = ({ isAdmin }) => {
+    const biasStyle = BIAS_STYLES[outlook?.bias] ?? BIAS_STYLES['Neutral']
+
+    const handleSave = async () => {
+      setOutlookSaveStatus('Saving...')
+      try {
+        const parsed = JSON.parse(outlookJson)
+        const res = await fetch('/api/nifty-outlook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(parsed),
+        })
+        const data = await res.json()
+        if (data.success) {
+          setOutlook(data.outlook)
+          setOutlookEditing(false)
+          setOutlookSaveStatus(null)
+        } else {
+          setOutlookSaveStatus(`Error: ${data.error}`)
+        }
+      } catch {
+        setOutlookSaveStatus('Invalid JSON')
+      }
+    }
+
+    return (
+      <>
+        <div className="mb-4 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+          {/* Header */}
+          <div
+            onClick={() => setOutlookOpen(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-[#0b101a] hover:bg-slate-100 dark:hover:bg-white/[0.03] transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="text-sm">🔭</span>
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Nifty Outlook</span>
+              <span className="text-[10px] font-semibold text-slate-400">— {nextWeekLabel}</span>
+              {outlook?.bias && (
+                <span className={`flex items-center gap-1 text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${biasStyle.pill}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${biasStyle.dot}`} />
+                  {outlook.biasStrength && outlook.biasStrength !== 'Moderate' ? `${outlook.biasStrength} ` : ''}{outlook.bias}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {isAdmin && (
+                <button
+                  onClick={e => {
+                    e.stopPropagation()
+                    setOutlookJson(outlook ? JSON.stringify(outlook, null, 2) : OUTLOOK_SCHEMA)
+                    setOutlookEditing(true)
+                  }}
+                  className="text-[11px] font-bold text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/40 hover:bg-violet-200 dark:hover:bg-violet-900/70 border border-violet-200 dark:border-violet-800/60 px-3 py-1 rounded-lg transition-colors"
+                >
+                  {outlook ? '✏️ Edit' : '+ Add Outlook'}
+                </button>
+              )}
+              <svg className={`w-4 h-4 text-slate-400 transition-transform ${outlookOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+          </div>
+
+          {/* Body */}
+          {outlookOpen && (
+            <div className="px-4 py-4 bg-white dark:bg-[#060a0f] border-t border-slate-200 dark:border-slate-800">
+              {!outlook ? (
+                <p className="text-xs text-slate-400 italic">
+                  No outlook added yet for this week.{isAdmin ? ' Click "+ Add Outlook" to paste your analysis.' : ''}
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {/* Nifty close + weekly view */}
+                  <div className="flex items-start gap-3">
+                    {outlook.niftyFridayClose && (
+                      <div className="flex-shrink-0 bg-slate-100 dark:bg-slate-800/60 rounded-lg px-3 py-2 text-center border border-slate-200 dark:border-white/5">
+                        <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Nifty Close</div>
+                        <div className="text-sm font-black text-slate-700 dark:text-slate-200 tabular-nums">
+                          {Number(outlook.niftyFridayClose).toLocaleString('en-IN')}
+                        </div>
+                        {outlook.fridayCloseDate && (
+                          <div className="text-[9px] text-slate-400 mt-0.5">
+                            {new Date(outlook.fridayCloseDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed flex-1 italic border-l-2 border-slate-200 dark:border-slate-700 pl-3">
+                      &ldquo;{outlook.weeklyView}&rdquo;
+                    </p>
+                  </div>
+
+                  {/* Key levels */}
+                  {(outlook.keySupport?.length > 0 || outlook.keyResistance?.length > 0) && (
+                    <div className="flex flex-wrap gap-2 text-[10px] font-mono font-bold">
+                      {outlook.keyResistance?.map(r => (
+                        <span key={r} className="px-2 py-1 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                          R {Number(r).toLocaleString('en-IN')}
+                        </span>
+                      ))}
+                      {outlook.keySupport?.map(s => (
+                        <span key={s} className="px-2 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          S {Number(s).toLocaleString('en-IN')}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Watch for / Risk events / Strategy */}
+                  <div className="grid grid-cols-1 gap-1.5 text-[11px]">
+                    {outlook.watchFor && (
+                      <div className="flex gap-2">
+                        <span className="text-slate-400 flex-shrink-0">👁 Watch:</span>
+                        <span className="text-slate-600 dark:text-slate-400">{outlook.watchFor}</span>
+                      </div>
+                    )}
+                    {outlook.riskEvents && (
+                      <div className="flex gap-2">
+                        <span className="text-slate-400 flex-shrink-0">⚡ Events:</span>
+                        <span className="text-slate-600 dark:text-slate-400">{outlook.riskEvents}</span>
+                      </div>
+                    )}
+                    {outlook.strategy && (
+                      <div className="flex gap-2">
+                        <span className="text-slate-400 flex-shrink-0">📋 Strategy:</span>
+                        <span className="text-slate-600 dark:text-slate-400">{outlook.strategy}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Edit Modal */}
+        {outlookEditing && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+            <div className="bg-white dark:bg-[#0e1420] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-1">Nifty Outlook — {nextWeekLabel}</h3>
+              <p className="text-xs text-slate-500 mb-4">Paste the JSON response from Claude / Gemini below.</p>
+
+              {/* Copy schema prompt */}
+              <div className="mb-4 bg-slate-50 dark:bg-[#0b101a] border border-slate-200 dark:border-white/5 rounded-xl p-4">
+                <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-2">
+                  Include this schema at the end of your Nifty outlook prompt:
+                </p>
+                <pre className="text-[10px] font-mono text-slate-500 dark:text-slate-500 whitespace-pre-wrap mb-3 leading-relaxed">{OUTLOOK_SCHEMA}</pre>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      `Output your analysis as a single valid JSON object matching this exact schema — no markdown, no text outside JSON:\n\n${OUTLOOK_SCHEMA}`
+                    )
+                    setOutlookSchemaCopied(true)
+                    setTimeout(() => setOutlookSchemaCopied(false), 2000)
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${
+                    outlookSchemaCopied
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-violet-600 text-white hover:bg-violet-700'
+                  }`}
+                >
+                  {outlookSchemaCopied ? '✅ Copied' : '📋 Copy Schema Instruction'}
+                </button>
+              </div>
+
+              <textarea
+                className="w-full flex-1 min-h-[220px] bg-slate-50 dark:bg-[#060a0f] border border-slate-200 dark:border-slate-800 rounded-lg p-4 font-mono text-xs text-slate-800 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-violet-500 mb-4"
+                value={outlookJson}
+                onChange={e => setOutlookJson(e.target.value)}
+                placeholder={'{\n  "bias": "Bullish",\n  "weeklyView": "...",\n  ...\n}'}
+              />
+
+              {outlookSaveStatus && (
+                <div className={`text-sm mb-3 font-medium ${outlookSaveStatus.startsWith('Error') || outlookSaveStatus === 'Invalid JSON' ? 'text-red-500' : 'text-violet-500'}`}>
+                  {outlookSaveStatus}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => { setOutlookEditing(false); setOutlookSaveStatus(null) }}
+                  className="px-4 py-2 text-sm font-bold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSave}
+                  className="px-4 py-2 text-sm font-bold bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
+                >
+                  Save Outlook
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    )
+  }
+
   const BasketPanel = () => {
     const TIERS = [
       { label: 'Tier 1', tag: 'T1', slots: 3, perStock: 17000, color: 'text-amber-400', border: 'border-amber-800/50', bg: 'bg-amber-900/10' },
@@ -1043,6 +1282,9 @@ ${schema}`
           )}
         </div>
       </div>
+
+      {/* ── Nifty Outlook ──────────────────────────────────────────────────── */}
+      <NiftyOutlookCard isAdmin={true} />
 
       {/* ── Week Archive Bar ────────────────────────────────────────────────── */}
       <div className="mb-4 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
