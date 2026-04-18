@@ -1066,8 +1066,8 @@ ${schema}`
                   {displayOutlook.biasStrength && displayOutlook.biasStrength !== 'Moderate' ? `${displayOutlook.biasStrength} ` : ''}{displayOutlook.bias}
                 </span>
               )}
-              {/* Per-source bias badges */}
-              {sources.length > 1 && sources.map((s, i) => {
+              {/* Per-source bias badges — admin only */}
+              {isAdmin && sources.length > 1 && sources.map((s, i) => {
                 const st = BIAS_STYLES[s.bias] ?? BIAS_STYLES['Neutral']
                 return (
                   <span key={i} className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${st.pill} opacity-70`}>
@@ -1155,8 +1155,8 @@ ${schema}`
                     )}
                   </div>
 
-                  {/* Full analysis toggle — admin only */}
-                  {isAdmin && displayOutlook.rawText && (
+                  {/* Full analysis toggle */}
+                  {displayOutlook.rawText && (
                     <div className="border-t border-slate-100 dark:border-white/5 pt-2">
                       <button
                         onClick={() => setOutlookTextOpen(o => !o)}
@@ -1166,7 +1166,7 @@ ${schema}`
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7"/>
                         </svg>
                         {outlookTextOpen ? 'Hide' : 'View'} Full Analysis
-                        {(() => { const primary = sources.find(s => s.isPrimary) ?? sources[0]; return primary?.label ? <span className="text-[10px] font-normal text-slate-400 ml-1">({primary.label})</span> : null })()}
+                        {isAdmin && (() => { const primary = sources.find(s => s.isPrimary) ?? sources[0]; return primary?.label ? <span className="text-[10px] font-normal text-slate-400 ml-1">({primary.label})</span> : null })()}
                       </button>
                       {outlookTextOpen && (
                         <pre className="mt-3 text-[11px] font-mono text-slate-600 dark:text-slate-400 whitespace-pre-wrap leading-relaxed bg-slate-50 dark:bg-[#060a0f] border border-slate-200 dark:border-white/5 rounded-xl p-4 max-h-[60vh] overflow-y-auto">
