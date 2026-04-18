@@ -9,6 +9,7 @@ import { useChartRefresh } from '@/app/lib/chart/useChartRefresh';
 import DrawingToolbar from '../../components/DrawingToolbar';
 import OrderModal     from '../../components/OrderModal';
 import QuickOrder     from '@/app/components/QuickOrder';
+import WatchlistDrawer from '@/app/components/WatchlistDrawer';
 import { nseStrikeSteps } from '../../lib/nseStrikeSteps';
 import {
   computeVWAP, computeEMA, computeRSI,
@@ -713,7 +714,28 @@ function OptionsChartInner() {
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [loadingExp,  setLoadingExp]  = useState(false);
   const [loadingStr,  setLoadingStr]  = useState(false);
-  const [synthesis,   setSynthesis]   = useState(null); // { line, color, icon, regime }
+  const [SynthesisColor, setSynthesisColor] = useState('bg-slate-900/40 text-slate-400 border-slate-800/50');
+  
+  const [isWatchlistOpen, setIsWatchlistOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('tv_watchlist_open');
+      if (saved !== null) setIsWatchlistOpen(saved === 'true');
+    } catch {}
+  }, []);
+
+  const toggleWatchlist = () => {
+    setIsWatchlistOpen(prev => {
+      const next = !prev;
+      localStorage.setItem('tv_watchlist_open', String(next));
+      return next;
+    });
+  };
+
+  const handleSelectSymbol = (newSym) => {
+    setSymbol(newSym);
+  };
 
   // Preload cache: { [symbol]: { expiries, strikes, ltp, firstExpiry } }
   // Populated in background after mount so symbol switches are instant.
@@ -1088,10 +1110,13 @@ function OptionsChartInner() {
   }
 
   return (
-    <div className="h-[100dvh] flex flex-col bg-[#060b14] text-white overflow-hidden">
-      <Nav />
+    <div className="h-[100dvh] flex flex-row bg-[#060b14] text-white overflow-hidden">
+      
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <Nav />
 
-      {/* ── Form bar ──────────────────────────────────────────────────────── */}
+        {/* ── Form bar ──────────────────────────────────────────────────────── */}
       <div className="border-b border-[#1e3a5f] bg-[#0a0e1a] shrink-0">
         <div className="max-w-[1600px] mx-auto px-6 py-3 flex flex-wrap items-end gap-3">
 
@@ -1263,17 +1288,31 @@ function OptionsChartInner() {
             {[['Bull', 'bull'], ['Bear', 'bear']].map(([lbl, key]) => (
               <div key={key} className="flex items-center gap-1.5 mb-1.5">
                 <span className="text-[10px] text-slate-500 w-6">{lbl}</span>
-                {['#22c55e','#26a69a','#ffffff','#3b82f6','#f59e0b','#ef4444','#f97316','#000000'].map(c => (
-                  <button key={c} onClick={() => { setCandleColors(prev => { const n = { ...prev, [key]: c }; persistSettings({ [key === 'bull' ? 'bullColor' : 'bearColor']: c }); return n; }); }}
-                    className="w-4 h-4 rounded-full flex-shrink-0 transition-all"
-                    style={{ backgroundColor: c, border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : c === '#000000' ? '1px solid rgba(255,255,255,0.15)' : 'none',
-                      boxShadow: candleColors[key] === c ? '0 0 0 2px #fff' : 'none', transform: candleColors[key] === c ? 'scale(1.15)' : 'scale(1)' }} />
-                ))}
+                {['#22c55e','#26a69a','#ffffff','#3b82f6','#f59e0b','#ef4444','#f97316','#000000'].map(c => {
+                  const settingKey = key === 'bull' ? 'bullColor' : 'bearColor';
+                  const isSelected = candleColors[key] === c;
+                  return (
+                    <button key={c}
+                      onClick={() => { setCandleColors(prev => { const n = { ...prev, [key]: c }; persistSettings({ [settingKey]: c }); return n; }); }}
+                      className="w-4 h-4 rounded-full flex-shrink-0 transition-all"
+                      style={{ backgroundColor: c,
+                        border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : c === '#000000' ? '1px solid rgba(255,255,255,0.15)' : 'none',
+                        boxShadow: isSelected ? '0 0 0 2px #fff' : 'none',
+                        transform: isSelected ? 'scale(1.15)' : 'scale(1)' }} />
+                  );
+                })}
               </div>
             ))}
           </div>
         </div>
       )}
+    </div>
+    <WatchlistDrawer
+      isOpen={isWatchlistOpen}
+      onToggle={toggleWatchlist}
+      onSelectSymbol={handleSelectSymbol}
+      currentSymbol={symbol}
+    />
     </div>
   );
 }
