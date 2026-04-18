@@ -1155,8 +1155,8 @@ ${schema}`
                     )}
                   </div>
 
-                  {/* Full analysis toggle */}
-                  {displayOutlook.rawText && (
+                  {/* Full analysis toggle — admin only */}
+                  {isAdmin && displayOutlook.rawText && (
                     <div className="border-t border-slate-100 dark:border-white/5 pt-2">
                       <button
                         onClick={() => setOutlookTextOpen(o => !o)}
@@ -1176,8 +1176,8 @@ ${schema}`
                     </div>
                   )}
 
-                  {/* Source count footnote */}
-                  {sources.length > 0 && (
+                  {/* Source count footnote — admin only */}
+                  {isAdmin && sources.length > 0 && (
                     <div className="text-[9px] text-slate-500 pt-1 border-t border-slate-100 dark:border-white/5">
                       Based on {sources.length} source{sources.length > 1 ? 's' : ''}: {sources.map(s => s.label).join(', ')}
                       {sources.length > 1 && ' · levels merged, narrative from primary'}
