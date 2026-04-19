@@ -53,7 +53,7 @@ export default function Nav({ fixed = false }) {
 
       {/* Chart search pill */}
       <div className="hidden md:block">
-        <SymbolSearch navMode />
+        <SymbolSearch navMode backPath={path} />
       </div>
 
       {/* Links */}

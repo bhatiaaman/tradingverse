@@ -856,14 +856,20 @@ function ChartPageInner() {
         {/* Row 1: back · symbol · price · [desktop: intervals + controls] */}
         <div className="px-3 h-11 flex items-center gap-2">
 
-          <a href={backParam || "/terminal"}
+          <a href={backParam || "/trades"}
             className="flex items-center gap-1.5 text-slate-400 hover:text-slate-200 transition-colors text-sm"
-            title={backParam ? "Go Back" : "Back to terminal"}
+            title="Go back"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
             </svg>
-            <span className="hidden sm:inline">{backParam ? 'Back' : 'Terminal'}</span>
+            <span className="hidden sm:inline">{
+              !backParam ? 'Trades' :
+              backParam === '/trades' ? 'Trades' :
+              backParam === '/eye' ? 'Eye' :
+              backParam === '/options' ? 'Options' :
+              'Back'
+            }</span>
           </a>
 
           <span className="w-px h-4 bg-white/10" />
