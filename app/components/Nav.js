@@ -42,11 +42,11 @@ export default function Nav({ fixed = false }) {
     { href: '/options',   label: 'Options' },
     { href: '/games',     label: 'Games' },
     { href: '/investing', label: 'Investing' },
+    { href: '/learn',     label: 'Learn' },
   ]
 
   const moreLinks = [
     { href: '/eye',      label: 'Third Eye' },
-    { href: '/learn',    label: 'Learn' },
     { href: '/settings', label: 'Settings' },
     { href: '/pricing',  label: 'Pricing' },
   ]
@@ -61,15 +61,10 @@ export default function Nav({ fixed = false }) {
         ? 'fixed top-0 left-0 right-0 z-50 bg-white/90 dark:bg-[#060b14]/80 backdrop-blur-md'
         : 'bg-white dark:bg-[#060b14]'}`}>
 
-      {/* ── Left: Logo + Search ── */}
-      <div className="flex items-center gap-3">
-        <Link href="/" className="text-lg font-black tracking-tight text-slate-900 dark:text-white shrink-0">
-          Trading<span className="text-blue-600 dark:text-blue-400">Verse</span>
-        </Link>
-        <div className="hidden md:block">
-          <SymbolSearch navMode backPath={path} />
-        </div>
-      </div>
+      {/* ── Left: Logo ── */}
+      <Link href="/" className="text-lg font-black tracking-tight text-slate-900 dark:text-white shrink-0">
+        Trading<span className="text-blue-600 dark:text-blue-400">Verse</span>
+      </Link>
 
       {/* ── Center: Primary nav + More ── */}
       <div className="hidden md:flex items-center gap-1 text-sm">
@@ -118,8 +113,9 @@ export default function Nav({ fixed = false }) {
         </div>
       </div>
 
-      {/* ── Right: theme + user ── */}
+      {/* ── Right: search + theme + user ── */}
       <div className="hidden md:flex items-center gap-2">
+        <SymbolSearch navMode backPath={path} />
         <button
           onClick={toggleTheme}
           className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all"
