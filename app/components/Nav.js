@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTheme } from '../../lib/theme-context'
 import { useState, useEffect } from 'react'
+import SymbolSearch from './SymbolSearch'
 
 export default function Nav({ fixed = false }) {
   const path = usePathname()
@@ -49,6 +50,11 @@ export default function Nav({ fixed = false }) {
       <Link href="/" className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
         Trading<span className="text-blue-600 dark:text-blue-400">Verse</span>
       </Link>
+
+      {/* Chart search pill */}
+      <div className="hidden md:block">
+        <SymbolSearch navMode />
+      </div>
 
       {/* Links */}
       <div className="hidden md:flex items-center gap-5 text-sm">
