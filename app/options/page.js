@@ -709,7 +709,7 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
     const isBearishMarket = currentBias.includes('BEAR');
     const isBullishMarket = currentBias.includes('BULL');
 
-    const step = symbol === 'BANKNIFTY' ? 100 : 50;
+    const step = (symbol === 'BANKNIFTY' || symbol === 'SENSEX') ? 100 : 50;
     const near = buys
       .filter(o => {
         if (!o?.strike || Math.abs(o.strike - atm) > step) return false;
@@ -748,7 +748,7 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
     LOW:    { bars: 1, color: 'bg-slate-500',   label: 'LOW'  },
   };
 
-  const strikeStep = symbol === 'BANKNIFTY' ? 100 : 50;
+  const strikeStep = (symbol === 'BANKNIFTY' || symbol === 'SENSEX') ? 100 : 50;
   const baseStrikeRows = [atm + strikeStep, atm, atm - strikeStep].filter(Boolean);
 
   // Also show OP strikes even if outside ATM±1
@@ -1907,8 +1907,9 @@ export default function OptionsPage() {
   }, [fetchChain]);
 
   // BANKNIFTY has no weekly options in our metadata — force monthly.
+  // SENSEX has weekly options (Thursday expiry) — allow weekly like NIFTY.
   useEffect(() => {
-    if (symbol !== 'NIFTY' && expiry === 'weekly') setExpiry('monthly');
+    if (symbol === 'BANKNIFTY' && expiry === 'weekly') setExpiry('monthly');
   }, [symbol, expiry]);
 
   // ── Market bias (same source as Trades home) ────────────────────────────────
@@ -1932,7 +1933,7 @@ export default function OptionsPage() {
     let alive = true;
     const run = async () => {
       try {
-        const sym = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY';
+        const sym = symbol === 'BANKNIFTY' ? 'BANKNIFTY' : 'NIFTY'; // SENSEX falls back to NIFTY regime
         const r = await fetch('/api/market-regime', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2305,7 +2306,7 @@ export default function OptionsPage() {
 
           {/* Symbol */}
           <div className="flex bg-[#0c1a2e] rounded-lg p-0.5">
-            {['NIFTY', 'BANKNIFTY'].map(s => (
+            {['NIFTY', 'BANKNIFTY', 'SENSEX'].map(s => (
               <button key={s} onClick={() => setSymbol(s)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${symbol === s ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>
                 {s}
@@ -2317,7 +2318,7 @@ export default function OptionsPage() {
           <div className="flex bg-[#0c1a2e] rounded-lg p-0.5">
             {(() => {
               const opts = [];
-              if (symbol === 'NIFTY') opts.push({ val: 'weekly', label: 'Weekly' });
+              if (symbol === 'NIFTY' || symbol === 'SENSEX') opts.push({ val: 'weekly', label: 'Weekly' });
               opts.push({ val: 'monthly', label: 'Monthly' });
 
               const monthlyDates = expiries?.monthlyAll || (expiries?.monthly ? [expiries.monthly] : []);
@@ -2328,7 +2329,7 @@ export default function OptionsPage() {
                 expiry === 'monthly' ||
                 (typeof expiry === 'string' && expiry.length >= 10 && monthlyDates.includes(expiry));
 
-              if (symbol === 'NIFTY' && !isMonthlyMode) {
+              if ((symbol === 'NIFTY' || symbol === 'SENSEX') && !isMonthlyMode) {
                 // Weekly mode: show current + next weekly
                 if (curWeekly) opts.push({ val: curWeekly, label: `Cur ${curWeekly.slice(5)}` });
                 if (nextWeekly) opts.push({ val: nextWeekly, label: `Next ${nextWeekly.slice(5)}` });
@@ -2502,7 +2503,7 @@ export default function OptionsPage() {
                 {chainData?.strikes && (() => {
                   const atmRow = chainData.strikes.find(s => s.strike === chainData.atm);
                   if (!atmRow?.ce?.symbol || !atmRow?.pe?.symbol) return null;
-                  const lotSz  = symbol === 'BANKNIFTY' ? 35 : 75;
+                  const lotSz  = symbol === 'BANKNIFTY' ? 35 : symbol === 'SENSEX' ? 10 : 75;
                   const openModal = (side) => {
                     setStraddleOrderModal({ side, atmRow, lotSz });
                     setStraddleOrderLots(1);
