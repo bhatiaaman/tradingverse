@@ -80,7 +80,7 @@ export default function SymbolSearch({ symbol, onSelectSymbol, navMode = false, 
     close();
     const upper = sym.toUpperCase();
     if (navMode) {
-      const url = `/chart?symbol=${upper}${backPath ? `&back=${encodeURIComponent(backPath)}` : ''}`;
+      const url = `/chart?symbol=${upper}&interval=day${backPath ? `&back=${encodeURIComponent(backPath)}` : ''}`;
       window.open(url, '_blank');
       return;
     }
