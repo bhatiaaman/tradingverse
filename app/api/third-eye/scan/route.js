@@ -24,10 +24,15 @@ const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS          = process.env.REDIS_NAMESPACE || 'default';
 
-// Instrument token per underlying
+// Instrument token per underlying (spot)
 const UNDERLYING_TOKEN = { NIFTY: 256265, SENSEX: 265 };
 // Spot quote symbol per underlying
 const UNDERLYING_QUOTE = { NIFTY: 'NSE:NIFTY 50', SENSEX: 'BSE:SENSEX' };
+// Futures name for volume overlay (resolves near-month token from Redis)
+const FUTURES_NAME     = { NIFTY: 'NIFTY',  SENSEX: 'SENSEX' };
+const FUTURES_EXCHANGE = { NIFTY: 'NFO',    SENSEX: 'BFO'    };
+const FUT_TOKEN_KEY    = (name) => `${NS}:fut-token-${name}`;
+const FUT_CANDLE_KEY   = (name, tf, days) => `${NS}:chart-${name}FUT-${tf}-${days}`;;
 
 // Redis keys
 const ENGINE_KEY   = (underlying, tf) => `${NS}:te:engine:${underlying}:${tf}`;
@@ -101,6 +106,75 @@ async function fetchCandles(dp, underlying, interval, days) {
   return candles;
 }
 
+// ── Futures candle fetcher (for volume overlay) ───────────────────────────────
+// Tries the chart cache first (free if NIFTYFUT/SENSEXFUT chart was recently viewed).
+// Falls back to resolving the futures token from Redis (cached 6h by nifty-chart route)
+// and fetching directly from Kite.
+async function fetchFuturesCandles(dp, underlying, interval, days) {
+  const name = FUTURES_NAME[underlying] ?? 'NIFTY';
+  // 1. Try candle cache (populated by nifty-chart route)
+  const candleCache = await redisGet(FUT_CANDLE_KEY(name, interval, days));
+  if (candleCache?.candles?.length) return candleCache.candles;
+
+  // 2. Try token cache (populated by nifty-chart route's resolveFuturesToken)
+  let token = await redisGet(FUT_TOKEN_KEY(name));
+  if (!token) {
+    // 3. Last resort: parse instruments CSV (same logic as nifty-chart)
+    try {
+      const exchange = FUTURES_EXCHANGE[underlying] ?? 'NFO';
+      const csvText  = await dp.getInstrumentsCSV(exchange);
+      const lines    = csvText.trim().split('\n');
+      const headers  = lines[0].split(',');
+      const tokenIdx  = headers.indexOf('instrument_token');
+      const nameIdx   = headers.indexOf('name');
+      const typeIdx   = headers.indexOf('instrument_type');
+      const expiryIdx = headers.indexOf('expiry');
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      let best = null;
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',');
+        if (cols[nameIdx]?.replace(/"/g,'').trim() !== name) continue;
+        if (cols[typeIdx]?.replace(/"/g,'').trim() !== 'FUT') continue;
+        const exp = cols[expiryIdx]?.replace(/"/g,'').trim();
+        if (!exp) continue;
+        const expiryDate = new Date(exp);
+        if (expiryDate < today) continue;
+        if (!best || expiryDate < new Date(best.expiry)) best = { token: parseInt(cols[tokenIdx]), expiry: exp };
+      }
+      if (best) {
+        token = best.token;
+        await redisSet(FUT_TOKEN_KEY(name), token, 6 * 3600);
+      }
+    } catch { /* non-fatal — volume overlay will be skipped */ }
+  }
+  if (!token) return null;
+
+  try {
+    const now  = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const from = new Date(now); from.setDate(from.getDate() - days);
+    const pad  = (n) => String(n).padStart(2, '0');
+    const fmt  = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:00`;
+    const data = await dp.getHistoricalData(token, interval, fmt(from), fmt(now));
+    if (!data?.length) return null;
+    const candles = data.map(c => ({
+      time: Math.floor(new Date(c.date).getTime() / 1000),
+      open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume,
+    }));
+    const ttl = interval === '5minute' ? 30 : 90;
+    await redisSet(FUT_CANDLE_KEY(name, interval, days), { candles }, ttl);
+    return candles;
+  } catch { return null; }
+}
+
+// ── Expiry day check ──────────────────────────────────────────────────────────
+// Nifty (NSE) expires Tuesday (day=2); Sensex (BSE) expires Thursday (day=4).
+// For ATR_EXPANSION, Sensex only fires on its expiry day.
+function isExpiryDayForUnderlying(underlying) {
+  if (underlying !== 'SENSEX') return true; // Nifty: any day
+  const istDay = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCDay();
+  return istDay === 4; // Thursday
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 export async function POST(req) {
   const { session, error } = await requireSession();
@@ -139,9 +213,10 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Kite disconnected', state: 'NEUTRAL' }, { status: 503 });
   }
 
-  const [execCandles, biasCandles] = await Promise.all([
+  const [execCandles, biasCandles, futuresCandles] = await Promise.all([
     fetchCandles(dp, underlying, execTf, tfConfig.execDays),
     fetchCandles(dp, underlying, tfConfig.biasTf, tfConfig.biasDays),
+    fetchFuturesCandles(dp, underlying, execTf, tfConfig.execDays),
   ]);
 
   if (!execCandles?.length) {
@@ -156,9 +231,19 @@ export async function POST(req) {
   );
 
   // Use today's candles if available (at least 10), otherwise last N from full series
-  const candlesForEngine = todayExecCandles.length >= 10
+  let candlesForEngine = todayExecCandles.length >= 10
     ? todayExecCandles
     : execCandles.slice(-100);
+
+  // Overlay futures volume onto spot candles (index volume is meaningless;
+  // futures volume reflects real participant activity)
+  if (futuresCandles?.length) {
+    const futVolMap = Object.fromEntries(futuresCandles.map(c => [c.time, c.volume]));
+    candlesForEngine = candlesForEngine.map(c => ({
+      ...c,
+      volume: futVolMap[c.time] ?? c.volume,
+    }));
+  }
 
   // Get options context (reads from existing Redis cache)
   const lastCandle  = candlesForEngine[candlesForEngine.length - 1];
@@ -182,14 +267,17 @@ export async function POST(req) {
   // Build commentary
   const commentary = buildCommentary(engineResult, tfConfig.biasTfLabel);
 
-  // Scalp setup detection — pass strike step (50 for Nifty, 100 for Sensex)
-  const strikeStep = underlying === 'SENSEX' ? 100 : 50;
-  const scalpSetup = detectScalpSetup(
+  // Scalp setup detection
+  const strikeStep  = underlying === 'SENSEX' ? 100 : 50;
+  const expiryDay   = isExpiryDayForUnderlying(underlying);
+  const scalpSetup  = detectScalpSetup(
     engineResult.features,
     engineResult.state,
     prevState?.features ?? null,
     prevState?.lastSignal ?? null,
     strikeStep,
+    underlying,
+    expiryDay,
   );
 
   // Persist engine state (24h TTL — auto-expires overnight)
@@ -220,16 +308,23 @@ export async function POST(req) {
     biasTfLabel:    tfConfig.biasTfLabel,
     keyLevels:      engineResult.keyLevels,
     features: {
-      close:          engineResult.features?.close,
-      vwap:           engineResult.features?.vwap,
-      vwapAbove:      engineResult.features?.vwapAbove,
-      rsi:            engineResult.features?.rsi,
-      adx:            engineResult.features?.adx,
-      adxRising:      engineResult.features?.adxRising,
-      atrExpanding:   engineResult.features?.atrExpanding,
-      candleStrength: engineResult.features?.candleStrength,
-      direction:      engineResult.features?.direction,
-      sessionPhase:   engineResult.features?.sessionPhase,
+      close:            engineResult.features?.close,
+      vwap:             engineResult.features?.vwap,
+      vwapAbove:        engineResult.features?.vwapAbove,
+      rsi:              engineResult.features?.rsi,
+      adx:              engineResult.features?.adx,
+      adxRising:        engineResult.features?.adxRising,
+      atr:              engineResult.features?.atr,
+      atrExpanding:     engineResult.features?.atrExpanding,
+      candleStrength:   engineResult.features?.candleStrength,
+      direction:        engineResult.features?.direction,
+      sessionPhase:     engineResult.features?.sessionPhase,
+      dayOpen:          engineResult.features?.dayOpen,
+      atrExpansionHigh: engineResult.features?.atrExpansionHigh,
+      atrExpansionLow:  engineResult.features?.atrExpansionLow,
+      aboveExpansion:   engineResult.features?.aboveExpansion,
+      belowExpansion:   engineResult.features?.belowExpansion,
+      volumeSpike:      engineResult.features?.volumeSpike,
     },
     commentary,
     optionsCtx: optionsCtx?.available ? {

@@ -176,7 +176,7 @@ function ScalpCard({ setup, onPlace, onSkip, placing, placed, placedResult, unde
   const [qty, setQty] = useState(defaultQty);
   const isBull  = setup.direction === 'bull';
   const accent  = isBull ? 'emerald' : 'rose';
-  const typeLabel = { VWAP_CROSS: 'VWAP Cross', POWER_CANDLE: 'Power Candle', PULLBACK_RESUME: 'Pullback Resume' }[setup.type] ?? setup.type;
+  const typeLabel = { VWAP_CROSS: 'VWAP Cross', POWER_CANDLE: 'Power Candle', PULLBACK_RESUME: 'Pullback Resume', ATR_EXPANSION: 'ATR Expansion' }[setup.type] ?? setup.type;
 
   if (placed) {
     return (
@@ -218,6 +218,9 @@ function ScalpCard({ setup, onPlace, onSkip, placing, placed, placedResult, unde
           {setup.confidence === 'high' && (
             <span className="text-[9px] px-1 py-0.5 rounded bg-amber-900/60 text-amber-300 font-mono">HIGH</span>
           )}
+          {setup.volumeSpike && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-violet-900/60 text-violet-300 font-mono">⚡ Vol</span>
+          )}
         </div>
         <button onClick={onSkip} className="text-slate-600 hover:text-slate-400">
           <X size={12} />
@@ -244,6 +247,14 @@ function ScalpCard({ setup, onPlace, onSkip, placing, placed, placedResult, unde
       <div className="text-[10px] font-mono text-slate-500">
         ATM {setup.strike} {setup.optType} · {setup.sessionPhase === 'primary' ? 'Primary window' : 'Secondary window'}
       </div>
+
+      {/* ATR expansion zone — only for ATR_EXPANSION setups */}
+      {setup.type === 'ATR_EXPANSION' && setup.atrExpansionHigh != null && (
+        <div className="text-[10px] font-mono text-violet-400/80 bg-violet-900/20 rounded px-2 py-1">
+          Expansion zone {fmt(setup.atrExpansionLow, 0)} – {fmt(setup.atrExpansionHigh, 0)}
+          <span className="text-slate-500 ml-1">· wait for pullback or enter on momentum</span>
+        </div>
+      )}
 
       {/* Qty + Place */}
       <div className="flex items-center gap-2">

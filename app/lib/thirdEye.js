@@ -176,6 +176,29 @@ function computeFeatures(candles, config) {
   const pullbackFromHigh = moveRange > 0 ? (swingHigh - c.close) / moveRange : 0;
   const pullbackFromLow  = moveRange > 0 ? (c.close - swingLow)  / moveRange : 0;
 
+  // ── ATR expansion zone ────────────────────────────────────────────────────
+  // Day open = first candle's open for today's IST session (≥ 09:15)
+  const dayStartSec = (() => {
+    const istMs = (c.time + 5.5 * 3600) * 1000;
+    const ist   = new Date(istMs);
+    return new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 3, 45)).getTime() / 1000; // 09:15 IST = 03:45 UTC
+  })();
+  const firstTodayIdx = candles.findIndex(x => x.time >= dayStartSec);
+  const dayOpen = firstTodayIdx >= 0 ? candles[firstTodayIdx].open : null;
+
+  const atrExpansionHigh = (dayOpen && atr) ? parseFloat((dayOpen + atr).toFixed(1)) : null;
+  const atrExpansionLow  = (dayOpen && atr) ? parseFloat((dayOpen - atr).toFixed(1)) : null;
+  const aboveExpansion   = atrExpansionHigh != null ? c.close > atrExpansionHigh : false;
+  const belowExpansion   = atrExpansionLow  != null ? c.close < atrExpansionLow  : false;
+
+  // Volume spike: current candle volume > 1.5× avg of last 10 candles
+  // (volume is futures volume when the scan route overlays futures candles)
+  const volSlice = candles.slice(Math.max(0, n - 11), n - 1);
+  const avgVol   = volSlice.length > 0
+    ? volSlice.reduce((s, x) => s + (x.volume ?? 0), 0) / volSlice.length
+    : 0;
+  const volumeSpike = (c.volume && avgVol > 0) ? c.volume > avgVol * 1.5 : false;
+
   return {
     time:            c.time,
     close:           c.close,
@@ -201,6 +224,13 @@ function computeFeatures(candles, config) {
     pullbackFromLow:  parseFloat(pullbackFromLow.toFixed(2)),
     sessionPhase:    phase,
     sessionWeight:   sessionWeight(phase),
+    // ATR expansion zone
+    dayOpen,
+    atrExpansionHigh,
+    atrExpansionLow,
+    aboveExpansion,
+    belowExpansion,
+    volumeSpike,
   };
 }
 

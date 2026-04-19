@@ -39,36 +39,46 @@ async function pushAndPoll(params, timeoutMs = 10000) {
 
 // ── Expiry helpers ────────────────────────────────────────────────────────────
 
-function getLastTuesdayOfMonth(year, month) {
-  // month is 0-indexed. Returns UTC Date at midnight.
-  // Nifty/BankNifty monthly expiry = last Tuesday of the month.
+// ── Expiry day helpers ────────────────────────────────────────────────────────
+// Nifty/BankNifty: weekly = every Tuesday, monthly = last Tuesday of the month
+// Sensex/Bankex:   weekly = every Thursday, monthly = last Thursday of the month
+// (SEBI rationalisation effective September 2025)
+
+function getLastWeekdayOfMonth(year, month, weekday) {
+  // month is 0-indexed. weekday: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu …
   let d = new Date(Date.UTC(year, month + 1, 0)); // last day of month
-  while (d.getUTCDay() !== 2) d.setUTCDate(d.getUTCDate() - 1);
+  while (d.getUTCDay() !== weekday) d.setUTCDate(d.getUTCDate() - 1);
   return d;
 }
 
-function getNearestTuesdayExpiry() {
+// Kept for Nifty backward compat (calls new helper)
+function getLastTuesdayOfMonth(year, month) {
+  return getLastWeekdayOfMonth(year, month, 2);
+}
+
+function getNearestWeeklyExpiry(weekday) {
   // Work in IST (UTC+5:30) to get the correct date.
-  // Nifty/BankNifty weekly expiry = every Tuesday.
   const istMs = Date.now() + 5.5 * 60 * 60 * 1000;
   const ist   = new Date(istMs);
-  const day   = ist.getUTCDay(); // 0=Sun, 2=Tue
-  let daysToTuesday = (2 - day + 7) % 7;
+  const day   = ist.getUTCDay();
+  let daysToExpiry = (weekday - day + 7) % 7;
 
-  // If today IS Tuesday but market is effectively closed (≥ 15:20 IST), roll to next week
-  if (daysToTuesday === 0) {
+  // If today IS the expiry day but market is effectively closed (≥ 15:20 IST), roll to next week
+  if (daysToExpiry === 0) {
     const h = ist.getUTCHours(), m = ist.getUTCMinutes();
-    if (h > 15 || (h === 15 && m >= 20)) daysToTuesday = 7;
+    if (h > 15 || (h === 15 && m >= 20)) daysToExpiry = 7;
   }
 
-  const expiryIst = new Date(istMs + daysToTuesday * 86400000);
-  // Return as a UTC Date with the IST calendar date components (time = midnight UTC)
+  const expiryIst = new Date(istMs + daysToExpiry * 86400000);
   return new Date(Date.UTC(
     expiryIst.getUTCFullYear(),
     expiryIst.getUTCMonth(),
     expiryIst.getUTCDate(),
   ));
 }
+
+function getNearestTuesdayExpiry()  { return getNearestWeeklyExpiry(2); } // Nifty
+function getNearestThursdayExpiry() { return getNearestWeeklyExpiry(4); } // Sensex
 
 // ── Symbol builders ───────────────────────────────────────────────────────────
 
@@ -100,34 +110,28 @@ function buildNiftyKiteSymbol(niftyPrice, direction, expiry) {
   }
 }
 
-// Sensex options are monthly-only on BFO.
-// Format: SENSEX25APR{STRIKE}CE
+// Sensex weekly + monthly options on BFO (effective Sep 2025: expiry = every Thursday).
+// Weekly format : SENSEX25417{STRIKE}CE  (YY + single-char month + DD + STRIKE + type)
+// Monthly format: SENSEX25APR{STRIKE}CE  (YY + 3-letter month + STRIKE + type)
+// Monthly = last Thursday of the month.
 function buildSensexKiteSymbol(price, direction, expiry) {
   const strike  = Math.round(price / 100) * 100;
   const optType = direction === 'bull' ? 'CE' : 'PE';
-  const yy      = String(expiry.getUTCFullYear()).slice(-2);
+  const year    = expiry.getUTCFullYear();
   const month   = expiry.getUTCMonth();
-  return `SENSEX${yy}${MONTHLY_MONTH_NAMES[month]}${strike}${optType}`;
-}
+  const day     = expiry.getUTCDate();
+  const yy      = String(year).slice(-2);
 
-// For Sensex, always use the nearest monthly Tuesday expiry (no weeklies)
-function getNearestMonthlyTuesdayExpiry() {
-  const istMs = Date.now() + 5.5 * 60 * 60 * 1000;
-  const ist   = new Date(istMs);
-  const year  = ist.getUTCFullYear();
-  const month = ist.getUTCMonth();
+  const lastThursday = getLastWeekdayOfMonth(year, month, 4);
+  const isMonthly    = lastThursday.getUTCDate() === day;
 
-  // Try current month first, then next month
-  for (let m = month; m <= month + 2; m++) {
-    const expiry = getLastTuesdayOfMonth(year, m % 12 === month % 12 ? year : year + Math.floor(m / 12), m % 12);
-    const h = ist.getUTCHours(), min = ist.getUTCMinutes();
-    // If expiry is today and market effectively closed (≥15:20 IST), skip
-    const todayDate = `${ist.getUTCFullYear()}-${ist.getUTCMonth()}-${ist.getUTCDate()}`;
-    const expDate   = `${expiry.getUTCFullYear()}-${expiry.getUTCMonth()}-${expiry.getUTCDate()}`;
-    if (expDate === todayDate && (h > 15 || (h === 15 && min >= 20))) continue;
-    if (expiry >= new Date(istMs - 86400000)) return expiry; // expiry >= yesterday
+  if (isMonthly) {
+    return `SENSEX${yy}${MONTHLY_MONTH_NAMES[month]}${strike}${optType}`;
+  } else {
+    const mCode = WEEKLY_MONTH_CODES[month];
+    const dd    = String(day).padStart(2, '0');
+    return `SENSEX${yy}${mCode}${dd}${strike}${optType}`;
   }
-  return getLastTuesdayOfMonth(year, (month + 1) % 12);
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
@@ -150,7 +154,7 @@ export async function POST(req) {
 
     let symbol, instrument;
     if (underlying === 'SENSEX') {
-      const expiry = getNearestMonthlyTuesdayExpiry();
+      const expiry = getNearestThursdayExpiry();
       symbol     = buildSensexKiteSymbol(niftyPrice, direction, expiry);
       instrument = `BFO:${symbol}`;
     } else {

@@ -55,7 +55,7 @@ function rsiOk(rsi, direction) {
 //
 // Returns scalpSetup object or null.
 
-export function detectScalpSetup(features, state, prevFeatures, prevSignal, strikeStep = 50) {
+export function detectScalpSetup(features, state, prevFeatures, prevSignal, strikeStep = 50, underlying = 'NIFTY', isExpiryDay = true) {
   // ── Guard: session ─────────────────────────────────────────────────────────
   if (!isValidSession(features.sessionPhase)) return null;
 
@@ -149,14 +149,71 @@ export function detectScalpSetup(features, state, prevFeatures, prevSignal, stri
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Setup 4: ATR EXPANSION BREAKOUT
+  // Price has broken outside dayOpen ± ATR with an impulsive expansion candle.
+  //
+  // Nifty : fires any trading day
+  // Sensex: fires only on Thursday (weekly/monthly expiry day) — higher
+  //         liquidity + IV expansion makes option buying most rewarding
+  //
+  // Entry: momentum entry OR wait for pullback → PULLBACK_RESUME fires next
+  // ─────────────────────────────────────────────────────────────────────────
+  if (features.sessionPhase !== 'opening') { // skip first 30 min — let range form
+    // Sensex: only on expiry day (Thursday)
+    if (underlying !== 'SENSEX' || isExpiryDay) {
+      const direction =
+        features.aboveExpansion ? 'bull' :
+        features.belowExpansion ? 'bear' : null;
+
+      if (direction) {
+        const dirMatch = (direction === 'bull' && features.direction === 'bull') ||
+                         (direction === 'bear' && features.direction === 'bear');
+
+        // Impulsive expansion candle
+        const expansionCandle =
+          features.atrExpanding &&
+          features.relativeStrength >= 1.5 &&
+          features.candleStrength  >= 0.8;
+
+        // Structural confirmation: VWAP aligned AND/OR range breakout
+        const vwapAlign    = features.vwapAbove === (direction === 'bull');
+        const rangeBreak   = direction === 'bull'
+          ? features.close > features.swingHigh
+          : features.close < features.swingLow;
+
+        // Cooldown: 4 candles (bigger move → give more room)
+        const tooSoon = prevSignal &&
+          prevSignal.direction === direction &&
+          (features.time - prevSignal.candleTime) < 4 * candleInterval;
+
+        if (dirMatch && expansionCandle && (vwapAlign || rangeBreak) &&
+            features.adx >= 16 && rsiOk(features.rsi, direction) && !tooSoon) {
+
+          // Confidence: high = all four signals, medium = structural minimum
+          const confirmCount = [vwapAlign, rangeBreak, features.relativeStrength >= 2.0, features.volumeSpike]
+            .filter(Boolean).length;
+          const confidence = confirmCount >= 3 ? 'high' : 'medium';
+
+          // ATR-based SL/target (wider than fixed scalp)
+          const atrVal    = features.atr || 30;
+          const slPts     = Math.max(25, Math.round(atrVal * 0.8));
+          const targetPts = Math.max(35, Math.round(atrVal * 1.5));
+
+          return _buildSetup('ATR_EXPANSION', 'ATR Expansion', direction, spot, features, confidence, strikeStep, slPts, targetPts);
+        }
+      }
+    }
+  }
+
   return null;
 }
 
 // ── Build setup object ────────────────────────────────────────────────────────
-function _buildSetup(type, label, direction, spot, features, confidence, strikeStep = 50) {
+function _buildSetup(type, label, direction, spot, features, confidence, strikeStep = 50, slPts = SL_PTS, targetPts = TARGET_PTS) {
   const isBull    = direction === 'bull';
-  const target    = parseFloat((spot + (isBull ? TARGET_PTS : -TARGET_PTS)).toFixed(1));
-  const sl        = parseFloat((spot + (isBull ? -SL_PTS : SL_PTS)).toFixed(1));
+  const target    = parseFloat((spot + (isBull ? targetPts : -targetPts)).toFixed(1));
+  const sl        = parseFloat((spot + (isBull ? -slPts : slPts)).toFixed(1));
   const strike    = Math.round(spot / strikeStep) * strikeStep;
   const optType   = isBull ? 'CE' : 'PE';
 
@@ -170,12 +227,16 @@ function _buildSetup(type, label, direction, spot, features, confidence, strikeS
     niftyPrice:     spot,
     niftyTarget:    target,
     niftySl:        sl,
-    slPts:          SL_PTS,
-    targetPts:      TARGET_PTS,
+    slPts,
+    targetPts,
     candleStrength: features.candleStrength,
     rsi:            features.rsi,
     vwap:           features.vwap,
     sessionPhase:   features.sessionPhase,
     candleTime:     features.time,  // used for dedup on next scan
+    // ATR expansion context (null for non-ATR setups)
+    atrExpansionHigh: features.atrExpansionHigh ?? null,
+    atrExpansionLow:  features.atrExpansionLow  ?? null,
+    volumeSpike:      features.volumeSpike       ?? false,
   };
 }
