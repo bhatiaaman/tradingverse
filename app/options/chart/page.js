@@ -715,7 +715,8 @@ function OptionsChartInner() {
   const [loadingExp,  setLoadingExp]  = useState(false);
   const [loadingStr,  setLoadingStr]  = useState(false);
   const [SynthesisColor, setSynthesisColor] = useState('bg-slate-900/40 text-slate-400 border-slate-800/50');
-  
+  const [synthesis, setSynthesis] = useState(null);
+
   const [isWatchlistOpen, setIsWatchlistOpen] = useState(false);
 
   useEffect(() => {

@@ -1453,6 +1453,20 @@ function getNiftyLevelAlerts(indices) {
                     )}
                   </div>
                 )}
+                {/* SENSEX */}
+                {marketData.indices.sensex && (
+                  <div className="hidden sm:flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-500 font-medium">SENSEX</span>
+                    <span className="text-xs font-mono font-semibold text-slate-200 tabular-nums">
+                      {parseFloat(marketData.indices.sensex).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    {marketData.indices.sensexChangePercent && (
+                      <span className={`text-[11px] font-semibold tabular-nums ${parseFloat(marketData.indices.sensexChangePercent) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {parseFloat(marketData.indices.sensexChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.indices.sensexChangePercent).toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                )}
                 {/* VIX */}
                 {marketData.indices.vix && (
                   <div className="hidden sm:flex items-center gap-1.5">

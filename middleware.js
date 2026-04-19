@@ -166,18 +166,19 @@ export async function middleware(req) {
 
 export const config = {
   matcher: [
-    '/trades/:path*',
-    '/investing/:path*',
-    '/pre-market/:path*',
-    '/settings/:path*',
-    '/learn/:path*',
-    '/games/:path*',
-    '/orders/:path*',
-    '/terminal/:path*',
-    '/chart/:path*',
-    '/stock-updates/:path*',
-    '/options/:path*',
-    '/admin/:path*',
-    '/eye/:path*',
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - worker/.* (web workers, if any are placed differently)
+     *
+     * Also omit explicitly public paths:
+     * - /login
+     * - /options/chart
+     * - /api/cron/*
+     */
+    '/((?!api|_next/static|_next/image|favicon.ico|login|options/chart).*)',
   ],
-}
+};

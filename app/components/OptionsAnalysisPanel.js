@@ -88,7 +88,7 @@ function getOptionsAnalysisCommentary(chainData, scData) {
 //   chainData       — optionChainData from /api/option-chain
 //   scData          — from /api/short-covering (pass null on trades page)
 //   loading         — optionLoading boolean
-//   underlying      — 'NIFTY' | 'BANKNIFTY'
+//   underlying      — 'NIFTY' | 'BANKNIFTY' | 'FINNIFTY' | 'MIDCPNIFTY' | 'SENSEX'
 //   expiry          — 'weekly' | 'monthly'
 //   onRefresh       — () => void — force refresh callback
 //   onUnderlyingChange — (u: string) => void
@@ -128,13 +128,13 @@ export default function OptionsAnalysisPanel({
             <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${loading ? 'animate-spin' : ''}`} />
           </button>
           <div className="flex bg-[#0a1628] rounded-lg p-0.5">
-            {['NIFTY', 'BANKNIFTY'].map((u) => (
+            {['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'].map((u) => (
               <button
                 key={u}
                 onClick={() => onUnderlyingChange(u)}
-                className={`px-3 py-1 text-xs rounded-md transition-colors ${underlying === u ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`px-2 py-1 text-[10px] sm:text-xs rounded-md transition-colors ${underlying === u ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
               >
-                {u === 'BANKNIFTY' ? 'Bank Nifty' : 'Nifty'}
+                {u === 'BANKNIFTY' ? 'BankNifty' : u === 'FINNIFTY' ? 'FinNifty' : u === 'MIDCPNIFTY' ? 'Midcap' : u === 'SENSEX' ? 'Sensex' : 'Nifty'}
               </button>
             ))}
           </div>
@@ -243,7 +243,7 @@ export default function OptionsAnalysisPanel({
             const chain = chainData?.optionChain;
             if (!chain?.length) return null;
             const atm = chainData.atmStrike;
-            const gap = underlying === 'BANKNIFTY' ? 100 : 50;
+            const gap = (underlying === 'BANKNIFTY' || underlying === 'SENSEX') ? 100 : underlying === 'MIDCPNIFTY' ? 25 : 50;
             const rows = [];
             for (let i = 4; i >= -4; i--) {
               const strike = atm + i * gap;
