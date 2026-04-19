@@ -85,8 +85,32 @@ export async function GET(request) {
   return NextResponse.json({ index, labels });
 }
 
-// ── POST /api/weekly-watchlist/archive { action: 'save' }
-// Snapshots the current live watchlist into this week's archive key.
+// ── Derive the ISO week key for the week these stocks are FOR.
+// Uses fridayCloseDate from the stock entries — the stocks are analysed on
+// Friday's close and are "for" the following Mon–Fri week.
+// Falls back to current calendar week if no fridayCloseDate is present.
+function getTargetWeekKey(watchlistData) {
+  const allStocks = [
+    ...(watchlistData.aiResearch      ?? []),
+    ...(watchlistData.expertsResearch ?? []),
+    ...(watchlistData.chartink        ?? []),
+  ];
+  const dates = allStocks.map(s => s.fridayCloseDate).filter(Boolean).sort();
+  if (!dates.length) return getISOWeekKey(); // fallback
+
+  // friday = most recent fridayCloseDate; target week starts next Monday
+  const friday     = new Date(dates[dates.length - 1]);
+  const nextMonday = new Date(Date.UTC(
+    friday.getUTCFullYear(),
+    friday.getUTCMonth(),
+    friday.getUTCDate() + 3, // Friday + 3 = Monday
+  ));
+  return getISOWeekKey(nextMonday);
+}
+
+// ── POST /api/weekly-watchlist/archive
+// Snapshots the current live watchlist using the week the stocks are FOR
+// (derived from fridayCloseDate), not the current calendar week.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST() {
   const { session, error } = await requireSession();
@@ -101,25 +125,34 @@ export async function POST() {
       return NextResponse.json({ error: 'No watchlist to archive' }, { status: 400 });
     }
 
-    const weekKey = getISOWeekKey();
-    const archiveKey = `${NS}:weekly-watchlist:archive:${weekKey}`;
+    // Use the week the stocks are FOR (from fridayCloseDate), not today's week
+    const weekKey     = getTargetWeekKey(current);
+    const calWeekKey  = getISOWeekKey(); // current calendar week
+    const archiveKey  = `${NS}:weekly-watchlist:archive:${weekKey}`;
 
     // Save snapshot
     await redisSet(archiveKey, {
       ...current,
-      savedAt: new Date().toISOString(),
+      savedAt:   new Date().toISOString(),
       weekLabel: getWeekLabel(weekKey),
     });
 
     // Update index (prepend, dedupe, cap at MAX_WEEKS)
     let index = await redisGet(ARCHIVE_INDEX) ?? [];
+
+    // If the calendar-week key differs from the target-week key, remove the
+    // stale calendar-week entry from the index (prevents ghost entries).
+    if (calWeekKey !== weekKey) {
+      index = index.filter(k => k !== calWeekKey);
+    }
+
     index = [weekKey, ...index.filter(k => k !== weekKey)].slice(0, MAX_WEEKS);
     await redisSet(ARCHIVE_INDEX, index);
 
     return NextResponse.json({
       success: true,
-      week: weekKey,
-      label: getWeekLabel(weekKey),
+      week:    weekKey,
+      label:   getWeekLabel(weekKey),
     });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
