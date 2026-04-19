@@ -3045,8 +3045,10 @@ function getNiftyLevelAlerts(indices) {
                     >
                       <option value="NIFTY">NIFTY 50</option>
                       <option value="BANKNIFTY">BANK NIFTY</option>
+                      <option value="SENSEX">SENSEX</option>
                       <option value="NIFTYFUT">NIFTY FUT</option>
                       <option value="BANKNIFTYFUT">BANKNIFTY FUT</option>
+                      <option value="SENSEXFUT">SENSEX FUT</option>
                     </select>
                   </div>
                   <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
@@ -3165,7 +3167,7 @@ function getNiftyLevelAlerts(indices) {
                       Options
                     </a>
                     <a
-                      href={`https://www.tradingview.com/chart/?symbol=${chartSymbol === 'BANKNIFTYFUT' ? 'NSE:BANKNIFTY1!' : chartSymbol === 'NIFTYFUT' ? 'NSE:NIFTY1!' : chartSymbol === 'BANKNIFTY' ? 'NSE:BANKNIFTY' : 'NSE:NIFTY'}&interval=${chartInterval === 'day' ? 'D' : chartInterval === 'week' ? 'W' : chartInterval.replace('minute', '')}`}
+                      href={`https://www.tradingview.com/chart/?symbol=${chartSymbol === 'BANKNIFTYFUT' ? 'NSE:BANKNIFTY1!' : chartSymbol === 'NIFTYFUT' ? 'NSE:NIFTY1!' : chartSymbol === 'SENSEXFUT' ? 'BSE:SENSEX1!' : chartSymbol === 'BANKNIFTY' ? 'NSE:BANKNIFTY' : chartSymbol === 'SENSEX' ? 'BSE:SENSEX' : 'NSE:NIFTY'}&interval=${chartInterval === 'day' ? 'D' : chartInterval === 'week' ? 'W' : chartInterval.replace('minute', '')}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="hidden sm:flex px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors items-center gap-1"
