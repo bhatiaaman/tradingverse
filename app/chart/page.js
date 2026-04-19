@@ -197,14 +197,21 @@ function ChartPageInner() {
   const quickTimerRef = useRef(null);
 
   // Fetch lot size when FnO symbol or underlying changes
+  // Only relevant for index charts (quick CE/PE top-bar buttons) and option charts.
+  // For plain stock charts, always use 1.
   useEffect(() => {
+    if (!isIndex && !isOptionChart) {
+      setQuickLotSize(1);
+      setQuickQty(1);
+      return;
+    }
     const baseSymbol = isOptionChart ? parsedOption.underlying : symbol;
     fetch(`/api/option-meta?action=lotsize&symbol=${baseSymbol}`)
       .then(r => r.json())
-      .then(d => { 
-        if (d.lotSize) { 
-          setQuickLotSize(d.lotSize); 
-          setQuickQty(d.lotSize); 
+      .then(d => {
+        if (d.lotSize) {
+          setQuickLotSize(d.lotSize);
+          setQuickQty(d.lotSize);
         } else {
           setQuickLotSize(1);
           setQuickQty(1);
@@ -310,6 +317,8 @@ function ChartPageInner() {
 
   const handleSelectSymbol = (newSym) => {
     setSymbol(newSym);
+    setOrderOptionType(null);
+    setIntelligence(null);
     const url = new URL(window.location.href);
     url.searchParams.set('symbol', newSym);
     window.history.pushState({}, '', url.toString());
@@ -858,7 +867,7 @@ function ChartPageInner() {
           </a>
 
           <span className="w-px h-4 bg-white/10" />
-          <SymbolSearch symbol={symbol} />
+          <SymbolSearch symbol={symbol} onSelectSymbol={handleSelectSymbol} />
 
           {ltp != null && (
             <>
@@ -1135,6 +1144,7 @@ function ChartPageInner() {
               } else if (isIndex) {
                 setIndexPicker(true);
               } else {
+                setOrderOptionType(null);
                 setQuickOrderSide('BUY');
                 setQuickOrderOpen(true);
               }

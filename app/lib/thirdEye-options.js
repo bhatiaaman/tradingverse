@@ -57,9 +57,11 @@ function maxPainNote(spot, maxPain) {
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
-export async function getOptionsContext(spot, atr) {
-  // Cache key matches option-chain route: ${NS}:option-chain-NIFTY-weekly
-  const cacheKey = `${NS}:option-chain-NIFTY-weekly`;
+export async function getOptionsContext(spot, atr, underlying = 'NIFTY') {
+  // Nifty has weekly options; Sensex is monthly-only
+  const expiryType = underlying === 'SENSEX' ? 'monthly' : 'weekly';
+  // Cache key matches option-chain route: ${NS}:option-chain-{UNDERLYING}-{expiry}
+  const cacheKey = `${NS}:option-chain-${underlying}-${expiryType}`;
   const data = await redisGet(cacheKey);
 
   if (!data) {

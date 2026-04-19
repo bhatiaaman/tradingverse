@@ -70,7 +70,7 @@ function getNearestTuesdayExpiry() {
   ));
 }
 
-// ── Symbol builder ────────────────────────────────────────────────────────────
+// ── Symbol builders ───────────────────────────────────────────────────────────
 
 // Kite weekly format : NIFTY25317{STRIKE}CE  (YY + single-char month + DD + STRIKE + type)
 // Kite monthly format: NIFTY25MAR{STRIKE}CE  (YY + 3-letter month + STRIKE + type)
@@ -100,6 +100,36 @@ function buildNiftyKiteSymbol(niftyPrice, direction, expiry) {
   }
 }
 
+// Sensex options are monthly-only on BFO.
+// Format: SENSEX25APR{STRIKE}CE
+function buildSensexKiteSymbol(price, direction, expiry) {
+  const strike  = Math.round(price / 100) * 100;
+  const optType = direction === 'bull' ? 'CE' : 'PE';
+  const yy      = String(expiry.getUTCFullYear()).slice(-2);
+  const month   = expiry.getUTCMonth();
+  return `SENSEX${yy}${MONTHLY_MONTH_NAMES[month]}${strike}${optType}`;
+}
+
+// For Sensex, always use the nearest monthly Tuesday expiry (no weeklies)
+function getNearestMonthlyTuesdayExpiry() {
+  const istMs = Date.now() + 5.5 * 60 * 60 * 1000;
+  const ist   = new Date(istMs);
+  const year  = ist.getUTCFullYear();
+  const month = ist.getUTCMonth();
+
+  // Try current month first, then next month
+  for (let m = month; m <= month + 2; m++) {
+    const expiry = getLastTuesdayOfMonth(year, m % 12 === month % 12 ? year : year + Math.floor(m / 12), m % 12);
+    const h = ist.getUTCHours(), min = ist.getUTCMinutes();
+    // If expiry is today and market effectively closed (≥15:20 IST), skip
+    const todayDate = `${ist.getUTCFullYear()}-${ist.getUTCMonth()}-${ist.getUTCDate()}`;
+    const expDate   = `${expiry.getUTCFullYear()}-${expiry.getUTCMonth()}-${expiry.getUTCDate()}`;
+    if (expDate === todayDate && (h > 15 || (h === 15 && min >= 20))) continue;
+    if (expiry >= new Date(istMs - 86400000)) return expiry; // expiry >= yesterday
+  }
+  return getLastTuesdayOfMonth(year, (month + 1) % 12);
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req) {
@@ -107,17 +137,28 @@ export async function POST(req) {
   if (error === 'database_error') return serviceUnavailable(error);
   if (!session) return unauthorized();
   try {
-    const { niftyPrice, direction, qty, niftySl } = await req.json();
+    const { niftyPrice, direction, qty, niftySl, underlying: rawUnderlying } = await req.json();
+    const underlying = rawUnderlying === 'SENSEX' ? 'SENSEX' : 'NIFTY';
 
     if (!niftyPrice || !['bull', 'bear'].includes(direction)) {
       return NextResponse.json({ error: 'Missing or invalid niftyPrice / direction' }, { status: 400 });
     }
 
-    const quantity = Math.max(65, parseInt(qty) || 65);
+    // Lot size defaults: NIFTY=65, SENSEX=10
+    const minQty   = underlying === 'SENSEX' ? 10 : 65;
+    const quantity = Math.max(minQty, parseInt(qty) || minQty);
 
-    const expiry     = getNearestTuesdayExpiry();
-    const symbol     = buildNiftyKiteSymbol(niftyPrice, direction, expiry);
-    const instrument = `NFO:${symbol}`;
+    let symbol, instrument;
+    if (underlying === 'SENSEX') {
+      const expiry = getNearestMonthlyTuesdayExpiry();
+      symbol     = buildSensexKiteSymbol(niftyPrice, direction, expiry);
+      instrument = `BFO:${symbol}`;
+    } else {
+      const expiry = getNearestTuesdayExpiry();
+      symbol     = buildNiftyKiteSymbol(niftyPrice, direction, expiry);
+      instrument = `NFO:${symbol}`;
+    }
+    const optExchange = underlying === 'SENSEX' ? 'BFO' : 'NFO';
 
     // ── Fetch option LTP ──────────────────────────────────────────────────────
     const dp = await getDataProvider();
@@ -155,14 +196,14 @@ export async function POST(req) {
 
     // ── Entry order → VPS queue ───────────────────────────────────────────────
     const entryResult = await pushAndPoll({
-      tradingsymbol: symbol, exchange: 'NFO',
+      tradingsymbol: symbol, exchange: optExchange,
       transaction_type: 'BUY', order_type: 'LIMIT',
       product: 'MIS', quantity, price: entryLimit,
     });
 
     if (!entryResult.ok) {
       return NextResponse.json({
-        ok: false, symbol, ltp, entryLimit,
+        ok: false, symbol, underlying, ltp, entryLimit,
         error: entryResult.error,
         orderId: entryResult.orderId,
       }, { status: entryResult.timeout ? 202 : 400 });
@@ -193,10 +234,11 @@ export async function POST(req) {
       } catch { /* keep polling */ }
     }
 
+    const strikeStep = underlying === 'SENSEX' ? 100 : 50;
     if (!filled) {
       return NextResponse.json({
-        ok: true, symbol,
-        strike: Math.round(niftyPrice / 50) * 50,
+        ok: true, symbol, underlying,
+        strike: Math.round(niftyPrice / strikeStep) * strikeStep,
         optionType: direction === 'bull' ? 'CE' : 'PE',
         ltp, entryLimit, slTrigger, slLimit, niftySl: niftySl ?? null,
         orderId: entryResult.orderId, kiteOrderId: kiteEntryId,
@@ -209,7 +251,7 @@ export async function POST(req) {
     // ── SL order → VPS queue (only after fill confirmed) ─────────────────────
     try {
       const slResult = await pushAndPoll({
-        tradingsymbol: symbol, exchange: 'NFO',
+        tradingsymbol: symbol, exchange: optExchange,
         transaction_type: 'SELL', order_type: 'SL',
         product: 'MIS', quantity,
         trigger_price: slTrigger, price: slLimit,
@@ -221,14 +263,13 @@ export async function POST(req) {
     }
 
     return NextResponse.json({
-      ok: true, symbol,
-      strike:     Math.round(niftyPrice / 50) * 50,
+      ok: true, symbol, underlying,
+      strike:     Math.round(niftyPrice / strikeStep) * strikeStep,
       optionType: direction === 'bull' ? 'CE' : 'PE',
       ltp, entryLimit, slTrigger, slLimit, niftySl: niftySl ?? null,
       orderId:    entryResult.orderId, kiteOrderId: kiteEntryId,
       slOrderId:  slKiteId ?? null,
       slError:    slError ?? null,
-      expiry:     expiry.toISOString().split('T')[0],
     });
 
   } catch (err) {

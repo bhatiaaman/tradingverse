@@ -34,6 +34,12 @@ const KNOWN_GAPS = {
 // Only NIFTY has weekly options; all others are monthly
 const WEEKLY_SYMBOLS = new Set(['NIFTY']);
 
+// Which exchange to use for order placement per symbol
+const OPT_EXCHANGE = {
+  SENSEX: 'BFO', BANKEX: 'BFO',
+  // everything else defaults to NFO
+};
+
 // Kite instrument keys for index spot prices
 const SPOT_KEYS = {
   NIFTY:       'NSE:NIFTY 50',
@@ -46,11 +52,41 @@ const SPOT_KEYS = {
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-// ── Parse NFO CSV once, populate three cache levels ───────────────────────────
+// ── Parse NFO + BFO CSVs, populate three cache levels ────────────────────────
 async function parseAndCacheNFO(dp) {
-  const csvText = await dp.getInstrumentsCSV('NFO');
-  const lines   = csvText.trim().split('\n');
-  const headers = lines[0].split(',');
+  // Fetch NFO (Nifty/BankNifty etc.) and BFO (Sensex/Bankex) in parallel
+  const [nfoCsv, bfoCsv] = await Promise.all([
+    dp.getInstrumentsCSV('NFO'),
+    dp.getInstrumentsCSV('BFO').catch(() => ''), // BFO may not always be available
+  ]);
+
+  // Parse a single CSV block and merge rows into allLines
+  function parseCSV(csv) {
+    if (!csv?.trim()) return { headers: [], rows: [] };
+    const ls = csv.trim().split('\n');
+    return { headers: ls[0].split(','), rows: ls.slice(1) };
+  }
+
+  const nfo = parseCSV(nfoCsv);
+  const bfo = parseCSV(bfoCsv);
+
+  // Use NFO headers as canonical (same schema); re-map BFO rows to NFO column order
+  const headers = nfo.headers;
+
+  // Helper: given a set of rows with their own headers, yield lines aligned to `headers`
+  function* alignedRows(rows, srcHeaders) {
+    const idxMap = headers.map(h => srcHeaders.indexOf(h));
+    for (const row of rows) {
+      const cols = row.split(',');
+      yield idxMap.map(i => (i === -1 ? '' : (cols[i] ?? '')));
+    }
+  }
+
+  // Merge: all NFO rows + BFO rows re-mapped to NFO column order
+  const allRows = [
+    ...alignedRows(nfo.rows, nfo.headers),
+    ...(bfo.headers.length ? alignedRows(bfo.rows, bfo.headers) : []),
+  ];
 
   const tokenIdx   = headers.indexOf('instrument_token');
   const tsIdx      = headers.indexOf('tradingsymbol');
@@ -65,8 +101,7 @@ async function parseAndCacheNFO(dp) {
   // symbolMap: name → { expiries: Set<string>, strikesByExpiry: {expiry: Set<number>}, tsTokenMap: {ts: token} }
   const symbolMap = {};
 
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(',');
+  for (const cols of allRows) {
     const type = cols[typeIdx]?.replace(/"/g, '').trim();
     if (type !== 'CE' && type !== 'PE') continue;
 
@@ -137,7 +172,7 @@ async function parseAndCacheNFO(dp) {
       };
     });
 
-    return { name, strikeGap: strikeGap || 50, expiries: labeledExpiries };
+    return { name, strikeGap: strikeGap || 50, expiries: labeledExpiries, optExchange: OPT_EXCHANGE[name] ?? 'NFO' };
   });
 
   // ── Cache: symbols list ────────────────────────────────────────────────────
@@ -148,7 +183,9 @@ async function parseAndCacheNFO(dp) {
   const cachePromises = [];
   for (const sym of symbols) {
     cachePromises.push(
-      redisSet(`${EXPIRY_PFX}${sym.name}`, sym.expiries, META_TTL)
+      redisSet(`${EXPIRY_PFX}${sym.name}`, sym.expiries, META_TTL),
+      // Cache exchange per symbol so atm-quick-order can look it up
+      redisSet(`${NS}:fno-exchange:${sym.name}`, sym.optExchange, META_TTL),
     );
   }
   for (const [name, data] of Object.entries(symbolMap)) {
@@ -245,16 +282,18 @@ export async function GET(request) {
       const ts = lookup[`${strike}_${type}`];
       if (!ts) return NextResponse.json({ error: `No tradingsymbol for ${symbol} ${strike} ${type} expiry ${expiry}` }, { status: 404 });
       
+      const optExchange = OPT_EXCHANGE[symbol] ?? 'NFO';
+      const instrument  = `${optExchange}:${ts}`;
       const [ohlcRes, lotSizeRes] = await Promise.all([
-        dp.getOHLC([`NFO:${ts}`]),
+        dp.getOHLC([instrument]),
         redisGet(`${NS}:fno-lotsize:${symbol}`)
       ]);
-      
+
       let lotSize = lotSizeRes;
       if (lotSize === null) {
         try { const { symbolMap } = await parseAndCacheNFO(dp); lotSize = symbolMap[symbol]?.lotSize ?? null; } catch { /* non-critical */ }
       }
-      const ltp = ohlcRes?.[`NFO:${ts}`]?.last_price ?? null;
+      const ltp = ohlcRes?.[instrument]?.last_price ?? null;
       
       return NextResponse.json({ tradingSymbol: ts, lotSize, ltp });
     }

@@ -55,7 +55,7 @@ function rsiOk(rsi, direction) {
 //
 // Returns scalpSetup object or null.
 
-export function detectScalpSetup(features, state, prevFeatures, prevSignal) {
+export function detectScalpSetup(features, state, prevFeatures, prevSignal, strikeStep = 50) {
   // ── Guard: session ─────────────────────────────────────────────────────────
   if (!isValidSession(features.sessionPhase)) return null;
 
@@ -102,7 +102,7 @@ export function detectScalpSetup(features, state, prevFeatures, prevSignal) {
       (features.time - prevSignal.candleTime) < 3 * candleInterval;
 
     if (crossStrengthOk && dirMatch && rsiOk(features.rsi, direction) && !tooSoon) {
-      return _buildSetup('VWAP_CROSS', 'VWAP Cross', direction, spot, features, 'high');
+      return _buildSetup('VWAP_CROSS', 'VWAP Cross', direction, spot, features, 'high', strikeStep);
     }
   }
 
@@ -121,7 +121,7 @@ export function detectScalpSetup(features, state, prevFeatures, prevSignal) {
 
     if (dirMatch && features.candleStrength >= 0.9 && features.vwapAbove === (direction === 'bull') &&
         rsiOk(features.rsi, direction) && !tooSoon) {
-      return _buildSetup('PULLBACK_RESUME', 'Pullback Resume', direction, spot, features, 'high');
+      return _buildSetup('PULLBACK_RESUME', 'Pullback Resume', direction, spot, features, 'high', strikeStep);
     }
   }
 
@@ -145,7 +145,7 @@ export function detectScalpSetup(features, state, prevFeatures, prevSignal) {
       (features.time - prevSignal.candleTime) < 3 * candleInterval;
 
     if (dirMatch && vwapOk && rsiOk(features.rsi, direction) && !tooSoon) {
-      return _buildSetup('POWER_CANDLE', 'Power Candle', direction, spot, features, 'medium');
+      return _buildSetup('POWER_CANDLE', 'Power Candle', direction, spot, features, 'medium', strikeStep);
     }
   }
 
@@ -153,11 +153,11 @@ export function detectScalpSetup(features, state, prevFeatures, prevSignal) {
 }
 
 // ── Build setup object ────────────────────────────────────────────────────────
-function _buildSetup(type, label, direction, spot, features, confidence) {
+function _buildSetup(type, label, direction, spot, features, confidence, strikeStep = 50) {
   const isBull    = direction === 'bull';
   const target    = parseFloat((spot + (isBull ? TARGET_PTS : -TARGET_PTS)).toFixed(1));
   const sl        = parseFloat((spot + (isBull ? -SL_PTS : SL_PTS)).toFixed(1));
-  const strike    = Math.round(spot / 50) * 50;
+  const strike    = Math.round(spot / strikeStep) * strikeStep;
   const optType   = isBull ? 'CE' : 'PE';
 
   return {

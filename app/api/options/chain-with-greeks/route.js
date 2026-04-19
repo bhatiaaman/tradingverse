@@ -28,19 +28,27 @@ async function redisSet(key, value, ex) {
 }
 
 const UNDERLYING = {
-  NIFTY:     { spotSymbol: 'NSE:NIFTY 50',    strikeGap: 50,  lotSize: 75,  token: 256265  },
-  BANKNIFTY: { spotSymbol: 'NSE:NIFTY BANK',  strikeGap: 100, lotSize: 35,  token: 260105  },
+  NIFTY:     { spotSymbol: 'NSE:NIFTY 50',   strikeGap: 50,  lotSize: 75, token: 256265, optExchange: 'NFO' },
+  BANKNIFTY: { spotSymbol: 'NSE:NIFTY BANK', strikeGap: 100, lotSize: 35, token: 260105, optExchange: 'NFO' },
+  SENSEX:    { spotSymbol: 'BSE:SENSEX',      strikeGap: 100, lotSize: 10, token: 265,    optExchange: 'BFO' },
 };
 
-const INSTRUMENTS_KEY = `${NS}:nfo-options-instruments`;
-const INSTRUMENTS_TTL = 2 * 3600;
+// Valid CE/PE names per exchange
+const VALID_NAMES_FOR = {
+  NFO: new Set(['NIFTY', 'BANKNIFTY']),
+  BFO: new Set(['SENSEX']),
+};
 
-// ── Parse & cache NFO instruments (CE/PE, includes instrument_token) ──────────
-async function getNFOInstruments(dp) {
-  const cached = await redisGet(INSTRUMENTS_KEY);
+const INSTRUMENTS_TTL = 2 * 3600;
+const instrumentsKey  = (exchange) => `${NS}:${exchange.toLowerCase()}-options-instruments`;
+
+// ── Parse & cache options instruments (CE/PE, includes instrument_token) ──────
+async function getOptionsInstruments(dp, exchange) {
+  const cacheKey = instrumentsKey(exchange);
+  const cached   = await redisGet(cacheKey);
   if (cached) return cached;
 
-  const csvText = await dp.getInstrumentsCSV('NFO');
+  const csvText = await dp.getInstrumentsCSV(exchange);
   const lines   = csvText.trim().split('\n');
   const headers = lines[0].split(',');
 
@@ -51,12 +59,13 @@ async function getNFOInstruments(dp) {
   const strikeIdx = headers.indexOf('strike');
   const typeIdx   = headers.indexOf('instrument_type');
 
+  const validNames = VALID_NAMES_FOR[exchange] ?? new Set();
   const instruments = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',');
     const name = cols[nameIdx]?.replace(/"/g, '').trim();
     const type = cols[typeIdx]?.replace(/"/g, '').trim();
-    if ((name === 'NIFTY' || name === 'BANKNIFTY') && (type === 'CE' || type === 'PE')) {
+    if (validNames.has(name) && (type === 'CE' || type === 'PE')) {
       instruments.push({
         token:    parseInt(cols[tokenIdx]) || 0,
         symbol:   cols[tsIdx]?.replace(/"/g, '').trim(),
@@ -68,7 +77,7 @@ async function getNFOInstruments(dp) {
     }
   }
 
-  await redisSet(INSTRUMENTS_KEY, instruments, INSTRUMENTS_TTL);
+  await redisSet(cacheKey, instruments, INSTRUMENTS_TTL);
   return instruments;
 }
 
@@ -119,7 +128,7 @@ export async function GET(request) {
 
     // ── Resolve expiry ────────────────────────────────────────────────────────
     const [instruments, spot] = await Promise.all([
-      getNFOInstruments(dp),
+      getOptionsInstruments(dp, cfg.optExchange),
       getSpot(dp, symbol),
     ]);
 
@@ -141,7 +150,8 @@ export async function GET(request) {
     if (!expOptions.length) return NextResponse.json({ error: 'No options found for expiry' }, { status: 404 });
 
     // ── Fetch quotes in batches of 200 ────────────────────────────────────────
-    const instrumentKeys = expOptions.map(i => `NFO:${i.symbol}`);
+    const optExchange    = cfg.optExchange;
+    const instrumentKeys = expOptions.map(i => `${optExchange}:${i.symbol}`);
     const batchSize      = 200;
     const quoteMap       = {};
     for (let i = 0; i < instrumentKeys.length; i += batchSize) {
@@ -153,7 +163,7 @@ export async function GET(request) {
     // ── Build strike table with BS Greeks ────────────────────────────────────
     const strikeMap = {};
     for (const opt of expOptions) {
-      const key   = `NFO:${opt.symbol}`;
+      const key   = `${optExchange}:${opt.symbol}`;
       const quote = quoteMap[key];
       const ltp   = quote?.last_price || 0;
       const oi    = quote?.oi || 0;

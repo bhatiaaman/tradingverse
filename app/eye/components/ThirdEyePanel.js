@@ -170,8 +170,10 @@ function SettingsFlyout({ settings, onClose, onSave }) {
 }
 
 // ── Scalp trade card ──────────────────────────────────────────────────────────
-function ScalpCard({ setup, onPlace, onSkip, placing, placed, placedResult }) {
-  const [qty, setQty] = useState(75);
+function ScalpCard({ setup, onPlace, onSkip, placing, placed, placedResult, underlying }) {
+  const defaultQty = underlying === 'SENSEX' ? 10 : 75;
+  const lotStep    = underlying === 'SENSEX' ? 10 : 25;
+  const [qty, setQty] = useState(defaultQty);
   const isBull  = setup.direction === 'bull';
   const accent  = isBull ? 'emerald' : 'rose';
   const typeLabel = { VWAP_CROSS: 'VWAP Cross', POWER_CANDLE: 'Power Candle', PULLBACK_RESUME: 'Pullback Resume' }[setup.type] ?? setup.type;
@@ -225,7 +227,7 @@ function ScalpCard({ setup, onPlace, onSkip, placing, placed, placedResult }) {
       {/* Levels grid */}
       <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
         <div className="space-y-0.5">
-          <div className="text-slate-500">Nifty</div>
+          <div className="text-slate-500">{underlying ?? 'Nifty'}</div>
           <div className="text-slate-200 font-bold">{fmt(setup.niftyPrice, 0)}</div>
         </div>
         <div className="space-y-0.5">
@@ -249,8 +251,8 @@ function ScalpCard({ setup, onPlace, onSkip, placing, placed, placedResult }) {
         <input
           type="number"
           value={qty}
-          min={25} step={25}
-          onChange={e => setQty(Math.max(25, parseInt(e.target.value) || 25))}
+          min={lotStep} step={lotStep}
+          onChange={e => setQty(Math.max(lotStep, parseInt(e.target.value) || lotStep))}
           className="w-16 bg-slate-800 border border-slate-600 text-slate-200 text-xs font-mono rounded px-2 py-0.5 text-right"
         />
         <button
@@ -279,6 +281,7 @@ export default function ThirdEyePanel() {
   const [showSettings,  setShowSettings]  = useState(false);
   const [showCommentary,setShowCommentary]= useState(true);
   const [tf,            setTf]            = useState('5minute');
+  const [underlying,    setUnderlying]    = useState('NIFTY'); // 'NIFTY' | 'SENSEX'
   const [error,         setError]         = useState(null);
   // Scalp trade state
   const [scalpSetup,    setScalpSetup]    = useState(null);
@@ -317,12 +320,12 @@ export default function ThirdEyePanel() {
   }, []);
 
   // ── Scan ────────────────────────────────────────────────────────────────────
-  const runScan = useCallback(async (activeTf) => {
+  const runScan = useCallback(async (activeTf, activeUnderlying) => {
     try {
       const res = await fetch('/api/third-eye/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tf: activeTf }),
+        body: JSON.stringify({ tf: activeTf, underlying: activeUnderlying }),
       });
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
@@ -357,9 +360,9 @@ export default function ThirdEyePanel() {
   }, [skippedCandle]);
 
   // ── Tick ────────────────────────────────────────────────────────────────────
-  const runTick = useCallback(async () => {
+  const runTick = useCallback(async (activeUnderlying) => {
     try {
-      const res = await fetch('/api/third-eye/tick');
+      const res = await fetch(`/api/third-eye/tick?underlying=${activeUnderlying}`);
       if (!res.ok) return;
       const data = await res.json();
       if (data.ltp) setLtp(data);
@@ -381,18 +384,26 @@ export default function ThirdEyePanel() {
   }, [fetchSettings]);
 
   useEffect(() => {
+    // Reset display state when underlying switches
+    setScanData(null);
+    setLtp(null);
+    setScalpSetup(null);
+    setPlaced(false);
+    setPlacedResult(null);
+    setLoading(true);
+
     if (!isTradingWindow()) {
       setLoading(false);
       return;
     }
 
     // Initial scan
-    runScan(tf);
-    runTick();
+    runScan(tf, underlying);
+    runTick(underlying);
 
     // 30s scan interval
     scanTimer.current = setInterval(() => {
-      if (isTradingWindow()) runScan(tf);
+      if (isTradingWindow()) runScan(tf, underlying);
       else {
         clearInterval(scanTimer.current);
         clearInterval(tickTimer.current);
@@ -400,14 +411,14 @@ export default function ThirdEyePanel() {
     }, 30_000);
     // 10s tick interval
     tickTimer.current = setInterval(() => {
-      if (isTradingWindow()) runTick();
+      if (isTradingWindow()) runTick(underlying);
     }, 10_000);
 
     return () => {
       clearInterval(scanTimer.current);
       clearInterval(tickTimer.current);
     };
-  }, [tf, runScan, runTick]);
+  }, [tf, underlying, runScan, runTick]);
 
   // ── Place scalp order ───────────────────────────────────────────────────────
   const handlePlace = useCallback(async (setup) => {
@@ -421,6 +432,7 @@ export default function ThirdEyePanel() {
           direction:  setup.direction,
           qty:        setup.qty,
           niftySl:    setup.niftySl,
+          underlying,
         }),
       });
       const data = await res.json();
@@ -473,9 +485,20 @@ export default function ThirdEyePanel() {
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700/50">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Eye size={14} className={colors.text} />
           <span className={`text-xs font-bold tracking-wide ${colors.text}`}>THIRD EYE</span>
+          {/* Nifty / Sensex toggle */}
+          <div className="flex items-center rounded overflow-hidden border border-slate-700 text-[10px] font-mono">
+            <button
+              onClick={() => setUnderlying('NIFTY')}
+              className={`px-2 py-0.5 transition-colors ${underlying === 'NIFTY' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+            >NIFTY</button>
+            <button
+              onClick={() => setUnderlying('SENSEX')}
+              className={`px-2 py-0.5 transition-colors ${underlying === 'SENSEX' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+            >SENSEX</button>
+          </div>
           <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${sessBadge.color}`}>
             {sessBadge.label}
           </span>
@@ -620,6 +643,7 @@ export default function ThirdEyePanel() {
             placing={placing}
             placed={placed}
             placedResult={placedResult}
+            underlying={underlying}
           />
         </div>
       )}

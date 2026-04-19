@@ -12,7 +12,7 @@ const QUICK_PICKS = [
   'HDFCBANK', 'ICICIBANK', 'SBIN', 'AXISBANK',
 ];
 
-export default function SymbolSearch({ symbol }) {
+export default function SymbolSearch({ symbol, onSelectSymbol }) {
   const router   = useRouter();
   const [open,   setOpen]    = useState(false);
   const [query,  setQuery]   = useState('');
@@ -62,8 +62,12 @@ export default function SymbolSearch({ symbol }) {
 
   const select = (sym) => {
     close();
-    if (sym.toUpperCase() !== symbol.toUpperCase()) {
-      router.replace(`/chart?symbol=${sym.toUpperCase()}`);
+    const upper = sym.toUpperCase();
+    if (upper === symbol.toUpperCase()) return;
+    if (onSelectSymbol) {
+      onSelectSymbol(upper);
+    } else {
+      router.replace(`/chart?symbol=${upper}`);
     }
   };
 

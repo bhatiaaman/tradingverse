@@ -105,7 +105,11 @@ export async function POST(req) {
       return NextResponse.json({ error: `No ${optionType} found at strike ${atmStrike} for ${expiryDate}` }, { status: 404 });
     }
 
-    const lotSize = await redisGet(`${NS}:fno-lotsize:${symbol}`) ?? (symbol === 'BANKNIFTY' ? 35 : 65);
+    // Look up the correct exchange (NFO for Nifty/BankNifty, BFO for Sensex/Bankex)
+    const optExchange = (await redisGet(`${NS}:fno-exchange:${symbol}`)) ?? 'NFO';
+
+    const lotSizeFallback = symbol === 'BANKNIFTY' ? 35 : symbol === 'SENSEX' ? 10 : 65;
+    const lotSize = await redisGet(`${NS}:fno-lotsize:${symbol}`) ?? lotSizeFallback;
     const quantity = Math.max(lotSize, parseInt(qty) || lotSize);
 
     // ── Fetch LTP ─────────────────────────────────────────────────────────────
@@ -114,7 +118,7 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Kite not connected' }, { status: 401 });
     }
 
-    const instrument = `NFO:${tradingsymbol}`;
+    const instrument = `${optExchange}:${tradingsymbol}`;
     let ltp;
     try {
       const ltpData = await dp.getLTP(instrument);
@@ -130,7 +134,7 @@ export async function POST(req) {
 
     // ── Entry via queue ───────────────────────────────────────────────────────
     const entryResult = await pushAndPoll({
-      tradingsymbol, exchange: 'NFO',
+      tradingsymbol, exchange: optExchange,
       transaction_type: 'BUY', order_type: 'LIMIT',
       product: 'MIS', quantity, price: entryLimit,
     });
@@ -176,7 +180,7 @@ export async function POST(req) {
     // ── SL via queue ──────────────────────────────────────────────────────────
     try {
       const slResult = await pushAndPoll({
-        tradingsymbol, exchange: 'NFO',
+        tradingsymbol, exchange: optExchange,
         transaction_type: 'SELL', order_type: 'SL',
         product: 'MIS', quantity,
         trigger_price: slTrigger, price: slLimit,

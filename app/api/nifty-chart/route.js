@@ -28,18 +28,20 @@ async function redisSet(key, value, exSeconds) {
 const SYMBOLS = {
   NIFTY:        { token: 256265,  name: 'NIFTY 50',        exchange: 'NSE' },
   BANKNIFTY:    { token: 260105,  name: 'BANK NIFTY',      exchange: 'NSE' },
-  NIFTYFUT:     { token: null,    name: 'NIFTY FUT',       exchange: 'NFO', futName: 'NIFTY' },
-  BANKNIFTYFUT: { token: null,    name: 'BANKNIFTY FUT',   exchange: 'NFO', futName: 'BANKNIFTY' },
+  SENSEX:       { token: 265,     name: 'SENSEX',           exchange: 'BSE' },
+  NIFTYFUT:     { token: null,    name: 'NIFTY FUT',       exchange: 'NFO', futName: 'NIFTY',     futExchange: 'NFO' },
+  BANKNIFTYFUT: { token: null,    name: 'BANKNIFTY FUT',   exchange: 'NFO', futName: 'BANKNIFTY', futExchange: 'NFO' },
+  SENSEXFUT:    { token: null,    name: 'SENSEX FUT',      exchange: 'BFO', futName: 'SENSEX',    futExchange: 'BFO' },
 };
 
-// Resolve near-month futures token from NFO instruments CSV.
+// Resolve near-month futures token from NFO/BFO instruments CSV.
 // Cached in Redis for 6 hours (rolls automatically after expiry).
-async function resolveFuturesToken(dp, futName) {
+async function resolveFuturesToken(dp, futName, futExchange = 'NFO') {
   const cacheKey = `${NS}:fut-token-${futName}`;
   const cached = await redisGet(cacheKey);
   if (cached) return cached;
 
-  const csvText = await dp.getInstrumentsCSV('NFO');
+  const csvText = await dp.getInstrumentsCSV(futExchange);
   const lines   = csvText.trim().split('\n');
   const headers = lines[0].split(',');
 
@@ -120,7 +122,7 @@ export async function GET(request) {
     // Resolve futures token dynamically if needed
     let token = symbolConfig.token;
     if (token === null && symbolConfig.futName) {
-      token = await resolveFuturesToken(dp, symbolConfig.futName);
+      token = await resolveFuturesToken(dp, symbolConfig.futName, symbolConfig.futExchange);
       if (!token) return NextResponse.json({ candles: [], error: `Could not resolve ${symbol} near-month futures token` });
     }
 

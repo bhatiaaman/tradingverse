@@ -2400,8 +2400,10 @@ function getNiftyLevelAlerts(indices) {
                     >
                       <option value="NIFTY">NIFTY 50</option>
                       <option value="BANKNIFTY">BANK NIFTY</option>
+                      <option value="SENSEX">SENSEX</option>
                       <option value="NIFTYFUT">NIFTY FUT</option>
                       <option value="BANKNIFTYFUT">BANKNIFTY FUT</option>
+                      <option value="SENSEXFUT">SENSEX FUT</option>
                     </select>
                   </div>
                   <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">

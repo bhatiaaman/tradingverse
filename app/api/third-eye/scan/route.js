@@ -24,10 +24,15 @@ const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS          = process.env.REDIS_NAMESPACE || 'default';
 
+// Instrument token per underlying
+const UNDERLYING_TOKEN = { NIFTY: 256265, SENSEX: 265 };
+// Spot quote symbol per underlying
+const UNDERLYING_QUOTE = { NIFTY: 'NSE:NIFTY 50', SENSEX: 'BSE:SENSEX' };
+
 // Redis keys
-const ENGINE_KEY   = (tf) => `${NS}:te:engine:${tf}`;
+const ENGINE_KEY   = (underlying, tf) => `${NS}:te:engine:${underlying}:${tf}`;
 const SETTINGS_KEY = `${NS}:te:settings`;
-const CANDLE_KEY   = (interval, days) => `${NS}:chart-NIFTY-${interval}-${days}`;
+const CANDLE_KEY   = (underlying, interval, days) => `${NS}:chart-${underlying}-${interval}-${days}`;
 
 // TF pairing
 const TF_PAIRS = {
@@ -68,13 +73,13 @@ function isMarketHours() {
 }
 
 // ── Candle fetcher (uses existing Redis cache or fetches fresh) ───────────────
-async function fetchCandles(dp, interval, days) {
-  const cacheKey = CANDLE_KEY(interval, days);
+async function fetchCandles(dp, underlying, interval, days) {
+  const cacheKey = CANDLE_KEY(underlying, interval, days);
   const cached   = await redisGet(cacheKey);
   if (cached?.candles?.length) return cached.candles;
 
   // Cache miss — fetch from Kite
-  const NIFTY_TOKEN = 256265;
+  const token = UNDERLYING_TOKEN[underlying] ?? UNDERLYING_TOKEN.NIFTY;
   const now = new Date(Date.now() + 5.5 * 3600 * 1000); // IST
   const from = new Date(now);
   from.setDate(from.getDate() - days);
@@ -82,7 +87,7 @@ async function fetchCandles(dp, interval, days) {
   const pad = (n) => String(n).padStart(2, '0');
   const fmt = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:00`;
 
-  const data = await dp.getHistoricalData(NIFTY_TOKEN, interval, fmt(from), fmt(now));
+  const data = await dp.getHistoricalData(token, interval, fmt(from), fmt(now));
   if (!data?.length) return null;
 
   const candles = data.map(c => ({
@@ -113,15 +118,16 @@ export async function POST(req) {
   // Parse request body
   let body = {};
   try { body = await req.json(); } catch { /* default */ }
-  const execTf   = TF_PAIRS[body.tf] ? body.tf : '5minute';
-  const tfConfig = TF_PAIRS[execTf];
+  const execTf     = TF_PAIRS[body.tf] ? body.tf : '5minute';
+  const tfConfig   = TF_PAIRS[execTf];
+  const underlying = (body.underlying === 'SENSEX') ? 'SENSEX' : 'NIFTY';
 
   // Load user settings (merged with defaults)
   const userSettings = await redisGet(SETTINGS_KEY) ?? {};
   const config       = { ...DEFAULT_CONFIG, ...userSettings };
 
   // Load persisted engine state (reset if new trading day)
-  const engineKey = ENGINE_KEY(execTf);
+  const engineKey = ENGINE_KEY(underlying, execTf);
   let prevState   = await redisGet(engineKey);
   if (prevState?.tradingDay && prevState.tradingDay !== todayIST()) {
     prevState = null; // new day → fresh state
@@ -134,8 +140,8 @@ export async function POST(req) {
   }
 
   const [execCandles, biasCandles] = await Promise.all([
-    fetchCandles(dp, execTf, tfConfig.execDays),
-    fetchCandles(dp, tfConfig.biasTf, tfConfig.biasDays),
+    fetchCandles(dp, underlying, execTf, tfConfig.execDays),
+    fetchCandles(dp, underlying, tfConfig.biasTf, tfConfig.biasDays),
   ]);
 
   if (!execCandles?.length) {
@@ -158,7 +164,7 @@ export async function POST(req) {
   const lastCandle  = candlesForEngine[candlesForEngine.length - 1];
   const spot        = lastCandle?.close;
   const atrApprox   = spot ? spot * 0.0008 : 20; // fallback ATR estimate
-  const optionsCtx  = await getOptionsContext(spot, atrApprox);
+  const optionsCtx  = await getOptionsContext(spot, atrApprox, underlying);
 
   // Run engine
   const engineResult = runThirdEye(
@@ -176,12 +182,14 @@ export async function POST(req) {
   // Build commentary
   const commentary = buildCommentary(engineResult, tfConfig.biasTfLabel);
 
-  // Scalp setup detection
+  // Scalp setup detection — pass strike step (50 for Nifty, 100 for Sensex)
+  const strikeStep = underlying === 'SENSEX' ? 100 : 50;
   const scalpSetup = detectScalpSetup(
     engineResult.features,
     engineResult.state,
     prevState?.features ?? null,
     prevState?.lastSignal ?? null,
+    strikeStep,
   );
 
   // Persist engine state (24h TTL — auto-expires overnight)
@@ -237,6 +245,7 @@ export async function POST(req) {
     scalpSetup,
     marketHours: isMarketHours(),
     tf:          execTf,
+    underlying,
     timestamp:   new Date().toISOString(),
   });
 }

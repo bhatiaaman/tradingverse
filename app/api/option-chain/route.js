@@ -36,12 +36,13 @@ function isMarketHours() {
 
 const CACHE_TTL = 60;
 const HISTORY_TTL = 3600;
-const INSTRUMENTS_CACHE_KEY = `${NS}:nfo-instruments-all`;
 const INSTRUMENTS_CACHE_TTL = 7200; // 2h — refreshes intraday, handles expiry rollovers
+const instrumentsCacheKey = (exchange) => `${NS}:${exchange.toLowerCase()}-instruments-all`;
 
 const UNDERLYING_CONFIG = {
-  NIFTY: { spotSymbol: 'NIFTY 50', name: 'NIFTY', lotSize: 25, strikeGap: 50 },
-  BANKNIFTY: { spotSymbol: 'NIFTY BANK', name: 'BANKNIFTY', lotSize: 15, strikeGap: 100 },
+  NIFTY:     { spotSymbol: 'NIFTY 50',   name: 'NIFTY',     lotSize: 25, strikeGap: 50,  spotExchange: 'NSE', optExchange: 'NFO' },
+  BANKNIFTY: { spotSymbol: 'NIFTY BANK', name: 'BANKNIFTY', lotSize: 15, strikeGap: 100, spotExchange: 'NSE', optExchange: 'NFO' },
+  SENSEX:    { spotSymbol: 'SENSEX',     name: 'SENSEX',    lotSize: 10, strikeGap: 100, spotExchange: 'BSE', optExchange: 'BFO' },
 };
 
 function formatOI(oi) { return (oi / 100000).toFixed(1) + 'L'; }
@@ -147,14 +148,19 @@ function findSupportResistance(optionData, spotPrice, config) {
   };
 }
 
-async function getNFOInstruments(dp) {
-  const cached = await redisGet(INSTRUMENTS_CACHE_KEY);
+// Valid option names per exchange
+const VALID_NAMES = {
+  NFO: new Set(['NIFTY', 'BANKNIFTY']),
+  BFO: new Set(['SENSEX']),
+};
+
+async function getOptionsInstruments(dp, exchange) {
+  const cacheKey = instrumentsCacheKey(exchange);
+  const cached   = await redisGet(cacheKey);
   if (cached) return cached;
 
   // Use raw CSV fetch + manual parse to avoid Kite SDK's fragile content-type check
-  // (SDK transformInstrumentsResponse uses === 'text/csv' exact match which breaks
-  //  when Kite returns 'text/csv; charset=utf-8', causing .filter() to throw)
-  const csvText = await dp.getInstrumentsCSV('NFO');
+  const csvText = await dp.getInstrumentsCSV(exchange);
   const lines   = csvText.trim().split('\n');
   const headers = lines[0].split(',');
 
@@ -164,16 +170,16 @@ async function getNFOInstruments(dp) {
   const strikeIdx = headers.indexOf('strike');
   const typeIdx   = headers.indexOf('instrument_type');
 
+  const validNames = VALID_NAMES[exchange] ?? new Set();
   const options = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',');
     const name = cols[nameIdx]?.replace(/"/g, '').trim();
     const type = cols[typeIdx]?.replace(/"/g, '').trim();
-    if ((name === 'NIFTY' || name === 'BANKNIFTY') && (type === 'CE' || type === 'PE')) {
+    if (validNames.has(name) && (type === 'CE' || type === 'PE')) {
       options.push({
         tradingsymbol:   cols[tsIdx]?.replace(/"/g, '').trim(),
         name,
-        // expiry from CSV is already 'YYYY-MM-DD' — no Date object involved
         expiry:          cols[expiryIdx]?.replace(/"/g, '').trim() || '',
         strike:          parseFloat(cols[strikeIdx]) || 0,
         instrument_type: type,
@@ -181,7 +187,7 @@ async function getNFOInstruments(dp) {
     }
   }
 
-  await redisSet(INSTRUMENTS_CACHE_KEY, options, INSTRUMENTS_CACHE_TTL);
+  await redisSet(cacheKey, options, INSTRUMENTS_CACHE_TTL);
   return options;
 }
 
@@ -272,12 +278,15 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Kite API not configured', pcr: null, maxPain: null, support: null, resistance: null });
     }
 
+    const spotKey      = `${config.spotExchange}:${config.spotSymbol}`;
+    const optExchange  = config.optExchange;
+    // Sensex has no futures on NFO; skip futSym fetch to avoid errors
     const [spotData, allOptions, futSym] = await Promise.all([
-      dp.getOHLC([`NSE:${config.spotSymbol}`]),
-      getNFOInstruments(dp),
-      resolveFutSymbol(dp, underlying),
+      dp.getOHLC([spotKey]),
+      getOptionsInstruments(dp, optExchange),
+      optExchange === 'NFO' ? resolveFutSymbol(dp, underlying) : Promise.resolve(null),
     ]);
-    const spotPrice = spotData[`NSE:${config.spotSymbol}`]?.last_price;
+    const spotPrice = spotData[spotKey]?.last_price;
     if (!spotPrice) throw new Error(`Could not fetch ${underlying} spot price`);
     const spot = spotPrice;
 
@@ -305,7 +314,7 @@ export async function GET(request) {
 
     if (relevantOptions.length === 0) throw new Error(`No ${underlying} option contracts found for ${expiryType} expiry`);
 
-    const quoteSymbols = relevantOptions.map(o => `NFO:${o.tradingsymbol}`);
+    const quoteSymbols = relevantOptions.map(o => `${optExchange}:${o.tradingsymbol}`);
     const allQuotes = {};
     const batches = [];
     for (let i = 0; i < quoteSymbols.length; i += 500) batches.push(quoteSymbols.slice(i, i + 500));
@@ -333,7 +342,7 @@ export async function GET(request) {
     // If all OI is zero (expiry day settlement / stale instruments cache), bust cache
     const isExpiryDayZeroOI = (totalCallOI === 0 || totalPutOI === 0) && relevantOptions.length > 0;
     if (isExpiryDayZeroOI) {
-      await redisSet(INSTRUMENTS_CACHE_KEY, null, 1); // force re-fetch next request
+      await redisSet(instrumentsCacheKey(optExchange), null, 1); // force re-fetch next request
     }
 
     const maxPain = calculateMaxPain(optionData, spotPrice, config);
