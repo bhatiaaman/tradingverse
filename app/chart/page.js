@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import OrderModal         from '@/app/components/OrderModal';
 import QuickOrder          from '@/app/components/QuickOrder';
 import WatchlistDrawer     from '@/app/components/WatchlistDrawer';
@@ -142,8 +142,7 @@ function parseOptionSymbol(sym) {
 // ── Inner chart component (uses useSearchParams) ──────────────────────────────
 function ChartPageInner() {
   const params    = useSearchParams();
-  const router    = useRouter();
-  const symbol    = params.get('symbol') || 'NIFTY';
+  const [symbol, setSymbol] = useState(() => params.get('symbol') || 'NIFTY');
   const atParam   = params.get('at')    || null;
   const atDirParam= params.get('atdir') || 'bull';
   const backParam = params.get('back');
@@ -230,9 +229,9 @@ function ChartPageInner() {
   const settingsBtnRef = useRef(null);
   const dropdownRef    = useRef(null);
   const chartRsiHRef   = useRef(80);
-  // Tracks which candles/interval/theme the current chart was created with.
+  // Tracks which candles/interval/theme/symbol the current chart was created with.
   // If these haven't changed, only overlays need updating — no destroy/recreate.
-  const chartCreatedForRef = useRef({ candles: null, interval: null, theme: null });
+  const chartCreatedForRef = useRef({ candles: null, interval: null, theme: null, symbol: null });
   const candlesRef  = useRef(null);  // Track latest candles without triggering React re-runs
   const smcCacheRef = useRef({ key: null, result: null }); // memoize computeSMC — O(n²), only rerun on new candles
 
@@ -257,7 +256,9 @@ function ChartPageInner() {
 
   // ── Fetch all data ──────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
-    setLoading(true);
+    // Only show loading overlay on initial load (no candles yet). For symbol
+    // switches the old chart stays visible while new data loads — no flash.
+    if (!candlesRef.current?.length) setLoading(true);
     const indexSymbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
     const indexRef = indexSymbols.includes(symbol) ? symbol : 'NIFTY';
 
@@ -308,9 +309,10 @@ function ChartPageInner() {
   };
 
   const handleSelectSymbol = (newSym) => {
-    const search = new URLSearchParams(window.location.search);
-    search.set('symbol', newSym);
-    router.push(`/chart?${search.toString()}`);
+    setSymbol(newSym);
+    const url = new URL(window.location.href);
+    url.searchParams.set('symbol', newSym);
+    window.history.pushState({}, '', url.toString());
   };
 
   // ── SL Clusters — fetch only when toggle is on ───────────────────────────────
@@ -586,12 +588,9 @@ function ChartPageInner() {
     const el         = containerRef.current;
     const isIntraday = chartInterval !== 'day' && chartInterval !== 'week';
     const cf         = chartCreatedForRef.current;
-    // Only recreate (which resets viewport) when interval, theme, or container changes, or on first load.
-    // Candle data refreshes (new reference on auto-refresh) are handled via updateCandles
-    // below — which preserves zoom/pan, unlike setCandles which calls fitContent.
-    // cf.el tracks the DOM node — if the container remounted (symbol change via key=), chart must be recreated.
+    // Recreate only when interval or theme changes (or first load).
+    // Symbol changes are handled via updateCandles + fitContent — no DOM remount needed.
     const needsRecreation = !chartRef.current
-      || cf.el        !== el
       || cf.interval  !== chartInterval
       || cf.theme     !== chartTheme;
 
@@ -601,7 +600,9 @@ function ChartPageInner() {
     if (!needsRecreation) {
       if (cf.candles !== candles) {
         chartRef.current.updateCandles(candles);
-        chartCreatedForRef.current = { ...cf, candles };
+        // Symbol switched → reset viewport to show full new chart
+        if (cf.symbol !== symbol) chartRef.current.fitContent();
+        chartCreatedForRef.current = { ...cf, candles, symbol };
       }
       applyOverlays_local(chartRef.current);
       if (atParam) {
@@ -619,7 +620,7 @@ function ChartPageInner() {
 
       const chart = createChart(el, { interval: chartInterval, theme: chartTheme });
       chartRef.current = chart;
-      chartCreatedForRef.current = { el, candles, interval: chartInterval, theme: chartTheme };
+      chartCreatedForRef.current = { el, candles, interval: chartInterval, theme: chartTheme, symbol };
 
       chart.onCrosshairMove(info => {
         if (info && info.y !== null) {
@@ -987,9 +988,9 @@ function ChartPageInner() {
 
         {/* Loading spinner */}
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center z-10 bg-[#0a0e1a]">
-            <div className="flex items-center gap-2 text-slate-400 text-sm">
-              <span className="w-4 h-4 border-2 border-slate-400 border-t-indigo-500 rounded-full animate-spin" />
+          <div className={`absolute inset-0 flex items-center justify-center z-10 ${chartTheme === 'light' ? 'bg-white' : 'bg-[#0a0e1a]'}`}>
+            <div className={`flex items-center gap-2 text-sm ${chartTheme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
+              <span className={`w-4 h-4 border-2 rounded-full animate-spin ${chartTheme === 'light' ? 'border-slate-300 border-t-indigo-500' : 'border-slate-400 border-t-indigo-500'}`} />
               Loading…
             </div>
           </div>
@@ -997,7 +998,7 @@ function ChartPageInner() {
 
         {/* Error state */}
         {!loading && candles.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center z-10 bg-[#0a0e1a]">
+          <div className={`absolute inset-0 flex items-center justify-center z-10 ${chartTheme === 'light' ? 'bg-white' : 'bg-[#0a0e1a]'}`}>
             <div className="flex flex-col items-center gap-4 bg-[#111827] border border-white/[0.12] rounded-2xl px-8 py-6">
               <span className="text-2xl">⚠</span>
               <div className="text-center">
@@ -1011,10 +1012,9 @@ function ChartPageInner() {
           </div>
         )}
 
-        {/* Chart canvas mount point — keyed so DOM is fresh on symbol/interval change */}
+        {/* Chart canvas mount point */}
         <div
           ref={containerRef}
-          key={`${symbol}-${chartInterval}`}
           className="w-full h-full"
         />
 

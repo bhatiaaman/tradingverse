@@ -20,6 +20,7 @@ export default function WatchlistDrawer({
   const isDark = theme === 'dark';
   const [activeListId, setActiveListId] = useState('fno');
   const [watchlists, setWatchlists] = useState(DEFAULT_LISTS);
+  const [initialized, setInitialized] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddList, setShowAddList] = useState(false);
@@ -47,13 +48,17 @@ export default function WatchlistDrawer({
     } catch (e) {
       console.error('Error loading watchlists:', e);
     }
+    setInitialized(true);
   }, []);
 
-  // 2. Persist Custom Lists to LocalStorage
+  // 2. Persist Custom Lists to LocalStorage — only after initial load has been applied.
+  // Without this guard, the effect fires on first render with DEFAULT_LISTS (empty),
+  // which would overwrite any saved data before the load effect has a chance to restore it.
   useEffect(() => {
+    if (!initialized) return;
     const toSave = watchlists.map(w => ({ id: w.id, name: w.name, symbols: w.symbols }));
     localStorage.setItem(LS_KEY, JSON.stringify(toSave));
-  }, [watchlists]);
+  }, [watchlists, initialized]);
 
   // 3. Auto-refresh timer (polls every 30s during market hours)
   useEffect(() => {
