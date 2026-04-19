@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server';
+import { sql } from '@/app/lib/db';
 import { requireSession, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS          = process.env.REDIS_NAMESPACE || 'default';
+const WATCHLIST_KEY = `${NS}:weekly-watchlist`;
+const MAX_WEEKS     = 12; // rolling 3-month display cap (older rows kept in DB)
 
-const WATCHLIST_KEY   = `${NS}:weekly-watchlist`;
-const ARCHIVE_INDEX   = `${NS}:weekly-watchlist:archive-index`;
-const MAX_WEEKS       = 12; // rolling 3-month cap
-
-// ── Redis helpers ──────────────────────────────────────────────────────────────
+// ── Redis helper (read-only — live watchlist is still in Redis) ───────────────
 async function redisGet(key) {
   try {
     const res  = await fetch(`${REDIS_URL}/get/${encodeURIComponent(key)}`, {
@@ -18,16 +17,6 @@ async function redisGet(key) {
     const data = await res.json();
     return data.result ? JSON.parse(data.result) : null;
   } catch { return null; }
-}
-
-async function redisSet(key, value) {
-  try {
-    await fetch(`${REDIS_URL}/`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(['SET', key, JSON.stringify(value)]),
-    });
-  } catch (err) { console.error('Redis set error:', err); }
 }
 
 // ── Week utilities ─────────────────────────────────────────────────────────────
@@ -41,10 +30,8 @@ function getISOWeekKey(date = new Date()) {
 }
 
 function getWeekLabel(isoWeekKey) {
-  // Parse "2025-W16" → Mon/Fri dates
   const [year, wPart] = isoWeekKey.split('-W');
   const weekNo = parseInt(wPart, 10);
-  // Jan 4 is always in week 1 per ISO
   const jan4 = new Date(Date.UTC(parseInt(year, 10), 0, 4));
   const dayOfWeek = jan4.getUTCDay() || 7;
   const week1Mon = new Date(jan4);
@@ -57,10 +44,29 @@ function getWeekLabel(isoWeekKey) {
   return `${fmt(mon)} – ${fmt(fri)} ${fri.getUTCFullYear()}`;
 }
 
-// ── GET /api/weekly-watchlist/archive
-// ?week=2025-W16  → load that week's snapshot
+// Derive the ISO week key for the week the stocks are FOR (from fridayCloseDate).
+// Stocks analysed on Friday's close are "for" the following Mon–Fri week.
+function getTargetWeekKey(watchlistData) {
+  const allStocks = [
+    ...(watchlistData.aiResearch      ?? []),
+    ...(watchlistData.expertsResearch ?? []),
+    ...(watchlistData.chartink        ?? []),
+  ];
+  const dates = allStocks.map(s => s.fridayCloseDate).filter(Boolean).sort();
+  if (!dates.length) return getISOWeekKey();
+
+  const friday     = new Date(dates[dates.length - 1]);
+  const nextMonday = new Date(Date.UTC(
+    friday.getUTCFullYear(),
+    friday.getUTCMonth(),
+    friday.getUTCDate() + 3,
+  ));
+  return getISOWeekKey(nextMonday);
+}
+
+// ── GET /api/weekly-watchlist/archive ─────────────────────────────────────────
+// ?week=2026-W17  → load that week's snapshot
 // (no params)     → return index of saved weeks with labels
-// ─────────────────────────────────────────────────────────────────────────────
 export async function GET(request) {
   const { session, error } = await requireSession();
   if (error === 'database_error') return serviceUnavailable(error);
@@ -69,49 +75,43 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const weekParam = searchParams.get('week');
 
-  if (weekParam) {
-    // Load specific week's snapshot
-    const snapshot = await redisGet(`${NS}:weekly-watchlist:archive:${weekParam}`);
-    if (!snapshot) {
-      return NextResponse.json({ error: 'Week not found' }, { status: 404 });
+  try {
+    if (weekParam) {
+      const rows = await sql`
+        SELECT week_key, week_label, snapshot
+        FROM weekly_watchlist_archive
+        WHERE week_key = ${weekParam}
+        LIMIT 1
+      `;
+      if (!rows.length) return NextResponse.json({ error: 'Week not found' }, { status: 404 });
+      const row = rows[0];
+      return NextResponse.json({
+        week:     row.week_key,
+        label:    row.week_label ?? getWeekLabel(row.week_key),
+        snapshot: row.snapshot,
+      });
     }
-    return NextResponse.json({ week: weekParam, label: getWeekLabel(weekParam), snapshot });
+
+    // Return index — most recent MAX_WEEKS entries
+    const rows = await sql`
+      SELECT week_key, week_label
+      FROM weekly_watchlist_archive
+      ORDER BY saved_at DESC
+      LIMIT ${MAX_WEEKS}
+    `;
+    const index  = rows.map(r => r.week_key);
+    const labels = Object.fromEntries(rows.map(r => [r.week_key, r.week_label ?? getWeekLabel(r.week_key)]));
+    return NextResponse.json({ index, labels });
+
+  } catch (err) {
+    console.error('[archive GET]', err.message);
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
-
-  // Return index
-  const index = await redisGet(ARCHIVE_INDEX) ?? [];
-  const labels = {};
-  index.forEach(k => { labels[k] = getWeekLabel(k); });
-  return NextResponse.json({ index, labels });
 }
 
-// ── Derive the ISO week key for the week these stocks are FOR.
-// Uses fridayCloseDate from the stock entries — the stocks are analysed on
-// Friday's close and are "for" the following Mon–Fri week.
-// Falls back to current calendar week if no fridayCloseDate is present.
-function getTargetWeekKey(watchlistData) {
-  const allStocks = [
-    ...(watchlistData.aiResearch      ?? []),
-    ...(watchlistData.expertsResearch ?? []),
-    ...(watchlistData.chartink        ?? []),
-  ];
-  const dates = allStocks.map(s => s.fridayCloseDate).filter(Boolean).sort();
-  if (!dates.length) return getISOWeekKey(); // fallback
-
-  // friday = most recent fridayCloseDate; target week starts next Monday
-  const friday     = new Date(dates[dates.length - 1]);
-  const nextMonday = new Date(Date.UTC(
-    friday.getUTCFullYear(),
-    friday.getUTCMonth(),
-    friday.getUTCDate() + 3, // Friday + 3 = Monday
-  ));
-  return getISOWeekKey(nextMonday);
-}
-
-// ── POST /api/weekly-watchlist/archive
-// Snapshots the current live watchlist using the week the stocks are FOR
+// ── POST /api/weekly-watchlist/archive ────────────────────────────────────────
+// Snapshots the current live watchlist under the week the stocks are FOR
 // (derived from fridayCloseDate), not the current calendar week.
-// ─────────────────────────────────────────────────────────────────────────────
 export async function POST() {
   const { session, error } = await requireSession();
   if (error === 'database_error') return serviceUnavailable(error);
@@ -119,42 +119,28 @@ export async function POST() {
   if (session.role !== 'admin') return forbidden();
 
   try {
-    // Fetch current live watchlist
     const current = await redisGet(WATCHLIST_KEY);
     if (!current) {
       return NextResponse.json({ error: 'No watchlist to archive' }, { status: 400 });
     }
 
-    // Use the week the stocks are FOR (from fridayCloseDate), not today's week
-    const weekKey     = getTargetWeekKey(current);
-    const calWeekKey  = getISOWeekKey(); // current calendar week
-    const archiveKey  = `${NS}:weekly-watchlist:archive:${weekKey}`;
+    const weekKey   = getTargetWeekKey(current);
+    const weekLabel = getWeekLabel(weekKey);
+    const snapshot  = { ...current, savedAt: new Date().toISOString(), weekLabel };
 
-    // Save snapshot
-    await redisSet(archiveKey, {
-      ...current,
-      savedAt:   new Date().toISOString(),
-      weekLabel: getWeekLabel(weekKey),
-    });
+    await sql`
+      INSERT INTO weekly_watchlist_archive (week_key, week_label, snapshot, saved_at, updated_at)
+      VALUES (${weekKey}, ${weekLabel}, ${JSON.stringify(snapshot)}, now(), now())
+      ON CONFLICT (week_key) DO UPDATE SET
+        week_label = EXCLUDED.week_label,
+        snapshot   = EXCLUDED.snapshot,
+        updated_at = now()
+    `;
 
-    // Update index (prepend, dedupe, cap at MAX_WEEKS)
-    let index = await redisGet(ARCHIVE_INDEX) ?? [];
+    return NextResponse.json({ success: true, week: weekKey, label: weekLabel });
 
-    // If the calendar-week key differs from the target-week key, remove the
-    // stale calendar-week entry from the index (prevents ghost entries).
-    if (calWeekKey !== weekKey) {
-      index = index.filter(k => k !== calWeekKey);
-    }
-
-    index = [weekKey, ...index.filter(k => k !== weekKey)].slice(0, MAX_WEEKS);
-    await redisSet(ARCHIVE_INDEX, index);
-
-    return NextResponse.json({
-      success: true,
-      week:    weekKey,
-      label:   getWeekLabel(weekKey),
-    });
   } catch (err) {
+    console.error('[archive POST]', err.message);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

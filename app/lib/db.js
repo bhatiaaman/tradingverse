@@ -121,5 +121,18 @@ export async function migrateSchema() {
     )
   `;
 
+  // Weekly watchlist archives — permanent record, one row per ISO week.
+  // Moved from Redis (volatile) to Neon so snapshots survive key eviction.
+  await sql`
+    CREATE TABLE IF NOT EXISTS weekly_watchlist_archive (
+      week_key   TEXT PRIMARY KEY,
+      week_label TEXT,
+      snapshot   JSONB NOT NULL,
+      saved_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS wwa_saved_at_idx ON weekly_watchlist_archive (saved_at DESC)`;
+
   console.log('[db] schema migration complete');
 }
