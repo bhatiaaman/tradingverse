@@ -107,12 +107,14 @@ export default function SymbolSearch({ symbol, onSelectSymbol, navMode = false, 
       return (
         <button
           onClick={openSearch}
-          className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-white/[0.07] border border-slate-200 dark:border-white/10 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:border-slate-300 dark:hover:border-white/20 transition-all"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-white/[0.07] border border-slate-200 dark:border-white/10 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:border-slate-300 dark:hover:border-white/20 transition-all text-xs"
           title="Search symbol (⌘K)"
         >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
             <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
           </svg>
+          <span className="text-slate-500 dark:text-slate-400">Search</span>
+          <kbd className="hidden lg:inline-flex items-center text-[10px] font-mono text-slate-400 dark:text-slate-600 bg-slate-200 dark:bg-white/[0.06] px-1 py-px rounded">⌘K</kbd>
         </button>
       );
     }
