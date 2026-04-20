@@ -1,75 +1,60 @@
 import { NextResponse } from 'next/server'
-import { Redis } from '@upstash/redis'
-import { cookies } from 'next/headers'
+import { sql } from '@/app/lib/db'
+import { requireOwner, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session'
 
-const redis = new Redis({
-  url:   process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
-})
-
-const NS          = process.env.REDIS_NAMESPACE || 'tradingverse'
-const OWNER_EMAIL = process.env.OWNER_EMAIL?.toLowerCase().trim()
-const FLAGS_KEY   = `${NS}:feature-flags`
+const CONFIG_KEY = 'feature-flags'
 
 export const PAGES = [
-  { key: 'trades',         label: 'Trading Dashboard'  },
-  { key: 'terminal',       label: 'Live Terminal'       },
-  { key: 'pre-market',     label: 'Pre-Market'          },
-  { key: 'options',        label: 'Options'             },
+  { key: 'trades',         label: 'Trading Dashboard'       },
+  { key: 'terminal',       label: 'Live Terminal'            },
+  { key: 'pre-market',     label: 'Pre-Market'               },
+  { key: 'options',        label: 'Options'                  },
   { key: 'options-expiry', label: 'Options Expiry Dashboard' },
-  { key: 'investing',      label: 'Investing'           },
-  { key: 'learn',          label: 'Learn'               },
-  { key: 'games',          label: 'Trading Games'       },
-  { key: 'orders',         label: 'Orders'              },
-  { key: 'settings',       label: 'Settings'            },
-  { key: 'stock-updates',  label: 'Chartink Scanner'    },
+  { key: 'investing',      label: 'Investing'                },
+  { key: 'learn',          label: 'Learn'                    },
+  { key: 'games',          label: 'Trading Games'            },
+  { key: 'orders',         label: 'Orders'                   },
+  { key: 'settings',       label: 'Settings'                 },
+  { key: 'stock-updates',  label: 'Chartink Scanner'         },
 ]
 
-// Default: visitors blocked, logged-in free users allowed.
-// Set free:false on a page to make it pro-only.
 export const DEFAULTS = Object.fromEntries(
   PAGES.map(p => [p.key, { visitor: false, free: true }])
 )
 
-async function requireAdmin() {
-  const cookieStore = await cookies()
-  const token = cookieStore.get('tv_session')?.value
-  if (!token) return null
-  const email = await redis.get(`${NS}:session:${token}`)
-  if (!email || String(email).toLowerCase() !== OWNER_EMAIL) return null
-  return email
+async function getFlags() {
+  const rows = await sql`SELECT value FROM system_config WHERE key = ${CONFIG_KEY}`
+  const saved = rows[0]?.value ?? {}
+  const hasExplicitFreeAccess = Object.values(saved).some(f => f?.free === true)
+  return hasExplicitFreeAccess ? { ...DEFAULTS, ...saved } : { ...DEFAULTS }
 }
 
-// GET — return current flags merged with defaults
 export async function GET() {
-  const admin = await requireAdmin()
-  if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const { session, error } = await requireOwner()
+  if (error)    return serviceUnavailable(error)
+  if (!session) return forbidden()
 
-  const raw   = await redis.get(FLAGS_KEY)
-  const saved = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : {}
-
-  // If no page has free:true, stored data is the old default state — migrate to new defaults
-  const hasExplicitFreeAccess = Object.values(saved).some(f => f?.free === true)
-  const flags = hasExplicitFreeAccess ? { ...DEFAULTS, ...saved } : { ...DEFAULTS }
-
+  const flags = await getFlags()
   return NextResponse.json({ flags, pages: PAGES })
 }
 
-// PATCH — update a single flag: { page, userType: 'visitor'|'free', enabled }
 export async function PATCH(req) {
-  const admin = await requireAdmin()
-  if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const { session, error } = await requireOwner()
+  if (error)    return serviceUnavailable(error)
+  if (!session) return forbidden()
 
   const { page, userType, enabled } = await req.json()
   if (!page || !['visitor', 'free'].includes(userType) || typeof enabled !== 'boolean') {
     return NextResponse.json({ error: 'Invalid params' }, { status: 400 })
   }
 
-  const raw   = await redis.get(FLAGS_KEY)
-  const flags = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : { ...DEFAULTS }
-
+  const flags = await getFlags()
   flags[page] = { ...(flags[page] || { visitor: false, free: false }), [userType]: enabled }
-  await redis.set(FLAGS_KEY, JSON.stringify(flags))
 
+  await sql`
+    INSERT INTO system_config (key, value, updated_at)
+    VALUES (${CONFIG_KEY}, ${JSON.stringify(flags)}, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+  `
   return NextResponse.json({ ok: true })
 }

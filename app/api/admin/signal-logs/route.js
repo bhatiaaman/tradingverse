@@ -1,25 +1,22 @@
 import { NextResponse } from 'next/server';
-import { redis } from '@/app/lib/redis';
-
-const NS  = process.env.REDIS_NAMESPACE || 'default';
-const KEY = `${NS}:signal-logs`;
-const MAX = 300;
+import { sql } from '@/app/lib/db';
 
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
-    const n    = Math.min(parseInt(searchParams.get('n') || '100'), MAX);
+    const n    = Math.min(parseInt(searchParams.get('n') || '100'), 300);
     const type = searchParams.get('type'); // 'SC' | 'THIRD_EYE' | null = all
 
-    const raw = await redis.lrange(KEY, 0, MAX - 1);
-    let entries = raw.map(e => {
-      try { return typeof e === 'string' ? JSON.parse(e) : e; }
-      catch { return null; }
-    }).filter(Boolean);
+    const rows = type
+      ? await sql`SELECT id, type, ts, symbol, data, created_at FROM signal_logs WHERE type = ${type} ORDER BY ts DESC LIMIT ${n}`
+      : await sql`SELECT id, type, ts, symbol, data, created_at FROM signal_logs ORDER BY ts DESC LIMIT ${n}`;
 
-    if (type) entries = entries.filter(e => e.type === type);
+    const countRow = type
+      ? await sql`SELECT COUNT(*) AS c FROM signal_logs WHERE type = ${type}`
+      : await sql`SELECT COUNT(*) AS c FROM signal_logs`;
 
-    return NextResponse.json({ entries: entries.slice(0, n), total: entries.length });
+    const entries = rows.map(r => ({ ...r.data, type: r.type, ts: r.ts, symbol: r.symbol }));
+    return NextResponse.json({ entries, total: Number(countRow[0]?.c ?? 0) });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -31,8 +28,11 @@ export async function POST(req) {
     if (!body?.type || !body?.ts) {
       return NextResponse.json({ error: 'Missing type or ts' }, { status: 400 });
     }
-    await redis.lpush(KEY, JSON.stringify(body));
-    await redis.ltrim(KEY, 0, MAX - 1);
+    const { type, ts, symbol = null, ...rest } = body;
+    await sql`
+      INSERT INTO signal_logs (type, ts, symbol, data)
+      VALUES (${type}, ${ts}, ${symbol}, ${JSON.stringify(rest)})
+    `;
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });

@@ -134,5 +134,40 @@ export async function migrateSchema() {
   `;
   await sql`CREATE INDEX IF NOT EXISTS wwa_saved_at_idx ON weekly_watchlist_archive (saved_at DESC)`;
 
+  // Generic key-value config store — replaces Redis for feature-flags,
+  // active_broker, eye-settings, third-eye settings.
+  await sql`
+    CREATE TABLE IF NOT EXISTS system_config (
+      key        TEXT PRIMARY KEY,
+      value      JSONB NOT NULL DEFAULT '{}',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  // Per-user game progress — replaces Redis game-progress:{email} keys.
+  await sql`
+    CREATE TABLE IF NOT EXISTS game_progress (
+      email      TEXT NOT NULL,
+      game       TEXT NOT NULL,
+      data       JSONB NOT NULL DEFAULT '{}',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (email, game)
+    )
+  `;
+
+  // Signal logs — SC + Third Eye setups. Replaces Redis list.
+  await sql`
+    CREATE TABLE IF NOT EXISTS signal_logs (
+      id         SERIAL PRIMARY KEY,
+      type       TEXT NOT NULL,
+      ts         BIGINT NOT NULL,
+      symbol     TEXT,
+      data       JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS signal_logs_type_idx ON signal_logs (type)`;
+  await sql`CREATE INDEX IF NOT EXISTS signal_logs_ts_idx   ON signal_logs (ts DESC)`;
+
   console.log('[db] schema migration complete');
 }

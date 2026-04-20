@@ -147,7 +147,10 @@ export async function POST(request) {
   // This prevents a client-side bug from ever firing a real Zerodha order while
   // Paper Trading mode is enabled.
   let activeBroker = 'kite';
-  try { activeBroker = (await redis.get('tradingverse:active_broker')) || 'kite'; } catch { /* default kite */ }
+  try {
+    const rows = await sql`SELECT value FROM system_config WHERE key = 'active_broker'`;
+    activeBroker = rows[0]?.value?.broker ?? 'kite';
+  } catch { /* default kite */ }
   const isPaperMode = activeBroker === 'paper';
 
   if (isPaperMode) {

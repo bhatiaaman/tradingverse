@@ -1,58 +1,36 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { sql } from '@/app/lib/db';
+import { requireOwner, forbidden, serviceUnavailable } from '@/app/lib/session';
 
-const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const NS          = process.env.REDIS_NAMESPACE || 'default';
-const OWNER_EMAIL = process.env.OWNER_EMAIL?.toLowerCase().trim();
-const CONFIG_KEY  = `${NS}:eye-setup-config`;
+const CONFIG_KEY = 'eye-setup-config';
 
-async function redisGet(key) {
-  try {
-    const res  = await fetch(`${REDIS_URL}/get/${encodeURIComponent(key)}`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` }, cache: 'no-store',
-    });
-    const data = await res.json();
-    if (!data.result) return null;
-    try { return JSON.parse(data.result); } catch { return data.result; }
-  } catch { return null; }
-}
+export async function GET() {
+  const { session, error } = await requireOwner();
+  if (error)    return serviceUnavailable(error);
+  if (!session) return forbidden();
 
-async function redisSet(key, value) {
-  try {
-    const enc = encodeURIComponent(JSON.stringify(value));
-    await fetch(`${REDIS_URL}/set/${encodeURIComponent(key)}/${enc}`, {
-      method: 'GET', headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-    });
-  } catch {}
-}
-
-async function getAdminEmail(req) {
-  const token = req.cookies.get('tv_session')?.value;
-  if (!token) return null;
-  const email = await redisGet(`${NS}:session:${token}`);
-  if (!email) return null;
-  return String(email).toLowerCase() === OWNER_EMAIL ? email : null;
-}
-
-export async function GET(req) {
-  const email = await getAdminEmail(req);
-  if (!email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const config = await redisGet(CONFIG_KEY) || {};
+  const rows   = await sql`SELECT value FROM system_config WHERE key = ${CONFIG_KEY}`;
+  const config = rows[0]?.value ?? {};
   return NextResponse.json({ config });
 }
 
 export async function POST(req) {
-  const email = await getAdminEmail(req);
-  if (!email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { session, error } = await requireOwner();
+  if (error)    return serviceUnavailable(error);
+  if (!session) return forbidden();
+
+  let body;
   try {
-    const body = await req.json();
-    if (typeof body !== 'object' || Array.isArray(body)) {
-      return NextResponse.json({ error: 'Invalid config' }, { status: 400 });
-    }
-    await redisSet(CONFIG_KEY, body);
-    return NextResponse.json({ ok: true });
+    body = await req.json();
+    if (typeof body !== 'object' || Array.isArray(body)) throw new Error();
   } catch {
-    return NextResponse.json({ error: 'Bad request' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid config' }, { status: 400 });
   }
+
+  await sql`
+    INSERT INTO system_config (key, value, updated_at)
+    VALUES (${CONFIG_KEY}, ${JSON.stringify(body)}, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+  `;
+  return NextResponse.json({ ok: true });
 }

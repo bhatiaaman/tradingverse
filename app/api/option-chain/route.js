@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { detectMarketActivity, generateActionableInsights } from './lib/market-activity-detector.js';
 import { getDataProvider } from '@/app/lib/providers';
+import { sql } from '@/app/lib/db';
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -26,18 +27,11 @@ async function redisSet(key, value, exSeconds) {
   } catch (e) { console.error('Redis set error:', e); }
 }
 
-async function redisLog(entry) {
-  const key = `${NS}:signal-logs`;
+async function neonLog(entry) {
+  const { type, ts, symbol = null, ...rest } = entry;
   try {
-    await fetch(`${REDIS_URL}/pipeline`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify([
-        ['LPUSH', key, JSON.stringify(entry)],
-        ['LTRIM', key, 0, 299],
-      ]),
-    });
-  } catch (e) { console.error('[signal-log] redis error:', e); }
+    await sql`INSERT INTO signal_logs (type, ts, symbol, data) VALUES (${type}, ${ts}, ${symbol}, ${JSON.stringify(rest)})`;
+  } catch (e) { console.error('[signal-log] neon error:', e.message); }
 }
 
 function isMarketHours() {
@@ -473,7 +467,7 @@ export async function GET(request) {
 
     // ── Log Short Covering to admin signal log ──
     if (marketActivity?.activity === 'Short Covering' && marketActivity.strength >= 4) {
-      redisLog({
+      neonLog({
         type: 'SC',
         ts: Date.now(),
         symbol: underlying,
