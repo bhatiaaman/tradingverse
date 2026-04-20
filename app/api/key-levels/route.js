@@ -1,27 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/app/lib/providers';
+import { cachedRedisGet as redisGet, cachedRedisSet as redisSet } from '@/app/lib/cached-redis';
 
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS = process.env.REDIS_NAMESPACE || 'default';
-
-async function redisGet(key) {
-  try {
-    const res = await fetch(`${REDIS_URL}/get/${key}`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-    });
-    const data = await res.json();
-    return data.result ? JSON.parse(data.result) : null;
-  } catch { return null; }
-}
-
-async function redisSet(key, value, exSeconds) {
-  try {
-    const encoded = encodeURIComponent(JSON.stringify(value));
-    const url = `${REDIS_URL}/set/${key}/${encoded}?ex=${exSeconds}`;
-    await fetch(url, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
-  } catch { /* ignore */ }
-}
 
 const INSTRUMENTS = {
   NIFTY:     { token: 256265, ohlcKey: 'NSE:NIFTY 50' },

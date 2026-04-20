@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/app/lib/providers';
 import { computeVWAP } from '@/app/lib/chart-indicators';
+import { cachedRedisGet as redisGet, cachedRedisSet as redisSet } from '@/app/lib/cached-redis';
 
-const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS          = process.env.REDIS_NAMESPACE || 'default';
 
 const NIFTY_TOKEN  = 256265; // NSE:NIFTY 50 index token
@@ -14,24 +13,6 @@ const RESULT_TTL   = 55;     // 55s cache — one tick behind the 60s poll
 const SCORE_THRESHOLD = 7;
 const MAX_SCORE       = 13;
 const IST_OFF_MS      = 5.5 * 3600 * 1000;
-
-// ── Redis helpers ──────────────────────────────────────────────────────────────
-async function redisGet(key) {
-  try {
-    const res  = await fetch(`${REDIS_URL}/get/${key}`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
-    const data = await res.json();
-    return data.result ? JSON.parse(data.result) : null;
-  } catch { return null; }
-}
-
-async function redisSet(key, value, exSeconds) {
-  try {
-    const encoded = encodeURIComponent(JSON.stringify(value));
-    await fetch(`${REDIS_URL}/set/${key}/${encoded}?ex=${exSeconds}`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-    });
-  } catch { /* silent */ }
-}
 
 // ── Resolve NIFTY near-month futures { ts, token } ────────────────────────────
 // Returns both tradingsymbol (for getQuote/OI) and instrument_token (for getHistoricalData)

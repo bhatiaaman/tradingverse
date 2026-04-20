@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/app/lib/providers';
+import { cachedRedisGet as redisGet, cachedRedisSet as redisSet } from '@/app/lib/cached-redis';
 
-const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS          = process.env.REDIS_NAMESPACE || 'default';
 const CACHE_KEY   = `${NS}:fno-movers`;
 const CACHE_TTL   = 90; // 90s — matches UI poll interval
@@ -11,23 +10,6 @@ function isWeekend() {
   const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   const day = ist.getUTCDay(); // 0 = Sun, 6 = Sat in IST
   return day === 0 || day === 6;
-}
-
-async function redisGet(key) {
-  try {
-    const res  = await fetch(`${REDIS_URL}/get/${key}`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
-    const data = await res.json();
-    return data.result ? JSON.parse(data.result) : null;
-  } catch { return null; }
-}
-
-async function redisSet(key, value, exSeconds) {
-  try {
-    const encoded = encodeURIComponent(JSON.stringify(value));
-    await fetch(`${REDIS_URL}/set/${key}/${encoded}?ex=${exSeconds}`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-    });
-  } catch (e) { console.error('Redis set error:', e); }
 }
 
 // Curated list of liquid FnO stocks

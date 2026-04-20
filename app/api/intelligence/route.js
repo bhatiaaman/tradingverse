@@ -10,28 +10,10 @@ import { NextResponse }     from 'next/server';
 import { getIntelligence }  from '@/app/lib/intelligence/manager.js';
 import { requireSession, unauthorized, serviceUnavailable } from '@/app/lib/session';
 import { intelligenceLimiter, checkLimit } from '@/app/lib/rate-limit';
+import { cachedRedisGet as redisGet, cachedRedisSet as redisSet } from '@/app/lib/cached-redis';
 
-const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS          = process.env.REDIS_NAMESPACE || 'default';
 const CACHE_TTL   = 180; // 3 minutes
-
-async function redisGet(key) {
-  try {
-    const res  = await fetch(`${REDIS_URL}/get/${key}`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
-    const data = await res.json();
-    return data.result ? JSON.parse(data.result) : null;
-  } catch { return null; }
-}
-
-async function redisSet(key, value, ttl) {
-  try {
-    const encoded = encodeURIComponent(JSON.stringify(value));
-    await fetch(`${REDIS_URL}/set/${key}/${encoded}?ex=${ttl}`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-    });
-  } catch { /* silent */ }
-}
 
 function baseUrl(req) {
   const url = new URL(req.url);

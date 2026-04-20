@@ -10,35 +10,11 @@ import { getDataProvider } from '@/app/lib/providers';
 import { detectReversalZone } from './lib/reversal-detector.js';
 import { detectIntradayRegime } from '@/app/api/market-regime/intraday.js';
 import { trackRedis } from '@/app/lib/redis-tracker';
+import { cachedRedisGet as redisGet, cachedRedisSet as redisSet } from '@/app/lib/cached-redis';
 
-const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS          = process.env.REDIS_NAMESPACE || 'default';
 
 const NIFTY_TOKEN = 256265;
-
-// ─────────────────────────────────────────────────────────────────────
-// Redis helpers
-// ─────────────────────────────────────────────────────────────────────
-async function redisGet(key) {
-  try {
-    const res  = await fetch(`${REDIS_URL}/get/${key}`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-    });
-    const data = await res.json();
-    return data.result ? JSON.parse(data.result) : null;
-  } catch { return null; }
-}
-
-async function redisSet(key, value, exSeconds) {
-  try {
-    const encoded = encodeURIComponent(JSON.stringify(value));
-    const url = exSeconds
-      ? `${REDIS_URL}/set/${key}/${encoded}?ex=${exSeconds}`
-      : `${REDIS_URL}/set/${key}/${encoded}`;
-    await fetch(url, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
-  } catch (e) { console.error('Redis set error:', e); }
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // Market hours helpers
