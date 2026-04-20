@@ -41,6 +41,14 @@ async function redisCmd(...args) {
 
 // Poll queue with RPOP — Upstash REST doesn't support blocking BRPOP reliably
 // (infinite BRPOP causes EOF when Upstash closes the HTTP connection after ~30s)
+// Adaptive backoff: fast during market hours (1s), slow otherwise (10s).
+// This keeps daily Redis calls ~30k vs ~108k at flat 800ms 24/7.
+function marketHoursPollMs() {
+  const ist  = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  return (mins >= 555 && mins <= 930) ? 1000 : 10000; // 9:15–15:30 IST = fast
+}
+
 async function brpop(key) {
   while (true) {
     const res  = await fetch(`${REDIS_URL}/rpop/${encodeURIComponent(key)}`, {
@@ -49,8 +57,7 @@ async function brpop(key) {
     const json = await res.json();
     if (json.error) throw new Error(`Redis rpop error: ${json.error}`);
     if (json.result !== null && json.result !== undefined) return json.result;
-    // Nothing in queue — wait 800ms before next poll
-    await new Promise(r => setTimeout(r, 800));
+    await new Promise(r => setTimeout(r, marketHoursPollMs()));
   }
 }
 
