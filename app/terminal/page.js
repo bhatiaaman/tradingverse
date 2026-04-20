@@ -1168,8 +1168,125 @@ function AddSLModal({ position, onClose, onPlaced }) {
   );
 }
 
+
+function ExitModal({ position, onClose, onPlaced }) {
+  const isLong = (position.quantity || 0) > 0;
+  const side   = isLong ? 'SELL' : 'BUY';
+  const qty    = Math.abs(position.quantity);
+  const ltp    = position.last_price || 0;
+
+  const [orderType, setOrderType] = useState('MARKET'); // 'MARKET' | 'LIMIT'
+  const [price,     setPrice]     = useState(ltp.toFixed(2));
+  const [placing,   setPlacing]   = useState(false);
+  const [error,     setError]     = useState('');
+
+  const pnl = position.pnl || 0;
+
+  async function place() {
+    setPlacing(true);
+    setError('');
+    try {
+      const body = {
+        tradingsymbol:    position.tradingsymbol,
+        exchange:         position.exchange || 'NSE',
+        transaction_type: side,
+        quantity:         qty,
+        order_type:       orderType,
+        product:          position.product,
+        variety:          'regular',
+      };
+      if (orderType === 'LIMIT') body.price = Number(price);
+      const r = await fetch('/api/place-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!d.success) throw new Error(d.error || 'Order failed');
+      onPlaced();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPlacing(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl p-5 w-80 border border-gray-200 dark:border-white/10" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">Exit Position</p>
+            <p className="text-xs text-gray-400">
+              {position.tradingsymbol} · {side} · {qty} qty
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-lg leading-none">×</button>
+        </div>
+
+        {/* P&L snapshot */}
+        <div className={`flex items-center justify-between px-3 py-2 rounded-lg mb-4 text-xs font-mono ${
+          pnl >= 0 ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400'
+                   : 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400'
+        }`}>
+          <span>Unrealised P&L</span>
+          <span className="font-bold">{pnl >= 0 ? '+' : ''}₹{pnl.toFixed(2)}</span>
+        </div>
+
+        {/* Order type toggle */}
+        <div className="flex bg-gray-100 dark:bg-white/5 rounded-lg p-0.5 mb-4">
+          {['MARKET', 'LIMIT'].map(t => (
+            <button
+              key={t}
+              onClick={() => setOrderType(t)}
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                orderType === t
+                  ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-500 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/60'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* Limit price input */}
+        {orderType === 'LIMIT' && (
+          <div className="mb-4">
+            <label className="text-xs text-gray-500 dark:text-white/50 block mb-1">Limit Price</label>
+            <input
+              type="number" step="0.05" value={price}
+              onChange={e => setPrice(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-400 mt-1">LTP: ₹{ltp.toFixed(2)} · Avg: ₹{position.average_price?.toFixed(2)}</p>
+          </div>
+        )}
+        {orderType === 'MARKET' && (
+          <p className="text-xs text-gray-400 mb-4">LTP: ₹{ltp.toFixed(2)} · Avg: ₹{position.average_price?.toFixed(2)} · Order executes at best available price.</p>
+        )}
+
+        {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+
+        <button
+          onClick={place} disabled={placing}
+          className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 ${
+            isLong
+              ? 'bg-red-600 hover:bg-red-700 text-white'
+              : 'bg-green-600 hover:bg-green-700 text-white'
+          }`}
+        >
+          {placing ? 'Placing…' : `Exit ${side} @ ${orderType === 'MARKET' ? 'MKT' : `₹${price}`}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) {
-  const [slModal, setSlModal] = useState(null); // position object or null
+  const [slModal,   setSlModal]   = useState(null); // position object or null
+  const [exitModal, setExitModal] = useState(null); // position object or null
 
   const unprotected = positions.filter(p => p.quantity !== 0 && !hasSL(p, openOrders));
 
@@ -1209,6 +1326,7 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
                 <th className="text-right pb-2 font-medium">LTP</th>
                 <th className="text-right pb-2 font-medium">P&amp;L</th>
                 <th className="text-right pb-2 font-medium">SL</th>
+                <th className="text-right pb-2 font-medium">Exit</th>
               </tr>
             </thead>
             <tbody>
@@ -1216,6 +1334,7 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
                 const pnl      = p.pnl || 0;
                 const hasStop  = p.quantity !== 0 && hasSL(p, openOrders);
                 const noStop   = p.quantity !== 0 && !hasStop;
+                const isClosed = p.quantity === 0;
                 return (
                   <tr key={p.tradingsymbol} className="border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                     <td className="py-2.5 font-medium text-gray-900 dark:text-white">{p.tradingsymbol}</td>
@@ -1226,7 +1345,7 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
                       {pnl >= 0 ? '+' : ''}₹{pnl.toFixed(2)}
                     </td>
                     <td className="py-2.5 text-right">
-                      {p.quantity === 0 ? (
+                      {isClosed ? (
                         <span className="text-gray-300 dark:text-white/20">—</span>
                       ) : hasStop ? (
                         <span className="text-green-600 dark:text-green-400 text-xs">✓</span>
@@ -1236,6 +1355,18 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
                           className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/30 transition-colors text-xs font-medium"
                         >
                           + SL
+                        </button>
+                      )}
+                    </td>
+                    <td className="py-2.5 text-right">
+                      {isClosed ? (
+                        <span className="text-gray-300 dark:text-white/20">—</span>
+                      ) : (
+                        <button
+                          onClick={() => setExitModal(p)}
+                          className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/30 transition-colors text-xs font-semibold"
+                        >
+                          Exit
                         </button>
                       )}
                     </td>
@@ -1252,6 +1383,13 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
           position={slModal}
           onClose={() => setSlModal(null)}
           onPlaced={() => { setSlModal(null); onRefresh(); }}
+        />
+      )}
+      {exitModal && (
+        <ExitModal
+          position={exitModal}
+          onClose={() => setExitModal(null)}
+          onPlaced={() => { setExitModal(null); onRefresh(); }}
         />
       )}
     </div>
