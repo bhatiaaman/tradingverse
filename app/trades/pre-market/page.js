@@ -62,6 +62,148 @@ export default function PreMarketPage() {
   const [selectedIndex, setSelectedIndex] = useState('NIFTY');
   const [selectedPivotType, setSelectedPivotType] = useState('standard');
 
+  // Intraday Breakouts State
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [intradayWatchlist, setIntradayWatchlist] = useState([]);
+  const [isEditingIntraday, setIsEditingIntraday] = useState(false);
+  const [jsonInputIntraday, setJsonInputIntraday] = useState('[\n\n]');
+  const [intradaySaveStatus, setIntradaySaveStatus] = useState('');
+  const [copiedIntradayPrompt, setCopiedIntradayPrompt] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/user')
+      .then(res => res.json())
+      .then(d => setIsAdmin(d.user?.role === 'admin'))
+      .catch(() => {});
+      
+    fetchIntradayWatchlist();
+  }, []);
+
+  const fetchIntradayWatchlist = async () => {
+    try {
+      const res = await fetch('/api/pre-market/intraday-watchlist');
+      const data = await res.json();
+      if (data.success) {
+        setIntradayWatchlist(data.data || []);
+      }
+    } catch (e) {
+      console.error('Failed to load intraday watchlist:', e);
+    }
+  };
+
+  const handleCopyIntradayPrompt = () => {
+    const istNow = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000);
+    const dateStr = istNow.toLocaleString('en-IN', { dateStyle: 'long', timeStyle: 'short' }) + ' IST';
+    const rawPrompt = `You are an elite intraday breakout trader with 15+ years of experience trading Indian equities (NSE & BSE). Your edge is combining technical breakouts with fundamental catalysts, volume confirmation, and news/events.
+
+Current date & time: ${dateStr}
+Market status: Pre-open / Open
+
+Task:
+Identify 5–8 high-probability stocks for intraday trading today using ONLY these five filters (all must align):
+
+Breakout Setup
+Price must be breaking (or about to break) a clear technical level (previous day high, multi-day resistance, VWAP, or opening range high).
+Prefer clean 5/15/30-min chart breakouts with strong candle momentum.
+
+News / Catalyst
+Strong positive or negative news released in last 24–48 hrs OR today pre-market (earnings beat/miss, order wins, regulatory approval, FII buying, sector tailwind, etc.).
+Must have potential to drive sustained volatility.
+
+Previous Day Price Action
+Strong relative strength or weakness yesterday (close near day high/low, expansion in range, bullish/bearish candle).
+Avoid stocks that were already exhausted yesterday.
+
+Volume Confirmation
+Today’s volume must be at least 1.5–2x average volume of last 5–10 days.
+Rising volume on breakout candle is mandatory.
+
+Events
+Any scheduled event today or tomorrow (results, board meeting, AGM, economic data, expiry impact, global cues) that can act as fuel.
+
+Selection Rules (strict):
+Only liquid stocks (average daily volume > 10 lakh shares or in F&O).
+Avoid penny stocks, illiquid scrips, and stocks already up/down >8–10% in pre-open unless momentum is extreme.
+Prefer stocks in strong sectors (IT, Auto, Pharma, Banking, Metals, etc.) based on today’s market theme.
+
+At the end of your response, output ONLY a valid JSON array in this exact format. Do not use markdown fences.
+[
+  {
+    "symbol": "TCS",
+    "companyName": "Tata Consultancy Services",
+    "sector": "IT",
+    "breakoutLevel": "4150",
+    "prevDayAction": "Strong close near day high on 3x average volume",
+    "volumeSpike": "2.5x",
+    "catalyst": "Q3 results beat expectations, strong deal wins",
+    "entry": "Above 4160",
+    "stopLoss": "4110",
+    "target1": "4220",
+    "target2": "4280",
+    "riskReward": "1:3",
+    "conviction": "High",
+    "convictionReason": "Clean multi-Month breakout aligned with sector strength"
+  }
+]`;
+    navigator.clipboard.writeText(rawPrompt);
+    setCopiedIntradayPrompt(true);
+    setTimeout(() => setCopiedIntradayPrompt(false), 2000);
+  };
+
+  const handleSaveIntraday = async (action = 'replace') => {
+    setIntradaySaveStatus('Saving...');
+    try {
+      let rawJson = jsonInputIntraday;
+      // Auto-extract JSON if they pasted the full text with markdown
+      if (rawJson.includes('\`\`\`json')) {
+        const start = rawJson.indexOf('\`\`\`json') + 7;
+        const end = rawJson.lastIndexOf('\`\`\`');
+        if (end > start) rawJson = rawJson.substring(start, end).trim();
+      } else if (rawJson.includes('[') && rawJson.lastIndexOf(']') > rawJson.indexOf('[')) {
+        const start = rawJson.indexOf('[');
+        const end = rawJson.lastIndexOf(']') + 1;
+        rawJson = rawJson.substring(start, end);
+      }
+      
+      const parsed = JSON.parse(rawJson);
+      if (!Array.isArray(parsed)) throw new Error('Input must be a JSON array');
+
+      const res = await fetch('/api/pre-market/intraday-watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, data: parsed }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIntradayWatchlist(data.data);
+        setIsEditingIntraday(false);
+        setJsonInputIntraday('[\n\n]');
+        setIntradaySaveStatus('');
+      } else {
+        setIntradaySaveStatus('Failed to save to database');
+      }
+    } catch (err) {
+      setIntradaySaveStatus(`Error parsing JSON: ${err.message}`);
+    }
+  };
+
+  const handleDeleteIntradayStock = async (symbol) => {
+    if (!isAdmin) return;
+    const newData = intradayWatchlist.filter(s => s.symbol !== symbol);
+    try {
+      const res = await fetch('/api/pre-market/intraday-watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'replace', data: newData }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIntradayWatchlist(data.data);
+      }
+    } catch {}
+  };
+
+
   useEffect(() => {
     const updateTimer = () => {
       const now = new Date();
@@ -865,6 +1007,153 @@ export default function PreMarketPage() {
             </div>
 
           </div>
+        </div>
+
+        {/* INTRADAY BREAKOUTS COMPONENT (Bottom Full Width) */}
+        <div className="mt-8 border-t border-blue-900/40 pt-8">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-blue-300 flex items-center gap-2">
+                🎯 AI Intraday Breakouts
+              </h2>
+              <p className="text-sm text-slate-400 mt-1">High-probability intraday setups generated from pre-market action</p>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              {isAdmin && (
+                <button
+                  onClick={() => setIsEditingIntraday(!isEditingIntraday)}
+                  className="px-4 py-2 text-sm font-bold bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 hover:text-blue-300 border border-blue-800/50 rounded-lg transition-colors"
+                >
+                  {isEditingIntraday ? 'Close Editor' : '✏️ Add / Edit Stocks'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Editor Panel */}
+          {isEditingIntraday && (
+            <div className="mb-8 bg-[#0d1d35] border border-blue-800/60 rounded-xl p-6 shadow-xl">
+              <h3 className="text-sm font-bold text-blue-300 mb-4">Step 1: Generate AI Prompt</h3>
+              <div className="flex items-center gap-3 mb-6">
+                <button
+                  onClick={handleCopyIntradayPrompt}
+                  className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-lg active:scale-[0.98] ${
+                    copiedIntradayPrompt
+                      ? 'bg-emerald-500 text-white shadow-emerald-500/20'
+                      : 'bg-purple-600 text-white hover:bg-purple-700 shadow-purple-500/20'
+                  }`}
+                >
+                  <span>{copiedIntradayPrompt ? '✅ Prompt Copied' : '📋 Copy Prompt for Claude'}</span>
+                </button>
+                <span className="text-xs font-medium text-slate-400">
+                  Send to Claude/Gemini, and paste the JSON output below.
+                </span>
+              </div>
+
+              <h3 className="text-sm font-bold text-blue-300 mb-2">Step 2: Paste LLM Output</h3>
+              <textarea
+                className="w-full h-48 bg-[#0a1628] border border-blue-900/50 rounded-lg p-4 font-mono text-xs text-slate-300 focus:outline-none focus:border-purple-500 resize-none mb-4"
+                value={jsonInputIntraday}
+                onChange={e => setJsonInputIntraday(e.target.value)}
+                placeholder={'[\n  {\n    "symbol": "TCS",\n    ...\n  }\n]'}
+              />
+
+              {intradaySaveStatus && (
+                <div className={`text-sm mb-4 font-medium ${intradaySaveStatus.includes('Failed') || intradaySaveStatus.includes('Error') ? 'text-red-400' : 'text-green-400'}`}>
+                  {intradaySaveStatus}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setIsEditingIntraday(false)}
+                  className="px-4 py-2 text-sm font-bold text-slate-400 hover:text-white transition-colors">
+                  Cancel
+                </button>
+                <button onClick={() => handleSaveIntraday('replace')}
+                  className="px-4 py-2 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                  Save Replace
+                </button>
+                <button onClick={() => handleSaveIntraday('append')}
+                  className="px-4 py-2 text-sm font-bold bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+                  ➕ Append
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Cards Grid */}
+          {!intradayWatchlist || intradayWatchlist.length === 0 ? (
+            <div className="text-center py-12 border border-dashed border-blue-800/40 rounded-xl bg-blue-900/5">
+              <p className="text-slate-400 text-sm">No intraday stocks added for today yet.</p>
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {intradayWatchlist.map((stock, i) => (
+                <div key={i} className="bg-[#112240] border border-blue-800/40 rounded-xl p-5 hover:border-blue-600/50 transition-colors relative group">
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleDeleteIntradayStock(stock.symbol)}
+                      className="absolute top-3 right-3 w-6 h-6 rounded-full bg-red-500/10 hover:bg-red-500/30 text-red-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all text-xs"
+                      title="Remove"
+                    >✕</button>
+                  )}
+                  
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xl font-bold tracking-tight text-white">{stock.symbol}</h3>
+                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${
+                          stock.conviction?.toLowerCase().includes('very') ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                        }`}>
+                          {stock.conviction?.toUpperCase()} CONVICTION
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400">{stock.companyName} • <span className="text-slate-500">{stock.sector}</span></p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 mt-4">
+                    <div className="bg-[#0a1628] rounded-lg p-3 border border-slate-800">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Breakout Level</span>
+                        <span className="text-sm font-mono font-bold text-purple-400">₹{stock.breakoutLevel}</span>
+                      </div>
+                      <p className="text-xs text-slate-400 italic">"{stock.prevDayAction}"</p>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-slate-800/30 rounded p-2 border border-slate-700/50">
+                        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Entry</div>
+                        <div className="text-sm font-mono text-emerald-400">{stock.entry}</div>
+                      </div>
+                      <div className="bg-slate-800/30 rounded p-2 border border-slate-700/50">
+                        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Stop Loss</div>
+                        <div className="text-sm font-mono text-red-400">{stock.stopLoss}</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-slate-800/30 rounded p-2 border border-slate-700/50">
+                        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Targets</div>
+                        <div className="text-sm font-mono text-sky-400">T1: {stock.target1} {stock.target2 ? `| T2: ${stock.target2}` : ''}</div>
+                      </div>
+                      <div className="bg-slate-800/30 rounded p-2 border border-slate-700/50">
+                        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Risk:Reward</div>
+                        <div className="text-sm font-mono text-yellow-400">{stock.riskReward} ({stock.volumeSpike} Vol)</div>
+                      </div>
+                    </div>
+                    
+                    <div className="pt-2">
+                      <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Catalyst & Conviction</div>
+                      <p className="text-xs text-slate-300 leading-snug"><span className="text-slate-500">⚡</span> {stock.catalyst}</p>
+                      <p className="text-xs text-slate-400 leading-snug mt-1 italic">— {stock.convictionReason}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </main>
     </div>
