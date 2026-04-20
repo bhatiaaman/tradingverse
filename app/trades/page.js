@@ -1604,6 +1604,11 @@ function getNiftyLevelAlerts(indices) {
               {powerCandles.length > 0 && (() => {
                 const pc = powerCandles[powerCandles.length - 1];
                 if (powerCandleDismissed === pc.time) return null;
+                // Only show for today's candles (IST) — don't carry Friday's alert into Monday
+                const IST_OFFSET_MS = 5.5 * 3600 * 1000;
+                const candleDateIST = new Date(pc.time * 1000 + IST_OFFSET_MS).toISOString().slice(0, 10);
+                const todayIST      = new Date(Date.now()   + IST_OFFSET_MS).toISOString().slice(0, 10);
+                if (candleDateIST !== todayIST) return null;
                 const isBull = pc.direction === 'bull';
                 return (
                   <div className={`relative flex items-start gap-2 px-3 py-2 border-t border-b ${isBull ? 'bg-amber-500/10 border-amber-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
@@ -2556,6 +2561,10 @@ function getNiftyLevelAlerts(indices) {
                 {/* Power Candle Alert */}
                 {powerCandles.length > 0 && (() => {
                   const pc = powerCandles[powerCandles.length - 1];
+                  const IST_OFFSET_MS = 5.5 * 3600 * 1000;
+                  const candleDateIST = new Date(pc.time * 1000 + IST_OFFSET_MS).toISOString().slice(0, 10);
+                  const todayIST      = new Date(Date.now()   + IST_OFFSET_MS).toISOString().slice(0, 10);
+                  if (candleDateIST !== todayIST) return null;
                   const isBull = pc.direction === 'bull';
                   return (
                     <div className={`flex items-center gap-2 px-3 py-1.5 text-xs border-b ${isBull ? 'bg-amber-500/10 border-amber-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
