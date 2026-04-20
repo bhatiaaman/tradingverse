@@ -119,7 +119,8 @@ async function processOrder(raw) {
 
   const { orderId, variety = 'regular', tradingsymbol, exchange,
           transaction_type, quantity, product, order_type,
-          price, trigger_price, validity = 'DAY', tag } = order;
+          price, trigger_price, validity = 'DAY', tag,
+          market_protection } = order;
 
   if (!orderId) { console.error('[worker] order has no orderId, skipping'); return; }
 
@@ -138,9 +139,10 @@ async function processOrder(raw) {
     tradingsymbol, exchange, transaction_type, quantity: parseInt(quantity),
     product, order_type, validity,
   };
-  if (price)         params.price         = parseFloat(price);
-  if (trigger_price) params.trigger_price = parseFloat(trigger_price);
-  if (tag)           params.tag           = tag;
+  if (price)             params.price             = parseFloat(price);
+  if (trigger_price)     params.trigger_price     = parseFloat(trigger_price);
+  if (tag)               params.tag               = tag;
+  if (market_protection) params.market_protection = parseFloat(market_protection);
 
   try {
     const kite   = await getKite();

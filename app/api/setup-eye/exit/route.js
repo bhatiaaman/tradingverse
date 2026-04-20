@@ -12,14 +12,16 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Missing symbol or qty' }, { status: 400 });
     }
 
-    const broker = await getBroker();
-    const order  = await broker.placeOrder('regular', {
-      tradingsymbol:    symbol,
-      exchange:         'NFO',
-      transaction_type: 'SELL',
-      order_type:       'MARKET',
-      product:          'MIS',
-      quantity:         qty,
+    const broker   = await getBroker();
+    const exchange = symbol.startsWith('SENSEX') ? 'BFO' : 'NFO';
+    const order    = await broker.placeOrder('regular', {
+      tradingsymbol:     symbol,
+      exchange,
+      transaction_type:  'SELL',
+      order_type:        'MARKET',
+      product:           'MIS',
+      quantity:          qty,
+      market_protection: 1.0,
     });
 
     return NextResponse.json({ ok: true, orderId: order.order_id });

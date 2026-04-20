@@ -62,6 +62,17 @@ function parseStatus(val) {
   return { status, error: rest };
 }
 
+// ─── Market protection: SEBI-mandated non-zero value for API market orders ────
+// Exchange-based defaults — 1% is a safe, conservative choice for liquid F&O
+// and large-cap equities. Reject if price has moved more than 1% from LTP.
+function getMarketProtection(exchange) {
+  const ex = (exchange || '').toUpperCase();
+  if (ex === 'NFO' || ex === 'BFO') return 1.0;  // F&O options/futures
+  if (ex === 'NSE' || ex === 'BSE') return 1.0;  // equity
+  if (ex === 'MCX')                 return 1.0;  // commodities
+  return 1.0; // safe fallback
+}
+
 // ─── Validate and build order params ─────────────────────────────────────────
 function buildOrderParams(body) {
   const {
@@ -91,6 +102,7 @@ function buildOrderParams(body) {
     validity,
     variety,
   };
+  if (order_type === 'MARKET') params.market_protection = getMarketProtection(exchange);
   if (order_type === 'LIMIT' && price) params.price = parseFloat(price);
   if (['SL', 'SL-M'].includes(order_type) && trigger_price) {
     const trigNum = Number(trigger_price);
