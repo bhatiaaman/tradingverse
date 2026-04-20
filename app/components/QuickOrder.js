@@ -50,13 +50,18 @@ export default function QuickOrder({
     try {
       const isPaper = status?.broker === 'paper';
       const endpoint = isPaper ? '/api/paper-orders' : '/api/place-order';
-      
+
+      const isOption = /^.+(CE|PE)$/.test(symbol);
+      const exchange = isOption
+        ? (symbol.startsWith('SENSEX') ? 'BFO' : 'NFO')
+        : 'NSE';
+
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tradingsymbol: symbol,
-          exchange: 'NSE', 
+          exchange,
           transaction_type: side,
           order_type: orderType,
           product: product,
