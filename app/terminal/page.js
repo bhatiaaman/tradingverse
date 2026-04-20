@@ -1066,8 +1066,8 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
         </div>
       )}
 
-      {/* Symbol list — hidden on movers + weekly tabs */}
-      {!isMovers && !isWeekly && <div className="flex-1 overflow-y-auto scrollbar-thin">
+      {/* Symbol list — hidden on movers + weekly + intraday tabs */}
+      {!isMovers && !isWeekly && !isIntraday && <div className="flex-1 overflow-y-auto scrollbar-thin">
         {watchlist.length === 0 ? (
           <p className="text-xs text-gray-400 dark:text-white/30 text-center p-4">
             {isScanner ? 'No Chartink alerts received yet.' : 'Search above to add symbols.'}
