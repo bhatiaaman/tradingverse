@@ -263,7 +263,8 @@ export default function OrdersPage() {
   const [placing, setPlacing] = useState(false);
   const [message, setMessage] = useState(null);   // { type, text }
 
-  const searchTimer = useRef(null);
+  const searchTimer   = useRef(null);
+  const optionPollRef = useRef(null);
 
   // ── On mount ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -294,23 +295,45 @@ export default function OrdersPage() {
     }, 300);
   }, [symQuery]);
 
-  // ── Fetch option when CE/PE ───────────────────────────────────────────────
+  // ── Fetch + poll option LTP when CE/PE ──────────────────────────────────────
   useEffect(() => {
-    if (form.instrumentType === 'EQ' || !selected || !auth.loggedIn) {
+    if (optionPollRef.current) { clearInterval(optionPollRef.current); optionPollRef.current = null; }
+
+    if (form.instrumentType === 'EQ' || !selected?.symbol || !auth.loggedIn) {
       setOption({ symbol: null, ltp: null, strike: null, expiry: null, probOTM: null, loading: false });
       return;
     }
-    (async () => {
-      setOption(o => ({ ...o, loading: true }));
+
+    const sym  = selected.symbol;
+    const type = form.instrumentType;
+
+    const fetchOptionLtp = async (spotPrice) => {
       try {
-        const r = await fetch(`/api/option-ltp?symbol=${selected.symbol}&price=${selected.spotPrice}&type=${form.instrumentType}`);
+        const r = await fetch(`/api/option-ltp?symbol=${sym}&price=${spotPrice}&type=${type}`);
         const d = await r.json();
         setOption({ symbol: d.optionSymbol ?? null, ltp: d.ltp ?? null, strike: d.strike ?? null, expiry: d.expiryDay ?? null, probOTM: d.probOTM ?? null, loading: false });
       } catch {
-        setOption({ symbol: null, ltp: null, strike: null, expiry: null, probOTM: null, loading: false });
+        setOption(o => ({ ...o, loading: false }));
       }
-    })();
-  }, [form.instrumentType, selected, auth.loggedIn]);
+    };
+
+    // Initial load
+    setOption(o => ({ ...o, loading: true }));
+    fetchOptionLtp(selected.spotPrice);
+
+    // Refresh spot + option LTP every 15 s
+    optionPollRef.current = setInterval(async () => {
+      try {
+        const r    = await fetch(`/api/stock-price?symbol=${sym}`);
+        const d    = await r.json();
+        const spot = d.price ?? null;
+        if (spot) setSelected(s => s?.symbol === sym ? { ...s, spotPrice: spot } : s);
+        await fetchOptionLtp(spot ?? selected.spotPrice);
+      } catch { /* keep existing values */ }
+    }, 15_000);
+
+    return () => { if (optionPollRef.current) { clearInterval(optionPollRef.current); optionPollRef.current = null; } };
+  }, [form.instrumentType, selected?.symbol, auth.loggedIn]);
 
   // ── Run intelligence on symbol/transactionType/instrumentType change ───────
   useEffect(() => {
