@@ -830,10 +830,11 @@ function TopBar({ indices, kiteConnected, user, setUser, regimeData }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // WatchlistPanel — with 2 tabs
 // ─────────────────────────────────────────────────────────────────────────────
-function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSearch, setWatchSearch, watchSearchResults, watchSearching, onSymbolClick, onAddSymbol, onRemoveSymbol, activeSymbol, scannerStocks, scannerLastScan, movers, weeklyStocks, fetchWeeklyStocks }) {
+function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSearch, setWatchSearch, watchSearchResults, watchSearching, onSymbolClick, onAddSymbol, onRemoveSymbol, activeSymbol, scannerStocks, scannerLastScan, movers, weeklyStocks, fetchWeeklyStocks, intradayStocks, fetchIntradayStocks }) {
   const isScanner = watchTab === 'S';
   const isMovers  = watchTab === 'M';
   const isWeekly  = watchTab === 'W';
+  const isIntraday= watchTab === 'I';
   // Build scanName lookup for scanner tab
   const scannerMeta = isScanner
     ? Object.fromEntries(scannerStocks.map(s => [s.symbol, s]))
@@ -844,17 +845,17 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
 
       {/* Tab header */}
       <div className="flex border-b border-gray-200 dark:border-white/10 flex-shrink-0">
-        {[1, 2, 'S', 'W', 'M'].map(t => (
+        {[1, 2, 'S', 'I', 'W', 'M'].map(t => (
           <button
             key={t}
             onClick={() => setWatchTab(t)}
-            className={`flex-1 py-2 text-xs font-semibold transition-colors border-b-2 ${
+            className={`flex-1 py-2 text-[10px] font-bold transition-colors border-b-2 uppercase tracking-tight ${
               watchTab === t
                 ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                 : 'border-transparent text-gray-400 dark:text-white/30 hover:text-gray-600 dark:hover:text-white/60'
             }`}
           >
-            {t === 'S' ? 'Scanner' : t === 'M' ? 'Movers' : t === 'W' ? 'Weekly' : `List ${t}`}
+            {t === 'S' ? 'Scan' : t === 'M' ? 'Mover' : t === 'W' ? 'Week' : t === 'I' ? 'Intra' : `L${t}`}
           </button>
         ))}
       </div>
@@ -963,6 +964,64 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
         </div>
       )}
 
+      {/* Intraday Breakouts tab */}
+      {isIntraday && (
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="px-3 py-1.5 border-b border-gray-100 dark:border-white/5 flex items-center justify-between bg-purple-500/5">
+            <span className="text-[10px] font-semibold text-purple-500 uppercase tracking-widest">Intraday Breakouts</span>
+            <button
+              onClick={() => fetchIntradayStocks()}
+              disabled={intradayStocks.loading}
+              className="p-1 hover:bg-purple-500/10 rounded transition-colors text-purple-500 disabled:opacity-50"
+              title="Sync with Pre-Market Intraday Stocks"
+            >
+              <RefreshCw size={12} className={intradayStocks.loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto scrollbar-thin">
+            {intradayStocks.loading && intradayStocks.list.length === 0 ? (
+              <div className="p-2 space-y-1">
+                {[1,2,3,4,5].map(i => <div key={i} className="h-7 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}
+              </div>
+            ) : intradayStocks.list.length === 0 ? (
+              <div className="p-4 text-center text-xs text-slate-500">
+                No intraday stocks found today.
+              </div>
+            ) : (
+              intradayStocks.list.map(s => {
+                const q = watchQuotes[s.symbol];
+                const isUp = q ? q.changePct >= 0 : null;
+                const isActive = s.symbol === activeSymbol;
+                const isHighConviction = s.conviction?.toLowerCase().includes('high') || s.conviction?.toLowerCase().includes('very');
+                return (
+                  <div
+                    key={s.symbol}
+                    className={`flex items-center justify-between px-3 py-2.5 border-b border-gray-100 dark:border-white/5 cursor-pointer hover:bg-gray-100 dark:hover:bg-white/5 transition-colors ${isActive ? 'bg-purple-50 dark:bg-purple-500/10 border-l-2 border-l-purple-500' : ''}`}
+                    onClick={() => onSymbolClick(s.symbol)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <div className="text-xs font-bold text-gray-900 dark:text-white truncate">{s.symbol}</div>
+                        {isHighConviction && <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>}
+                      </div>
+                      <div className="text-[9px] text-slate-500 truncate mt-0.5" title={s.entry}>Entry: {s.entry}</div>
+                    </div>
+                    <div className="text-right flex-shrink-0 ml-1">
+                      <div className={`text-xs font-mono font-semibold ${q === undefined ? 'text-gray-300 dark:text-white/25' : isUp ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {q === undefined ? '---' : `${isUp ? '+' : ''}${q.changePct?.toFixed(2)}%`}
+                      </div>
+                      <div className="text-[10px] font-mono text-gray-400 dark:text-white/30">
+                        {q?.ltp ? q.ltp.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '--'}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Scanner header info */}
       {isScanner && (
         <div className="px-3 py-1.5 border-b border-gray-100 dark:border-white/5 flex-shrink-0 flex items-center justify-between">
@@ -977,8 +1036,8 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
         </div>
       )}
 
-      {/* Add symbol search — hidden for scanner + movers + weekly tabs */}
-      {!isScanner && !isMovers && !isWeekly && (
+      {/* Add symbol search — hidden for scanner + movers + weekly + intraday tabs */}
+      {!isScanner && !isMovers && !isWeekly && !isIntraday && (
         <div className="px-3 py-2 border-b border-gray-100 dark:border-white/5 flex-shrink-0 relative">
           <div className="flex items-center gap-2 bg-gray-200 dark:bg-slate-800 rounded-lg px-2.5 py-1.5">
             <Search size={12} className="text-gray-400 dark:text-white/30 flex-shrink-0" />
@@ -2629,6 +2688,7 @@ export default function TerminalPage() {
   const [watchSearching, setWatchSearching] = useState(false);
   const watchSearchTimer                    = useRef(null);
   const [weeklyStocks, setWeeklyStocks]     = useState({ list: [], syncedAt: null, loading: true });
+  const [intradayStocks, setIntradayStocks] = useState({ list: [], loading: true });
 
 
   // Tabs
@@ -2702,8 +2762,8 @@ export default function TerminalPage() {
   // Derived — memoized so useEffect deps get stable references
   const scannerSymbols      = useMemo(() => scannerStocks.map(s => s.symbol), [scannerStocks]);
   const activeWatchlist     = useMemo(
-    () => watchTab === 'S' ? scannerSymbols : (watchTab === 'W' ? weeklyStocks.list.map(s => s.symbol) : (watchTab === 'M' ? [] : (watchTab === 1 ? watchlist1 : watchlist2))),
-    [watchTab, scannerSymbols, watchlist1, watchlist2, weeklyStocks.list]
+    () => watchTab === 'S' ? scannerSymbols : (watchTab === 'W' ? weeklyStocks.list.map(s => s.symbol) : (watchTab === 'I' ? intradayStocks.list.map(s => s.symbol) : (watchTab === 'M' ? [] : (watchTab === 1 ? watchlist1 : watchlist2)))),
+    [watchTab, scannerSymbols, watchlist1, watchlist2, weeklyStocks.list, intradayStocks.list]
   );
   const setActiveWatchlist  = watchTab === 1 ? setWatchlist1 : setWatchlist2;
   const activeWatchlistKey  = watchTab === 1 ? 'bv-watchlist-1' : watchTab === 2 ? 'bv-watchlist-2' : null;
@@ -2763,9 +2823,25 @@ export default function TerminalPage() {
     }
   }, []);
 
+  const fetchIntradayStocks = useCallback(async () => {
+    setIntradayStocks(prev => ({ ...prev, loading: true }));
+    try {
+      const response = await fetch('/api/pre-market/intraday-watchlist');
+      const data = await response.json();
+      if (data.success && data.data) {
+        setIntradayStocks({ list: data.data, loading: false });
+      } else {
+        setIntradayStocks(prev => ({ ...prev, loading: false }));
+      }
+    } catch {
+      setIntradayStocks(prev => ({ ...prev, loading: false }));
+    }
+  }, []);
+
   useEffect(() => {
     fetchWeeklyStocks();
-  }, [fetchWeeklyStocks]);
+    fetchIntradayStocks();
+  }, [fetchWeeklyStocks, fetchIntradayStocks]);
 
   // ── Kite connection + broker mode
   useEffect(() => {
@@ -3393,6 +3469,8 @@ export default function TerminalPage() {
             movers={movers}
             weeklyStocks={weeklyStocks}
             fetchWeeklyStocks={fetchWeeklyStocks}
+            intradayStocks={intradayStocks}
+            fetchIntradayStocks={fetchIntradayStocks}
           />
         </div>
 
