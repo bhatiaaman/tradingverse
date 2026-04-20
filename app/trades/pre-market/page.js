@@ -188,10 +188,10 @@ At the end of your response, output ONLY a valid JSON array in this exact format
   };
 
   const handleDeleteIntradayStock = async (symbol) => {
-    if (!isAdmin) return;
     const newData = intradayWatchlist.filter(s => s.symbol !== symbol);
     try {
       const res = await fetch('/api/pre-market/intraday-watchlist', {
+
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'replace', data: newData }),
@@ -1020,16 +1020,15 @@ At the end of your response, output ONLY a valid JSON array in this exact format
             </div>
             
             <div className="flex items-center gap-3">
-              {isAdmin && (
-                <button
-                  onClick={() => setIsEditingIntraday(!isEditingIntraday)}
-                  className="px-4 py-2 text-sm font-bold bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 hover:text-blue-300 border border-blue-800/50 rounded-lg transition-colors"
-                >
-                  {isEditingIntraday ? 'Close Editor' : '✏️ Add / Edit Stocks'}
-                </button>
-              )}
+              <button
+                onClick={() => setIsEditingIntraday(!isEditingIntraday)}
+                className="px-4 py-2 text-sm font-bold bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 hover:text-blue-300 border border-blue-800/50 rounded-lg transition-colors"
+              >
+                {isEditingIntraday ? 'Close Editor' : '✏️ Add / Edit Stocks'}
+              </button>
             </div>
           </div>
+
 
           {/* Editor Panel */}
           {isEditingIntraday && (
@@ -1091,15 +1090,14 @@ At the end of your response, output ONLY a valid JSON array in this exact format
             <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
               {intradayWatchlist.map((stock, i) => (
                 <div key={i} className="bg-[#112240] border border-blue-800/40 rounded-xl p-5 hover:border-blue-600/50 transition-colors relative group">
-                  {isAdmin && (
-                    <button
-                      onClick={() => handleDeleteIntradayStock(stock.symbol)}
-                      className="absolute top-3 right-3 w-6 h-6 rounded-full bg-red-500/10 hover:bg-red-500/30 text-red-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all text-xs"
-                      title="Remove"
-                    >✕</button>
-                  )}
+                  <button
+                    onClick={() => handleDeleteIntradayStock(stock.symbol)}
+                    className="absolute top-3 right-3 w-6 h-6 rounded-full bg-red-500/10 hover:bg-red-500/30 text-red-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all text-xs border border-transparent hover:border-red-500/50 z-10"
+                    title="Remove"
+                  >✕</button>
                   
                   <div className="flex justify-between items-start mb-3">
+
                     <div>
                       <div className="flex items-center gap-2">
                         <h3 className="text-xl font-bold tracking-tight text-white">{stock.symbol}</h3>
