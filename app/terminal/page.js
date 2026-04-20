@@ -2958,14 +2958,14 @@ export default function TerminalPage() {
   // Auto-refresh positions tab
   useEffect(() => {
     if (activeTab !== 'positions') return;
-    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchPositions(); }, 15_000);
+    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchPositions(); }, 5_000);
     return () => clearInterval(iv);
   }, [activeTab, isVisible, fetchPositions]);
 
   // Panel orders always refreshes (right sidebar is always visible)
   useEffect(() => {
     fetchPanelOrders(true); // show skeleton only on initial mount
-    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchPanelOrders(); }, 30_000);
+    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchPanelOrders(); }, 5_000);
     return () => clearInterval(iv);
   }, [isVisible, fetchPanelOrders]);
 
