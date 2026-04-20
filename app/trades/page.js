@@ -1045,6 +1045,30 @@ function getNiftyLevelAlerts(indices) {
                   }).catch(() => {});
                   return next;
                 });
+
+                // Log strong setups to admin signal log
+                if (heResult.strongSetups?.length > 0) {
+                  const top = heResult.strongSetups[0];
+                  fetch('/api/admin/signal-logs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      type: 'THIRD_EYE',
+                      ts: Date.now(),
+                      symbol: chartSymbol,
+                      interval: chartInterval,
+                      time: `${hh}:${mm}`,
+                      setupId: top.pattern?.id,
+                      setupName: top.pattern?.name,
+                      direction: top.pattern?.direction,
+                      score: top.score,
+                      allSetups: heResult.strongSetups.map(s => ({
+                        id: s.pattern?.id, name: s.pattern?.name,
+                        direction: s.pattern?.direction, score: s.score,
+                      })),
+                    }),
+                  }).catch(() => {});
+                }
               }
             } catch (heErr) {
               console.error('[Setup Eye] scan error:', heErr);
