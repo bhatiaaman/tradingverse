@@ -26,6 +26,20 @@ async function redisSet(key, value, exSeconds) {
   } catch (e) { console.error('Redis set error:', e); }
 }
 
+async function redisLog(entry) {
+  const key = `${NS}:signal-logs`;
+  try {
+    await fetch(`${REDIS_URL}/pipeline`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify([
+        ['LPUSH', key, JSON.stringify(entry)],
+        ['LTRIM', key, 0, 299],
+      ]),
+    });
+  } catch (e) { console.error('[signal-log] redis error:', e); }
+}
+
 function isMarketHours() {
   const now = new Date();
   const istOffset = 5.5 * 60 * 60 * 1000;
@@ -404,10 +418,13 @@ export async function GET(request) {
         await redisSet(sessionKey, sessionOpen, 8 * 3600);
       }
 
-      // Rolling 15-min snapshot — what's happening RIGHT NOW
+      // Rolling 10-min snapshot — only rotate baseline every 10 min.
+      // Previously this was overwritten on every 60s poll, making the
+      // comparison window just 60s (too small for meaningful OI change).
       let recentSnap = await redisGet(recentKey);
-      if (!recentSnap) {
-        await redisSet(recentKey, snapshot, 15 * 60);
+      const snapAgeMs = recentSnap?.capturedAt ? (Date.now() - recentSnap.capturedAt) : Infinity;
+      if (snapAgeMs > 10 * 60 * 1000) {
+        await redisSet(recentKey, { ...snapshot, capturedAt: Date.now() }, 25 * 60);
       }
 
       const hasOpen   = sessionOpen?.totalCallOI !== undefined;
@@ -452,6 +469,20 @@ export async function GET(request) {
       } else {
         marketActivity = { activity: 'Initializing', strength: 0, description: 'Building session baseline…', actionable: '', emoji: '⏳' };
       }
+    }
+
+    // ── Log Short Covering to admin signal log ──
+    if (marketActivity?.activity === 'Short Covering' && marketActivity.strength >= 4) {
+      redisLog({
+        type: 'SC',
+        ts: Date.now(),
+        symbol: underlying,
+        expiry: expiryType,
+        spot: spotPrice,
+        strength: marketActivity.strength,
+        description: marketActivity.description,
+        actionable: marketActivity.actionable,
+      }).catch(() => {});
     }
 
     // ── Actionable Insights — pass marketActivity so signals can be synthesized ──
