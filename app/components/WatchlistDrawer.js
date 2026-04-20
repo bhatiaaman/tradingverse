@@ -28,6 +28,7 @@ export default function WatchlistDrawer({
   const [searchSymbols, setSearchSymbols] = useState([]); // for adding to custom list
   const [showSearch, setShowSearch] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [sortOrder, setSortOrder] = useState('default'); // 'default' | 'gainers' | 'losers'
 
   const containerRef = useRef(null);
 
@@ -238,13 +239,27 @@ export default function WatchlistDrawer({
                   </div>
                 )}
               </div>
-              <button 
-                onClick={() => setShowAddList(!showAddList)}
-                className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200/50'}`}
-                title="Create New List"
-              >
-                <Plus size={14} className={isDark ? 'text-blue-400' : 'text-indigo-600'} />
-              </button>
+              <div className="flex items-center gap-1">
+                {/* Sort toggle: default → gainers → losers */}
+                <button
+                  onClick={() => setSortOrder(s => s === 'default' ? 'gainers' : s === 'gainers' ? 'losers' : 'default')}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide transition-all ${
+                    sortOrder === 'gainers' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
+                    sortOrder === 'losers'  ? 'bg-red-500/15 text-red-400 border border-red-500/30' :
+                    isDark ? 'text-slate-600 hover:text-slate-400 border border-transparent hover:border-white/10' : 'text-slate-400 hover:text-slate-600 border border-transparent hover:border-slate-200'
+                  }`}
+                  title={sortOrder === 'default' ? 'Sort by gainers' : sortOrder === 'gainers' ? 'Sort by losers' : 'Reset sort'}
+                >
+                  {sortOrder === 'gainers' ? '▲ %' : sortOrder === 'losers' ? '▼ %' : '⇅'}
+                </button>
+                <button
+                  onClick={() => setShowAddList(!showAddList)}
+                  className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200/50'}`}
+                  title="Create New List"
+                >
+                  <Plus size={14} className={isDark ? 'text-blue-400' : 'text-indigo-600'} />
+                </button>
+              </div>
             </div>
 
             {showAddList && (
@@ -342,7 +357,15 @@ export default function WatchlistDrawer({
               </div>
             )}
 
-            {!loading && currentList.symbols.map((s, idx) => {
+            {!loading && (() => {
+              const sorted = sortOrder === 'default' ? currentList.symbols :
+                [...currentList.symbols].sort((a, b) =>
+                  sortOrder === 'gainers'
+                    ? (b.changePercent ?? 0) - (a.changePercent ?? 0)
+                    : (a.changePercent ?? 0) - (b.changePercent ?? 0)
+                );
+              return sorted;
+            })().map((s, idx) => {
               const isSelected = currentSymbol === s.symbol;
               const positive = (s.changePercent ?? 0) >= 0;
               return (
