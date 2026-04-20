@@ -194,6 +194,9 @@ function ChartPageInner() {
   const [quickStatus,  setQuickStatus]  = useState(null); // null | 'loading' | { ok, rows, error }
   const [indexExpiries, setIndexExpiries] = useState([]);
   const [resolvingOption, setResolvingOption] = useState(null); // 'CE' | 'PE' | null
+  // pickerLtps stores { CE: { ltp, tradingSymbol } | null, PE: … | null, loading: bool }
+  const [pickerLtps, setPickerLtps] = useState({ CE: null, PE: null, loading: false });
+  const [resolvedOptionSymbol, setResolvedOptionSymbol] = useState(null); // actual NFO tradingsymbol
   const quickTimerRef = useRef(null);
 
   // Fetch lot size when FnO symbol or underlying changes
@@ -788,15 +791,55 @@ function ChartPageInner() {
 
   const lastClose = candles.length ? candles[candles.length - 1].close : null;
 
-  // ── ATM quick-order handler (indices only) ──────────────────────────────────
+  // ── Pre-fetch CE+PE LTPs when the picker opens ──────────────────────────────
+  // pickerStrike is derived from quickOrderPrice (the chart level clicked),
+  // NOT from lastClose — so the premium shown matches the level the user pointed at.
+  useEffect(() => {
+    if (!indexPicker || !quickOrderPrice || !indexExpiries.length) {
+      setPickerLtps({ CE: null, PE: null, loading: false });
+      return;
+    }
+    const strike = Math.round(quickOrderPrice / step) * step;
+    const expiry = indexExpiries[0].date;
+    setPickerLtps({ CE: null, PE: null, loading: true });
+    Promise.all([
+      fetch(`/api/option-meta?action=tradingsymbol&symbol=${symbol}&expiry=${expiry}&strike=${strike}&type=CE`).then(r => r.json()),
+      fetch(`/api/option-meta?action=tradingsymbol&symbol=${symbol}&expiry=${expiry}&strike=${strike}&type=PE`).then(r => r.json()),
+    ]).then(([ce, pe]) => {
+      setPickerLtps({
+        CE: ce.tradingSymbol ? { ltp: ce.ltp ?? null, tradingSymbol: ce.tradingSymbol } : null,
+        PE: pe.tradingSymbol ? { ltp: pe.ltp ?? null, tradingSymbol: pe.tradingSymbol } : null,
+        loading: false,
+      });
+    }).catch(() => {
+      setPickerLtps({ CE: null, PE: null, loading: false });
+    });
+  }, [indexPicker, quickOrderPrice, symbol, step, indexExpiries]);
+
+  // ── Index CE/PE picker handler ───────────────────────────────────────────────
   const handlePickOption = async (type) => {
-    if (!atmStrike || !indexExpiries.length || resolvingOption) return;
+    const pickerStrike = quickOrderPrice ? Math.round(quickOrderPrice / step) * step : atmStrike;
+    if (!pickerStrike || !indexExpiries.length || resolvingOption) return;
     setResolvingOption(type);
     try {
+      // Use pre-fetched data if available (happy path — no extra API call)
+      const prefetched = pickerLtps[type];
+      if (prefetched?.tradingSymbol) {
+        setResolvedOptionSymbol(prefetched.tradingSymbol);
+        setQuickOrderPrice(prefetched.ltp);
+        setQuickOrderSide('BUY');
+        setOrderOptionType(type);
+        setIndexPicker(false);
+        setQuickOrderOpen(true);
+        setResolvingOption(null);
+        return;
+      }
+      // Fallback: fetch now (picker opened before prefetch completed)
       const expiry = indexExpiries[0].date;
-      const res = await fetch(`/api/option-meta?action=tradingsymbol&symbol=${symbol}&expiry=${expiry}&strike=${atmStrike}&type=${type}`);
+      const res  = await fetch(`/api/option-meta?action=tradingsymbol&symbol=${symbol}&expiry=${expiry}&strike=${pickerStrike}&type=${type}`);
       const data = await res.json();
       if (data.tradingSymbol && data.ltp !== null) {
+        setResolvedOptionSymbol(data.tradingSymbol);
         setQuickOrderPrice(data.ltp);
         setQuickOrderSide('BUY');
         setOrderOptionType(type);
@@ -1164,32 +1207,59 @@ function ChartPageInner() {
         )}
 
         {/* Index CE/PE picker — appears when + is clicked on NIFTY/BANKNIFTY/etc */}
-        {indexPicker && lastPriceY !== null && atmStrike && (
-          <div
-            style={{ top: lastPriceY - 15, right: 108 }}
-            className="absolute z-30 flex items-center gap-1.5 bg-[#0f1d33] border border-white/10 rounded-lg px-2.5 py-1.5 shadow-2xl"
-          >
-            <span className="text-[11px] text-slate-400 font-mono mr-0.5">ATM {atmStrike}</span>
-            <button
-              disabled={!!resolvingOption}
-              onClick={() => handlePickOption('CE')}
-              className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-emerald-700 hover:bg-emerald-600 text-white transition-colors flex items-center gap-1.5 min-w-[38px] justify-center"
+        {indexPicker && lastPriceY !== null && (() => {
+          const pickerStrike = quickOrderPrice ? Math.round(quickOrderPrice / step) * step : atmStrike;
+          if (!pickerStrike) return null;
+          return (
+            <div
+              style={{ top: lastPriceY - 15, right: 108 }}
+              className="absolute z-30 flex items-center gap-1.5 bg-[#0f1d33] border border-white/10 rounded-lg px-2.5 py-1.5 shadow-2xl"
             >
-              {resolvingOption === 'CE' ? <Loader2 size={10} className="animate-spin" /> : 'CE'}
-            </button>
-            <button
-              disabled={!!resolvingOption}
-              onClick={() => handlePickOption('PE')}
-              className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-red-700 hover:bg-red-600 text-white transition-colors flex items-center gap-1.5 min-w-[38px] justify-center"
-            >
-              {resolvingOption === 'PE' ? <Loader2 size={10} className="animate-spin" /> : 'PE'}
-            </button>
-            <button
-              onClick={() => setIndexPicker(false)}
-              className="ml-0.5 text-slate-500 hover:text-slate-300 text-xs leading-none"
-            >✕</button>
-          </div>
-        )}
+              <div className="flex flex-col mr-1">
+                <span className="text-[10px] text-slate-500 font-mono leading-tight">
+                  @ ₹{quickOrderPrice?.toFixed(0)}
+                </span>
+                <span className="text-[11px] text-slate-300 font-mono font-semibold leading-tight">
+                  {pickerStrike} strike
+                </span>
+              </div>
+              <button
+                disabled={!!resolvingOption}
+                onClick={() => handlePickOption('CE')}
+                className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-emerald-700 hover:bg-emerald-600 text-white transition-colors flex flex-col items-center min-w-[46px] justify-center leading-tight"
+              >
+                {resolvingOption === 'CE'
+                  ? <Loader2 size={10} className="animate-spin" />
+                  : <>
+                      <span>CE</span>
+                      <span className="text-[9px] font-normal opacity-80">
+                        {pickerLtps.loading ? '…' : pickerLtps.CE?.ltp != null ? `₹${pickerLtps.CE.ltp.toFixed(1)}` : ''}
+                      </span>
+                    </>
+                }
+              </button>
+              <button
+                disabled={!!resolvingOption}
+                onClick={() => handlePickOption('PE')}
+                className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-red-700 hover:bg-red-600 text-white transition-colors flex flex-col items-center min-w-[46px] justify-center leading-tight"
+              >
+                {resolvingOption === 'PE'
+                  ? <Loader2 size={10} className="animate-spin" />
+                  : <>
+                      <span>PE</span>
+                      <span className="text-[9px] font-normal opacity-80">
+                        {pickerLtps.loading ? '…' : pickerLtps.PE?.ltp != null ? `₹${pickerLtps.PE.ltp.toFixed(1)}` : ''}
+                      </span>
+                    </>
+                }
+              </button>
+              <button
+                onClick={() => setIndexPicker(false)}
+                className="ml-0.5 text-slate-500 hover:text-slate-300 text-xs leading-none"
+              >✕</button>
+            </div>
+          );
+        })()}
 
         {/* OHLCV overlay — top-left */}
         {(() => {
@@ -1505,8 +1575,8 @@ function ChartPageInner() {
     {/* Quick Order Drawer */}
     <QuickOrder
       isOpen={quickOrderOpen}
-      onClose={() => setQuickOrderOpen(false)}
-      symbol={orderOptionType ? `${symbol} ${atmStrike} ${orderOptionType}` : (isOptionChart ? symbol : symbol)}
+      onClose={() => { setQuickOrderOpen(false); setResolvedOptionSymbol(null); setOrderOptionType(null); }}
+      symbol={orderOptionType ? (resolvedOptionSymbol ?? `${symbol}${atmStrike}${orderOptionType}`) : (isOptionChart ? symbol : symbol)}
       price={quickOrderPrice}
       type={quickOrderSide}
       intelligence={intelligence}
