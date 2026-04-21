@@ -1949,6 +1949,42 @@ export default function OptionsPage() {
     return () => { alive = false; clearInterval(t); };
   }, [symbol]);
 
+  // ── Log Trade Desk HIGH signals to admin signal_logs ─────────────────────────
+  const loggedSignalKeysRef = useRef(new Set());
+  useEffect(() => {
+    if (!chainData || !isMarketHours()) return;
+    const { buys, sells } = generateTradeDesk(chainData, straddleData);
+    const toLog = [
+      ...(buys  || []).map(o => ({ ...o, side: 'BUY'  })),
+      ...(sells || []).map(o => ({ ...o, side: 'SELL' })),
+    ].filter(o => o.confidence === 'HIGH');
+
+    for (const op of toLog) {
+      const key = `${symbol}:${op.side}:${op.strike}:${op.type ?? op.optType}:${op.trigger}`;
+      if (loggedSignalKeysRef.current.has(key)) continue;
+      loggedSignalKeysRef.current.add(key);
+      fetch('/api/admin/signal-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'OPT_SIGNAL',
+          ts: new Date().toISOString(),
+          symbol,
+          side: op.side,
+          strike: op.strike,
+          optType: op.type ?? op.optType,
+          confidence: op.confidence,
+          trigger: op.trigger,
+          strategy: op.strategy ?? null,
+          reasons: op.reasons ?? [],
+          ltp: op.ltp ?? null,
+          sl: op.sl ?? null,
+          target: op.target ?? null,
+        }),
+      }).catch(() => {/* non-fatal */});
+    }
+  }, [chainData, straddleData, symbol]);
+
   // ── Short Covering: poll + sound + browser notification ──────────────────────
   useEffect(() => {
     const fetchSC = async () => {

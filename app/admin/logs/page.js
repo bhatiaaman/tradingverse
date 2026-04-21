@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Nav from '@/app/components/Nav'
 
-const TABS = ['All', 'Short Covering', 'Third Eye']
+const TABS = ['All', 'Eye Setups', 'Options Signals']
 
 function timeIST(ts) {
   if (!ts) return '—'
@@ -16,42 +16,12 @@ function timeIST(ts) {
 }
 
 function typeMap(tab) {
-  if (tab === 'Short Covering') return 'SC'
-  if (tab === 'Third Eye')      return 'THIRD_EYE'
+  if (tab === 'Eye Setups')      return 'THIRD_EYE'
+  if (tab === 'Options Signals') return 'OPT_SIGNAL'
   return null
 }
 
-function SCEntry({ e }) {
-  return (
-    <div className="bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-xl px-5 py-4">
-      <div className="flex items-start justify-between gap-4 mb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded-full border bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800/50">
-            SC
-          </span>
-          <span className="text-sm font-semibold text-slate-900 dark:text-white">{e.symbol}</span>
-          <span className="text-xs text-slate-500">{e.expiry}</span>
-          <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
-            {e.spot ? Number(e.spot).toLocaleString('en-IN') : ''}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className={`text-xs font-bold ${e.strength >= 7 ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'}`}>
-            str {e.strength}/10
-          </span>
-          <span className="text-[11px] text-slate-500">{timeIST(e.ts)}</span>
-        </div>
-      </div>
-      {e.description && (
-        <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{e.description}</p>
-      )}
-      {e.actionable && (
-        <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">{e.actionable}</p>
-      )}
-    </div>
-  )
-}
-
+// ── Eye Setup Entry ───────────────────────────────────────────────────────────
 function ThirdEyeEntry({ e }) {
   const dirColor = e.direction === 'bull'
     ? 'text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 border-green-200 dark:border-green-800/50'
@@ -62,7 +32,7 @@ function ThirdEyeEntry({ e }) {
       <div className="flex items-start justify-between gap-4 mb-2">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded-full border bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border-violet-200 dark:border-violet-800/50">
-            Eye
+            👁 Eye
           </span>
           <span className="text-sm font-semibold text-slate-900 dark:text-white">{e.symbol}</span>
           <span className="text-xs text-slate-500">{e.interval}</span>
@@ -93,6 +63,67 @@ function ThirdEyeEntry({ e }) {
   )
 }
 
+// ── Options Signal Entry ──────────────────────────────────────────────────────
+function OptSignalEntry({ e }) {
+  const isBuy  = e.side === 'BUY'
+  const isHigh = e.confidence === 'HIGH'
+
+  const sideClasses = isBuy
+    ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50'
+    : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800/50'
+
+  const confClasses = isHigh
+    ? 'text-amber-600 dark:text-amber-400'
+    : 'text-slate-500'
+
+  return (
+    <div className="bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-xl px-5 py-4">
+      <div className="flex items-start justify-between gap-4 mb-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded-full border ${sideClasses}`}>
+            {isBuy ? '▲ BUY' : '▼ SELL'}
+          </span>
+          <span className="text-sm font-semibold text-slate-900 dark:text-white">{e.symbol}</span>
+          {e.strike && (
+            <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
+              {e.strike} {e.optType}
+            </span>
+          )}
+          {e.trigger && (
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-500">
+              {e.trigger.replace(/_/g, ' ')}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`text-xs font-bold ${confClasses}`}>{e.confidence}</span>
+          <span className="text-[11px] text-slate-500">{timeIST(e.ts)}</span>
+        </div>
+      </div>
+
+      {/* Key data row */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500 mb-2">
+        {e.ltp     && <span>LTP <span className="text-slate-700 dark:text-slate-300 font-mono font-semibold">₹{e.ltp}</span></span>}
+        {e.sl      && <span>SL  <span className="text-red-600 dark:text-red-400 font-mono font-semibold">₹{e.sl}</span></span>}
+        {e.target  && <span>Target <span className="text-emerald-600 dark:text-emerald-400 font-mono font-semibold">₹{e.target}</span></span>}
+        {e.strategy && <span className="text-slate-400">• {e.strategy}</span>}
+      </div>
+
+      {/* Reasons */}
+      {e.reasons?.length > 0 && (
+        <ul className="space-y-0.5">
+          {e.reasons.map((r, i) => (
+            <li key={i} className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed flex gap-1.5">
+              <span className="text-slate-400 shrink-0">·</span>
+              {r}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export default function AdminLogsPage() {
   const [tab, setTab]         = useState('All')
   const [entries, setEntries] = useState([])
@@ -102,7 +133,7 @@ export default function AdminLogsPage() {
 
   const fetchLogs = useCallback(async () => {
     const type = typeMap(tab)
-    const url  = `/api/admin/signal-logs?n=100${type ? `&type=${type}` : ''}`
+    const url  = `/api/admin/signal-logs?n=100${type ? `&type=${type}` : '&type=THIRD_EYE,OPT_SIGNAL'}`
     try {
       const r = await fetch(url)
       if (!r.ok) throw new Error(await r.text())
@@ -124,6 +155,12 @@ export default function AdminLogsPage() {
     return () => clearInterval(id)
   }, [fetchLogs])
 
+  const emptyMsg = {
+    'All':             'No Eye Setup or Options Signal logs yet. They will appear here during market hours.',
+    'Eye Setups':      'No Eye setups logged yet. Strong setups (score ≥ 6) are auto-logged from the Eye page during market hours.',
+    'Options Signals': 'No options buy/sell signals logged yet. Signals are logged from the Options page when the Trade Desk generates a recommendation.',
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#060b14] text-slate-900 dark:text-white">
       <Nav />
@@ -133,7 +170,7 @@ export default function AdminLogsPage() {
           <div>
             <p className="text-violet-600 dark:text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-2">Admin</p>
             <h1 className="text-3xl font-black">Signal Logs</h1>
-            <p className="text-slate-500 text-sm mt-1">Short covering + Third Eye setups, last 300 entries</p>
+            <p className="text-slate-500 text-sm mt-1">Eye page setups + Options buy/sell recommendations</p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
             {lastFetch && (
@@ -166,23 +203,16 @@ export default function AdminLogsPage() {
         ) : entries.length === 0 ? (
           <div className="text-center py-24">
             <div className="text-4xl mb-4">📭</div>
-            <p className="text-slate-500">No {tab === 'All' ? '' : tab + ' '}signals logged yet.</p>
-            <p className="text-slate-600 text-sm mt-2">
-              {tab === 'Short Covering'
-                ? 'SC logs here when price rises + OI falls (strength ≥ 4) during market hours.'
-                : tab === 'Third Eye'
-                ? 'Third Eye logs here whenever a strong setup (score ≥ 6) fires on a new candle.'
-                : 'SC and Third Eye signals will appear here once they fire during market hours.'}
-            </p>
+            <p className="text-slate-500">{emptyMsg[tab]}</p>
           </div>
         ) : (
           <>
-            <p className="text-xs text-slate-500 mb-4">Showing {entries.length} of {total} matching entries</p>
+            <p className="text-xs text-slate-500 mb-4">Showing {entries.length} of {total} entries</p>
             <div className="space-y-3">
               {entries.map((e, i) => (
-                e.type === 'SC'
-                  ? <SCEntry key={i} e={e} />
-                  : <ThirdEyeEntry key={i} e={e} />
+                e.type === 'THIRD_EYE'
+                  ? <ThirdEyeEntry key={i} e={e} />
+                  : <OptSignalEntry key={i} e={e} />
               ))}
             </div>
           </>
