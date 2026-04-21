@@ -170,15 +170,6 @@ function getNiftyLevelAlerts(indices) {
     const isVisibleRef = useRef(isVisible);
     useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
 
-    // Refresh summary panel immediately when switching back to this tab
-    const prevVisibleRef = useRef(false);
-    useEffect(() => {
-      if (isVisible && !prevVisibleRef.current && isMarketHours()) {
-        fetchCommentaryNow();
-      }
-      prevVisibleRef.current = isVisible;
-    }, [isVisible, fetchCommentaryNow]);
-
     const [marketData, setMarketData] = useState(null);
     const [sectorData, setSectorData] = useState([]);
     const [sectorError, setSectorError] = useState('');
@@ -799,6 +790,16 @@ function getNiftyLevelAlerts(indices) {
         if (myId === commentaryFetchIdRef.current) setCommentaryLoading(false);
       }
     }, [chartInterval]); // re-fetch when TF changes
+
+    // Refresh summary panel immediately when switching back to this tab
+    // (placed here so fetchCommentaryNow is already declared — avoids TDZ)
+    const prevVisibleRef = useRef(false);
+    useEffect(() => {
+      if (isVisible && !prevVisibleRef.current && isMarketHours()) {
+        fetchCommentaryNow();
+      }
+      prevVisibleRef.current = isVisible;
+    }, [isVisible, fetchCommentaryNow]);
 
     // Fetch option chain data
     const fetchOptionChain = useCallback(async (forceRefresh = false) => {
