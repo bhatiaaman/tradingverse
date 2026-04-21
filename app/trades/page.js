@@ -306,6 +306,7 @@ function getNiftyLevelAlerts(indices) {
     const isVisible = usePageVisibility();
     const isVisibleRef = useRef(isVisible);
     useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
+    const fetchCommentaryRef = useRef(null); // set inside commentary effect, used by visibility effect
 
     const [commentary, setCommentary] = useState(null);
     const [commentaryLoading, setCommentaryLoading] = useState(true);
@@ -318,10 +319,13 @@ function getNiftyLevelAlerts(indices) {
     const prevCommentaryRef = useRef(null);
     const soundEnabledRef   = useRef(false); // only alert after first load
 
-    // Note: market-regime is fetched by the commentary polling loop every 60s —
-    // no need for a separate call here on visibility change.
+    // Refresh summary panel immediately when switching back to this tab
+    const prevVisibleRef = useRef(false);
     useEffect(() => {
-      // placeholder kept for future per-tab resume logic
+      if (isVisible && !prevVisibleRef.current && isMarketHours()) {
+        fetchCommentaryRef.current?.();
+      }
+      prevVisibleRef.current = isVisible;
     }, [isVisible]);
 
     // Key levels bar — follows chartSymbol
@@ -660,7 +664,6 @@ function getNiftyLevelAlerts(indices) {
       return () => { clearTimeout(t); clearInterval(interval); };
     }, []);
 
-    // Add fetch function (around line 150)
     useEffect(() => {
       const fetchCommentary = async (forceRefresh = false) => {
         try {
@@ -718,6 +721,9 @@ function getNiftyLevelAlerts(indices) {
           if (d.regime && d.regime !== 'INITIALIZING' && !d.error) setNiftyRegime(d);
         } catch {}
       };
+
+      // Expose fetchCommentary so the visibility effect can call it on tab-return
+      fetchCommentaryRef.current = fetchCommentary;
 
       // Always fetch on mount so summary section is always populated
       fetchCommentary();

@@ -170,6 +170,15 @@ function getNiftyLevelAlerts(indices) {
     const isVisibleRef = useRef(isVisible);
     useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
 
+    // Refresh summary panel immediately when switching back to this tab
+    const prevVisibleRef = useRef(false);
+    useEffect(() => {
+      if (isVisible && !prevVisibleRef.current && isMarketHours()) {
+        fetchCommentaryNow();
+      }
+      prevVisibleRef.current = isVisible;
+    }, [isVisible, fetchCommentaryNow]);
+
     const [marketData, setMarketData] = useState(null);
     const [sectorData, setSectorData] = useState([]);
     const [sectorError, setSectorError] = useState('');
