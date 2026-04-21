@@ -25,6 +25,7 @@ import { renderSMC }        from './renderers/smc.js';
 import { renderSLClusters } from './renderers/slClusters.js';
 import { renderCPR }        from './renderers/cpr.js';
 import { renderBB }         from './renderers/bb.js';
+import { renderIchimoku }   from './renderers/ichimoku.js';
 import { renderRSIPane }    from './renderers/rsi-pane.js';
 import { renderDrawings }   from './renderers/drawings.js';
 import { DARK as DARK_PALETTE, LIGHT as LIGHT_PALETTE } from './palette.js';
@@ -67,6 +68,7 @@ export function createChart(container, options = {}) {
   let   slClustersData = null;            // { topBSLZones, topSSLZones }
   let   cprData     = null;               // { tc, p, bc, r1, r2, s1, s2 }
   let   bbData      = null;               // { basis: number[], upper: number[], lower: number[] }
+  let   ichimokuData = null;              // { data: [], config: {} }
   let   markers     = [];                 // [{ index, direction: 'bull'|'bear' }]
   let   rsiPaneData = null;              // { rsi: number[], rsiMA: number[]|null, label: string }
   let   showVolume    = options.showVolume ?? true;
@@ -117,6 +119,7 @@ export function createChart(container, options = {}) {
     if (slClustersData) renderSLClusters(ctx, vp, slClustersData, crosshair, candles);
     if (cprData)   renderCPR(ctx, vp, cprData, crosshair);
     if (bbData)    renderBB(ctx, vp, bbData);
+    if (ichimokuData) renderIchimoku(ctx, vp, ichimokuData.data, ichimokuData.config, palette);
     renderZones(ctx, vp, zones, crosshair);
     for (const [, line] of lineMap) {
       renderLine(ctx, vp, line.values, line.color, line.width);
@@ -414,6 +417,16 @@ export function createChart(container, options = {}) {
 
     clearBB() {
       bbData = null;
+      markDirty();
+    },
+
+    setIchimoku(data, config) {
+      ichimokuData = data ? { data, config } : null;
+      markDirty();
+    },
+
+    clearIchimoku() {
+      ichimokuData = null;
       markDirty();
     },
 

@@ -15,6 +15,7 @@ function KiteSettingsContent() {
     autoLogin: false,
   });
   const [loading, setLoading] = useState(false);
+  const [autoConnecting, setAutoConnecting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [tokenStatus, setTokenStatus] = useState('unknown'); // unknown, valid, invalid
   const [pendingRequestToken, setPendingRequestToken] = useState(null);
@@ -179,11 +180,34 @@ function KiteSettingsContent() {
       setMessage({ type: 'error', text: 'Please save your API Key first' });
       return;
     }
-    
+
     // Redirect to Kite login
     const redirectUrl = `${window.location.origin}/settings/kite`;
     const loginUrl = `https://kite.zerodha.com/connect/login?v=3&api_key=${config.apiKey}&redirect_url=${encodeURIComponent(redirectUrl)}`;
     window.location.href = loginUrl;
+  };
+
+  const autoConnect = async () => {
+    setAutoConnecting(true);
+    setMessage({ type: 'info', text: 'Connecting... logging in, generating TOTP, and exchanging token.' });
+    try {
+      const res = await fetch('/api/kite-auto-login', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setTokenStatus('valid');
+        setMessage({ type: 'success', text: 'Connected successfully! Access token is live.' });
+        if (window.opener) {
+          window.opener.postMessage({ type: 'KITE_LOGIN_SUCCESS' }, '*');
+          setTimeout(() => window.close(), 2000);
+        }
+      } else {
+        setMessage({ type: 'error', text: data.message || 'Auto-connect failed.' });
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Auto-connect request failed: ' + err.message });
+    } finally {
+      setAutoConnecting(false);
+    }
   };
 
   const validateToken = async () => {
@@ -387,19 +411,52 @@ function KiteSettingsContent() {
             <span className="w-6 h-6 rounded-full bg-blue-500 text-white text-sm flex items-center justify-center">2</span>
             Login & Get Access Token
           </h2>
-          <p className="text-slate-400 text-sm mb-4">
-            Click below to login to Kite. After login, you'll enter your API Secret (never saved) to generate the token.
+
+          {/* Auto Connect — shown when all env credentials exist */}
+          {hasApiSecretInEnv && (
+            <div className="mb-4 p-4 bg-green-900/20 border border-green-500/30 rounded-xl">
+              <p className="text-green-300 text-sm font-medium mb-1">One-click connect available</p>
+              <p className="text-slate-400 text-xs mb-3">
+                All credentials are in .env.local. Click below to log in, generate TOTP, and get a fresh access token — no browser popup, no redirects.
+              </p>
+              <button
+                onClick={autoConnect}
+                disabled={autoConnecting || loading || !config.apiKey}
+                className="w-full bg-green-600 hover:bg-green-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                {autoConnecting ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                    </svg>
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Auto Connect Now
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          <p className="text-slate-400 text-sm mb-3">
+            Or login via browser redirect — you'll be asked to enter your API Secret after redirecting back.
           </p>
-          
+
           <button
             onClick={initiateLogin}
-            disabled={loading || !config.apiKey}
-            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
+            disabled={loading || autoConnecting || !config.apiKey}
+            className="w-full bg-blue-700 hover:bg-blue-600 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
             </svg>
-            Login to Kite
+            Login to Kite (browser redirect)
           </button>
         </div>
 

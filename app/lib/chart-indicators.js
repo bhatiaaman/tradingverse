@@ -349,3 +349,66 @@ export function computeADX(candles, period = 14) {
 
   return { adx, plusDI, minusDI };
 }
+
+// ── Ichimoku Cloud ────────────────────────────────────────────────────────────
+export function computeIchimoku(candles, tenkanPeriod = 9, kijunPeriod = 26, senkouPeriod = 52, displacement = 26) {
+  const n = candles.length;
+  if (n === 0) return [];
+  
+  // We return data up to n + displacement - 1 to accommodate the future Senkou spans
+  const outLen = n + displacement - 1;
+  const out = Array.from({ length: outLen }, (_, i) => ({
+    time: i < n ? candles[i].time : null, // The renderer relies primarily on index
+    tenkan: null,
+    kijun: null,
+    senkouA: null,
+    senkouB: null,
+    chikou: null,
+  }));
+
+  const calcExtremes = (start, end) => {
+    let hi = -Infinity, lo = Infinity;
+    for (let i = start; i <= end; i++) {
+        if (candles[i].high > hi) hi = candles[i].high;
+        if (candles[i].low < lo) lo = candles[i].low;
+    }
+    return { hi, lo };
+  };
+
+  for (let i = 0; i < n; i++) {
+    // Tenkan-sen (Conversion Line)
+    if (i >= tenkanPeriod - 1) {
+      const { hi, lo } = calcExtremes(i - tenkanPeriod + 1, i);
+      out[i].tenkan = parseFloat(((hi + lo) / 2).toFixed(2));
+    }
+    
+    // Kijun-sen (Base Line)
+    if (i >= kijunPeriod - 1) {
+      const { hi, lo } = calcExtremes(i - kijunPeriod + 1, i);
+      out[i].kijun = parseFloat(((hi + lo) / 2).toFixed(2));
+    }
+    
+    // Senkou Span A (Leading Span A, plotted 26 bars ahead)
+    if (out[i].tenkan !== null && out[i].kijun !== null) {
+      const sa = (out[i].tenkan + out[i].kijun) / 2;
+      const targetIdx = i + displacement - 1;
+      if (targetIdx < outLen) out[targetIdx].senkouA = parseFloat(sa.toFixed(2));
+    }
+    
+    // Senkou Span B (Leading Span B, plotted 26 bars ahead)
+    if (i >= senkouPeriod - 1) {
+      const { hi, lo } = calcExtremes(i - senkouPeriod + 1, i);
+      const sb = (hi + lo) / 2;
+      const targetIdx = i + displacement - 1;
+      if (targetIdx < outLen) out[targetIdx].senkouB = parseFloat(sb.toFixed(2));
+    }
+    
+    // Chikou Span (Lagging Span, plotted 26 bars behind)
+    const backIdx = i - displacement + 1;
+    if (backIdx >= 0) {
+      out[backIdx].chikou = candles[i].close;
+    }
+  }
+
+  return out;
+}

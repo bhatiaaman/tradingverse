@@ -14,6 +14,7 @@ import { nseStrikeSteps } from '../../lib/nseStrikeSteps';
 import {
   computeVWAP, computeEMA, computeRSI,
   computeSMAAligned, computeBB, computeSMC, computeCPR,
+  computeIchimoku
 } from '@/app/lib/chart-indicators';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -42,11 +43,13 @@ const OVERLAY_DEFS = [
   { key: 'cpr',    label: 'CPR  (TC · P · BC)',     color: '#6366f1' },
   { key: 'bb',     label: 'Bollinger Bands',        color: '#2962ff', hasParams: true },
   { key: 'rsi',    label: 'RSI',                    color: '#818cf8', hasParams: true },
+  { key: 'ichimoku', label: 'Ichimoku Cloud',       color: '#10b981', hasParams: true },
 ];
 
 const DEFAULT_OVERLAYS = {
   vwap: false, orBand: true, ema9: true, ema21: true, ema50: false,
   ema9D: true, volume: true, smc: false, cpr: false, bb: false, rsi: false,
+  ichimoku: false, ichiCloud: true, ichiTenkan: true, ichiKijun: true, ichiChikou: false,
 };
 
 // ── Misc helpers ──────────────────────────────────────────────────────────────
@@ -214,6 +217,16 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
     if (ov.bb && candles.length >= (bbS.length ?? 20)) {
       chart.setBB(computeBB(candles, bbS.length ?? 20, bbS.mult ?? 2.0));
     } else { chart.clearBB(); }
+
+    // Ichimoku Cloud
+    if (ov.ichimoku && candles.length >= 26) {
+      chart.setIchimoku(computeIchimoku(candles), {
+        showTenkan: ov.ichiTenkan,
+        showKijun: ov.ichiKijun,
+        showCloud: ov.ichiCloud,
+        showChikou: ov.ichiChikou
+      });
+    } else { chart.clearIchimoku(); }
 
     // Candle colors + volume
     chart.setCandleColors({ bull: cc.bull, bear: cc.bear });
@@ -693,6 +706,11 @@ function OptionsChartInner() {
         cpr:    saved.showCPR    ?? DEFAULT_OVERLAYS.cpr,
         bb:     saved.showBB     ?? DEFAULT_OVERLAYS.bb,
         rsi:    saved.showRSI    ?? DEFAULT_OVERLAYS.rsi,
+        ichimoku: saved.showIchimoku ?? DEFAULT_OVERLAYS.ichimoku,
+        ichiCloud: saved.showIchiCloud ?? DEFAULT_OVERLAYS.ichiCloud,
+        ichiTenkan: saved.showIchiTenkan ?? DEFAULT_OVERLAYS.ichiTenkan,
+        ichiKijun: saved.showIchiKijun ?? DEFAULT_OVERLAYS.ichiKijun,
+        ichiChikou: saved.showIchiChikou ?? DEFAULT_OVERLAYS.ichiChikou,
       };
     } catch { return DEFAULT_OVERLAYS; }
   });
@@ -755,6 +773,7 @@ function OptionsChartInner() {
   const peHPanelWrapRef = useRef(null);
 
   const [chartKey, setChartKey] = useState(null);
+  const [configPage, setConfigPage] = useState(null);
 
   // Persist overlay settings to shared key (mirrors chart/page.js key names)
   const persistSettings = (patch = {}) => {
@@ -767,7 +786,7 @@ function OptionsChartInner() {
   const toggleOverlay = (key) => {
     setOverlays(prev => {
       const next = { ...prev, [key]: !prev[key] };
-      const MAP = { vwap: 'showVwap', orBand: 'showOrBand', ema9: 'showEma9', ema21: 'showEma21', ema50: 'showEma50', ema9D: 'showEma9D', volume: 'showVolume', smc: 'showSMC', cpr: 'showCPR', bb: 'showBB', rsi: 'showRSI' };
+      const MAP = { vwap: 'showVwap', orBand: 'showOrBand', ema9: 'showEma9', ema21: 'showEma21', ema50: 'showEma50', ema9D: 'showEma9D', volume: 'showVolume', smc: 'showSMC', cpr: 'showCPR', bb: 'showBB', rsi: 'showRSI', ichimoku: 'showIchimoku', ichiCloud: 'showIchiCloud', ichiTenkan: 'showIchiTenkan', ichiKijun: 'showIchiKijun', ichiChikou: 'showIchiChikou' };
       persistSettings({ [MAP[key]]: next[key] });
       return next;
     });
@@ -785,10 +804,11 @@ function OptionsChartInner() {
   }, [showOverlays]);
 
   const openOverlayDropdown = () => {
-    if (showOverlays) { setShowOverlays(false); return; }
+    if (showOverlays) { setShowOverlays(false); setConfigPage(null); return; }
     const rect = overlayBtnRef.current.getBoundingClientRect();
     setOverlayPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
     setShowOverlays(true);
+    setConfigPage(null);
   };
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -1241,70 +1261,112 @@ function OptionsChartInner() {
           className="fixed z-[200] bg-[#111827] border border-white/[0.12] rounded-xl shadow-2xl p-3"
           style={{ top: overlayPos.top, right: overlayPos.right, minWidth: 200 }}
         >
-          <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-2 px-1">Chart Overlays</div>
-          <div className="space-y-0.5">
-            {OVERLAY_DEFS.map(({ key, label, color, hasParams }) => {
-              const on = overlays[key];
-              return (
-                <div key={key}>
-                  <button onClick={() => toggleOverlay(key)}
-                    className="flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg transition-colors text-left hover:bg-white/[0.06]">
-                    <span className="flex items-center w-5 flex-shrink-0">
-                      <span className="w-full h-0.5 rounded-full block" style={{ backgroundColor: color, opacity: on ? 1 : 0.2 }} />
-                    </span>
-                    <span className={`text-xs flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
-                    <span className={`text-[10px] font-bold w-5 text-right ${on ? 'text-indigo-500' : 'text-slate-400'}`}>{on ? 'ON' : 'OFF'}</span>
-                  </button>
-                  {hasParams && on && key === 'bb' && (
-                    <div className="flex items-center gap-2 px-2 pb-1.5 text-[10px] text-slate-400">
-                      <span>Len</span>
-                      <input type="number" min={2} max={200} value={bbSettings.length}
-                        onChange={e => { const v = Math.max(2, Math.min(200, +e.target.value || 20)); setBbSettings(s => ({ ...s, length: v })); persistSettings({ bbLength: v }); }}
-                        className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-white text-[10px] text-center" />
-                      <span>SD</span>
-                      <input type="number" min={0.1} max={5} step={0.1} value={bbSettings.mult}
-                        onChange={e => { const v = Math.max(0.1, Math.min(5, +e.target.value || 2.0)); setBbSettings(s => ({ ...s, mult: v })); persistSettings({ bbMult: v }); }}
-                        className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-white text-[10px] text-center" />
-                    </div>
-                  )}
-                  {hasParams && on && key === 'rsi' && (
-                    <div className="flex items-center gap-2 px-2 pb-1.5 text-[10px] text-slate-400">
-                      <span>Period</span>
-                      <input type="number" min={2} max={50} value={rsiSettings.period}
-                        onChange={e => { const v = Math.max(2, Math.min(50, +e.target.value || 12)); setRsiSettings(s => ({ ...s, period: v })); persistSettings({ rsiPeriod: v }); }}
-                        className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-white text-[10px] text-center" />
-                      <span>MA</span>
-                      <input type="number" min={0} max={30} value={rsiSettings.maPeriod}
-                        onChange={e => { const v = Math.max(0, Math.min(30, +e.target.value || 0)); setRsiSettings(s => ({ ...s, maPeriod: v })); persistSettings({ rsiMAPeriod: v }); }}
-                        className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-white text-[10px] text-center" />
-                    </div>
-                  )}
+          {configPage ? (
+            <div>
+              <button onClick={() => setConfigPage(null)} className="flex items-center gap-1.5 mb-3 text-[10px] uppercase font-bold text-slate-400 hover:text-white transition-colors">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                Back
+              </button>
+              <div className="text-xs text-white font-semibold mb-3 px-1">{OVERLAY_DEFS.find(d => d.key === configPage)?.label}</div>
+              
+              {configPage === 'bb' && (
+                <div className="flex flex-col gap-3 px-1 pb-1 text-[11px] text-slate-400">
+                  <label className="flex items-center justify-between gap-3">
+                    Length
+                    <input type="number" min={2} max={200} value={bbSettings.length}
+                      onChange={e => { const v = Math.max(2, Math.min(200, +e.target.value || 20)); setBbSettings(s => ({ ...s, length: v })); persistSettings({ bbLength: v }); }}
+                      className="w-14 bg-slate-800 border border-white/10 rounded px-2 py-1 text-white text-center" />
+                  </label>
+                  <label className="flex items-center justify-between gap-3">
+                    StdDev
+                    <input type="number" min={0.1} max={5} step={0.1} value={bbSettings.mult}
+                      onChange={e => { const v = Math.max(0.1, Math.min(5, +e.target.value || 2.0)); setBbSettings(s => ({ ...s, mult: v })); persistSettings({ bbMult: v }); }}
+                      className="w-14 bg-slate-800 border border-white/10 rounded px-2 py-1 text-white text-center" />
+                  </label>
                 </div>
-              );
-            })}
-          </div>
-          {/* Candle colors */}
-          <div className="border-t border-white/[0.08] mt-2 pt-2 px-1">
-            <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">Candle Colors</div>
-            {[['Bull', 'bull'], ['Bear', 'bear']].map(([lbl, key]) => (
-              <div key={key} className="flex items-center gap-1.5 mb-1.5">
-                <span className="text-[10px] text-slate-500 w-6">{lbl}</span>
-                {['#22c55e','#26a69a','#ffffff','#3b82f6','#f59e0b','#ef4444','#f97316','#000000'].map(c => {
-                  const settingKey = key === 'bull' ? 'bullColor' : 'bearColor';
-                  const isSelected = candleColors[key] === c;
+              )}
+              {configPage === 'rsi' && (
+                <div className="flex flex-col gap-3 px-1 pb-1 text-[11px] text-slate-400">
+                  <label className="flex items-center justify-between gap-3">
+                    Period
+                    <input type="number" min={2} max={50} value={rsiSettings.period}
+                      onChange={e => { const v = Math.max(2, Math.min(50, +e.target.value || 12)); setRsiSettings(s => ({ ...s, period: v })); persistSettings({ rsiPeriod: v }); }}
+                      className="w-14 bg-slate-800 border border-white/10 rounded px-2 py-1 text-white text-center" />
+                  </label>
+                  <label className="flex items-center justify-between gap-3">
+                    MA Period (0 = Off)
+                    <input type="number" min={0} max={30} value={rsiSettings.maPeriod}
+                      onChange={e => { const v = Math.max(0, Math.min(30, +e.target.value || 0)); setRsiSettings(s => ({ ...s, maPeriod: v })); persistSettings({ rsiMAPeriod: v }); }}
+                      className="w-14 bg-slate-800 border border-white/10 rounded px-2 py-1 text-white text-center" />
+                  </label>
+                </div>
+              )}
+              {configPage === 'ichimoku' && (
+                <div className="flex flex-col gap-2.5 px-1 pb-1 text-[11px] text-slate-400">
+                  {[
+                    { k: 'ichiCloud', label: 'Kumo (Cloud)', color: '#10b981' },
+                    { k: 'ichiTenkan', label: 'Tenkan-sen', color: '#3b82f6' },
+                    { k: 'ichiKijun', label: 'Kijun-sen', color: '#f59e0b' },
+                    { k: 'ichiChikou', label: 'Chikou (Lag)', color: '#8b5cf6' }
+                  ].map(({k, label, color}) => (
+                    <label key={k} className="flex items-center gap-2 cursor-pointer hover:text-slate-200 transition-colors">
+                      <input type="checkbox" checked={!!overlays[k]} onChange={() => toggleOverlay(k)} className="w-3.5 h-3.5 accent-indigo-500 rounded bg-slate-800" />
+                      <span className="w-3 h-0.5 rounded-full shrink-0" style={{backgroundColor: color}} />
+                      <span className="flex-1">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-2 px-1">Chart Overlays</div>
+              <div className="space-y-0.5">
+                {OVERLAY_DEFS.map(({ key, label, color, hasParams }) => {
+                  const on = overlays[key];
                   return (
-                    <button key={c}
-                      onClick={() => { setCandleColors(prev => { const n = { ...prev, [key]: c }; persistSettings({ [settingKey]: c }); return n; }); }}
-                      className="w-4 h-4 rounded-full flex-shrink-0 transition-all"
-                      style={{ backgroundColor: c,
-                        border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : c === '#000000' ? '1px solid rgba(255,255,255,0.15)' : 'none',
-                        boxShadow: isSelected ? '0 0 0 2px #fff' : 'none',
-                        transform: isSelected ? 'scale(1.15)' : 'scale(1)' }} />
+                    <div key={key} className="flex items-center gap-1 w-full">
+                      <button onClick={() => toggleOverlay(key)}
+                        className="flex-1 flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition-colors text-left hover:bg-white/[0.06]">
+                        <span className="flex items-center w-5 flex-shrink-0">
+                          <span className="w-full h-0.5 rounded-full block" style={{ backgroundColor: color, opacity: on ? 1 : 0.2 }} />
+                        </span>
+                        <span className={`text-xs flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
+                        <span className={`text-[10px] font-bold text-right pl-1 ${on ? 'text-indigo-500' : 'text-slate-400'}`}>{on ? 'ON' : 'OFF'}</span>
+                      </button>
+                      {hasParams && on && (
+                        <button onClick={(e) => { e.stopPropagation(); setConfigPage(key); }} className="p-1.5 ml-0.5 text-slate-400 hover:text-slate-100 bg-white/[0.04] hover:bg-white/[0.12] rounded-md transition-colors" title="Configure">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
               </div>
-            ))}
-          </div>
+              {/* Candle colors */}
+              <div className="border-t border-white/[0.08] mt-2 pt-2 px-1">
+                <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">Candle Colors</div>
+                {[['Bull', 'bull'], ['Bear', 'bear']].map(([lbl, key]) => (
+                  <div key={key} className="flex items-center gap-1.5 mb-1.5">
+                    <span className="text-[10px] text-slate-500 w-6">{lbl}</span>
+                    {['#22c55e','#26a69a','#ffffff','#3b82f6','#f59e0b','#ef4444','#f97316','#000000'].map(c => {
+                      const settingKey = key === 'bull' ? 'bullColor' : 'bearColor';
+                      const isSelected = candleColors[key] === c;
+                      return (
+                        <button key={c}
+                          onClick={() => { setCandleColors(prev => { const n = { ...prev, [key]: c }; persistSettings({ [settingKey]: c }); return n; }); }}
+                          className="w-4 h-4 rounded-full flex-shrink-0 transition-all"
+                          style={{ backgroundColor: c,
+                            border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : c === '#000000' ? '1px solid rgba(255,255,255,0.15)' : 'none',
+                            boxShadow: isSelected ? '0 0 0 2px #fff' : 'none',
+                            transform: isSelected ? 'scale(1.15)' : 'scale(1)' }} />
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

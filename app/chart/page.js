@@ -11,6 +11,7 @@ import DrawingToolbar      from '@/app/components/DrawingToolbar';
 import {
   aggregateWeekly, computeVWAP, computeEMA, computeRSI,
   computeSMAAligned, computeBB, computeSMC, computeCPR,
+  computeIchimoku
 } from '@/app/lib/chart-indicators';
 import { useChartRefresh } from '@/app/lib/chart/useChartRefresh';
 import { Loader2 } from 'lucide-react';
@@ -74,6 +75,7 @@ const OVERLAY_DEFS = [
   { key: 'showSL',     label: 'SL Clusters',           color: '#ef4444', intradayOnly: false, dailyOnly: false },
   { key: 'showBB',     label: 'Bollinger Bands', color: '#2962ff',        intradayOnly: false, dailyOnly: false, hasParams: true },
   { key: 'showRSI',    label: 'RSI',          color: '#818cf8',          intradayOnly: false, dailyOnly: false, hasParams: true },
+  { key: 'showIchimoku', label: 'Ichimoku Cloud', color: '#10b981',        intradayOnly: false, dailyOnly: false, hasParams: true },
 ];
 
 const DEFAULT_SETTINGS = {
@@ -91,6 +93,11 @@ const DEFAULT_SETTINGS = {
   showSL:        false,
   showBB:        false,
   showRSI:       false,
+  showIchimoku:  false,
+  ichiCloud:     true,
+  ichiTenkan:    true,
+  ichiKijun:     true,
+  ichiChikou:    false,
   bullColor:     '#22c55e',
   bearColor:     '#ef4444',
   rsiPeriod:     12,
@@ -162,6 +169,7 @@ function ChartPageInner() {
   const [settings, setSettings]           = useState(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings]   = useState(false);
   const [dropdownPos, setDropdownPos]     = useState(null);
+  const [configPage, setConfigPage]       = useState(null);
   const [intelligence, setIntelligence]   = useState(null);
   const [slData, setSlData]               = useState(null);
   const [hoverOHLC, setHoverOHLC]         = useState(null);
@@ -411,14 +419,14 @@ function ChartPageInner() {
       if (
         dropdownRef.current && !dropdownRef.current.contains(e.target) &&
         settingsBtnRef.current && !settingsBtnRef.current.contains(e.target)
-      ) setShowSettings(false);
+      ) { setShowSettings(false); setConfigPage(null); }
     };
     document.addEventListener('mousedown', onOutside);
     return () => document.removeEventListener('mousedown', onOutside);
   }, [showSettings]);
 
   const openSettings = () => {
-    if (showSettings) { setShowSettings(false); return; }
+    if (showSettings) { setShowSettings(false); setConfigPage(null); return; }
     const rect = settingsBtnRef.current.getBoundingClientRect();
     setDropdownPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
     setShowSettings(true);
@@ -567,6 +575,19 @@ function ChartPageInner() {
       chart.setBB(bb);
     } else {
       chart.clearBB();
+    }
+
+    // ── Ichimoku Cloud ───────────────────────────────────────────────────
+    if (settings.showIchimoku && candles.length >= 26) {
+      const ichimoku = computeIchimoku(candles);
+      chart.setIchimoku(ichimoku, {
+        showTenkan: settings.ichiTenkan,
+        showKijun: settings.ichiKijun,
+        showCloud: settings.ichiCloud,
+        showChikou: settings.ichiChikou
+      });
+    } else {
+      chart.clearIchimoku();
     }
 
     // ── Candle colors ─────────────────────────────────────────────────────
@@ -1361,100 +1382,137 @@ function ChartPageInner() {
             <div className="absolute inset-0 bg-black/50" onClick={() => setShowSettings(false)} />
             <div className="relative bg-[#111827] border-t border-white/[0.12] rounded-t-2xl shadow-2xl p-4 pb-8">
               <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-4" />
-              <div className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Chart Overlays</div>
-              {[
-                { key: 'bullColor', label: 'Bull candle', def: '#22c55e' },
-                { key: 'bearColor', label: 'Bear candle', def: '#ef4444' },
-              ].map(({ key, label, def }) => (
-                <div key={key} className="px-1 mb-3">
-                  <div className="text-xs text-slate-500 mb-1.5">{label}</div>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {['#22c55e','#26a69a','#ffffff','#3b82f6','#f59e0b','#ef4444','#f97316','#000000'].map(c => (
-                      <button key={c} onClick={() => setSetting(key, c)}
-                        style={{ backgroundColor: c, width: 22, height: 22, borderRadius: 4,
-                          boxShadow: (settings[key] ?? def) === c ? '0 0 0 2px #fff' : '0 0 0 1px rgba(255,255,255,0.15)' }}
-                      />
-                    ))}
-                    <label className="relative cursor-pointer flex items-center justify-center w-[22px] h-[22px] rounded text-slate-400 text-sm font-bold"
-                      style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.15)' }}>
-                      +<input type="color" value={settings[key] ?? def} onChange={e => setSetting(key, e.target.value)} className="absolute opacity-0 w-0 h-0" />
-                    </label>
-                  </div>
-                </div>
-              ))}
-              <div className="grid grid-cols-2 gap-1">
-                {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams, hasStyle, colorKey, widthKey }) => {
-                  const disabled  = (intradayOnly && !isIntraday) || (dailyOnly && chartInterval !== 'day');
-                  const on        = settings[key] && !disabled;
-                  const liveColor = hasStyle ? (settings[colorKey] ?? color) : color;
-                  return (
-                    <div key={key} className={`${(hasParams || hasStyle) && on ? 'col-span-2' : ''}`}>
-                      <button onClick={() => !disabled && toggle(key)} disabled={disabled}
-                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-colors text-left w-full ${
-                          disabled ? 'opacity-25 cursor-not-allowed' : on ? 'bg-slate-700' : 'hover:bg-white/[0.06]'
-                        }`}
-                      >
-                        <span className="w-4 h-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: liveColor, opacity: on ? 1 : 0.3 }} />
-                        <span className={`text-sm flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
-                      </button>
-                      {hasStyle && on && (
-                        <div className="flex items-center gap-1.5 px-3 pb-2.5">
-                          {EMA_LINE_PALETTE.map(c => (
-                            <button key={c} onClick={() => setSetting(colorKey, c)}
-                              className="w-4 h-4 rounded-full flex-shrink-0 transition-all"
-                              style={{ backgroundColor: c, border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : 'none',
-                                outline: (settings[colorKey] ?? color) === c ? '2px solid #fff' : 'none', outlineOffset: '1px' }}
-                            />
-                          ))}
-                          <label className="w-4 h-4 rounded-full cursor-pointer flex-shrink-0 flex items-center justify-center bg-white/10 text-[9px] text-slate-400 hover:bg-white/20 relative">
-                            +<input type="color" value={settings[colorKey] ?? color} onChange={e => setSetting(colorKey, e.target.value)} className="absolute opacity-0 w-0 h-0" />
-                          </label>
-                          <div className="flex items-center gap-1 ml-auto">
-                            {[[1,'—'],[2,'━'],[3,'━━']].map(([w, glyph]) => (
-                              <button key={w} onClick={() => setSetting(widthKey, w)}
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${(settings[widthKey] ?? 2) === w ? 'bg-indigo-500 text-white' : 'text-slate-500 hover:text-slate-300'}`}
-                              >{glyph}</button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {hasParams && on && key === 'showBB' && (
-                        <div className="flex items-center gap-3 px-3 py-1.5 text-xs text-slate-400">
-                          <label className="flex items-center gap-1.5">Length
-                            <input type="number" min={2} max={200} value={settings.bbLength ?? 20}
-                              onChange={e => setNum('bbLength', Math.max(2, Math.min(200, +e.target.value || 20)))}
-                              className="w-12 bg-slate-800 border border-white/10 rounded px-1.5 py-0.5 text-white text-xs text-center"
-                            />
-                          </label>
-                          <label className="flex items-center gap-1.5">StdDev
-                            <input type="number" min={0.1} max={5} step={0.1} value={settings.bbMult ?? 2.0}
-                              onChange={e => setNum('bbMult', Math.max(0.1, Math.min(5, +e.target.value || 2.0)))}
-                              className="w-12 bg-slate-800 border border-white/10 rounded px-1.5 py-0.5 text-white text-xs text-center"
-                            />
-                          </label>
-                        </div>
-                      )}
-                      {hasParams && on && key === 'showRSI' && (
-                        <div className="flex items-center gap-3 px-3 py-1.5 text-xs text-slate-400">
-                          <label className="flex items-center gap-1.5">Period
-                            <input type="number" min={2} max={50} value={settings.rsiPeriod ?? 12}
-                              onChange={e => setNum('rsiPeriod', Math.max(2, Math.min(50, +e.target.value || 12)))}
-                              className="w-12 bg-slate-800 border border-white/10 rounded px-1.5 py-0.5 text-white text-xs text-center"
-                            />
-                          </label>
-                          <label className="flex items-center gap-1.5">MA
-                            <input type="number" min={0} max={30} value={settings.rsiMAPeriod ?? 5}
-                              onChange={e => setNum('rsiMAPeriod', Math.max(0, Math.min(30, +e.target.value || 0)))}
-                              className="w-12 bg-slate-800 border border-white/10 rounded px-1.5 py-0.5 text-white text-xs text-center"
-                            />
-                          </label>
-                          <span className="text-slate-600 text-[10px]">(0 = off)</span>
-                        </div>
-                      )}
+              {configPage ? (
+                <div className="px-1 animate-in fade-in zoom-in-95 duration-200">
+                  <button onClick={() => setConfigPage(null)} className="flex items-center gap-2 mb-4 text-xs font-semibold text-slate-400 hover:text-white transition-colors uppercase tracking-widest">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    Back
+                  </button>
+                  <div className="text-lg font-bold text-white mb-4">{OVERLAY_DEFS.find(d => d.key === configPage)?.label} Config</div>
+                  
+                  {configPage === 'showBB' && (
+                    <div className="flex flex-col gap-4">
+                      <label className="flex flex-col gap-2 text-sm text-slate-400">
+                        Length
+                        <input type="number" min={2} max={200} value={settings.bbLength ?? 20}
+                          onChange={e => setNum('bbLength', Math.max(2, Math.min(200, +e.target.value || 20)))}
+                          className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-base"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-2 text-sm text-slate-400">
+                        StdDev
+                        <input type="number" min={0.1} max={5} step={0.1} value={settings.bbMult ?? 2.0}
+                          onChange={e => setNum('bbMult', Math.max(0.1, Math.min(5, +e.target.value || 2.0)))}
+                          className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-base"
+                        />
+                      </label>
                     </div>
-                  );
-                })}
-              </div>
+                  )}
+                  {configPage === 'showRSI' && (
+                    <div className="flex flex-col gap-4">
+                      <label className="flex flex-col gap-2 text-sm text-slate-400">
+                        Period
+                        <input type="number" min={2} max={50} value={settings.rsiPeriod ?? 12}
+                          onChange={e => setNum('rsiPeriod', Math.max(2, Math.min(50, +e.target.value || 12)))}
+                          className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-base"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-2 text-sm text-slate-400">
+                        MA (0 = Off)
+                        <input type="number" min={0} max={30} value={settings.rsiMAPeriod ?? 5}
+                          onChange={e => setNum('rsiMAPeriod', Math.max(0, Math.min(30, +e.target.value || 0)))}
+                          className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-base"
+                        />
+                      </label>
+                    </div>
+                  )}
+                  {configPage === 'showIchimoku' && (
+                    <div className="flex flex-col gap-3">
+                      {[
+                        { k: 'ichiCloud', label: 'Kumo (Cloud)', color: '#10b981' },
+                        { k: 'ichiTenkan', label: 'Tenkan-sen', color: '#3b82f6' },
+                        { k: 'ichiKijun', label: 'Kijun-sen', color: '#f59e0b' },
+                        { k: 'ichiChikou', label: 'Chikou (Lag)', color: '#8b5cf6' }
+                      ].map(({k, label, color}) => (
+                        <label key={k} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.04] border border-white/5 cursor-pointer active:bg-white/[0.08] transition-colors">
+                          <input type="checkbox" checked={!!settings[k]} onChange={() => toggle(k)} className="w-5 h-5 accent-indigo-500 rounded bg-slate-800" />
+                          <span className="w-4 h-1 rounded-full shrink-0" style={{backgroundColor: color}} />
+                          <span className="flex-1 text-sm text-white font-medium">{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Chart Overlays</div>
+                  {[
+                    { key: 'bullColor', label: 'Bull candle', def: '#22c55e' },
+                    { key: 'bearColor', label: 'Bear candle', def: '#ef4444' },
+                  ].map(({ key, label, def }) => (
+                    <div key={key} className="px-1 mb-3">
+                      <div className="text-xs text-slate-500 mb-1.5">{label}</div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {['#22c55e','#26a69a','#ffffff','#3b82f6','#f59e0b','#ef4444','#f97316','#000000'].map(c => (
+                          <button key={c} onClick={() => setSetting(key, c)}
+                            style={{ backgroundColor: c, width: 22, height: 22, borderRadius: 4,
+                              boxShadow: (settings[key] ?? def) === c ? '0 0 0 2px #fff' : '0 0 0 1px rgba(255,255,255,0.15)' }}
+                          />
+                        ))}
+                        <label className="relative cursor-pointer flex items-center justify-center w-[22px] h-[22px] rounded text-slate-400 text-sm font-bold"
+                          style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.15)' }}>
+                          +<input type="color" value={settings[key] ?? def} onChange={e => setSetting(key, e.target.value)} className="absolute opacity-0 w-0 h-0" />
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="grid grid-cols-2 gap-1">
+                    {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams, hasStyle, colorKey, widthKey }) => {
+                      const disabled  = (intradayOnly && !isIntraday) || (dailyOnly && chartInterval !== 'day');
+                      const on        = settings[key] && !disabled;
+                      const liveColor = hasStyle ? (settings[colorKey] ?? color) : color;
+                      return (
+                        <div key={key} className={`${(hasStyle) && on ? 'col-span-2' : ''}`}>
+                          <div className={`flex items-center w-full rounded-xl transition-colors ${disabled ? 'opacity-25' : on ? 'bg-slate-700' : 'hover:bg-white/[0.06]'}`}>
+                            <button onClick={() => !disabled && toggle(key)} disabled={disabled}
+                              className="flex items-center gap-2.5 px-3 py-2.5 text-left flex-1"
+                            >
+                              <span className="w-4 h-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: liveColor, opacity: on ? 1 : 0.3 }} />
+                              <span className={`text-sm flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
+                            </button>
+                            {hasParams && on && (
+                              <button onClick={(e) => { e.stopPropagation(); setConfigPage(key); }} className="p-3 text-slate-400 hover:text-white transition-colors border-l border-white/10" title="Config">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                              </button>
+                            )}
+                          </div>
+                          {hasStyle && on && (
+                            <div className="flex items-center gap-1.5 px-3 pb-2.5 pt-1">
+                              {EMA_LINE_PALETTE.map(c => (
+                                <button key={c} onClick={() => setSetting(colorKey, c)}
+                                  className="w-4 h-4 rounded-full flex-shrink-0 transition-all"
+                                  style={{ backgroundColor: c, border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : 'none',
+                                    outline: (settings[colorKey] ?? color) === c ? '2px solid #fff' : 'none', outlineOffset: '1px' }}
+                                />
+                              ))}
+                              <label className="w-4 h-4 rounded-full cursor-pointer flex-shrink-0 flex items-center justify-center bg-white/10 text-[9px] text-slate-400 hover:bg-white/20 relative">
+                                +<input type="color" value={settings[colorKey] ?? color} onChange={e => setSetting(colorKey, e.target.value)} className="absolute opacity-0 w-0 h-0" />
+                              </label>
+                              <div className="flex items-center gap-1 ml-auto">
+                                {[[1,'—'],[2,'━'],[3,'━━']].map(([w, glyph]) => (
+                                  <button key={w} onClick={() => setSetting(widthKey, w)}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${(settings[widthKey] ?? 2) === w ? 'bg-indigo-500 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                                  >{glyph}</button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         ) : (
@@ -1463,98 +1521,138 @@ function ChartPageInner() {
               className="fixed z-[200] bg-[#111827] border border-white/[0.12] rounded-xl shadow-2xl p-3"
               style={{ top: dropdownPos.top, right: dropdownPos.right, minWidth: 196 }}
             >
-              <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-2 px-1">Chart Overlays</div>
-              <div className="space-y-0.5">
-                {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams, hasStyle, colorKey, widthKey }) => {
-                  const disabled    = (intradayOnly && !isIntraday) || (dailyOnly && chartInterval !== 'day');
-                  const on          = settings[key] && !disabled;
-                  const liveColor   = hasStyle ? (settings[colorKey] ?? color) : color;
-                  return (
-                    <div key={key}>
-                      <button onClick={() => !disabled && toggle(key)} disabled={disabled}
-                        className={`flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg transition-colors text-left ${
-                          disabled ? 'opacity-25 cursor-not-allowed' : 'hover:bg-white/[0.06]'
-                        }`}
-                      >
-                        <span className="flex items-center w-5 flex-shrink-0">
-                          <span className="w-full h-0.5 rounded-full block" style={{ backgroundColor: liveColor, opacity: on ? 1 : 0.2 }} />
-                        </span>
-                        <span className={`text-xs flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
-                        <span className={`text-[10px] font-bold w-5 text-right ${on ? 'text-indigo-500' : 'text-slate-400'}`}>
-                          {on ? 'ON' : 'OFF'}
-                        </span>
-                      </button>
-                      {hasStyle && on && (
-                        <div className="flex items-center gap-1.5 px-2 pb-1.5">
-                          {EMA_LINE_PALETTE.map(c => (
-                            <button key={c} onClick={() => setSetting(colorKey, c)}
-                              className="w-3.5 h-3.5 rounded-full flex-shrink-0 transition-all"
-                              style={{ backgroundColor: c, border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : 'none',
-                                outline: (settings[colorKey] ?? color) === c ? '2px solid #fff' : 'none', outlineOffset: '1px' }}
-                            />
-                          ))}
-                          <label className="w-3.5 h-3.5 rounded-full cursor-pointer flex-shrink-0 flex items-center justify-center bg-white/10 text-[7px] text-slate-400 hover:bg-white/20 relative">
-                            +<input type="color" value={settings[colorKey] ?? color} onChange={e => setSetting(colorKey, e.target.value)} className="absolute opacity-0 w-0 h-0" />
-                          </label>
-                          <div className="flex items-center gap-0.5 ml-auto">
-                            {[[1,'—'],[2,'━'],[3,'━━']].map(([w, glyph]) => (
-                              <button key={w} onClick={() => setSetting(widthKey, w)}
-                                className={`px-1 py-0.5 rounded text-[9px] font-mono transition-colors ${(settings[widthKey] ?? 2) === w ? 'bg-indigo-500 text-white' : 'text-slate-500 hover:text-slate-300'}`}
-                              >{glyph}</button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {hasParams && on && key === 'showBB' && (
-                        <div className="flex items-center gap-2 px-2 pb-1.5 text-[10px] text-slate-400">
-                          <span>Len</span>
-                          <input type="number" min={2} max={200} value={settings.bbLength ?? 20}
-                            onChange={e => setNum('bbLength', Math.max(2, Math.min(200, +e.target.value || 20)))}
-                            className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-white text-[10px] text-center"
-                          />
-                          <span>SD</span>
-                          <input type="number" min={0.1} max={5} step={0.1} value={settings.bbMult ?? 2.0}
-                            onChange={e => setNum('bbMult', Math.max(0.1, Math.min(5, +e.target.value || 2.0)))}
-                            className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-white text-[10px] text-center"
-                          />
-                        </div>
-                      )}
-                      {hasParams && on && key === 'showRSI' && (
-                        <div className="flex items-center gap-2 px-2 pb-1.5 text-[10px] text-slate-400">
-                          <span>Period</span>
-                          <input type="number" min={2} max={50} value={settings.rsiPeriod ?? 12}
-                            onChange={e => setNum('rsiPeriod', Math.max(2, Math.min(50, +e.target.value || 12)))}
-                            className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-white text-[10px] text-center"
-                          />
-                          <span>MA</span>
-                          <input type="number" min={0} max={30} value={settings.rsiMAPeriod ?? 5}
-                            onChange={e => setNum('rsiMAPeriod', Math.max(0, Math.min(30, +e.target.value || 0)))}
-                            className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-white text-[10px] text-center"
-                          />
-                        </div>
-                      )}
+              {configPage ? (
+                <div>
+                  <button onClick={() => setConfigPage(null)} className="flex items-center gap-1.5 mb-3 text-[10px] uppercase font-bold text-slate-400 hover:text-white transition-colors">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    Back
+                  </button>
+                  <div className="text-xs text-white font-semibold mb-3 px-1">{OVERLAY_DEFS.find(d => d.key === configPage)?.label} Config</div>
+                  
+                  {configPage === 'showBB' && (
+                    <div className="flex flex-col gap-3 px-1 pb-1 text-[11px] text-slate-400">
+                      <label className="flex items-center justify-between gap-3">
+                        Length
+                        <input type="number" min={2} max={200} value={settings.bbLength ?? 20}
+                          onChange={e => setNum('bbLength', Math.max(2, Math.min(200, +e.target.value || 20)))}
+                          className="w-14 bg-slate-800 border border-white/10 rounded px-2 py-1 text-white text-center" />
+                      </label>
+                      <label className="flex items-center justify-between gap-3">
+                        StdDev
+                        <input type="number" min={0.1} max={5} step={0.1} value={settings.bbMult ?? 2.0}
+                          onChange={e => setNum('bbMult', Math.max(0.1, Math.min(5, +e.target.value || 2.0)))}
+                          className="w-14 bg-slate-800 border border-white/10 rounded px-2 py-1 text-white text-center" />
+                      </label>
                     </div>
-                  );
-                })}
-              </div>
-              <div className="border-t border-white/[0.08] mt-2 pt-2 px-1">
-                <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">Candle Colors</div>
-                {[['Bull', 'bullColor', '#22c55e'], ['Bear', 'bearColor', '#ef4444']].map(([lbl, key, def]) => (
-                  <div key={key} className="flex items-center gap-1.5 mb-1.5">
-                    <span className="text-[10px] text-slate-500 w-6">{lbl}</span>
-                    {['#22c55e','#26a69a','#ffffff','#3b82f6','#f59e0b','#ef4444','#f97316','#000000'].map(c => (
-                      <button key={c} onClick={() => setSetting(key, c)}
-                        className="w-4 h-4 rounded-full flex-shrink-0 ring-offset-[#111827] transition-all"
-                        style={{ backgroundColor: c, border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : c === '#000000' ? '1px solid rgba(255,255,255,0.15)' : 'none',
-                          outline: settings[key] === c ? '2px solid #6366f1' : 'none', outlineOffset: '1px' }}
-                      />
-                    ))}
-                    <label className="w-4 h-4 rounded-full cursor-pointer flex-shrink-0 flex items-center justify-center bg-white/10 text-[8px] text-slate-400 hover:bg-white/20">
-                      +<input type="color" value={settings[key] ?? def} onChange={e => setSetting(key, e.target.value)} className="absolute opacity-0 w-0 h-0" />
-                    </label>
+                  )}
+                  {configPage === 'showRSI' && (
+                    <div className="flex flex-col gap-3 px-1 pb-1 text-[11px] text-slate-400">
+                      <label className="flex items-center justify-between gap-3">
+                        Period
+                        <input type="number" min={2} max={50} value={settings.rsiPeriod ?? 12}
+                          onChange={e => setNum('rsiPeriod', Math.max(2, Math.min(50, +e.target.value || 12)))}
+                          className="w-14 bg-slate-800 border border-white/10 rounded px-2 py-1 text-white text-center" />
+                      </label>
+                      <label className="flex items-center justify-between gap-3">
+                        MA Period (0=Off)
+                        <input type="number" min={0} max={30} value={settings.rsiMAPeriod ?? 5}
+                          onChange={e => setNum('rsiMAPeriod', Math.max(0, Math.min(30, +e.target.value || 0)))}
+                          className="w-14 bg-slate-800 border border-white/10 rounded px-2 py-1 text-white text-center" />
+                      </label>
+                    </div>
+                  )}
+                  {configPage === 'showIchimoku' && (
+                    <div className="flex flex-col gap-2.5 px-1 pb-1 text-[11px] text-slate-400">
+                      {[
+                        { k: 'ichiCloud', label: 'Kumo (Cloud)', color: '#10b981' },
+                        { k: 'ichiTenkan', label: 'Tenkan-sen', color: '#3b82f6' },
+                        { k: 'ichiKijun', label: 'Kijun-sen', color: '#f59e0b' },
+                        { k: 'ichiChikou', label: 'Chikou (Lag)', color: '#8b5cf6' }
+                      ].map(({k, label, color}) => (
+                        <label key={k} className="flex items-center gap-2 cursor-pointer hover:text-slate-200 transition-colors">
+                          <input type="checkbox" checked={!!settings[k]} onChange={() => toggle(k)} className="w-3.5 h-3.5 accent-indigo-500 rounded bg-slate-800" />
+                          <span className="w-3 h-0.5 rounded-full shrink-0" style={{backgroundColor: color}} />
+                          <span className="flex-1">{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-2 px-1">Chart Overlays</div>
+                  <div className="space-y-0.5">
+                    {OVERLAY_DEFS.map(({ key, label, color, intradayOnly, dailyOnly, hasParams, hasStyle, colorKey, widthKey }) => {
+                      const disabled    = (intradayOnly && !isIntraday) || (dailyOnly && chartInterval !== 'day');
+                      const on          = settings[key] && !disabled;
+                      const liveColor   = hasStyle ? (settings[colorKey] ?? color) : color;
+                      return (
+                        <div key={key}>
+                          <div className="flex items-center w-full">
+                            <button onClick={() => !disabled && toggle(key)} disabled={disabled}
+                              className={`flex-1 flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition-colors text-left ${
+                                disabled ? 'opacity-25 cursor-not-allowed' : 'hover:bg-white/[0.06]'
+                              }`}
+                            >
+                              <span className="flex items-center w-5 flex-shrink-0">
+                                <span className="w-full h-0.5 rounded-full block" style={{ backgroundColor: liveColor, opacity: on ? 1 : 0.2 }} />
+                              </span>
+                              <span className={`text-xs flex-1 ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
+                              <span className={`text-[10px] font-bold w-5 text-right pl-1 ${on ? 'text-indigo-500' : 'text-slate-400'}`}>
+                                {on ? 'ON' : 'OFF'}
+                              </span>
+                            </button>
+                            {hasParams && on && (
+                              <button onClick={(e) => { e.stopPropagation(); setConfigPage(key); }} className="p-1.5 ml-0.5 text-slate-400 hover:text-slate-100 bg-white/[0.04] hover:bg-white/[0.12] rounded-md transition-colors" title="Configure">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                              </button>
+                            )}
+                          </div>
+                          {hasStyle && on && (
+                            <div className="flex items-center gap-1.5 px-2 pb-1.5">
+                              {EMA_LINE_PALETTE.map(c => (
+                                <button key={c} onClick={() => setSetting(colorKey, c)}
+                                  className="w-3.5 h-3.5 rounded-full flex-shrink-0 transition-all"
+                                  style={{ backgroundColor: c, border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : 'none',
+                                    outline: (settings[colorKey] ?? color) === c ? '2px solid #fff' : 'none', outlineOffset: '1px' }}
+                                />
+                              ))}
+                              <label className="w-3.5 h-3.5 rounded-full cursor-pointer flex-shrink-0 flex items-center justify-center bg-white/10 text-[7px] text-slate-400 hover:bg-white/20 relative">
+                                +<input type="color" value={settings[colorKey] ?? color} onChange={e => setSetting(colorKey, e.target.value)} className="absolute opacity-0 w-0 h-0" />
+                              </label>
+                              <div className="flex items-center gap-0.5 ml-auto">
+                                {[[1,'—'],[2,'━'],[3,'━━']].map(([w, glyph]) => (
+                                  <button key={w} onClick={() => setSetting(widthKey, w)}
+                                    className={`px-1 py-0.5 rounded text-[9px] font-mono transition-colors ${(settings[widthKey] ?? 2) === w ? 'bg-indigo-500 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                                  >{glyph}</button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
+                  <div className="border-t border-white/[0.08] mt-2 pt-2 px-1">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">Candle Colors</div>
+                    {[['Bull', 'bullColor', '#22c55e'], ['Bear', 'bearColor', '#ef4444']].map(([lbl, key, def]) => (
+                      <div key={key} className="flex items-center gap-1.5 mb-1.5">
+                        <span className="text-[10px] text-slate-500 w-6">{lbl}</span>
+                        {['#22c55e','#26a69a','#ffffff','#3b82f6','#f59e0b','#ef4444','#f97316','#000000'].map(c => (
+                          <button key={c} onClick={() => setSetting(key, c)}
+                            className="w-4 h-4 rounded-full flex-shrink-0 ring-offset-[#111827] transition-all"
+                            style={{ backgroundColor: c, border: c === '#ffffff' ? '1px solid rgba(255,255,255,0.3)' : c === '#000000' ? '1px solid rgba(255,255,255,0.15)' : 'none',
+                              outline: settings[key] === c ? '2px solid #6366f1' : 'none', outlineOffset: '1px' }}
+                          />
+                        ))}
+                        <label className="w-4 h-4 rounded-full cursor-pointer flex-shrink-0 flex items-center justify-center bg-white/10 text-[8px] text-slate-400 hover:bg-white/20">
+                          +<input type="color" value={settings[key] ?? def} onChange={e => setSetting(key, e.target.value)} className="absolute opacity-0 w-0 h-0" />
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )
         )
