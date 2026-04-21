@@ -263,8 +263,9 @@ export default function OrdersPage() {
   const [placing, setPlacing] = useState(false);
   const [message, setMessage] = useState(null);   // { type, text }
 
-  const searchTimer   = useRef(null);
-  const optionPollRef = useRef(null);
+  const searchTimer      = useRef(null);
+  const optionPollRef    = useRef(null);
+  const optionSymbolRef  = useRef(null); // always-current option symbol for LTP refresh
 
   // ── On mount ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -301,35 +302,45 @@ export default function OrdersPage() {
 
     if (form.instrumentType === 'EQ' || !selected?.symbol || !auth.loggedIn) {
       setOption({ symbol: null, ltp: null, strike: null, expiry: null, probOTM: null, loading: false });
+      optionSymbolRef.current = null;
       return;
     }
 
     const sym  = selected.symbol;
     const type = form.instrumentType;
 
-    const fetchOptionLtp = async (spotPrice) => {
+    // Initial ATM resolution — only on first load or when symbol/type changes
+    const resolveAtm = async () => {
+      setOption(o => ({ ...o, loading: true }));
       try {
-        const r = await fetch(`/api/option-ltp?symbol=${sym}&price=${spotPrice}&type=${type}`);
+        const r = await fetch(`/api/option-ltp?symbol=${sym}&price=${selected.spotPrice}&type=${type}`);
         const d = await r.json();
+        optionSymbolRef.current = d.optionSymbol ?? null;
         setOption({ symbol: d.optionSymbol ?? null, ltp: d.ltp ?? null, strike: d.strike ?? null, expiry: d.expiryDay ?? null, probOTM: d.probOTM ?? null, loading: false });
       } catch {
         setOption(o => ({ ...o, loading: false }));
       }
     };
+    resolveAtm();
 
-    // Initial load
-    setOption(o => ({ ...o, loading: true }));
-    fetchOptionLtp(selected.spotPrice);
-
-    // Refresh spot + option LTP every 15 s
+    // Periodic refresh — spot price + option LTP independently, no ATM re-resolution
     optionPollRef.current = setInterval(async () => {
+      // 1. Refresh spot price display
       try {
-        const r    = await fetch(`/api/stock-price?symbol=${sym}`);
-        const d    = await r.json();
-        const spot = d.price ?? null;
-        if (spot) setSelected(s => s?.symbol === sym ? { ...s, spotPrice: spot } : s);
-        await fetchOptionLtp(spot ?? selected.spotPrice);
-      } catch { /* keep existing values */ }
+        const r = await fetch(`/api/stock-price?symbol=${sym}`);
+        const d = await r.json();
+        if (d.price) setSelected(s => s?.symbol === sym ? { ...s, spotPrice: d.price } : s);
+      } catch {}
+
+      // 2. Refresh LTP of the already-resolved option directly
+      const optSym = optionSymbolRef.current;
+      if (!optSym) return;
+      try {
+        const exchange = optSym.startsWith('SENSEX') ? 'BFO' : 'NFO';
+        const r = await fetch(`/api/setup-eye/ltp?instrument=${exchange}:${optSym}`);
+        const d = await r.json();
+        if (d.ltp != null) setOption(o => ({ ...o, ltp: d.ltp }));
+      } catch {}
     }, 15_000);
 
     return () => { if (optionPollRef.current) { clearInterval(optionPollRef.current); optionPollRef.current = null; } };
