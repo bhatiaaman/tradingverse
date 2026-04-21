@@ -32,7 +32,7 @@ export function detectMarketActivity(current, previous, sinceOpen = false, futOI
   const priceChangePct  = previous.spot > 0 ? ((current.spot - previous.spot) / previous.spot) * 100 : 0;
 
   // 2. Thresholds (Lowered for better sensitivity)
-  const isTrendingPrice = Math.abs(priceChangePct) >= 0.1; // 0.1% move is enough to confirm direction
+  const isTrendingPrice = Math.abs(priceChangePct) >= 0.08; // 0.08% move is enough to confirm direction
   const isTrendingOI    = Math.abs(totalOIChangePct) >= 1 || Math.abs(callOIChangePct) >= 1.5 || Math.abs(putOIChangePct) >= 1.5;
   const isFutSignal     = Math.abs(futOIChangePct) >= 1;
 
@@ -47,11 +47,13 @@ export function detectMarketActivity(current, previous, sinceOpen = false, futOI
   const isCallBuildup   = priceChangePct < 0 && callOIChangePct > 0.8;    // Price down, Calls added
   const isPutUnwinding  = priceChangePct < 0 && putOIChangePct < -0.8;   // Price down, Puts exiting
   const isFutShorting   = priceChangePct < 0 && futOIChangePct > 0.8;    // Price down, Futures added
+  const isFutLongUnwind = priceChangePct < 0 && futOIChangePct < -0.8;   // Price down, Futures dropped
 
   // Bullish Components
   const isPutBuildup    = priceChangePct > 0 && putOIChangePct > 0.8;     // Price up, Puts added
   const isCallUnwinding = priceChangePct > 0 && callOIChangePct < -0.8;  // Price up, Calls exiting
   const isFutLonging    = priceChangePct > 0 && futOIChangePct > 0.8;    // Price up, Futures added
+  const isFutShortCover = priceChangePct > 0 && futOIChangePct < -0.8;   // Price up, Futures dropped
 
   // Fallback for Consolidation
   if (!isTrendingPrice && !isTrendingOI && !isFutSignal) {
@@ -65,22 +67,30 @@ export function detectMarketActivity(current, previous, sinceOpen = false, futOI
   }
 
   // 4. Activity Synthesizer
-  if (isCallBuildup || isPutUnwinding || isFutShorting) {
-    const buildup = isCallBuildup && isPutUnwinding ? 'Short Buildup & Long Unwinding' : isCallBuildup ? 'Short Buildup' : 'Long Unwinding';
+  if (priceChangePct <= 0 && (isCallBuildup || isPutUnwinding || isFutShorting || isFutLongUnwind)) {
+    let buildup = isCallBuildup ? 'Short Buildup' : 'Long Unwinding';
+    if (isFutShorting) buildup = 'Short Buildup';
+    else if (isFutLongUnwind) buildup = 'Long Unwinding';
+    if (isCallBuildup && isPutUnwinding) buildup = 'Short Buildup & Long Unwinding';
+    
     activity    = buildup;
     strength    = Math.min(10, Math.round((Math.abs(priceChangePct) * 10) + Math.abs(totalOIChangePct) * 2));
-    if (isFutShorting) strength += 2; // Futures confirmation bonus
+    if (isFutShorting || isFutLongUnwind) strength += 2; // Futures confirmation bonus
     emoji       = '📉';
-    description = `${activity} ${ctx} — Call OI ${callOIChangePct > 0 ? '+' : ''}${callOIChangePct.toFixed(1)}%, Put OI ${putOIChangePct.toFixed(1)}%, price ${priceChangePct.toFixed(2)}%`;
+    description = `${activity} ${ctx} — Call OI ${callOIChangePct > 0 ? '+' : ''}${callOIChangePct.toFixed(1)}%, Put OI ${putOIChangePct.toFixed(1)}%, price ${priceChangePct.toFixed(2)}%${futOIChangePct !== 0 ? ` (Fut OI ${futOIChangePct > 0 ? '+' : ''}${futOIChangePct.toFixed(1)}%)` : ''}`;
     actionable  = strength > 7 ? 'Strong bearish move — avoid aggressive longs' : 'Bears dominant — watch for continuation on support break';
   } 
-  else if (isPutBuildup || isCallUnwinding || isFutLonging) {
-    const buildup = isPutBuildup && isCallUnwinding ? 'Long Buildup & Short Covering' : isPutBuildup ? 'Long Buildup' : 'Short Covering';
+  else if (priceChangePct >= 0 && (isPutBuildup || isCallUnwinding || isFutLonging || isFutShortCover)) {
+    let buildup = isPutBuildup ? 'Long Buildup' : 'Short Covering';
+    if (isFutLonging) buildup = 'Long Buildup';
+    else if (isFutShortCover) buildup = 'Short Covering';
+    if (isPutBuildup && isCallUnwinding) buildup = 'Long Buildup & Short Covering';
+
     activity    = buildup;
     strength    = Math.min(10, Math.round((priceChangePct * 10) + Math.abs(totalOIChangePct) * 2));
-    if (isFutLonging) strength += 2; // Futures confirmation bonus
+    if (isFutLonging || isFutShortCover) strength += 2; // Futures confirmation bonus
     emoji       = '🚀';
-    description = `${activity} ${ctx} — Put OI ${putOIChangePct > 0 ? '+' : ''}${putOIChangePct.toFixed(1)}%, Call OI ${callOIChangePct.toFixed(1)}%, price +${priceChangePct.toFixed(2)}%`;
+    description = `${activity} ${ctx} — Put OI ${putOIChangePct > 0 ? '+' : ''}${putOIChangePct.toFixed(1)}%, Call OI ${callOIChangePct.toFixed(1)}%, price +${priceChangePct.toFixed(2)}%${futOIChangePct !== 0 ? ` (Fut OI ${futOIChangePct > 0 ? '+' : ''}${futOIChangePct.toFixed(1)}%)` : ''}`;
     actionable  = strength > 7 ? 'Strong bullish momentum — stay with the trend' : 'Bulls in control — supports likely to hold on dips';
   }
   else if (isTrendingPrice) {

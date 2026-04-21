@@ -391,27 +391,42 @@ export async function GET(request) {
         await redisSet(sessionKey, sessionOpen, 8 * 3600);
       }
 
-      // Rolling 10-min snapshot — only rotate baseline every 10 min.
-      // Previously this was overwritten on every 60s poll, making the
-      // comparison window just 60s (too small for meaningful OI change).
-      let recentSnap = await redisGet(recentKey);
-      const snapAgeMs = recentSnap?.capturedAt ? (Date.now() - recentSnap.capturedAt) : Infinity;
-      if (snapAgeMs > 10 * 60 * 1000) {
-        await redisSet(recentKey, { ...snapshot, capturedAt: Date.now() }, 25 * 60);
+      // Rolling 15-min snapshots (array of minute-by-minute captures)
+      let recentSnaps = await redisGet(recentKey);
+      if (!Array.isArray(recentSnaps)) {
+        if (recentSnaps?.totalCallOI) recentSnaps = [recentSnaps]; // migrate old single-object cache
+        else recentSnaps = [];
+      }
+
+      const nowMs = Date.now();
+      const lastSnap = recentSnaps[recentSnaps.length - 1];
+      const ageOfLastMs = lastSnap?.capturedAt ? (nowMs - lastSnap.capturedAt) : Infinity;
+
+      // Append snapshot if at least 60s has passed
+      if (ageOfLastMs >= 60000) {
+        recentSnaps.push({ ...snapshot, capturedAt: nowMs });
+        // Filter out snapshots older than 15 minutes (900000 ms)
+        recentSnaps = recentSnaps.filter(s => (nowMs - s.capturedAt) <= 15 * 60000);
+        await redisSet(recentKey, recentSnaps, 3600); // 1h TTL
       }
 
       const hasOpen   = sessionOpen?.totalCallOI !== undefined;
-      const hasRecent = recentSnap?.totalCallOI  !== undefined;
+      // We need a baseline that is at least a few minutes old to prevent instantaneous 0-deltas.
+      // If the array is building up, we just use the oldest one (index 0).
+      const oldestSnap = recentSnaps[0];
+      const hasRecent = oldestSnap?.totalCallOI  !== undefined;
 
       if (hasRecent) {
         // Calculate Futures delta if available
-        const futDelta = (futOI != null && recentSnap.futOI != null && recentSnap.futOI > 0)
-          ? ((futOI - recentSnap.futOI) / recentSnap.futOI) * 100 : 0;
+        let futDelta = 0;
+        if (futOI != null && oldestSnap.futOI != null && oldestSnap.futOI > 0) {
+          futDelta = ((futOI - oldestSnap.futOI) / oldestSnap.futOI) * 100;
+        }
 
-        // Primary: 15-min activity
+        // Primary: rolling 15-min activity
         marketActivity = detectMarketActivity(
           snapshot,
-          { totalCallOI: recentSnap.totalCallOI, totalPutOI: recentSnap.totalPutOI, spot: recentSnap.spot },
+          { totalCallOI: oldestSnap.totalCallOI, totalPutOI: oldestSnap.totalPutOI, spot: oldestSnap.spot },
           false,
           futDelta
         );
