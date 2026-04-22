@@ -1949,15 +1949,17 @@ export default function OptionsPage() {
     return () => { alive = false; clearInterval(t); };
   }, [symbol]);
 
-  // ── Log Trade Desk HIGH signals to admin signal_logs ─────────────────────────
+  // ── Log Trade Desk signals to signal_logs ────────────────────────────────────
+  // BUY CE/PE: log all (HIGH + MEDIUM) — brief intraday opportunities, don't miss them
+  // SELL: HIGH only — sell signals are structural, less time-sensitive
   const loggedSignalKeysRef = useRef(new Set());
   useEffect(() => {
     if (!chainData || !isMarketHours()) return;
     const { buys, sells } = generateTradeDesk(chainData, straddleData);
     const toLog = [
-      ...(buys  || []).map(o => ({ ...o, side: 'BUY'  })),
-      ...(sells || []).map(o => ({ ...o, side: 'SELL' })),
-    ].filter(o => o.confidence === 'HIGH');
+      ...(buys  || []).map(o => ({ ...o, side: 'BUY'  })),                          // all BUY
+      ...(sells || []).map(o => ({ ...o, side: 'SELL' })).filter(o => o.confidence === 'HIGH'), // SELL HIGH only
+    ];
 
     for (const op of toLog) {
       const key = `${symbol}:${op.side}:${op.strike}:${op.type ?? op.optType}:${op.trigger}`;
