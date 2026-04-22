@@ -49,16 +49,11 @@ export default function BasketExecutionModal({ isOpen, onClose, intradayWatchlis
   // Sync checkboxes on open
   useEffect(() => {
     if (isOpen) {
-      // By default, select all valid stocks
-      const initialSet = new Set();
-      sortedAndScored.forEach(s => {
-        if (s.computedQty > 0) initialSet.add(s.symbol);
-      });
-      setSelectedSymbols(initialSet);
+      setSelectedSymbols(new Set());
       setExecutionStatuses({});
       setIsExecuting(false);
     }
-  }, [isOpen, sortedAndScored]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -222,8 +217,8 @@ export default function BasketExecutionModal({ isOpen, onClose, intradayWatchlis
                                 <CheckCircle2 size={14} /> OK
                              </div>
                           ) : (
-                             <div className="flex items-center gap-2 text-[10px] text-red-400 font-medium max-w-[150px] leading-tight" title={statusInfo.message}>
-                                <AlertCircle size={14} className="flex-shrink-0" /> <span className="truncate">{statusInfo.message}</span>
+                             <div className="flex items-start gap-1.5 text-[10px] text-red-400 font-medium max-w-[200px] leading-tight break-words" title={statusInfo.message}>
+                                <AlertCircle size={14} className="flex-shrink-0 mt-0.5" /> <span>{statusInfo.message}</span>
                              </div>
                           )}
                         </td>
