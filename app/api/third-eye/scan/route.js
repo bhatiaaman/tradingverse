@@ -19,6 +19,7 @@ import { buildCommentary }                                  from '@/app/lib/thir
 import { getOptionsContext }                                from '@/app/lib/thirdEye-options';
 import { detectScalpSetup }                                 from '@/app/lib/thirdEye-scalp';
 import { getDataProvider }                                  from '@/app/lib/providers';
+import { sql }                                              from '@/app/lib/db';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -279,6 +280,32 @@ export async function POST(req) {
     underlying,
     expiryDay,
   );
+
+  // Log scalp setup to signal_logs when a new one fires
+  if (scalpSetup) {
+    const isNewSignal = !prevState?.lastSignal ||
+      prevState.lastSignal.candleTime !== scalpSetup.candleTime ||
+      prevState.lastSignal.direction  !== scalpSetup.direction;
+    if (isNewSignal) {
+      sql`INSERT INTO signal_logs (type, ts, symbol, data)
+          VALUES ('THIRD_EYE', ${new Date().toISOString()}, ${underlying},
+                  ${JSON.stringify({
+                    setupName:  scalpSetup.label,
+                    direction:  scalpSetup.direction,
+                    score:      scalpSetup.confidence === 'high' ? 8 : 6,
+                    interval:   execTf,
+                    time:       new Date((scalpSetup.candleTime + 19800) * 1000)
+                                  .toISOString().slice(11, 16),
+                    trigger:    scalpSetup.type,
+                    ltp:        scalpSetup.niftyPrice  ?? null,
+                    sl:         scalpSetup.niftySl     ?? null,
+                    target:     scalpSetup.niftyTarget ?? null,
+                    strike:     scalpSetup.strike ?? null,
+                    optType:    scalpSetup.optType ?? null,
+                    allSetups:  [],
+                  })})`.catch(() => {/* non-fatal */});
+    }
+  }
 
   // Persist engine state (24h TTL — auto-expires overnight)
   const stateToSave = {

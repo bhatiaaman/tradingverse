@@ -321,7 +321,6 @@ function getNiftyLevelAlerts(indices) {
     const lastCandleTimeRef   = useRef(''); // 'HH:MM' of last logged candle
     // Cooldown for system log: { "symbol|tf|setupId": lastLoggedEpochMs }
     // Prevents the same setup on the same level from flooding the log on every candle.
-    const lastSetupLogRef     = useRef({});
     // Counts consecutive "no setup" candles in the same bias — drives consolidation commentary.
     const quietCandleCountRef = useRef(0);
 
@@ -1256,28 +1255,7 @@ function getNiftyLevelAlerts(indices) {
                         setTimeout(checkPositionsAgainstBias, 0);
                       }
 
-                      // Push strong setups to permanent system log (with cooldown)
-                      if (topSetup?.score >= 6 && topSetup?.pattern?.name) {
-                        const cooldownKey = `${chartSymbol}|${chartInterval}|${topSetup.pattern.id}`;
-                        const intervalMs  = (chartInterval === '15minute' ? 15 : chartInterval === '3minute' ? 3 : 5) * 60 * 1000;
-                        const cooldownMs  = intervalMs * 8;
-                        const lastLoggedMs  = lastSetupLogRef.current[cooldownKey] ?? 0;
-                        const nowMs         = Date.now();
-                        if (nowMs - lastLoggedMs >= cooldownMs) {
-                          lastSetupLogRef.current[cooldownKey] = nowMs;
-                          fetch('/api/logs', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              category: 'setup', message: topSetup.pattern.name,
-                              data: { symbol: chartSymbol, timeframe: chartInterval,
-                                setupName: topSetup.pattern.name, setupId: topSetup.pattern.id,
-                                direction: topSetup.pattern.direction, strength: topSetup.score,
-                                sl: topSetup.pattern.sl }
-                            })
-                          }).catch(e => console.error('Failed to log setup:', e));
-                        }
-                      }
+                      // Third Eye scalp setups are logged server-side in /api/third-eye/scan
 
                       newEntries.push(entry);
                       lastCandleTimeRef.current = timeStr; // advance ref only after successful processing
