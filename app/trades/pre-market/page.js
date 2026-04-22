@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, RefreshCw, Clock, TrendingUp, TrendingDown, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
+import BasketExecutionModal from './BasketExecutionModal';
 
 // Returns true if current IST time is between 08:00 and 09:15 (pre-market AI window)
 function isPreMarketAIWindow() {
@@ -69,6 +70,7 @@ export default function PreMarketPage() {
   const [jsonInputIntraday, setJsonInputIntraday] = useState('[\n\n]');
   const [intradaySaveStatus, setIntradaySaveStatus] = useState('');
   const [copiedIntradayPrompt, setCopiedIntradayPrompt] = useState(false);
+  const [executionModalOpen, setExecutionModalOpen] = useState(false);
 
   useEffect(() => {
     fetch('/api/user')
@@ -1025,6 +1027,14 @@ At the end of your response, output ONLY a valid JSON array in this exact format
             </div>
             
             <div className="flex items-center gap-3">
+              {intradayWatchlist?.length > 0 && (
+                <button
+                  onClick={() => setExecutionModalOpen(true)}
+                  className="px-4 py-2 text-sm font-bold bg-purple-600/20 text-purple-400 hover:bg-purple-600/30 border border-purple-500/50 rounded-lg transition-colors flex items-center gap-2"
+                >
+                  ⚡ Execute Basket
+                </button>
+              )}
               <button
                 onClick={() => setIsEditingIntraday(!isEditingIntraday)}
                 className="px-4 py-2 text-sm font-bold bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 hover:text-blue-300 border border-blue-800/50 rounded-lg transition-colors"
@@ -1166,6 +1176,12 @@ At the end of your response, output ONLY a valid JSON array in this exact format
             </div>
           )}
         </div>
+
+        <BasketExecutionModal
+          isOpen={executionModalOpen}
+          onClose={() => setExecutionModalOpen(false)}
+          intradayWatchlist={intradayWatchlist}
+        />
       </main>
     </div>
   );
