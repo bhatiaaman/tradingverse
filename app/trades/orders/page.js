@@ -254,10 +254,12 @@ export default function OrdersPage() {
   const [dangerModal, setDangerModal]   = useState(false);
 
   // Orders
-  const [orders, setOrders]   = useState({ loading: false, list: [] });
+  const [orders, setOrders]         = useState({ loading: false, list: [] });
+  const [ordersRefreshing, setOrdersRefreshing] = useState(false);
   const [cancelling, setCancelling] = useState(null);
   const [modifying, setModifying]   = useState(null);   // order_id being saved
   const [modifyForm, setModifyForm] = useState(null);   // { order_id, variety, price, trigger_price, quantity, order_type }
+  const ordersPollRef               = useRef(null);
 
   // Placement
   const [placing, setPlacing] = useState(false);
@@ -279,7 +281,11 @@ export default function OrdersPage() {
       }
     })();
     fetchOrders();
-  }, []);
+
+    // Background poll — silently refresh order book every 30s
+    ordersPollRef.current = setInterval(() => fetchOrders(true), 30_000);
+    return () => clearInterval(ordersPollRef.current);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Symbol search ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -407,14 +413,20 @@ export default function OrdersPage() {
     setStructureIntel({ loading: false, result: structure.status === 'fulfilled' ? structure.value : null });
   }, [selected, form.instrumentType, form.transactionType]);
 
-  const fetchOrders = async () => {
-    setOrders(o => ({ ...o, loading: true }));
+  const fetchOrders = async (silent = false) => {
+    if (silent) {
+      setOrdersRefreshing(true);
+    } else {
+      setOrders(o => ({ ...o, loading: true }));
+    }
     try {
       const r = await fetch('/api/kite-orders');
       const d = await r.json();
       setOrders({ loading: false, list: (d.orders || []).slice(0, 15) });
     } catch {
-      setOrders({ loading: false, list: [] });
+      if (!silent) setOrders(o => ({ ...o, loading: false }));
+    } finally {
+      if (silent) setOrdersRefreshing(false);
     }
   };
 
@@ -808,9 +820,9 @@ export default function OrdersPage() {
                 <History size={16} className="text-blue-400" />
                 <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Order Book</h2>
               </div>
-              <button onClick={fetchOrders} disabled={orders.loading}
+              <button onClick={() => fetchOrders()} disabled={orders.loading || ordersRefreshing}
                 className="p-1.5 hover:bg-slate-700/50 rounded-lg transition-colors">
-                <RefreshCw size={13} className={`text-slate-400 ${orders.loading ? 'animate-spin' : ''}`} />
+                <RefreshCw size={13} className={`text-slate-400 ${(orders.loading || ordersRefreshing) ? 'animate-spin' : ''}`} />
               </button>
             </div>
 
@@ -819,7 +831,7 @@ export default function OrdersPage() {
                 <LogIn size={28} className="text-slate-600 mb-2" />
                 <p className="text-slate-500 text-sm">Connect Kite to view orders</p>
               </div>
-            ) : orders.loading ? (
+            ) : orders.loading && orders.list.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
                 <Loader2 size={22} className="animate-spin text-blue-400" />
               </div>

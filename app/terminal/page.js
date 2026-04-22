@@ -2092,6 +2092,7 @@ function PlaceOrderTab({
   quantity, setQuantity, price, setPrice, triggerPrice, setTriggerPrice,
   expiryType, setExpiryType,
   optionSymbol, optionTvSymbol, optionLtp, optionStrike, optionExpiry, optionProbOTM,
+  onRefreshOptionLtp, optionLtpRefreshing,
   strikeAnalysis, analysisLoading, onRefreshAnalysis,
   orderPlacing, orderResult,
   intel, structureIntel, patternIntel, stationIntel, oiIntel,
@@ -2298,9 +2299,12 @@ function PlaceOrderTab({
             <div className="flex items-start justify-between">
               <span className="font-medium text-gray-700 dark:text-white/80 truncate mr-2 mt-0.5">{optionSymbol}</span>
               <div className="text-right flex-shrink-0">
-                <div>
+                <div className="flex items-center justify-end gap-1.5">
                   <span className={`font-bold ${instrumentType === 'CE' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>₹{optionLtp ?? '--'}</span>
-                  {optionExpiry && <span className="text-gray-400 ml-2">{optionExpiry}</span>}
+                  {optionExpiry && <span className="text-gray-400">{optionExpiry}</span>}
+                  <button onClick={onRefreshOptionLtp} title="Refresh premium" className="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-white/70 transition-colors">
+                    <RefreshCw size={11} className={optionLtpRefreshing ? 'animate-spin' : ''} />
+                  </button>
                 </div>
                 <div className={`text-[10px] font-semibold mt-0.5 ${
                   optionProbOTM == null ? 'text-gray-400' :
@@ -2743,6 +2747,8 @@ export default function TerminalPage() {
   const lastIntelRunKey                     = useRef(null); // prevents re-run on price poll ticks
   const spotPriceRef                        = useRef(null); // always-current price, without triggering re-renders
   const lastAtmStrikeRef                    = useRef(null); // last strike for which analysis was cleared
+  const optionSymbolRef                     = useRef(null); // always-current option symbol for LTP refresh
+  const [optionLtpRefreshing, setOptionLtpRefreshing] = useState(false);
 
   // Order placement
   const [orderPlacing, setOrderPlacing]     = useState(false);
@@ -3234,6 +3240,30 @@ export default function TerminalPage() {
     }
   }, [instrumentType, symbol, expiryType, fetchOptionDetails]); // spotPrice removed — price ticks no longer trigger re-fetch
 
+  // Keep optionSymbolRef current so the LTP poll can always read the latest symbol
+  useEffect(() => { optionSymbolRef.current = optionSymbol || null; }, [optionSymbol]);
+
+  // ── Refresh option LTP only (no ATM re-resolution)
+  const refreshOptionLtp = useCallback(async () => {
+    const sym = optionSymbolRef.current;
+    if (!sym) return;
+    setOptionLtpRefreshing(true);
+    try {
+      const exchange = sym.startsWith('SENSEX') ? 'BFO' : 'NFO';
+      const r = await fetch(`/api/setup-eye/ltp?instrument=${exchange}:${sym}`);
+      const d = await r.json();
+      if (d.ltp != null) setOptionLtp(d.ltp);
+    } catch {}
+    finally { setOptionLtpRefreshing(false); }
+  }, []);
+
+  // Poll option LTP every 15s while a CE/PE is selected
+  useEffect(() => {
+    if (!optionSymbol) return;
+    const iv = setInterval(refreshOptionLtp, 15_000);
+    return () => clearInterval(iv);
+  }, [optionSymbol, refreshOptionLtp]);
+
   // ── Strike analysis
   const fetchStrikeAnalysis = useCallback(async () => {
     const currentSpot = spotPriceRef.current;
@@ -3511,6 +3541,7 @@ export default function TerminalPage() {
                 triggerPrice={triggerPrice} setTriggerPrice={setTriggerPrice}
                 expiryType={expiryType} setExpiryType={setExpiryType}
                 optionSymbol={optionSymbol} optionTvSymbol={optionTvSymbol} optionLtp={optionLtp} optionStrike={optionStrike} optionExpiry={optionExpiry} optionProbOTM={optionProbOTM}
+                onRefreshOptionLtp={refreshOptionLtp} optionLtpRefreshing={optionLtpRefreshing}
                 strikeAnalysis={strikeAnalysis} analysisLoading={analysisLoading} onRefreshAnalysis={fetchStrikeAnalysis}
                 orderPlacing={orderPlacing} orderResult={orderResult}
                 intel={intel} structureIntel={structureIntel} patternIntel={patternIntel} stationIntel={stationIntel} oiIntel={oiIntel}
