@@ -279,7 +279,7 @@ export function createChart(container, options = {}) {
   // ── Public API ───────────────────────────────────────────────────────────────
   return {
 
-    // Set or replace the full candle dataset — resets viewport to fit all content.
+    // Set or replace the full candle dataset — resets viewport to show recent bars.
     // Use only on initial load or symbol/interval change.
     setCandles(data) {
       candles   = data ?? [];
@@ -288,7 +288,9 @@ export function createChart(container, options = {}) {
         lineMap.set(id, { ...line, values: _reindex(line._raw) });
       }
       markers = markers.map(m => ({ ...m, index: timeIndex.get(m.time) ?? -1 })).filter(m => m.index >= 0);
-      vp.fitContent(candles);
+      const defaultBars = { '1minute': 390, '5minute': 234, '15minute': 104, '60minute': 150, 'day': 252 }[interval];
+      if (defaultBars) vp.fitRecent(candles, defaultBars);
+      else             vp.fitContent(candles);
       markDirty();
     },
 
