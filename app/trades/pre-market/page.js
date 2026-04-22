@@ -94,37 +94,39 @@ export default function PreMarketPage() {
   const handleCopyIntradayPrompt = () => {
     const istNow = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000);
     const dateStr = istNow.toLocaleString('en-IN', { dateStyle: 'long', timeStyle: 'short' }) + ' IST';
-    const rawPrompt = `You are an elite intraday breakout trader with 15+ years of experience trading Indian equities (NSE & BSE). Your edge is combining technical breakouts with fundamental catalysts, volume confirmation, and news/events.
+    const rawPrompt = `Role: You are an elite Intraday Trader specializing in Opening Range Breakouts.
 
-Current date & time: ${dateStr}
-Market status: Pre-open / Open
+System Rule (Context Awareness):
 
-Task:
-Identify 5–8 high-probability stocks for intraday trading today using ONLY these five filters (all must align):
+(Current Date/Time provided by system: ${dateStr})
+Check Current Time: If it is after 15:15 IST, set the "Target Trading Date" to the next business day.
 
-Breakout Setup
-Price must be breaking (or about to break) a clear technical level (previous day high, multi-day resistance, VWAP, or opening range high).
-Prefer clean 5/15/30-min chart breakouts with strong candle momentum.
+If it is before 15:15 IST, perform analysis for the current session.
 
-News / Catalyst
-Strong positive or negative news released in last 24–48 hrs OR today pre-market (earnings beat/miss, order wins, regulatory approval, FII buying, sector tailwind, etc.).
-Must have potential to drive sustained volatility.
+Step 1: Mandatory Fresh Data Retrieval
 
-Previous Day Price Action
-Strong relative strength or weakness yesterday (close near day high/low, expansion in range, bullish/bearish candle).
-Avoid stocks that were already exhausted yesterday.
+Search for the LTP (Last Traded Price), High, and Low for [Insert Symbols] as of the most recent market close.
 
-Volume Confirmation
-Today’s volume must be at least 1.5–2x average volume of last 5–10 days.
-Rising volume on breakout candle is mandatory.
+Verify accuracy: Cross-reference from two financial portals (e.g., NSE India, Moneycontrol, or Economic Times).
 
-Events
-Any scheduled event today or tomorrow (results, board meeting, AGM, economic data, expiry impact, global cues) that can act as fuel.
+Identify the Previous Day High (PDH) and Previous Day Low (PDL) for each symbol.
 
-Selection Rules (strict):
-Only liquid stocks (average daily volume > 10 lakh shares or in F&O).
-Avoid penny stocks, illiquid scrips, and stocks already up/down >8–10% in pre-open unless momentum is extreme.
-Prefer stocks in strong sectors (IT, Auto, Pharma, Banking, Metals, etc.) based on today’s market theme.
+Step 2: Technical & Catalyst Selection (First-Hour Focus)
+Filter for 5-6 stocks that meet these high-volatility criteria:
+
+Breakout/Gap Potential: Price is within +/- 0.5% of the PDH (Bullish) or PDL (Bearish).
+
+Sector Strength: Prioritize stocks from sectors showing relative strength vs Nifty 50 in the last 24 hours.
+
+Fresh Catalyst: Identify news released after 15:30 today (Earnings, Order wins, Management changes) or events scheduled for the morning.
+
+Step 3: Output Format
+
+Table: [Symbol | LTP | Entry Trigger | Target | Stop Loss | Catalyst]
+
+JSON Array: Ensure the entryPrice is the breakout trigger level.
+
+Constraint: Do not estimate. If data for a ticker is unavailable or the symbol is in a "sideways" range (not near PDH/PDL), omit it.
 
 At the end of your response, output ONLY a valid JSON array in this exact format. Do not use markdown fences.
 [
@@ -133,16 +135,16 @@ At the end of your response, output ONLY a valid JSON array in this exact format
     "companyName": "Tata Consultancy Services",
     "sector": "IT",
     "breakoutLevel": "4150",
-    "prevDayAction": "Strong close near day high on 3x average volume",
+    "prevDayAction": "Strong close near PDH",
     "volumeSpike": "2.5x",
-    "catalyst": "Q3 results beat expectations, strong deal wins",
+    "catalyst": "Q3 results beat expectations",
     "entry": "Above 4160",
     "stopLoss": "4110",
     "target1": "4220",
     "target2": "4280",
     "riskReward": "1:3",
     "conviction": "High",
-    "convictionReason": "Clean multi-Month breakout aligned with sector strength"
+    "convictionReason": "Clean breakout aligned with sector strength"
   }
 ]`;
     navigator.clipboard.writeText(rawPrompt);
