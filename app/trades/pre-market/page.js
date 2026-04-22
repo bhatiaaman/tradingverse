@@ -77,6 +77,10 @@ export default function PreMarketPage() {
       .catch(() => {});
       
     fetchIntradayWatchlist();
+    if (typeof window !== 'undefined') {
+      const savedIntradayJson = localStorage.getItem('intradayJsonInput');
+      if (savedIntradayJson) setJsonInputIntraday(savedIntradayJson);
+    }
   }, []);
 
   const fetchIntradayWatchlist = async () => {
@@ -179,7 +183,6 @@ At the end of your response, output ONLY a valid JSON array in this exact format
       if (data.success) {
         setIntradayWatchlist(data.data);
         setIsEditingIntraday(false);
-        setJsonInputIntraday('[\n\n]');
         setIntradaySaveStatus('');
       } else {
         setIntradaySaveStatus('Failed to save to database');
@@ -1056,7 +1059,10 @@ At the end of your response, output ONLY a valid JSON array in this exact format
               <textarea
                 className="w-full h-48 bg-[#0a1628] border border-blue-900/50 rounded-lg p-4 font-mono text-xs text-slate-300 focus:outline-none focus:border-purple-500 resize-none mb-4"
                 value={jsonInputIntraday}
-                onChange={e => setJsonInputIntraday(e.target.value)}
+                onChange={e => {
+                  setJsonInputIntraday(e.target.value);
+                  if (typeof window !== 'undefined') localStorage.setItem('intradayJsonInput', e.target.value);
+                }}
                 placeholder={'[\n  {\n    "symbol": "TCS",\n    ...\n  }\n]'}
               />
 
