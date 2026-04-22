@@ -1117,15 +1117,20 @@ At the end of your response, output ONLY a valid JSON array in this exact format
                     <div className="bg-[#0a1628] rounded-lg p-3 border border-slate-800">
                       <div className="flex justify-between items-center mb-1">
                         <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Breakout Level</span>
-                        <span className="text-sm font-mono font-bold text-purple-400">₹{stock.breakoutLevel}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${stock.direction === 'SHORT' ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'}`}>
+                            {stock.direction || 'LONG'}
+                          </span>
+                          <span className="text-sm font-mono font-bold text-purple-400">₹{stock.breakoutLevel}</span>
+                        </div>
                       </div>
-                      <p className="text-xs text-slate-400 italic">"{stock.prevDayAction}"</p>
+                      {stock.prevDayAction && <p className="text-xs text-slate-400 italic">"{stock.prevDayAction}"</p>}
                     </div>
                     
                     <div className="grid grid-cols-2 gap-2">
                       <div className="bg-slate-800/30 rounded p-2 border border-slate-700/50">
                         <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Entry</div>
-                        <div className="text-sm font-mono text-emerald-400">{stock.entry}</div>
+                        <div className="text-sm font-mono text-emerald-400">{stock.entryPrice || stock.entry}</div>
                       </div>
                       <div className="bg-slate-800/30 rounded p-2 border border-slate-700/50">
                         <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Stop Loss</div>
@@ -1140,7 +1145,7 @@ At the end of your response, output ONLY a valid JSON array in this exact format
                       </div>
                       <div className="bg-slate-800/30 rounded p-2 border border-slate-700/50">
                         <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Risk:Reward</div>
-                        <div className="text-sm font-mono text-yellow-400">{stock.riskReward} ({stock.volumeSpike} Vol)</div>
+                        <div className="text-sm font-mono text-yellow-400">{stock.riskReward} {stock.volumeSpike ? `(${stock.volumeSpike} Vol)` : ''}</div>
                       </div>
                     </div>
                     

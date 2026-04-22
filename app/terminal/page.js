@@ -1004,7 +1004,7 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
                         <div className="text-xs font-bold text-gray-900 dark:text-white truncate">{s.symbol}</div>
                         {isHighConviction && <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>}
                       </div>
-                      <div className="text-[9px] text-slate-500 truncate mt-0.5" title={s.entry}>Entry: {s.entry}</div>
+                      <div className="text-[9px] text-slate-500 truncate mt-0.5" title={s.entryPrice || s.entry}>Entry: {s.entryPrice || s.entry}</div>
                     </div>
                     <div className="text-right flex-shrink-0 ml-1">
                       <div className={`text-xs font-mono font-semibold ${q === undefined ? 'text-gray-300 dark:text-white/25' : isUp ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
