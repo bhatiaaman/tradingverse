@@ -237,56 +237,75 @@ export function computeSMC(candles) {
   }).slice(-8); // Show up to 8 recent structural levels
 
   // ── Order Blocks ─────────────────────────────────────────────────────────
-  // OB = last opposite-direction candle within 15 bars before the pivot.
-  // Mitigated = price closed through the OB (close < low for bull, close > high for bear).
+  // OB = last opposite-direction candle at the origin of the impulsive move that broke structure.
+  // Mitigated = median price traded through.
   const rawOBs  = [];
   const seenOBs = new Set();
-  for (const bos of allBreaks.slice(-10)) {
-    const pivotI = bos.idx;
-    for (let i = pivotI - 1; i >= Math.max(0, pivotI - 15); i--) {
+  for (const bos of allBreaks) {
+    let originIdx = bos.idx;
+    if (bos.type === 'bear') {
+      let maxH = -Infinity;
+      for (let k = bos.idx; k <= bos.breakIdx; k++) {
+        if (candles[k].high > maxH) { maxH = candles[k].high; originIdx = k; }
+      }
+    } else {
+      let minL = Infinity;
+      for (let k = bos.idx; k <= bos.breakIdx; k++) {
+        if (candles[k].low < minL) { minL = candles[k].low; originIdx = k; }
+      }
+    }
+
+    // Look backward from the extreme to find the OB
+    for (let i = originIdx; i >= Math.max(0, originIdx - 15); i--) {
       const c         = candles[i];
       const isBullBar = c.close >= c.open;
       const isOpposite = (bos.type === 'bull' && !isBullBar) || (bos.type === 'bear' && isBullBar);
       if (!isOpposite) continue;
-      const key = `${bos.type}_${Math.round(c.high * 10)}_${Math.round(c.low * 10)}`;
+      
+      const key = `${bos.type}_${i}`;
       if (seenOBs.has(key)) { break; }
       seenOBs.add(key);
-      const slice     = candles.slice(bos.breakIdx);
+      
+      const slice     = candles.slice(bos.breakIdx + 1);
+      const midPoint  = (c.high + c.low) / 2;
       const mitigated = bos.type === 'bull'
-        ? slice.some(cc => cc.close < c.low)
-        : slice.some(cc => cc.close > c.high);
-      if (!mitigated) rawOBs.push({ bias: bos.type, high: c.high, low: c.low, barIdx: i });
+        ? slice.some(cc => cc.low < midPoint)
+        : slice.some(cc => cc.high > midPoint);
+        
+      if (!mitigated) {
+        rawOBs.push({ bias: bos.type, high: c.high, low: c.low, barIdx: i });
+      }
       break;
     }
   }
-  // Show all unmitigated OBs on each side (up to 3), sorted closest to price first
+  // Show the most recent unmitigated OBs (up to 3)
   const bullOBs = rawOBs
-    .filter(o => o.bias === 'bull' && o.low <= lastClose)
-    .sort((a, b) => b.high - a.high)
+    .filter(o => o.bias === 'bull')
+    .sort((a, b) => b.barIdx - a.barIdx)
     .slice(0, 3);
   const bearOBs = rawOBs
-    .filter(o => o.bias === 'bear' && o.high >= lastClose)
-    .sort((a, b) => a.low - b.low)
+    .filter(o => o.bias === 'bear')
+    .sort((a, b) => b.barIdx - a.barIdx)
     .slice(0, 3);
 
-  // ── FVGs — only significant gaps (≥0.5%), hide tiny ones ─────────────────
+  // ── FVGs — only significant gaps (≥0.05%), hide tiny ones ─────────────────
   const rawFVGs = [];
   for (let i = 2; i < n - 1; i++) {
     const prev = candles[i - 2], curr = candles[i];
     if (curr.low > prev.high) {
-      if ((curr.low - prev.high) / prev.high * 100 < 0.5) continue; // raised from 0.20
+      if ((curr.low - prev.high) / prev.high * 100 < 0.05) continue; // lowered from 0.50
       if (!candles.slice(i + 1).some(c => c.low <= prev.high))
         rawFVGs.push({ type: 'bull', high: curr.low, low: prev.high, startIdx: i - 1 });
     }
     if (curr.high < prev.low) {
-      if ((prev.low - curr.high) / curr.high * 100 < 0.5) continue; // raised from 0.20
+      if ((prev.low - curr.high) / curr.high * 100 < 0.05) continue; // lowered from 0.50
       if (!candles.slice(i + 1).some(c => c.high >= prev.low))
         rawFVGs.push({ type: 'bear', high: prev.low, low: curr.high, startIdx: i - 1 });
     }
   }
   // Only the most recent unmitigated FVG on each side
-  const bullFVGs = rawFVGs.filter(f => f.type === 'bull' && f.low  <= lastClose).sort((a, b) => b.startIdx - a.startIdx).slice(0, 1);
-  const bearFVGs = rawFVGs.filter(f => f.type === 'bear' && f.high >= lastClose).sort((a, b) => b.startIdx - a.startIdx).slice(0, 1);
+  const bullFVGs = rawFVGs.filter(f => f.type === 'bull').sort((a, b) => b.startIdx - a.startIdx).slice(0, 1);
+  const bearFVGs = rawFVGs.filter(f => f.type === 'bear').sort((a, b) => b.startIdx - a.startIdx).slice(0, 1);
 
   return { bosLevels: recentBreaks, orderBlocks: [...bullOBs, ...bearOBs], fvgs: [...bullFVGs, ...bearFVGs] };
 }
