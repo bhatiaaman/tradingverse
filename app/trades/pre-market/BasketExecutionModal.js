@@ -34,8 +34,9 @@ export default function BasketExecutionModal({ isOpen, onClose, intradayWatchlis
       }
       
       const isShort = stock.direction === 'SHORT';
-      const limitPrice = isShort ? (entryPrice * 0.999).toFixed(2) : (entryPrice * 1.001).toFixed(2);
-
+      const rawLimit = isShort ? (entryPrice * 0.999) : (entryPrice * 1.001);
+      const limitPrice = (Math.round(rawLimit * 20) / 20).toFixed(2);
+      
       return {
         ...stock,
         computedQty: qty,
