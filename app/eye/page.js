@@ -256,6 +256,7 @@ function getNiftyLevelAlerts(indices) {
     const [chartSymbol, setChartSymbol] = useState('NIFTY');
     const [chartInterval, setChartInterval] = useState('5minute');
     const [emaPeriods, setEmaPeriods] = useState([9,21]);
+    const [showEmaConfig, setShowEmaConfig] = useState(false);
     const [showVwap, setShowVwap] = useState(true);
     const [showZoneLines, setShowZoneLines] = useState(true);
     const [showVolume, setShowVolume] = useState(true);
@@ -1143,10 +1144,9 @@ function getNiftyLevelAlerts(indices) {
             chart.setMarkers(pc);
 
             // EMA lines
-            emaPeriods.forEach((period, idx) => {
-              const colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#a21caf'];
+            emaPeriods.forEach((period) => {
               const emaData = calculateEMA(data.candles, period);
-              chart.setLine(`ema${period}`, { data: emaData, color: colors[idx % colors.length], width: 1.5 });
+              chart.setLine(`ema${period}`, { data: emaData, color: EMA_COLORS[period] ?? '#f59e0b', width: 1.5 });
             });
 
             // VWAP (intraday only)
@@ -1333,18 +1333,20 @@ function getNiftyLevelAlerts(indices) {
       });
     }, [chartSymbol, chartInterval]);
 
+    // Stable per-period EMA colors
+    const EMA_COLORS = { 9: '#f59e0b', 21: '#3b82f6', 50: '#10b981', 100: '#f97316', 169: '#ec4899', 200: '#ef4444' };
+    const ALL_EMA_PERIODS = [9, 21, 50, 100, 169, 200];
+
     // Sync EMA lines when emaPeriods toggle changes (no chart rebuild)
     useEffect(() => {
       const chart = customChartRef.current;
       if (!chart) return;
       const candles = candleDataRef.current;
       if (!candles?.length) return;
-      const allPeriods = [9, 21, 50, 200];
-      const colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#a21caf'];
-      allPeriods.forEach((period, idx) => {
+      ALL_EMA_PERIODS.forEach((period) => {
         if (emaPeriods.includes(period)) {
           const emaData = calculateEMA(candles, period);
-          chart.setLine(`ema${period}`, { data: emaData, color: colors[idx % colors.length], width: 1.5 });
+          chart.setLine(`ema${period}`, { data: emaData, color: EMA_COLORS[period], width: 1.5 });
         } else {
           chart.clearLine(`ema${period}`);
         }
@@ -3071,27 +3073,65 @@ function getNiftyLevelAlerts(indices) {
                         Indicators
                       </button>
                       {showChartSettings && (
-                        <div className="absolute top-full left-0 mt-1 z-50 bg-[#0d1f38] border border-blue-800/50 rounded-xl shadow-2xl p-3 w-52">
-                          {/* EMA Lines */}
-                          <div className="mb-2.5">
-                            <div className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider mb-1.5">EMA Lines</div>
-                            <div className="grid grid-cols-4 gap-1">
-                              {[9, 21, 50, 200].map((period) => (
-                                <label key={period} className="flex flex-col items-center gap-0.5 cursor-pointer group">
-                                  <div
-                                    onClick={() => setEmaPeriods(prev => prev.includes(period) ? prev.filter(p => p !== period) : [...prev, period])}
-                                    className={`w-full text-center py-1 text-xs font-medium rounded cursor-pointer transition-colors ${emaPeriods.includes(period) ? 'bg-amber-600/80 text-white' : 'bg-white/5 text-slate-500 hover:text-slate-300'}`}
-                                  >
-                                    {period}
-                                  </div>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
+                        <div className="absolute top-full left-0 mt-1 z-50 bg-[#0d1f38] border border-blue-800/50 rounded-xl shadow-2xl p-3 w-56">
                           {/* Overlays */}
                           <div className="mb-2.5">
                             <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">Overlays</div>
                             <div className="flex flex-col gap-1.5">
+                              {/* EMA row with gear */}
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    onClick={() => setEmaPeriods(prev => prev.length > 0 ? [] : [9, 21])}
+                                    className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-colors cursor-pointer ${emaPeriods.length > 0 ? 'bg-blue-600 border-blue-500' : 'bg-transparent border-slate-600'}`}
+                                  >
+                                    {emaPeriods.length > 0 && (
+                                      <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-slate-200">EMA</div>
+                                    <div className="text-[10px] text-slate-500 truncate">
+                                      {emaPeriods.length > 0 ? emaPeriods.sort((a,b)=>a-b).join(', ') : 'none active'}
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => setShowEmaConfig(v => !v)}
+                                    className={`p-1 rounded transition-colors ${showEmaConfig ? 'text-amber-400 bg-amber-900/30' : 'text-slate-500 hover:text-slate-300'}`}
+                                    title="Configure EMA periods"
+                                  >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                  </button>
+                                </div>
+                                {/* EMA config sub-panel */}
+                                {showEmaConfig && (
+                                  <div className="mt-2 ml-6 p-2 bg-black/30 rounded-lg border border-white/10">
+                                    <div className="text-[10px] text-amber-400 font-semibold mb-1.5">Select periods</div>
+                                    <div className="grid grid-cols-3 gap-1">
+                                      {[9, 21, 50, 100, 169, 200].map((period) => {
+                                        const active = emaPeriods.includes(period);
+                                        return (
+                                          <button
+                                            key={period}
+                                            onClick={() => setEmaPeriods(prev => active ? prev.filter(p => p !== period) : [...prev, period])}
+                                            className="flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] font-mono font-medium transition-colors"
+                                            style={active ? { color: EMA_COLORS[period], backgroundColor: EMA_COLORS[period] + '22', border: `1px solid ${EMA_COLORS[period]}55` } : { color: '#64748b', backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+                                          >
+                                            {active && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: EMA_COLORS[period] }} />}
+                                            {period}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                              {/* Other overlays */}
                               {[
                                 { id: 'vwap',  label: 'VWAP', sub: 'intraday only', val: showVwap,      set: setShowVwap,      disabled: chartInterval !== '5minute' && chartInterval !== '15minute' },
                                 { id: 'zone',  label: 'Zone Lines', sub: 'S/R levels',  val: showZoneLines, set: setShowZoneLines },
@@ -3214,11 +3254,10 @@ function getNiftyLevelAlerts(indices) {
                       )}
                       {hoverLineValues && (
                         <div className="flex items-center gap-3 text-[10px] font-mono bg-[#0a1628]/90 border border-blue-800/30 rounded px-2 py-1">
-                          {emaPeriods.map((period, idx) => {
-                            const colors = ['#f59e0b','#3b82f6','#10b981','#ef4444','#a21caf'];
+                          {emaPeriods.map((period) => {
                             const val = hoverLineValues[`ema${period}`];
                             return val != null ? (
-                              <span key={period} style={{ color: colors[idx % colors.length] }}>EMA{period} {val.toFixed(2)}</span>
+                              <span key={period} style={{ color: EMA_COLORS[period] ?? '#f59e0b' }}>EMA{period} {val.toFixed(2)}</span>
                             ) : null;
                           })}
                           {showVwap && hoverLineValues['vwap'] != null && (
