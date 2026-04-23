@@ -36,14 +36,13 @@ export default function BasketExecutionModal({ isOpen, onClose, intradayWatchlis
       const isShort = stock.direction === 'SHORT';
       const rawLimit = isShort ? (entryPrice * 0.999) : (entryPrice * 1.001);
       
-      // Round to nearest 0.10 to satisfy all NSE tick size variants (0.01, 0.05, 0.10)
-      const finalTrigger = (Math.round(entryPrice * 10) / 10).toFixed(2);
-      const finalLimit = (Math.round(rawLimit * 10) / 10).toFixed(2);
+      // Native Kite mapping: NSE equity tick sizes are strictly 0.05.
+      const finalLimit = (Math.round(rawLimit * 20) / 20).toFixed(2);
       
       return {
         ...stock,
         computedQty: qty,
-        triggerPrice: Number(finalTrigger),
+        triggerPrice: entryPrice,
         limitPrice: Number(finalLimit)
       };
     }).sort((a, b) => getScore(b.conviction) - getScore(a.conviction));
