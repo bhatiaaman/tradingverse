@@ -42,8 +42,9 @@ export function detectEMAStations(candles, timeframe, currentPrice) {
     
     // Only consider "near" if within 2% (will tighten in clustering phase)
     if (distance < 2.0) {
+      const isRes = ema > currentPrice;
       stations.push({
-        type: 'EMA',
+        type: isRes ? 'RESISTANCE' : 'SUPPORT',
         timeframe,
         period,
         price: ema,

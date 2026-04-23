@@ -117,13 +117,14 @@ export function detectSRStations(candles, timeframe, currentPrice, maxLookback =
     if (distance < 5.0) { // Within 5% of current price
       // Count how many times this level was tested (price came within 0.5% of it)
       const tests = countTests(candles, swing.price, 0.5);
+      const isRes = swing.price >= currentPrice;
       
       stations.push({
-        type: 'RESISTANCE',
+        type: isRes ? 'RESISTANCE' : 'SUPPORT',
         timeframe,
         price: swing.price,
         distance,
-        label: `${timeframe} Resistance`,
+        label: `${timeframe} ${isRes ? 'Resistance' : 'Support'}`,
         strength: Math.min(5, tests), // More tests = stronger level (cap at 5)
         tests,
         lastTest: swing.time,
@@ -137,13 +138,14 @@ export function detectSRStations(candles, timeframe, currentPrice, maxLookback =
     
     if (distance < 5.0) {
       const tests = countTests(candles, swing.price, 0.5);
+      const isRes = swing.price > currentPrice;
       
       stations.push({
-        type: 'SUPPORT',
+        type: isRes ? 'RESISTANCE' : 'SUPPORT',
         timeframe,
         price: swing.price,
         distance,
-        label: `${timeframe} Support`,
+        label: `${timeframe} ${isRes ? 'Resistance' : 'Support'}`,
         strength: Math.min(5, tests),
         tests,
         lastTest: swing.time,
