@@ -412,6 +412,13 @@ function resolveTransition(prevState, sLong, sShort, features, pending, config) 
 
   // 7. CONTINUING ↔ PULLBACK ↔ EXHAUSTED
   if (prevState === 'CONTINUING_LONG') {
+    // VWAP-hold override: 2 consecutive candles below VWAP while LONG → exit trend
+    // (VWAP position is more reliable than lagging composite score)
+    if (features.vwapAbove === false) {
+      const n = (pending?.type === 'VWAP_HOLD_LONG' ? pending.count : 0) + 1;
+      if (n >= 2) return { state: 'EXHAUSTED_LONG', pending: null };
+      return { state: prevState, pending: { type: 'VWAP_HOLD_LONG', count: n } };
+    }
     if (domScore >= config.continuingThreshold && dom === 'long') return { state: 'CONTINUING_LONG', pending: null };
     // Pullback: price retracing but structure intact
     if (features.pullbackFromHigh > 0.1 && features.pullbackFromHigh <= config.pullbackRetrace && features.vwapAbove !== false) {
@@ -420,6 +427,12 @@ function resolveTransition(prevState, sLong, sShort, features, pending, config) 
     if (domScore <= config.exhaustedZoneHigh) return twoCandle('EXHAUSTED_LONG');
   }
   if (prevState === 'CONTINUING_SHORT') {
+    // VWAP-hold override: 2 consecutive candles above VWAP while SHORT → exit trend
+    if (features.vwapAbove === true) {
+      const n = (pending?.type === 'VWAP_HOLD_SHORT' ? pending.count : 0) + 1;
+      if (n >= 2) return { state: 'EXHAUSTED_SHORT', pending: null };
+      return { state: prevState, pending: { type: 'VWAP_HOLD_SHORT', count: n } };
+    }
     if (domScore >= config.continuingThreshold && dom === 'short') return { state: 'CONTINUING_SHORT', pending: null };
     if (features.pullbackFromLow > 0.1 && features.pullbackFromLow <= config.pullbackRetrace && features.vwapAbove !== true) {
       return twoCandle('PULLBACK_SHORT');
