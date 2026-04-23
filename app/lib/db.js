@@ -169,5 +169,32 @@ export async function migrateSchema() {
   await sql`CREATE INDEX IF NOT EXISTS signal_logs_type_idx ON signal_logs (type)`;
   await sql`CREATE INDEX IF NOT EXISTS signal_logs_ts_idx   ON signal_logs (ts DESC)`;
 
+  // Daily Journals
+  await sql`
+    CREATE TABLE IF NOT EXISTS daily_journals (
+      date       DATE PRIMARY KEY,
+      pnl        NUMERIC,
+      market_context TEXT,
+      emotional_state TEXT,
+      analysis   JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  // Journal Trades (Individual Trade Notes)
+  await sql`
+    CREATE TABLE IF NOT EXISTS journal_trades (
+      trade_id   TEXT PRIMARY KEY,
+      date       DATE REFERENCES daily_journals(date) ON DELETE CASCADE,
+      symbol     TEXT,
+      tags       JSONB DEFAULT '[]',
+      comment    TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS journal_trades_date_idx ON journal_trades (date)`;
+
   console.log('[db] schema migration complete');
 }

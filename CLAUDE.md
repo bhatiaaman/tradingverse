@@ -1,8 +1,8 @@
 # TradingVerse — Claude Instructions
 
 ## Git Workflow
-- **Never auto-commit or auto-push to staging or master without explicitly asking the user first.**
-- Always summarise what will be committed and ask for confirmation before running `git commit` or `git push`.
+- **CRITICAL RESTRICTION**: NEVER use `git add`, `git commit`, or `git push` without EXPLICIT, direct permission from the user in the context of the current request.
+- Always ask for approval before placing code into version control. Wait for the user's "go ahead" message before running any git commands.
 - Workflow is staging → master. Never force-push either branch.
 
 ## Project Stack

@@ -74,6 +74,21 @@ export class KiteBroker {
     return res.json();
   }
 
+  // Raw REST trades — returns today's executed trades
+  async getTradesRaw() {
+    const res = await fetch('https://api.kite.trade/trades', {
+      headers: {
+        'Authorization': `token ${this._apiKey}:${this._accessToken}`,
+        'X-Kite-Version': '3',
+      },
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Kite trades error: ${err}`);
+    }
+    return res.json();
+  }
+
   // LTP (same helper as DataProvider — kept here so broker routes don't need the data provider)
   async getLTP(instruments) {
     const arr   = Array.isArray(instruments) ? instruments : [instruments];

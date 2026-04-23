@@ -105,6 +105,14 @@ export class PaperBroker {
     return parsed.slice(0, limit);
   }
 
+  async getTradesRaw(limit = 50) {
+    const orders = await redis.lrange(PAPER_ORDERS_KEY, 0, -1);
+    const parsed = orders.map(o => typeof o === 'string' ? JSON.parse(o) : o).reverse();
+    // In paper mode, all COMPLETE orders act as our executed trades
+    const executed = parsed.filter(o => o.status === 'COMPLETE');
+    return { status: 'success', data: executed.slice(0, limit) };
+  }
+
   async getPositions() {
     const raw = await this.getPositionsRaw();
     return { net: raw.net || [], day: raw.day || [] };
