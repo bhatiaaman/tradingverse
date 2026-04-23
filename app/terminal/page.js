@@ -1544,7 +1544,7 @@ function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder
 
       {open && (
         <div className="flex-1 overflow-y-auto scrollbar-thin">
-          {loading ? (
+          {loading && orders.length === 0 ? (
             <div className="p-3 space-y-2">{[1,2,3,4].map(i => <div key={i} className="h-10 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}</div>
           ) : kiteError ? (
             <div className="flex flex-col items-center justify-center h-16 gap-1 px-2 text-center">
