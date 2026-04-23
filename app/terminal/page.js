@@ -2090,7 +2090,7 @@ function PlaceOrderTab({
   instrumentType, setInstrumentType, transactionType, setTransactionType,
   productType, setProductType, orderType, setOrderType,
   quantity, setQuantity, price, setPrice, triggerPrice, setTriggerPrice,
-  expiryType, setExpiryType,
+  expiryType, setExpiryType, isMonthlyWeek,
   optionSymbol, optionTvSymbol, optionLtp, optionStrike, optionExpiry, optionProbOTM,
   onRefreshOptionLtp, optionLtpRefreshing,
   strikeAnalysis, analysisLoading, onRefreshAnalysis,
@@ -2287,12 +2287,24 @@ function PlaceOrderTab({
               <span className="text-gray-400">ATM {instrumentType}</span>
               {isIndex && (
                 <div className="flex gap-1">
-                  {['weekly', 'monthly'].map(e => (
-                    <button key={e} onClick={() => setExpiryType(e)}
-                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${expiryType === e ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-white/5 text-gray-500 dark:text-white/40 hover:text-gray-800 dark:hover:text-white/70'}`}>
-                      {e === 'weekly' ? 'W' : 'M'}
-                    </button>
-                  ))}
+                  {['weekly', 'monthly'].map(e => {
+                    const disabled = e === 'weekly' && isMonthlyWeek;
+                    return (
+                      <button key={e}
+                        onClick={() => !disabled && setExpiryType(e)}
+                        disabled={disabled}
+                        title={disabled ? 'No weekly expiry this week (monthly expiry week)' : undefined}
+                        className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                          disabled
+                            ? 'opacity-30 cursor-not-allowed bg-gray-200 dark:bg-white/5 text-gray-400 dark:text-white/30'
+                            : expiryType === e
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 dark:bg-white/5 text-gray-500 dark:text-white/40 hover:text-gray-800 dark:hover:text-white/70'
+                        }`}>
+                        {e === 'weekly' ? 'W' : 'M'}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -2724,6 +2736,7 @@ export default function TerminalPage() {
   const [price, setPrice]                   = useState('');
   const [triggerPrice, setTriggerPrice]     = useState('');
   const [expiryType, setExpiryType]         = useState('weekly');
+  const [isMonthlyWeek, setIsMonthlyWeek]   = useState(false);
 
   // ATM option
   const [optionSymbol, setOptionSymbol]     = useState('');
@@ -3221,6 +3234,13 @@ export default function TerminalPage() {
         setOptionProbOTM(d.probOTM ?? null);
         if (d.step) setStrikeStep(d.step);
         setQuantity(lotSize || 1);
+        // If this is monthly expiry week, W is unavailable — auto-switch to monthly
+        if (d.isMonthlyWeek) {
+          setIsMonthlyWeek(true);
+          setExpiryType('monthly');
+        } else {
+          setIsMonthlyWeek(false);
+        }
         // Only wipe analysis when ATM strike actually changed — avoids flicker on price ticks
         if (d.strike !== lastAtmStrikeRef.current) {
           lastAtmStrikeRef.current = d.strike;
@@ -3539,7 +3559,7 @@ export default function TerminalPage() {
                 quantity={quantity} setQuantity={setQuantity}
                 price={price} setPrice={setPrice}
                 triggerPrice={triggerPrice} setTriggerPrice={setTriggerPrice}
-                expiryType={expiryType} setExpiryType={setExpiryType}
+                expiryType={expiryType} setExpiryType={setExpiryType} isMonthlyWeek={isMonthlyWeek}
                 optionSymbol={optionSymbol} optionTvSymbol={optionTvSymbol} optionLtp={optionLtp} optionStrike={optionStrike} optionExpiry={optionExpiry} optionProbOTM={optionProbOTM}
                 onRefreshOptionLtp={refreshOptionLtp} optionLtpRefreshing={optionLtpRefreshing}
                 strikeAnalysis={strikeAnalysis} analysisLoading={analysisLoading} onRefreshAnalysis={fetchStrikeAnalysis}

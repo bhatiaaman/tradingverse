@@ -158,6 +158,11 @@ export async function GET(request) {
       }
     }
 
+    // Weekly expiry === monthly expiry means this is the monthly expiry week — W not available
+    const monthlyExpiry = getLastTuesdayOfMonth(now);
+    const weeklyExpiry  = getNearestTuesday(now);
+    const isMonthlyWeek = weeklyExpiry.toDateString() === monthlyExpiry.toDateString();
+
     return NextResponse.json({
       optionSymbol: kiteSymbol,
       tvSymbol,
@@ -167,6 +172,7 @@ export async function GET(request) {
       expiryDay: expiry.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
       step,
       probOTM,
+      isMonthlyWeek,
     });
 
   } catch (error) {
