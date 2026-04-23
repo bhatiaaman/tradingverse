@@ -1364,7 +1364,7 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
           <RefreshCw size={13} className="text-gray-400" />
         </button>
       </div>
-      {loading ? (
+      {loading && positions.length === 0 ? (
         <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-12 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}</div>
       ) : kiteError ? (
         <div className="flex flex-col items-center justify-center h-40 gap-2 text-center px-4">
@@ -2924,15 +2924,15 @@ export default function TerminalPage() {
   useEffect(() => { setWatchQuotes({}); }, [watchTab]);
 
   // ── Positions
-  const fetchPositions = useCallback(async () => {
-    setPositionsLoading(true);
+  const fetchPositions = useCallback(async (silent = false) => {
+    if (!silent) setPositionsLoading(true);
     try {
       const r = await fetch('/api/kite-positions');
       const d = await r.json();
-      if (d.kiteError) { setKiteError(d.kiteError); setPositions([]); }
+      if (d.kiteError) { setKiteError(d.kiteError); if (!silent) setPositions([]); }
       else { setKiteError(null); setPositions(d.success ? (d.positions || []) : []); }
-    } catch { setPositions([]); }
-    finally { setPositionsLoading(false); }
+    } catch { if (!silent) setPositions([]); }
+    finally { if (!silent) setPositionsLoading(false); }
   }, []);
 
   // All non-terminal Kite order statuses (per Kite Connect v3 docs).
@@ -3040,7 +3040,7 @@ export default function TerminalPage() {
   // Auto-refresh positions tab
   useEffect(() => {
     if (activeTab !== 'positions') return;
-    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchPositions(); }, 5_000);
+    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchPositions(true); }, 5_000);
     return () => clearInterval(iv);
   }, [activeTab, isVisible, fetchPositions]);
 
