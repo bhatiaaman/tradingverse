@@ -1961,8 +1961,26 @@ export default function OptionsPage() {
       ...(sells || []).map(o => ({ ...o, side: 'SELL' })).filter(o => o.confidence === 'HIGH'), // SELL HIGH only
     ];
 
+    // Add Short Covering to logs if active
+    if (scData?.active && scData.trade) {
+      const sct = scData.trade;
+      toLog.push({
+         side: 'BUY',
+         strike: sct.strike,
+         optType: 'CE',
+         confidence: 'HIGH',
+         trigger: 'SHORT_COVERING',
+         strategy: 'Momentum Reversal',
+         reasons: [`Score ${scData.score}/${scData.maxScore}`, sct.note],
+         ltp: sct.entryLtp,
+         sl: sct.sl?.cePremium,
+         target: sct.targets?.[0]?.cePremium,
+         isSC: true // internal flag
+      });
+    }
+
     for (const op of toLog) {
-      const key = `${symbol}:${op.side}:${op.strike}:${op.type ?? op.optType}:${op.trigger}`;
+      const key = `${symbol}:${op.side}:${op.strike}:${op.optType ?? op.type}:${op.trigger}`;
       if (loggedSignalKeysRef.current.has(key)) continue;
       loggedSignalKeysRef.current.add(key);
       fetch('/api/admin/signal-logs', {
@@ -1974,7 +1992,7 @@ export default function OptionsPage() {
           symbol,
           side: op.side,
           strike: op.strike,
-          optType: op.type ?? op.optType,
+          optType: op.optType ?? op.type,
           confidence: op.confidence,
           trigger: op.trigger,
           strategy: op.strategy ?? null,
@@ -1985,7 +2003,7 @@ export default function OptionsPage() {
         }),
       }).catch(() => {/* non-fatal */});
     }
-  }, [chainData, straddleData, symbol]);
+  }, [chainData, straddleData, symbol, scData]);
 
   // ── Short Covering: poll + sound + browser notification ──────────────────────
   useEffect(() => {

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Nav from '@/app/components/Nav'
 
-const TABS = ['All', 'Eye Setups', 'Options Signals']
+const TABS = ['All', 'Eye Setups', 'Options Signals', 'Real Orders', 'Exec Log']
 
 function timeIST(ts) {
   if (!ts) return '—'
@@ -18,6 +18,8 @@ function timeIST(ts) {
 function typeMap(tab) {
   if (tab === 'Eye Setups')      return 'THIRD_EYE'
   if (tab === 'Options Signals') return 'OPT_SIGNAL'
+  if (tab === 'Real Orders')     return 'ORDERS'
+  if (tab === 'Exec Log')        return 'EXEC_LOG'
   return null
 }
 
@@ -63,6 +65,65 @@ function ThirdEyeEntry({ e }) {
   )
 }
 
+// ── Order Entry ───────────────────────────────────────────────────────────────
+function OrderEntry({ e }) {
+  const isSuccess = e.status === 'success' || e.status === 'COMPLETE'
+  const isBuy = e.transaction_type === 'BUY'
+  return (
+    <div className="bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-xl px-5 py-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${isBuy ? 'text-emerald-400 border-emerald-800/50' : 'text-rose-400 border-rose-800/50'}`}>
+            {isBuy ? '▲ BUY' : '▼ SELL'}
+          </span>
+          <span className="text-sm font-semibold text-slate-900 dark:text-white">{e.symbol}</span>
+          <span className="text-xs text-slate-500 font-mono">₹{e.fill_price || 'MKT'} · {e.quantity} qty</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${isSuccess ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>
+            {e.status.toUpperCase()}
+          </span>
+          <span className="text-[11px] text-slate-500">{timeIST(e.ts)}</span>
+        </div>
+      </div>
+      <div className="text-[10px] font-mono text-slate-500">
+        ID: {e.order_id || '---'} {e.error && <span className="text-red-400 ml-2">· {e.error}</span>}
+      </div>
+    </div>
+  )
+}
+
+// ── Exec Log Entry ────────────────────────────────────────────────────────────
+function ExecLogEntry({ e }) {
+  const styles = {
+    SUCCESS:  'text-emerald-400 border-emerald-800/50 bg-emerald-900/10',
+    FAILED:   'text-red-400 border-red-800/50 bg-red-900/10',
+    REJECTED: 'text-orange-400 border-orange-800/50 bg-orange-900/10',
+    SENT:     'text-amber-400 border-amber-800/50 bg-amber-900/10',
+    RECEIVED: 'text-slate-400 border-white/10 bg-white/5',
+  }
+  const cls = styles[e.event] ?? styles.RECEIVED
+  return (
+    <div className="bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-xl px-5 py-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${cls}`}>
+            {e.event}
+          </span>
+          <span className="text-sm font-semibold text-slate-900 dark:text-white">{e.symbol || 'SYSTEM'}</span>
+          {e.transaction_type && <span className="text-xs text-slate-500 font-mono">{e.transaction_type} {e.quantity} qty</span>}
+        </div>
+        <span className="text-[11px] text-slate-500">{timeIST(e.ts)}</span>
+      </div>
+      <div className="text-[10px] font-mono text-slate-500 flex flex-wrap gap-x-3">
+        <span>Order: {e.orderId || '---'}</span>
+        {e.kiteOrderId && <span>Kite: {e.kiteOrderId}</span>}
+        {e.error && <span className="text-red-400">Error: {e.error}</span>}
+      </div>
+    </div>
+  )
+}
+
 // ── Options Signal Entry ──────────────────────────────────────────────────────
 function OptSignalEntry({ e }) {
   const isBuy  = e.side === 'BUY'
@@ -101,7 +162,6 @@ function OptSignalEntry({ e }) {
         </div>
       </div>
 
-      {/* Key data row */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500 mb-2">
         {e.ltp     && <span>LTP <span className="text-slate-700 dark:text-slate-300 font-mono font-semibold">₹{e.ltp}</span></span>}
         {e.sl      && <span>SL  <span className="text-red-600 dark:text-red-400 font-mono font-semibold">₹{e.sl}</span></span>}
@@ -109,7 +169,6 @@ function OptSignalEntry({ e }) {
         {e.strategy && <span className="text-slate-400">• {e.strategy}</span>}
       </div>
 
-      {/* Reasons */}
       {e.reasons?.length > 0 && (
         <ul className="space-y-0.5">
           {e.reasons.map((r, i) => (
@@ -133,13 +192,21 @@ export default function AdminLogsPage() {
 
   const fetchLogs = useCallback(async () => {
     const type = typeMap(tab)
-    const url  = `/api/admin/signal-logs?n=100${type ? `&type=${type}` : '&type=THIRD_EYE,OPT_SIGNAL'}`
+    let url = ''
+    if (type === 'ORDERS') {
+      url = '/api/order-log'
+    } else if (type === 'EXEC_LOG') {
+      url = '/api/order-exec-log'
+    } else {
+      url = `/api/admin/signal-logs?n=100${type ? `&type=${type}` : '&type=THIRD_EYE,OPT_SIGNAL'}`
+    }
+
     try {
       const r = await fetch(url)
       if (!r.ok) throw new Error(await r.text())
       const d = await r.json()
       setEntries(d.entries || [])
-      setTotal(d.total || 0)
+      setTotal(d.total || d.entries?.length || 0)
       setLastFetch(new Date())
     } catch (err) {
       console.error(err)
@@ -159,6 +226,8 @@ export default function AdminLogsPage() {
     'All':             'No Eye Setup or Options Signal logs yet. They will appear here during market hours.',
     'Eye Setups':      'No Eye setups logged yet. Strong setups (score ≥ 6) are auto-logged from the Eye page during market hours.',
     'Options Signals': 'No options buy/sell signals logged yet. Signals are logged from the Options page when the Trade Desk generates a recommendation.',
+    'Real Orders':     'No real orders found in the database.',
+    'Exec Log':        'No execution log events found.',
   }
 
   return (
@@ -169,8 +238,8 @@ export default function AdminLogsPage() {
         <div className="flex items-end justify-between mb-8 gap-4">
           <div>
             <p className="text-violet-600 dark:text-violet-400 text-xs font-bold tracking-[0.2em] uppercase mb-2">Admin</p>
-            <h1 className="text-3xl font-black">Signal Logs</h1>
-            <p className="text-slate-500 text-sm mt-1">Eye page setups + Options buy/sell recommendations</p>
+            <h1 className="text-3xl font-black">Activity Logs</h1>
+            <p className="text-slate-500 text-sm mt-1">Signals, Order History & Audit Trail</p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
             {lastFetch && (
@@ -209,11 +278,13 @@ export default function AdminLogsPage() {
           <>
             <p className="text-xs text-slate-500 mb-4">Showing {entries.length} of {total} entries</p>
             <div className="space-y-3">
-              {entries.map((e, i) => (
-                e.type === 'THIRD_EYE'
-                  ? <ThirdEyeEntry key={i} e={e} />
-                  : <OptSignalEntry key={i} e={e} />
-              ))}
+              {entries.map((e, i) =>
+                e.type === 'THIRD_EYE' ? <ThirdEyeEntry key={i} e={e} /> :
+                e.type === 'OPT_SIGNAL' ? <OptSignalEntry key={i} e={e} /> :
+                tab === 'Real Orders'   ? <OrderEntry key={i} e={e} /> :
+                tab === 'Exec Log'      ? <ExecLogEntry key={i} e={e} /> :
+                null
+              )}
             </div>
           </>
         )}
