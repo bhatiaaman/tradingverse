@@ -105,12 +105,26 @@ async function parseAndCacheNFO(dp) {
     const type = cols[typeIdx]?.replace(/"/g, '').trim();
     if (type !== 'CE' && type !== 'PE') continue;
 
-    const name    = cols[nameIdx]?.replace(/"/g, '').trim();
+    let name = cols[nameIdx]?.replace(/"/g, '').trim();
+    // Normalize BSE names
+    if (name === 'BSESENSEX') name = 'SENSEX';
+    if (name === 'BSEBANKEX') name = 'BANKEX';
+
     const expiry  = cols[expiryIdx]?.replace(/"/g, '').trim();
     const strike  = parseFloat(cols[strikeIdx]) || 0;
     const ts      = cols[tsIdx]?.replace(/"/g, '').trim();
     const token   = parseInt(cols[tokenIdx]) || 0;
     const lotSize = parseInt(cols[lotSizeIdx]) || 0;
+
+    // Fallback: derive name from tradingsymbol if missing (common in BFO)
+    if (!name && ts) {
+      if (ts.startsWith('SENSEX')) name = 'SENSEX';
+      else if (ts.startsWith('BANKEX')) name = 'BANKEX';
+      else if (ts.startsWith('NIFTY')) name = 'NIFTY';
+      else if (ts.startsWith('BANKNIFTY')) name = 'BANKNIFTY';
+      else if (ts.startsWith('FINNIFTY')) name = 'FINNIFTY';
+      else if (ts.startsWith('MIDCPNIFTY')) name = 'MIDCPNIFTY';
+    }
 
     if (!name || !expiry || !strike || !ts) continue;
     if (new Date(expiry) < today) continue;

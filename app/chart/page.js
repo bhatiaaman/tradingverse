@@ -137,13 +137,13 @@ function isMarketHours() {
 // Returns null for equity symbols. Handles NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, and stock options.
 function parseOptionSymbol(sym) {
   if (!sym) return null;
-  // NFO tradingsymbols: <NAME><YYMMDD><STRIKE><CE|PE>  e.g. NIFTY2642124250CE, HDFCBANK2642180001500CE
-  const m = sym.match(/^([A-Z&]+?)(\d{2})(\d{2})(\d{2})(\d+\.?\d*)(CE|PE)$/);
+  // NFO tradingsymbols: <NAME><YY><MMM|M><DD?><STRIKE><CE|PE>
+  // e.g. NIFTY2441822000CE (weekly), NIFTY24APR22000CE (monthly)
+  const m = sym.match(/^([A-Z&]+)(\d{2})([A-Z0-9]{1,3})(\d{0,2})(\d{4,})(\d+)?(CE|PE)$/);
   if (!m) return null;
-  const [, underlying, yy, mm, dd, strikeStr, type] = m;
-  const year = 2000 + parseInt(yy, 10);
-  const expiry = `${year}-${mm}-${dd}`;
-  return { underlying, expiry, strike: parseFloat(strikeStr), type };
+  const [, underlying, yy, month, dd, strikePart, strikeDec, type] = m;
+  const strike = parseFloat(strikePart + (strikeDec ? '.' + strikeDec : ''));
+  return { underlying, expiry: `${yy}${month}${dd}`, strike, type };
 }
 
 // ── Inner chart component (uses useSearchParams) ──────────────────────────────
@@ -277,7 +277,7 @@ function ChartPageInner() {
     // Only show loading overlay on initial load (no candles yet). For symbol
     // switches the old chart stays visible while new data loads — no flash.
     if (!candlesRef.current?.length) setLoading(true);
-    const indexSymbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+    const indexSymbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX'];
     const indexRef = indexSymbols.includes(symbol) ? symbol : 'NIFTY';
 
     let spotPrice = 0;

@@ -28,15 +28,18 @@ async function redisSet(key, value, ex) {
 }
 
 const UNDERLYING = {
-  NIFTY:     { spotSymbol: 'NSE:NIFTY 50',   strikeGap: 50,  lotSize: 75, token: 256265, optExchange: 'NFO' },
-  BANKNIFTY: { spotSymbol: 'NSE:NIFTY BANK', strikeGap: 100, lotSize: 35, token: 260105, optExchange: 'NFO' },
-  SENSEX:    { spotSymbol: 'BSE:SENSEX',      strikeGap: 100, lotSize: 10, token: 265,    optExchange: 'BFO' },
+  NIFTY:      { spotSymbol: 'NSE:NIFTY 50',          strikeGap: 50,  lotSize: 75,  token: 256265, optExchange: 'NFO' },
+  BANKNIFTY:  { spotSymbol: 'NSE:NIFTY BANK',        strikeGap: 100, lotSize: 15,  token: 260105, optExchange: 'NFO' },
+  FINNIFTY:   { spotSymbol: 'NSE:NIFTY FIN SERVICE', strikeGap: 50,  lotSize: 40,  token: 257801, optExchange: 'NFO' },
+  MIDCPNIFTY: { spotSymbol: 'NSE:NIFTY MID SELECT',  strikeGap: 25,  lotSize: 75,  token: 258057, optExchange: 'NFO' },
+  SENSEX:     { spotSymbol: 'BSE:SENSEX',             strikeGap: 100, lotSize: 10,  token: 265,    optExchange: 'BFO' },
+  BANKEX:     { spotSymbol: 'BSE:BANKEX',             strikeGap: 100, lotSize: 15,  token: 271,    optExchange: 'BFO' },
 };
 
 // Valid CE/PE names per exchange
 const VALID_NAMES_FOR = {
-  NFO: new Set(['NIFTY', 'BANKNIFTY']),
-  BFO: new Set(['SENSEX']),
+  NFO: new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']),
+  BFO: new Set(['SENSEX', 'BANKEX', 'BSESENSEX', 'BSEBANKEX']),
 };
 
 const INSTRUMENTS_TTL = 2 * 3600;
@@ -63,7 +66,10 @@ async function getOptionsInstruments(dp, exchange) {
   const instruments = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',');
-    const name = cols[nameIdx]?.replace(/"/g, '').trim();
+    let name = cols[nameIdx]?.replace(/"/g, '').trim();
+    if (name === 'BSESENSEX') name = 'SENSEX';
+    if (name === 'BSEBANKEX') name = 'BANKEX';
+
     const type = cols[typeIdx]?.replace(/"/g, '').trim();
     if (validNames.has(name) && (type === 'CE' || type === 'PE')) {
       instruments.push({
