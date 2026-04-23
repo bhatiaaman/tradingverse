@@ -227,14 +227,29 @@ export function computeSMC(candles) {
     }
   }
 
-  // Show unbroken BOS + all CHoCH (trend reversals always significant)
-  const lastClose = candles[n - 1].close;
-  const recentBreaks = allBreaks.slice(-15).filter(bos => {
-    if (bos.isCHoCH) return true;
+  // Show only the most recent unbroken BOS per side + last CHoCH per side
+  // Max 2 bull + 2 bear = 4 lines total — keeps chart clean
+  const unbrokenBOS = allBreaks.filter(bos => {
     const sliceAfterBreak = candles.slice(bos.breakIdx + 1);
     if (bos.type === 'bull') return !sliceAfterBreak.some(c => c.close < bos.price);
     return !sliceAfterBreak.some(c => c.close > bos.price);
-  }).slice(-8); // Show up to 8 recent structural levels
+  });
+
+  // Keep the 2 most recent unbroken levels of each type
+  const recentBull = unbrokenBOS.filter(b => b.type === 'bull').slice(-2);
+  const recentBear = unbrokenBOS.filter(b => b.type === 'bear').slice(-2);
+
+  // Also include the most recent CHoCH per side (if unshown already)
+  const lastChochBull = allBreaks.filter(b => b.isCHoCH && b.type === 'bull').at(-1);
+  const lastChochBear = allBreaks.filter(b => b.isCHoCH && b.type === 'bear').at(-1);
+
+  const bosSet = new Set([...recentBull, ...recentBear].map(b => b.breakIdx));
+  const extraChochs = [lastChochBull, lastChochBear].filter(
+    b => b && !bosSet.has(b.breakIdx)
+  );
+
+  const recentBreaks = [...recentBull, ...recentBear, ...extraChochs]
+    .sort((a, b) => a.breakIdx - b.breakIdx);
 
   // ── Order Blocks ─────────────────────────────────────────────────────────
   // OB = last opposite-direction candle at the origin of the impulsive move that broke structure.
