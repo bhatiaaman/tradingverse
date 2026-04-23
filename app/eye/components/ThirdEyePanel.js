@@ -33,12 +33,14 @@ const QUALIFIER_COLOR = {
 };
 
 const SESSION_BADGE = {
-  opening:   { label: 'Opening Range', color: 'bg-amber-900 text-amber-200' },
-  primary:   { label: 'Primary Window', color: 'bg-emerald-900 text-emerald-200' },
-  lull:      { label: 'Midday Lull', color: 'bg-slate-700 text-slate-300' },
-  secondary: { label: 'Secondary Window', color: 'bg-emerald-900 text-emerald-200' },
-  close:     { label: 'Square-off Zone', color: 'bg-rose-900 text-rose-200' },
-  closed:    { label: 'Market Closed', color: 'bg-slate-800 text-slate-400' },
+  opening:      { label: 'Opening Range',    color: 'bg-amber-900 text-amber-200' },
+  primary:      { label: 'Primary Window',   color: 'bg-emerald-900 text-emerald-200' },
+  lull:         { label: 'Midday Lull',      color: 'bg-slate-700 text-slate-300' },
+  secondary:    { label: 'Secondary Window', color: 'bg-emerald-900 text-emerald-200' },
+  close:        { label: 'Square-off Zone',  color: 'bg-rose-900 text-rose-200' },
+  closed:       { label: 'Market Closed',    color: 'bg-slate-800 text-slate-400' },
+  waiting:      { label: 'Waiting for open…',color: 'bg-slate-800 text-slate-500' },
+  disconnected: { label: 'Kite Disconnected',color: 'bg-rose-950 text-rose-400' },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -293,7 +295,8 @@ export default function ThirdEyePanel() {
   const [showCommentary,setShowCommentary]= useState(true);
   const [tf,            setTf]            = useState('5minute');
   const [underlying,    setUnderlying]    = useState('NIFTY'); // 'NIFTY' | 'SENSEX'
-  const [error,         setError]         = useState(null);
+  // scanError: null | { message: string, isAuth: boolean }
+  const [scanError,     setScanError]     = useState(null);
   // Scalp trade state
   const [scalpSetup,    setScalpSetup]    = useState(null);
   const [placing,       setPlacing]       = useState(false);
@@ -331,6 +334,8 @@ export default function ThirdEyePanel() {
   }, []);
 
   // ── Scan ────────────────────────────────────────────────────────────────────
+  const AUTH_RE = /token|expired|reconnect|credential|unauthori[sz]ed|invalid.*access/i;
+
   const runScan = useCallback(async (activeTf, activeUnderlying) => {
     try {
       const res = await fetch('/api/third-eye/scan', {
@@ -340,13 +345,23 @@ export default function ThirdEyePanel() {
       });
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        setError(e.error ?? 'Scan failed');
+        const msg = e.error ?? 'Scan failed';
+        setScanError({ message: msg, isAuth: res.status === 401 || res.status === 503 || AUTH_RE.test(msg) });
+        setLoading(false);
         return;
       }
       const data = await res.json();
+      // A 200 can carry an error field (e.g. stale token → "No candle data").
+      // Don't overwrite last good scanData — preserve scores/state while error shows.
+      if (data.error) {
+        const msg = data.error;
+        setScanError({ message: msg, isAuth: AUTH_RE.test(msg) });
+        setLoading(false);
+        return;
+      }
       setScanData(data);
       setLastScan(new Date());
-      setError(null);
+      setScanError(null);
       setLoading(false);
 
       // Scalp setup: show card if new signal fired and user hasn't skipped this candle
@@ -364,7 +379,8 @@ export default function ThirdEyePanel() {
         setScalpSetup(null);
       }
     } catch (err) {
-      setError(err.message);
+      const msg = err.message ?? 'Network error';
+      setScanError({ message: msg, isAuth: AUTH_RE.test(msg) });
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -403,29 +419,42 @@ export default function ThirdEyePanel() {
     setPlacedResult(null);
     setLoading(true);
 
-    if (!isTradingWindow()) {
-      setLoading(false);
-      return;
+    let wakeupTimer = null;
+
+    function startPolling() {
+      setLoading(true);
+      runScan(tf, underlying);
+      runTick(underlying);
+
+      scanTimer.current = setInterval(() => {
+        if (isTradingWindow()) runScan(tf, underlying);
+        else {
+          clearInterval(scanTimer.current);
+          clearInterval(tickTimer.current);
+        }
+      }, 30_000);
+
+      tickTimer.current = setInterval(() => {
+        if (isTradingWindow()) runTick(underlying);
+      }, 10_000);
     }
 
-    // Initial scan
-    runScan(tf, underlying);
-    runTick(underlying);
-
-    // 30s scan interval
-    scanTimer.current = setInterval(() => {
-      if (isTradingWindow()) runScan(tf, underlying);
-      else {
-        clearInterval(scanTimer.current);
-        clearInterval(tickTimer.current);
-      }
-    }, 30_000);
-    // 10s tick interval
-    tickTimer.current = setInterval(() => {
-      if (isTradingWindow()) runTick(underlying);
-    }, 10_000);
+    if (isTradingWindow()) {
+      startPolling();
+    } else {
+      setLoading(false);
+      // Check every 60s — start polling automatically when market opens
+      wakeupTimer = setInterval(() => {
+        if (isTradingWindow()) {
+          clearInterval(wakeupTimer);
+          wakeupTimer = null;
+          startPolling();
+        }
+      }, 60_000);
+    }
 
     return () => {
+      if (wakeupTimer) clearInterval(wakeupTimer);
       clearInterval(scanTimer.current);
       clearInterval(tickTimer.current);
     };
@@ -474,7 +503,8 @@ export default function ThirdEyePanel() {
   const biasAlign  = scanData?.biasAlignment;
   const optCtx     = scanData?.optionsCtx;
   const biasTf     = scanData?.biasTfLabel ?? '15m';
-  const sessionPh  = features?.sessionPhase ?? 'closed';
+  const sessionPh  = features?.sessionPhase
+    ?? (scanError?.isAuth ? 'disconnected' : scanData?.features ? 'closed' : 'waiting');
   const sessBadge  = SESSION_BADGE[sessionPh] ?? SESSION_BADGE.closed;
   const qualColor  = QUALIFIER_COLOR[scanData?.qualifier] ?? QUALIFIER_COLOR.neutral;
 
@@ -700,17 +730,28 @@ export default function ThirdEyePanel() {
       )}
 
       {/* ── Outside trading window ───────────────────────────────────────── */}
-      {!loading && !scanData && !error && !isTradingWindow() && (
+      {!loading && !scanData && !scanError && !isTradingWindow() && (
         <div className="px-3 py-4 text-center space-y-1">
           <p className="text-xs text-slate-500">Third Eye is dormant</p>
           <p className="text-[10px] font-mono text-slate-600">Active 9:00 – 16:00 IST, Mon–Fri</p>
         </div>
       )}
 
-      {/* ── Error state ───────────────────────────────────────────────────── */}
-      {error && (
-        <div className="px-3 py-2 text-[11px] text-rose-400 font-mono border-t border-slate-700/30">
-          {error}
+      {/* ── Scan error ────────────────────────────────────────────────────── */}
+      {scanError && (
+        <div className="px-3 py-2 border-t border-rose-900/40 bg-rose-950/30 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <WifiOff size={11} className="text-rose-400 flex-shrink-0" />
+            <span className="text-[11px] text-rose-300 font-mono truncate">{scanError.message}</span>
+          </div>
+          {scanError.isAuth && (
+            <a
+              href="/settings"
+              className="text-[10px] text-indigo-400 hover:text-indigo-200 whitespace-nowrap font-mono underline flex-shrink-0"
+            >
+              Reconnect Kite →
+            </a>
+          )}
         </div>
       )}
 

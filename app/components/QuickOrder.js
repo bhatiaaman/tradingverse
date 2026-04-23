@@ -65,7 +65,7 @@ export default function QuickOrder({
           transaction_type: side,
           order_type: orderType,
           product: product,
-          quantity: parseInt(quantity),
+          quantity: parseInt(quantity) || lotSize || 1,
           price: (orderType === 'LIMIT' || orderType === 'SL') ? parseFloat(limitPrice) : undefined,
           trigger_price: (orderType === 'SL' || orderType === 'SL-M') ? parseFloat(triggerPrice) : undefined,
         }),
@@ -159,9 +159,15 @@ export default function QuickOrder({
                   <input 
                     type="number" 
                     value={quantity} 
+                    onFocus={e => e.target.select()}
                     onChange={e => {
-                       const val = parseInt(e.target.value) || lotSize;
-                       setQuantity(Math.max(lotSize, val));
+                       const val = e.target.value;
+                       if (val === '') {
+                         setQuantity('');
+                         return;
+                       }
+                       const num = parseInt(val);
+                       if (!isNaN(num)) setQuantity(num);
                     }}
                     className="flex-1 bg-transparent text-center text-[13px] font-bold font-mono focus:outline-none" 
                   />

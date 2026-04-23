@@ -265,6 +265,8 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Kite API not configured', pcr: null, maxPain: null, support: null, resistance: null });
     }
 
+    const spotOverride = searchParams.get('spot') ? parseFloat(searchParams.get('spot')) : null;
+
     const spotKey      = `${config.spotExchange}:${config.spotSymbol}`;
     const optExchange  = config.optExchange;
     // Sensex has no futures on NFO; skip futSym fetch to avoid errors
@@ -273,7 +275,7 @@ export async function GET(request) {
       getOptionsInstruments(dp, optExchange),
       optExchange === 'NFO' ? resolveFutSymbol(dp, underlying) : Promise.resolve(null),
     ]);
-    const spotPrice = spotData[spotKey]?.last_price;
+    const spotPrice = spotOverride || spotData[spotKey]?.last_price;
     if (!spotPrice) throw new Error(`Could not fetch ${underlying} spot price`);
     const spot = spotPrice;
 

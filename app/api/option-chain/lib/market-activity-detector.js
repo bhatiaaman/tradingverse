@@ -31,10 +31,10 @@ export function detectMarketActivity(current, previous, sinceOpen = false, futOI
     : 0;
   const priceChangePct  = previous.spot > 0 ? ((current.spot - previous.spot) / previous.spot) * 100 : 0;
 
-  // 2. Thresholds (Lowered for better sensitivity)
-  const isTrendingPrice = Math.abs(priceChangePct) >= 0.08; // 0.08% move is enough to confirm direction
-  const isTrendingOI    = Math.abs(totalOIChangePct) >= 1 || Math.abs(callOIChangePct) >= 1.5 || Math.abs(putOIChangePct) >= 1.5;
-  const isFutSignal     = Math.abs(futOIChangePct) >= 1;
+  // 2. Thresholds (Increased sensitivity for faster narrative updates)
+  const isTrendingPrice = Math.abs(priceChangePct) >= 0.04; // 0.04% move (~10pts on Nifty)
+  const isTrendingOI    = Math.abs(totalOIChangePct) >= 0.2 || Math.abs(callOIChangePct) >= 0.4 || Math.abs(putOIChangePct) >= 0.4;
+  const isFutSignal     = Math.abs(futOIChangePct) >= 0.2;
 
   // 3. Directional Classification (Divergence Logic)
   let activity = 'Neutral';
@@ -44,16 +44,16 @@ export function detectMarketActivity(current, previous, sinceOpen = false, futOI
   let emoji = '➡️';
 
   // Bearish Components
-  const isCallBuildup   = priceChangePct < 0 && callOIChangePct > 0.8;    // Price down, Calls added
-  const isPutUnwinding  = priceChangePct < 0 && putOIChangePct < -0.8;   // Price down, Puts exiting
-  const isFutShorting   = priceChangePct < 0 && futOIChangePct > 0.8;    // Price down, Futures added
-  const isFutLongUnwind = priceChangePct < 0 && futOIChangePct < -0.8;   // Price down, Futures dropped
+  const isCallBuildup   = priceChangePct < 0 && callOIChangePct > 0.3;    // Price down, Calls added
+  const isPutUnwinding  = priceChangePct < 0 && putOIChangePct < -0.3;   // Price down, Puts exiting
+  const isFutShorting   = priceChangePct < 0 && futOIChangePct > 0.3;    // Price down, Futures added
+  const isFutLongUnwind = priceChangePct < 0 && futOIChangePct < -0.3;   // Price down, Futures dropped
 
   // Bullish Components
-  const isPutBuildup    = priceChangePct > 0 && putOIChangePct > 0.8;     // Price up, Puts added
-  const isCallUnwinding = priceChangePct > 0 && callOIChangePct < -0.8;  // Price up, Calls exiting
-  const isFutLonging    = priceChangePct > 0 && futOIChangePct > 0.8;    // Price up, Futures added
-  const isFutShortCover = priceChangePct > 0 && futOIChangePct < -0.8;   // Price up, Futures dropped
+  const isPutBuildup    = priceChangePct > 0 && putOIChangePct > 0.3;     // Price up, Puts added
+  const isCallUnwinding = priceChangePct > 0 && callOIChangePct < -0.3;  // Price up, Calls exiting
+  const isFutLonging    = priceChangePct > 0 && futOIChangePct > 0.3;    // Price up, Futures added
+  const isFutShortCover = priceChangePct > 0 && futOIChangePct < -0.3;   // Price up, Futures dropped
 
   // Fallback for Consolidation
   if (!isTrendingPrice && !isTrendingOI && !isFutSignal) {
@@ -64,6 +64,16 @@ export function detectMarketActivity(current, previous, sinceOpen = false, futOI
       actionable: 'Wait for breakout confirmation',
       emoji: '😴',
     };
+  }
+
+  // Fallback for very small moves — call it 'Stable' instead of 'Consolidation' if we tipped a threshold
+  if (!isTrendingPrice && (isTrendingOI || isFutSignal)) {
+     activity = 'Stable';
+     strength = 3;
+     emoji    = '🛡️';
+     description = `Price stable (${priceChangePct.toFixed(2)}%) but OI shifting ${ctx}. Call ${callOIChangePct > 0 ? '+' : ''}${callOIChangePct.toFixed(1)}%, Put ${putOIChangePct > 0 ? '+' : ''}${putOIChangePct.toFixed(1)}%`;
+     actionable = 'Range formation in progress — watch for volume breakout';
+     return { activity, strength, description, actionable, emoji };
   }
 
   // 4. Activity Synthesizer

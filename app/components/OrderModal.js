@@ -841,7 +841,7 @@ export default function OrderModal({
         tradingsymbol: tradingSymbol,
         exchange,
         transaction_type: transactionType,
-        quantity: parseInt(quantity),
+        quantity: parseInt(quantity) || lotSize || 1,
         product,
         order_type: orderType,
         variety: 'regular',
@@ -1303,7 +1303,8 @@ export default function OrderModal({
               <input
                 type="number"
                 value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
+                onChange={(e) => setQuantity(e.target.value === '' ? '' : Number(e.target.value))}
+                onFocus={(e) => e.target.select()}
                 min={lotSize || 1}
                 step={lotSize || 1}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500"
@@ -1319,7 +1320,8 @@ export default function OrderModal({
                 <input
                   type="number"
                   value={limitPrice}
-                  onChange={(e) => setLimitPrice(e.target.value)}
+                  onChange={(e) => setLimitPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                  onFocus={(e) => e.target.select()}
                   step="0.05"
                   placeholder={displayPrice?.toString()}
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500"
@@ -1347,7 +1349,8 @@ export default function OrderModal({
               <input
                 type="number"
                 value={triggerPrice}
-                onChange={(e) => setTriggerPrice(e.target.value)}
+                onChange={(e) => setTriggerPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                onFocus={(e) => e.target.select()}
                 step="0.05"
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500"
                 required

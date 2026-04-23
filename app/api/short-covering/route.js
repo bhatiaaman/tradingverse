@@ -222,8 +222,8 @@ function scoreFutOIDrop(snap, futOI, spot, candles = []) {
     pctSinceLow = ((spot - dayLow) / dayLow * 100);
   }
 
-  const priceMoved = pctSinceSnap > 0.03 || pctSinceLow > 0.08; 
-  const oiFell     = futOI < snap.futOI * 0.985; // ≥1.5% drop from recent baseline
+  const priceMoved = pctSinceSnap > 0.015 || pctSinceLow > 0.04; 
+  const oiFell     = futOI < snap.futOI * 0.998; // ≥0.2% drop from baseline (~30k-50k contracts)
   const oiPct      = snap.futOI > 0 ? ((futOI - snap.futOI) / snap.futOI * 100).toFixed(1) : '—';
 
   if (priceMoved && oiFell) {
@@ -236,8 +236,8 @@ function scoreFutOIDrop(snap, futOI, spot, candles = []) {
   
   const pctFloat = parseFloat(oiPct);
   let statusTx = 'flat (0.0%)';
-  if (pctFloat > 0.5) statusTx = `building (+${pctFloat}%)`;
-  else if (pctFloat < -0.5) statusTx = `dropping (${pctFloat}%)`;
+  if (pctFloat > 0.05) statusTx = `building (+${pctFloat}%)`;
+  else if (pctFloat < -0.05) statusTx = `dropping (${pctFloat}%)`;
   else if (pctFloat !== 0) statusTx = `stable (${pctFloat > 0 ? '+' : ''}${pctFloat}%)`;
 
   if (!priceMoved) {
@@ -381,12 +381,15 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Kite not connected', active: false }, { status: 200 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const spotOverride     = searchParams.get('spot') ? parseFloat(searchParams.get('spot')) : null;
+
     // 1. Fetch NIFTY spot + futures OI in parallel
     const [spotQuote, futSymbol] = await Promise.all([
       dp.getOHLC(['NSE:NIFTY 50']),
       resolveFutSymbol(dp),
     ]);
-    const spot = spotQuote['NSE:NIFTY 50']?.last_price;
+    const spot = spotOverride || spotQuote['NSE:NIFTY 50']?.last_price;
     if (!spot) return NextResponse.json({ error: 'Could not fetch NIFTY spot', active: false });
 
     let futOI = null;

@@ -471,7 +471,9 @@ function getNiftyLevelAlerts(indices) {
       const fetchSC = async (isSilent = false) => {
         if (!isVisibleRef.current) return;
         try {
-          const r = await fetch(`/api/short-covering${isSilent ? '' : '?refresh=1'}`);
+          const nPrice = marketData?.indices?.nifty;
+          const url = `/api/short-covering${isSilent ? '' : '?refresh=1'}${nPrice ? `&spot=${nPrice}` : ''}`;
+          const r = await fetch(url);
           const d = await r.json();
           if (!d.error) {
             setScData(d);
@@ -806,7 +808,8 @@ function getNiftyLevelAlerts(indices) {
       if (!isVisibleRef.current && !forceRefresh) return;
       setOptionLoading(true);
       try {
-        const url = `/api/option-chain?underlying=${optionUnderlying}&expiry=${optionExpiry}${forceRefresh ? '&refresh=1' : ''}`;
+        const livePrice = marketData?.indices?.[optionUnderlying.toLowerCase()];
+        const url = `/api/option-chain?underlying=${optionUnderlying}&expiry=${optionExpiry}${forceRefresh ? '&refresh=1' : ''}${livePrice ? `&spot=${livePrice}` : ''}`;
         const response = await fetch(url);
         const data = await response.json();
         setOptionChainData(data);
@@ -2077,10 +2080,13 @@ function getNiftyLevelAlerts(indices) {
                 <span className="text-sm text-slate-400">Loading market summary…</span>
               </div>
             ) : !commentary ? (
-              /* Market closed / no data */
+              /* No commentary — distinguish truly closed vs no-data-yet */
               <div className="p-4 flex items-center gap-3">
                 <div className="w-2 h-2 rounded-full bg-slate-500 flex-shrink-0" />
-                <span className="text-sm text-slate-400">Market closed — summary available during trading hours (9:15 AM – 4:00 PM IST)</span>
+                {isMarketHours()
+                  ? <span className="text-sm text-slate-400">Fetching market summary…</span>
+                  : <span className="text-sm text-slate-400">Market closed — summary available during trading hours (9:15 AM – 4:00 PM IST)</span>
+                }
                 {niftyRegime && (() => {
                   const REGIME_STYLE = {
                     TREND_DAY_UP: { text: 'text-green-400', label: 'Trend Up' }, TREND_DAY_DOWN: { text: 'text-red-400', label: 'Trend Down' },

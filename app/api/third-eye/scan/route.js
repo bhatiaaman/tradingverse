@@ -101,8 +101,10 @@ async function fetchCandles(dp, underlying, interval, days) {
     open:   c.open, high: c.high, low: c.low, close: c.close, volume: c.volume,
   }));
 
-  // Cache with TTL based on interval
-  const ttl = interval === '5minute' ? 30 : interval === '15minute' ? 90 : 300;
+  // TTL: 90s for 5min (matches nifty-chart route), 3min for 15min, 10min for 60min/day.
+  // Longer TTL = fewer Kite API calls, more resilience to brief API hiccups.
+  // Candles are 5-min wide so 90s-old data is always within the current candle.
+  const ttl = interval === '5minute' ? 90 : interval === '15minute' ? 180 : 600;
   await redisSet(cacheKey, { candles, timestamp: new Date().toISOString() }, ttl);
   return candles;
 }
@@ -211,17 +213,28 @@ export async function POST(req) {
   // Fetch candles
   const dp = await getDataProvider();
   if (!dp.isConnected()) {
-    return NextResponse.json({ error: 'Kite disconnected', state: 'NEUTRAL' }, { status: 503 });
+    return NextResponse.json({ error: 'Kite not connected — reconnect via Settings' }, { status: 401 });
   }
 
-  const [execCandles, biasCandles, futuresCandles] = await Promise.all([
-    fetchCandles(dp, underlying, execTf, tfConfig.execDays),
-    fetchCandles(dp, underlying, tfConfig.biasTf, tfConfig.biasDays),
-    fetchFuturesCandles(dp, underlying, execTf, tfConfig.execDays),
-  ]);
+  let execCandles, biasCandles, futuresCandles;
+  try {
+    [execCandles, biasCandles, futuresCandles] = await Promise.all([
+      fetchCandles(dp, underlying, execTf, tfConfig.execDays),
+      fetchCandles(dp, underlying, tfConfig.biasTf, tfConfig.biasDays),
+      fetchFuturesCandles(dp, underlying, execTf, tfConfig.execDays),
+    ]);
+  } catch (e) {
+    // Kite auth errors: token invalidated by mobile app login, expired session, etc.
+    const msg = (e?.message ?? '');
+    const isAuth = /token|invalid|unauthori[sz]ed|forbidden|403|access_token/i.test(msg);
+    if (isAuth) {
+      return NextResponse.json({ error: 'Kite token expired — reconnect via Settings' }, { status: 401 });
+    }
+    return NextResponse.json({ error: `Data fetch failed: ${msg || 'unknown error'}` }, { status: 502 });
+  }
 
   if (!execCandles?.length) {
-    return NextResponse.json({ error: 'No candle data', state: 'NEUTRAL' });
+    return NextResponse.json({ error: 'No candle data returned from Kite' }, { status: 502 });
   }
 
   // Filter to today's candles only for execution (intraday)
@@ -231,10 +244,22 @@ export async function POST(req) {
     new Date((c.time + IST_S) * 1000).toISOString().slice(0, 10) === today
   );
 
-  // Use today's candles if available (at least 10), otherwise last N from full series
-  let candlesForEngine = todayExecCandles.length >= 10
-    ? todayExecCandles
-    : execCandles.slice(-100);
+  // Build candle set for the engine (requires ≥ 30 candles):
+  //  ≥ 30 today  → today-only (correct intraday VWAP)
+  //  1–29 today  → prepend prior-day candles for indicator warm-up; VWAP is slightly mixed
+  //               but the engine stays live throughout the early session
+  //  0 today     → pre-market or holiday; use last 100 from full series
+  let candlesForEngine;
+  if (todayExecCandles.length >= 30) {
+    candlesForEngine = todayExecCandles;
+  } else if (todayExecCandles.length >= 1) {
+    const priorCandles = execCandles
+      .slice(0, execCandles.length - todayExecCandles.length)
+      .slice(-50);
+    candlesForEngine = [...priorCandles, ...todayExecCandles];
+  } else {
+    candlesForEngine = execCandles.slice(-100);
+  }
 
   // Overlay futures volume onto spot candles (index volume is meaningless;
   // futures volume reflects real participant activity)
