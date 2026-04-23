@@ -31,8 +31,8 @@ const KNOWN_GAPS = {
   MIDCPNIFTY: 25, SENSEX: 100, BANKEX: 100,
 };
 
-// Only NIFTY has weekly options; all others are monthly
-const WEEKLY_SYMBOLS = new Set(['NIFTY']);
+// Indices and liquid stocks that have weekly options; others show monthly only in UI
+const WEEKLY_SYMBOLS = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX']);
 
 // Which exchange to use for order placement per symbol
 const OPT_EXCHANGE = {

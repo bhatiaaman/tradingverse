@@ -6,49 +6,60 @@ import { computeIV, computeGreeks } from '@/app/lib/options/black-scholes';
 // Indices that have Thursday expiry (monthly)
 const INDICES = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX'];
 
-// Get last Tuesday of month (for stock options)
-function getLastTuesdayOfMonth(date = new Date()) {
+// Get last specific day of month
+function getLastDayOfMonth(date = new Date(), dayOfWeek = 4) { // 4 = Thursday
   const year = date.getFullYear();
   const month = date.getMonth();
   // Get last day of month
   let d = new Date(year, month + 1, 0);
-  // Walk back to Tuesday (Tuesday === 2)
-  while (d.getDay() !== 2) {
+  // Walk back to target day
+  while (d.getDay() !== dayOfWeek) {
     d.setDate(d.getDate() - 1);
   }
   return d;
 }
 
-// Get last Thursday of month (for index options)
-function getLastThursdayOfMonth(date = new Date()) {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  // Get last day of month
-  let d = new Date(year, month + 1, 0);
-  // Walk back to Thursday (Thursday === 4)
-  while (d.getDay() !== 4) {
-    d.setDate(d.getDate() - 1);
+// Get last specific day of week
+function getLastDayOfWeek(date = new Date(), dayOfWeek = 2) { // 2 = Tuesday
+  const d = new Date(date);
+  const day = d.getDay();
+  // If today is after target day, go back to this week's target day
+  if (day > dayOfWeek) {
+    d.setDate(d.getDate() - (day - dayOfWeek));
+  } else if (day < dayOfWeek) {
+    // If before target day, go back to previous week's target day
+    d.setDate(d.getDate() - (7 - (dayOfWeek - day)));
   }
   return d;
+}
+
+// Determine exchange based on symbol
+function getExchange(symbol) {
+  const s = symbol.toUpperCase();
+  if (s === 'SENSEX' || s === 'BANKEX') return 'BFO';
+  return 'NFO';
 }
 
 // Get next expiry date based on symbol type
 function getNextExpiry(symbol, fromDate = new Date()) {
-  const isIndex = INDICES.includes(symbol.toUpperCase());
+  const sym = symbol.toUpperCase();
+  const isIndex = INDICES.includes(sym);
+  const expiryDay = (sym === 'SENSEX' || sym === 'BANKEX') ? 4 : 2; // User: Sensex=Thursday(4), Nifty=Tuesday(2)
+  
   const year = fromDate.getFullYear();
   const month = fromDate.getMonth();
   
   // Get expiry for current month
   let expiry = isIndex 
-    ? getLastThursdayOfMonth(fromDate)
-    : getLastTuesdayOfMonth(fromDate);
+    ? getLastDayOfMonth(fromDate, expiryDay)
+    : getLastDayOfMonth(fromDate, 2); // Stocks usually Tuesday (was user confirmed stocks? assuming Tuesday for consistency with their Nifty instruction)
   
   // If we're past this month's expiry, get next month's
   if (fromDate > expiry) {
     const nextMonth = new Date(year, month + 1, 15);
     expiry = isIndex 
-      ? getLastThursdayOfMonth(nextMonth)
-      : getLastTuesdayOfMonth(nextMonth);
+      ? getLastDayOfMonth(nextMonth, expiryDay)
+      : getLastDayOfMonth(nextMonth, 2);
   }
   
   return expiry;
@@ -92,7 +103,8 @@ const NS          = process.env.REDIS_NAMESPACE || 'default';
 
 async function getValidStrikes(symbol, expiry, optionType, dp) {
   try {
-    const cacheKey = `${NS}:fno-ts-tokens:${symbol}`;
+    const ex = getExchange(symbol);
+    const cacheKey = `${NS}:fno-ts-tokens-${ex}:${symbol}`;
     const res  = await fetch(`${REDIS_URL}/get/${cacheKey}`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
     const data = await res.json();
     let tokenMap = data.result ? JSON.parse(data.result) : null;
@@ -133,13 +145,14 @@ async function getValidStrikes(symbol, expiry, optionType, dp) {
 // Fetch lot size for a given underlying from NFO instruments
 async function getLotSize(symbol, dp) {
   try {
-    const cacheKey = `${NS}:fno-lot-size:${symbol}`;
+    const ex = getExchange(symbol);
+    const cacheKey = `${NS}:fno-lotsize-${ex}:${symbol}`;
     // Check Redis cache first
     const res = await fetch(`${REDIS_URL}/get/${cacheKey}`, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
     const cached = await res.json();
     if (cached.result) return parseInt(JSON.parse(cached.result));
 
-    const csvText = await dp.getInstrumentsCSV('NFO');
+    const csvText = await dp.getInstrumentsCSV(ex);
     if (!csvText) return null;
     const lines = csvText.trim().split('\n');
     // Header: instrument_token,exchange_token,tradingsymbol,name,last_price,expiry,strike,tick_size,lot_size,...
@@ -196,24 +209,32 @@ export async function GET(request) {
     // Get expiry — if caller passes an explicit date (YYYY-MM-DD), use it directly
     const now = new Date();
     let expiry, kiteSymbol, tvExpiryDate, isWeeklyExpiry = false;
+
+    const sym = symbol.toUpperCase();
+    const expiryDay = (sym === 'SENSEX' || sym === 'BANKEX') ? 4 : 2; // User: Sensex=Thursday, Nifty=Tuesday
+
     if (expiryParam) {
       expiry = new Date(expiryParam + 'T00:00:00Z');
       tvExpiryDate = expiry;
-      // If explicit expiry is passed with expiryType, use that; otherwise assume monthly
       isWeeklyExpiry = expiryType === 'weekly';
-    } else if (symbol.toUpperCase() === 'NIFTY') {
+    } else if (sym === 'NIFTY') {
       if (expiryType === 'monthly') {
-        expiry = getLastTuesdayOfMonth(now);
+        expiry = getLastDayOfMonth(now, 2);
         tvExpiryDate = expiry;
         isWeeklyExpiry = false;
       } else {
-        expiry = getLastTuesdayOfWeek(now);
+        expiry = getLastDayOfWeek(now, 2);
         tvExpiryDate = expiry;
         isWeeklyExpiry = true;
       }
+    } else if (sym === 'SENSEX') {
+      // Sensex is usually weekly on Thursday
+      expiry = getLastDayOfWeek(now, 4);
+      tvExpiryDate = expiry;
+      isWeeklyExpiry = true;
     } else {
       expiry = getNextExpiry(symbol, now);
-      tvExpiryDate = getLastTuesdayOfMonth(now);
+      tvExpiryDate = getLastDayOfMonth(now, 2);
       isWeeklyExpiry = false;
     }
 
@@ -235,9 +256,10 @@ export async function GET(request) {
     let ltp = 0;
     let ltpError = null;
 
+    const ex = getExchange(symbol);
     try {
-      const kiteData = await dp.getLTP('NFO:' + kiteSymbol);
-      const key = `NFO:${kiteSymbol}`;
+      const kiteData = await dp.getLTP(`${ex}:${kiteSymbol}`);
+      const key = `${ex}:${kiteSymbol}`;
       ltp = kiteData.data?.[key]?.last_price || 0;
     } catch (e) {
       ltpError = e.message || 'LTP fetch failed';
@@ -306,7 +328,7 @@ export async function GET(request) {
       symbol,
       optionSymbol: kiteSymbol,
       tvSymbol: tvSymbol,
-      exchange: 'NFO',
+      exchange: getExchange(symbol),
       strike: atmStrike,
       optionType,
       ltp,

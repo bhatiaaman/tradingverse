@@ -209,5 +209,7 @@ export const nseStrikeSteps = {
   "WAAREEENER": 50,
   "WIPRO": 2,
   "YESBANK": 1,
-  "ZYDUSLIFE": 10
+  "ZYDUSLIFE": 10,
+  "SENSEX": 100,
+  "BANKEX": 100
 };

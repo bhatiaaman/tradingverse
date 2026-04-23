@@ -457,7 +457,11 @@ export default function OrderModal({
   const [orderType, setOrderType] = useState('MARKET');
   const [limitPrice, setLimitPrice] = useState('');
   const [triggerPrice, setTriggerPrice] = useState('');
-  const [exchange, setExchange] = useState(optionType ? 'NFO' : 'NSE');
+  const symUpper = symbol?.toUpperCase();
+  const isBse    = symUpper === 'SENSEX' || symUpper === 'BANKEX';
+  const defaultExchange = optionType ? (isBse ? 'BFO' : 'NFO') : 'NSE';
+
+  const [exchange, setExchange] = useState(defaultExchange);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -669,10 +673,11 @@ export default function OrderModal({
       setQuantity(1);  // temporary — FnO will update to lotSize once API responds
       setLotSize(1);
       setProduct(optionType ? 'NRML' : 'CNC');
-      setOrderType(optionType ? 'LIMIT' : 'MARKET');
       setLimitPrice(price?.toString() || '');
       setTriggerPrice('');
-      setExchange(optionType ? 'NFO' : 'NSE');
+      
+      const isB   = symbol?.toUpperCase() === 'SENSEX' || symbol?.toUpperCase() === 'BANKEX';
+      setExchange(optionType ? (isB ? 'BFO' : 'NFO') : 'NSE');
       setError('');
       setSuccess('');
       setKiteOptionSymbol(null);
@@ -713,7 +718,7 @@ export default function OrderModal({
         body: JSON.stringify({
           symbol,
           tradingsymbol: kiteOptionSymbol || optionSymbol || symbol,
-          exchange: optionType ? 'NFO' : 'NSE',
+          exchange,
           instrumentType: optionType || 'EQ',
           transactionType,
           productType: product,
@@ -811,14 +816,10 @@ export default function OrderModal({
         const avgPrice = matchingPos.average_price || 0;
         const ltp = matchingPos.last_price || 0;
         const qty = Math.abs(matchingPos.quantity);
-        const isLong = matchingPos.quantity > 0;
-        
-        const unrealizedPnl = isLong 
-          ? (ltp - avgPrice) * qty
-          : (avgPrice - ltp) * qty;
-        
-        const lossThreshold = exchange === 'NFO' ? -500 : -200;
-        const isLosingTrade = unrealizedPnl < lossThreshold;
+          const isLong = matchingPos.quantity > 0;
+          const unrealizedPnl = isLong ? (ltp - avgPrice) * qty : (avgPrice - ltp) * qty;
+          const lossThreshold = (exchange === 'NFO' || exchange === 'BFO') ? -500 : -200;
+          const isLosingTrade = unrealizedPnl < lossThreshold;
 
         if ((isAddingLong || isAddingShort) && isLosingTrade) {
           setAvgDownAlert({ position: matchingPos, unrealizedPnl, avgPrice, ltp });

@@ -52,9 +52,8 @@ export default function QuickOrder({
       const endpoint = isPaper ? '/api/paper-orders' : '/api/place-order';
 
       const isOption = /^.+(CE|PE)$/.test(symbol);
-      const exchange = isOption
-        ? (symbol.startsWith('SENSEX') ? 'BFO' : 'NFO')
-        : 'NSE';
+      const isBse    = symbol.startsWith('SENSEX') || symbol.startsWith('BANKEX');
+      const exchange = isOption ? (isBse ? 'BFO' : 'NFO') : 'NSE';
 
       const res = await fetch(endpoint, {
         method: 'POST',

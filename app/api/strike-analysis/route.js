@@ -20,14 +20,22 @@ async function redisSet(key, value, exSeconds) {
   } catch {}
 }
 
-const INSTRUMENTS_CACHE_KEY = `${NS}:nfo-instruments-full`;
+function getExchange(symbol) {
+  const s = symbol?.toUpperCase();
+  if (s === 'SENSEX' || s === 'BANKEX') return 'BFO';
+  return 'NFO';
+}
 
-async function getNFOInstruments(dp) {
-  const cached = await redisGet(INSTRUMENTS_CACHE_KEY);
+const INSTRUMENTS_CACHE_KEY_PFX = `${NS}:fno-instruments-full-`;
+
+async function getInstruments(symbol, dp) {
+  const ex = getExchange(symbol);
+  const cacheKey = `${INSTRUMENTS_CACHE_KEY_PFX}${ex}`;
+  const cached = await redisGet(cacheKey);
   if (cached) return cached;
 
   // Use raw CSV fetch to avoid Kite SDK's fragile content-type === 'text/csv' check
-  const csvText = await dp.getInstrumentsCSV('NFO');
+  const csvText = await dp.getInstrumentsCSV(ex);
   const lines   = csvText.trim().split('\n');
   const headers = lines[0].split(',');
 
@@ -52,7 +60,7 @@ async function getNFOInstruments(dp) {
     }
   }
 
-  await redisSet(INSTRUMENTS_CACHE_KEY, options, 7200);
+  await redisSet(cacheKey, options, 7200);
   return options;
 }
 
@@ -281,7 +289,8 @@ export async function GET(request) {
     const dp = await getDataProvider();
     if (!dp.isConnected()) return NextResponse.json({ error: 'Kite not authenticated' }, { status: 401 });
 
-    const allInstruments = await getNFOInstruments(dp);
+    const ex = getExchange(symbol);
+    const allInstruments = await getInstruments(symbol, dp);
     const symbolOptions  = allInstruments.filter(i => i.name === symbol);
     if (symbolOptions.length === 0) {
       return NextResponse.json({ error: `No NFO options for ${symbol}` }, { status: 404 });
@@ -323,12 +332,12 @@ export async function GET(request) {
       return NextResponse.json({ error: `No options at these strikes for ${symbol}` }, { status: 404 });
     }
 
-    const quoteSymbols = relevantOptions.map(o => `NFO:${o.tradingsymbol}`);
+    const quoteSymbols = relevantOptions.map(o => `${ex}:${o.tradingsymbol}`);
     const quotes       = await dp.getQuote(quoteSymbols);
 
     const strikeMap = {};
     for (const opt of relevantOptions) {
-      const q = quotes[`NFO:${opt.tradingsymbol}`];
+      const q = quotes[`${ex}:${opt.tradingsymbol}`];
       if (!strikeMap[opt.strike]) {
         strikeMap[opt.strike] = { strike: opt.strike, ceOI: 0, peOI: 0, ceLtp: 0, peLtp: 0, ceVol: 0, peVol: 0, ceChg: 0, peChg: 0, ceIV: 0, peIV: 0, ceOiOpen: 0, peOiOpen: 0 };
       }
