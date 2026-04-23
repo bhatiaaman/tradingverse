@@ -475,15 +475,28 @@ function ChartPageInner() {
       if (stations?.length) {
         const ltp    = candles[candles.length - 1]?.close || 0;
         const dist   = s => Math.abs(s.price - ltp);
-        const broken = s => (s.type === 'SUPPORT' && ltp < s.price) || (s.type === 'RESISTANCE' && ltp > s.price);
-        const sup = stations.filter(s => s.type === 'SUPPORT').sort((a, b) => dist(a) - dist(b)).slice(0, 4);
-        const res = stations.filter(s => s.type === 'RESISTANCE').sort((a, b) => dist(a) - dist(b)).slice(0, 4);
-        for (const s of sup) chart.setZone({ id: `sr_s_${s.price}`, price: s.price,
-          color: broken(s) ? 'rgba(134,239,172,0.55)' : 'rgba(74,222,128,0.85)',
-          label: `S${s.quality >= 7 ? '★' : ''}`, style: 'dashed', inline: true });
-        for (const r of res) chart.setZone({ id: `sr_r_${r.price}`, price: r.price,
-          color: broken(r) ? 'rgba(252,165,165,0.55)' : 'rgba(248,113,113,0.85)',
-          label: `R${r.quality >= 7 ? '★' : ''}`, style: 'dashed', inline: true });
+        
+        // Re-evaluate polarity dynamically against live tick
+        const getPolarity = s => s.price >= ltp ? 'RESISTANCE' : 'SUPPORT';
+        
+        const sup = stations.filter(s => getPolarity(s) === 'SUPPORT').sort((a, b) => dist(a) - dist(b)).slice(0, 4);
+        const res = stations.filter(s => getPolarity(s) === 'RESISTANCE').sort((a, b) => dist(a) - dist(b)).slice(0, 4);
+        
+        // Render support (below price)
+        for (const s of sup) {
+          const originalRes = s.type === 'RESISTANCE'; // was resistance, now support
+          chart.setZone({ id: `sr_s_${s.price}`, price: s.price,
+            color: originalRes ? 'rgba(134,239,172,0.85)' : 'rgba(74,222,128,0.85)',
+            label: `S${s.quality >= 7 ? '★' : ''}`, style: 'dashed', inline: true });
+        }
+        
+        // Render resistance (above price)
+        for (const r of res) {
+          const originalSup = r.type === 'SUPPORT'; // was support, now resistance
+          chart.setZone({ id: `sr_r_${r.price}`, price: r.price,
+            color: originalSup ? 'rgba(252,165,165,0.85)' : 'rgba(248,113,113,0.85)',
+            label: `R${r.quality >= 7 ? '★' : ''}`, style: 'dashed', inline: true });
+        }
       }
     } else {
       chart.clearZonesWithPrefix('sr_');
