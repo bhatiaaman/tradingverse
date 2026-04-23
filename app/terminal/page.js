@@ -1128,6 +1128,124 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MarketDepthPanel — collapsible 5-level bid/ask depth
+// ─────────────────────────────────────────────────────────────────────────────
+function MarketDepthPanel({ instrument }) {
+  const [open, setOpen]       = useState(false);
+  const [depth, setDepth]     = useState(null);
+  const [loading, setLoading] = useState(false);
+  const prevInstrRef          = useRef(null);
+
+  const fetch_ = useCallback(async (instr) => {
+    if (!instr) return;
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/market-depth?instrument=${encodeURIComponent(instr)}`);
+      const d = await r.json();
+      if (d.depth) setDepth(d.depth);
+    } catch {}
+    finally { setLoading(false); }
+  }, []);
+
+  // Auto-fetch when opened or instrument changes (while open)
+  useEffect(() => {
+    if (!open) return;
+    if (instrument !== prevInstrRef.current) {
+      prevInstrRef.current = instrument;
+      setDepth(null);
+    }
+    fetch_(instrument);
+  }, [open, instrument, fetch_]);
+
+  if (!instrument) return null;
+
+  const buys  = depth?.buy  || [];
+  const sells = depth?.sell || [];
+  const maxQ  = Math.max(...[...buys, ...sells].map(l => l.quantity || 0), 1);
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-white/8 overflow-hidden">
+      {/* Header — always visible */}
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-slate-800/40 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
+      >
+        <span className="text-[11px] font-semibold text-gray-500 dark:text-white/50 uppercase tracking-wider">Market Depth</span>
+        <div className="flex items-center gap-1.5">
+          {open && (
+            <button
+              onClick={e => { e.stopPropagation(); fetch_(instrument); }}
+              className="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-white/70 transition-colors"
+              title="Refresh depth"
+            >
+              <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
+            </button>
+          )}
+          <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </button>
+
+      {/* Depth table */}
+      {open && (
+        <div className="px-3 pb-3 pt-2 bg-white dark:bg-slate-900/30">
+          {loading && !depth ? (
+            <div className="space-y-1.5 py-1">
+              {[1,2,3,4,5].map(i => <div key={i} className="h-4 bg-black/5 dark:bg-white/5 rounded animate-pulse" />)}
+            </div>
+          ) : !depth ? (
+            <div className="text-xs text-gray-400 text-center py-3">No depth data</div>
+          ) : (
+            <div>
+              {/* Column headers */}
+              <div className="grid grid-cols-[1fr_auto_auto_1fr] text-[9px] font-semibold uppercase tracking-wider text-gray-400 dark:text-white/30 mb-1 px-1">
+                <span>Bid Qty</span>
+                <span className="text-center px-2">Bid</span>
+                <span className="text-center px-2">Ask</span>
+                <span className="text-right">Ask Qty</span>
+              </div>
+              {Array.from({ length: 5 }).map((_, i) => {
+                const b = buys[i]  || {};
+                const s = sells[i] || {};
+                const bPct = b.quantity ? (b.quantity / maxQ) * 100 : 0;
+                const sPct = s.quantity ? (s.quantity / maxQ) * 100 : 0;
+                return (
+                  <div key={i} className="grid grid-cols-[1fr_auto_auto_1fr] items-center text-[11px] font-mono py-0.5 relative">
+                    {/* Bid qty bar */}
+                    <div className="relative flex items-center">
+                      <div className="absolute right-0 top-0 bottom-0 bg-green-500/10 dark:bg-green-500/15 rounded-l" style={{ width: `${bPct}%` }} />
+                      <span className="relative text-gray-700 dark:text-white/70 text-right w-full pr-1">{b.quantity?.toLocaleString('en-IN') ?? '—'}</span>
+                    </div>
+                    <span className="px-2 font-semibold text-green-600 dark:text-green-400 tabular-nums">{b.price?.toFixed(2) ?? '—'}</span>
+                    <span className="px-2 font-semibold text-red-600 dark:text-red-400 tabular-nums">{s.price?.toFixed(2) ?? '—'}</span>
+                    {/* Ask qty bar */}
+                    <div className="relative flex items-center">
+                      <div className="absolute left-0 top-0 bottom-0 bg-red-500/10 dark:bg-red-500/15 rounded-r" style={{ width: `${sPct}%` }} />
+                      <span className="relative text-gray-700 dark:text-white/70 pl-1">{s.quantity?.toLocaleString('en-IN') ?? '—'}</span>
+                    </div>
+                  </div>
+                );
+              })}
+              {/* Total row */}
+              <div className="grid grid-cols-[1fr_auto_auto_1fr] text-[10px] font-mono font-semibold border-t border-gray-100 dark:border-white/8 pt-1 mt-1 px-1">
+                <span className="text-green-600 dark:text-green-400 text-right pr-1">
+                  {buys.reduce((s, l) => s + (l.quantity || 0), 0).toLocaleString('en-IN')}
+                </span>
+                <span className="px-2 text-gray-400 text-[9px] uppercase col-span-2 text-center">Total</span>
+                <span className="text-red-600 dark:text-red-400 pl-1">
+                  {sells.reduce((s, l) => s + (l.quantity || 0), 0).toLocaleString('en-IN')}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PositionsTab
 // ─────────────────────────────────────────────────────────────────────────────
 // Returns true if there's an open SL/SL-M order covering the given position
@@ -2341,6 +2459,19 @@ function PlaceOrderTab({
             type={instrumentType}
           />
         )}
+
+        {/* Market Depth */}
+        <MarketDepthPanel
+          instrument={
+            (instrumentType === 'CE' || instrumentType === 'PE') && optionSymbol
+              ? `NFO:${optionSymbol}`
+              : instrumentType === 'FUT' && symbol
+                ? `NFO:${symbol}FUT`
+                : symbol
+                  ? `NSE:${symbol}`
+                  : null
+          }
+        />
 
         {/* BUY / SELL */}
         <div>
