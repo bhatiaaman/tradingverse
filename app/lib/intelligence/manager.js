@@ -248,7 +248,7 @@ async function collectOIData(symbol, base) {
 // ── Public API ────────────────────────────────────────────────────────────────
 // Returns unified intelligence for a symbol. Always runs all 5 agents.
 // base: internal base URL (e.g. 'http://localhost:3000') — needed for internal API calls.
-export async function getIntelligence(symbol, { base, interval = '15minute', transactionType, instrumentType } = {}) {
+export async function getIntelligence(symbol, { base, interval = '15minute', transactionType, instrumentType, spotPrice, productType } = {}) {
   const sym      = symbol.toUpperCase();
   const isIndex  = INDEX_SYMBOLS.has(sym);
   const regimeSym = (sym === 'BANKNIFTY') ? 'BANKNIFTY' : 'NIFTY';
@@ -259,7 +259,8 @@ export async function getIntelligence(symbol, { base, interval = '15minute', tra
     exchange:        instrumentType && ['CE','PE'].includes(instrumentType?.toUpperCase()) ? 'NFO' : 'NSE',
     instrumentType:  instrumentType ?? 'EQ',
     transactionType: transactionType ?? 'BUY',
-    productType:     'MIS',
+    productType:     productType ?? 'MIS',
+    spotPrice:       spotPrice,
   };
 
   // 1. Collect behavioral data + run all data collectors in parallel

@@ -74,8 +74,8 @@ function determineZoneState(zone, candles15m, spotPrice) {
     // Check which side of zone price currently sits on.
     // If price has fallen back BELOW resistance (or risen back ABOVE support),
     // the break failed — don't call it BROKEN (bullish) when price is below the zone.
-    if (zone.type === 'RESISTANCE' && spotPrice < zone.price - band) return 'FAILED_BREAK';
-    if (zone.type === 'SUPPORT'    && spotPrice > zone.price + band) return 'FAILED_BREAK';
+    if (zone.type === 'RESISTANCE' && spotPrice < zone.price - band) return 'APPROACHING';
+    if (zone.type === 'SUPPORT'    && spotPrice > zone.price + band) return 'APPROACHING';
     return 'BROKEN'; // price still on break side — zone broken, awaiting retest
   }
 

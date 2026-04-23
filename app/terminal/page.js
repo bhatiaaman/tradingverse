@@ -128,12 +128,12 @@ function ScenarioCard({ scenarioResult, isLoading }) {
 
   // For "Open Space LOW" with no signals — show a minimal card instead of hiding
   const isMomentum = scenario === 'MOMENTUM_LONG' || scenario === 'MOMENTUM_SHORT';
-  if (isMomentum && confidence === 'LOW' && forSignals.length === 0) return (
+  if (isMomentum && confidence === 'LOW' && forSignals.length === 0 && againstSignals.length === 0) return (
     <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/[0.02] px-3 py-3 flex items-center gap-2">
       <Target size={13} className="text-slate-400 flex-shrink-0" />
       <div>
         <div className="text-xs font-semibold text-gray-700 dark:text-slate-300">Open Space</div>
-        <div className="text-[10px] text-gray-400 dark:text-slate-500">No zone within 2% — check regime for direction</div>
+        <div className="text-[10px] text-gray-400 dark:text-slate-500">No zone nearby — check regime for direction</div>
       </div>
     </div>
   );
@@ -361,9 +361,8 @@ function VerdictCard({ regimeData, scenarioResult, symbol, isLoading, stockConte
     if (alignment && agentRisk) {
       const DOWNGRADE = { ALIGNED: 'CAUTION', CAUTION: 'CONFLICT', CONFLICT: 'DANGER', DANGER: 'DANGER', NEUTRAL: 'NEUTRAL' };
       if (agentRisk.maxRisk >= 50) {
-        // A DANGER-level agent (e.g. Structure 51) — drop two levels from ALIGNED
-        if (alignment.status === 'ALIGNED') alignment = { ...alignment, status: 'CONFLICT', msg: alignment.msg + ' Agents flag high-risk factors — halve size or skip.' };
-        else alignment = { ...alignment, status: DOWNGRADE[alignment.status] };
+        // A DANGER-level agent (e.g. Structure 51) — aggressively downgrade to DANGER
+        alignment = { ...alignment, status: 'DANGER', msg: alignment.msg + ' Agents flag severe risk factors — avoid.' };
       } else if (agentRisk.hasDanger) {
         // Any agent at danger — drop one level
         alignment = { ...alignment, status: DOWNGRADE[alignment.status], msg: alignment.msg + ' One or more agents flag danger — reduce size.' };

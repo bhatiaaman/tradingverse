@@ -230,15 +230,21 @@ function scoreFutOIDrop(snap, futOI, spot, candles = []) {
     return {
       score:  4,
       hit:    true,
-      detail: `Futures OI ↓${Math.abs(oiPct)}% while price up ${pctSinceLow > pctSinceSnap ? pctSinceLow.toFixed(2) : pctSinceSnap.toFixed(2)}%`,
+      detail: `Futures OI ↓${Math.abs(parseFloat(oiPct))}% while price up ${pctSinceLow > pctSinceSnap ? pctSinceLow.toFixed(2) : pctSinceSnap.toFixed(2)}%`,
     };
   }
   
+  const pctFloat = parseFloat(oiPct);
+  let statusTx = 'flat (0.0%)';
+  if (pctFloat > 0.5) statusTx = `building (+${pctFloat}%)`;
+  else if (pctFloat < -0.5) statusTx = `dropping (${pctFloat}%)`;
+  else if (pctFloat !== 0) statusTx = `stable (${pctFloat > 0 ? '+' : ''}${pctFloat}%)`;
+
   if (!priceMoved) {
     const bestMove = Math.max(pctSinceSnap, pctSinceLow);
-    return { score: 0, hit: false, detail: `Spot expansion (+${bestMove.toFixed(2)}%) insufficient for squeeze confirmation` };
+    return { score: 0, hit: false, detail: `Spot expansion (+${bestMove.toFixed(2)}%) insufficient for squeeze. OI ${statusTx}.` };
   }
-  return { score: 0, hit: false, detail: `Futures OI unchanged (${oiPct}%) or not falling enough` };
+  return { score: 0, hit: false, detail: `Futures OI ${statusTx}. Not falling enough to confirm short-covering.` };
 }
 
 function scoreOptOIBonus(snap, chain) {
@@ -420,14 +426,13 @@ export async function GET(request) {
                   sigVolume.score + sigStraddle.score + sigPCR.score;
     const active = score >= SCORE_THRESHOLD;
 
-    // 6. Save new snapshot only if no snapshot exists or existing one is older than 10 mins
+    // 6. Save new snapshot only if no snapshot exists or existing one is older than 45 mins
     // This provides a STABLE baseline for price/OI divergence scoring.
     // If we overwrite every session, the 'delta' is always zero.
     const SNAP_REFRESH_THRESHOLD_MS = 45 * 60 * 1000;
     const isStale = !snap || (Date.now() - snap.ts) > SNAP_REFRESH_THRESHOLD_MS;
-    const forceRefresh = request.nextUrl.searchParams.get('refresh') === '1';
 
-    if (isStale || forceRefresh) {
+    if (isStale) {
       const newSnap = {
         spot,
         futOI,

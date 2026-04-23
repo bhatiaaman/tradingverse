@@ -39,12 +39,14 @@ function getTradeIntent(instrumentType, transactionType) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Classify the primary scenario based on zone state + trade bias
 // ─────────────────────────────────────────────────────────────────────────────
-function classifyScenario(tradeBias, zoneState, zoneType, zoneDistance, stationLoaded) {
+function classifyScenario(tradeBias, zoneState, zoneType, zoneDistance, stationLoaded, order) {
   // Station not loaded yet — no zone data, default to open-space momentum
   if (!stationLoaded) return tradeBias === 'BULLISH' ? 'MOMENTUM_LONG' : 'MOMENTUM_SHORT';
 
-  // Station loaded, but no zone found nearby (or beyond 2%) — open space momentum
-  if (!zoneState || !zoneType || zoneDistance == null || zoneDistance > 2) {
+  const threshold = (order?.productType === 'MIS' || order?.productType === 'BO') ? 0.75 : 2;
+
+  // Station loaded, but no zone found nearby (or beyond threshold) — open space momentum
+  if (!zoneState || !zoneType || zoneDistance == null || zoneDistance > threshold) {
     return tradeBias === 'BULLISH' ? 'MOMENTUM_LONG' : 'MOMENTUM_SHORT';
   }
 
@@ -90,16 +92,16 @@ function classifyScenario(tradeBias, zoneState, zoneType, zoneDistance, stationL
 // Human-readable metadata for each scenario type
 // ─────────────────────────────────────────────────────────────────────────────
 const SCENARIO_META = {
-  MEAN_REVERSION_SELL:  { label: 'Mean Reversion Sell',    color: 'red',    summary: 'Price at resistance — look for rejection setup' },
-  MEAN_REVERSION_BUY:   { label: 'Mean Reversion Buy',     color: 'green',  summary: 'Price at support — look for bounce setup' },
+  MEAN_REVERSION_SELL:  { label: 'Mean Reversion Sell',    color: 'red',    summary: 'Price at/near resistance — look for rejection setup' },
+  MEAN_REVERSION_BUY:   { label: 'Mean Reversion Buy',     color: 'green',  summary: 'Price at/near support — look for bounce setup' },
   REJECTION_SELL:       { label: 'Rejection Sell',         color: 'red',    summary: 'Rejection wick at resistance confirms short' },
   REJECTION_BUY:        { label: 'Rejection Buy',          color: 'green',  summary: 'Rejection wick at support confirms long' },
   BREAK_RETEST_LONG:    { label: 'Break + Retest Long',    color: 'green',  summary: 'Broken resistance retested as support — continuation' },
   BREAK_RETEST_SHORT:   { label: 'Break + Retest Short',   color: 'red',    summary: 'Broken support retested as resistance — continuation' },
   BREAKOUT_LONG:        { label: 'Breakout Long',          color: 'green',  summary: 'Confirmed break above resistance — momentum entry' },
   BREAKDOWN_SHORT:      { label: 'Breakdown Short',        color: 'red',    summary: 'Confirmed break below support — momentum entry' },
-  MOMENTUM_LONG:        { label: 'Open Space — Long',      color: 'green',  summary: 'No zone within 2% — price in open space, bias determines direction' },
-  MOMENTUM_SHORT:       { label: 'Open Space — Short',     color: 'red',    summary: 'No zone within 2% — price in open space, bias determines direction' },
+  MOMENTUM_LONG:        { label: 'Open Space — Long',      color: 'green',  summary: 'No nearby zone — price in open space, bias determines direction' },
+  MOMENTUM_SHORT:       { label: 'Open Space — Short',     color: 'red',    summary: 'No nearby zone — price in open space, bias determines direction' },
   INSIDE_ZONE:          { label: 'Inside Zone',            color: 'yellow', summary: 'Price inside consolidation — wait for confirmed break' },
   COUNTER_TREND:        { label: 'Zone Conflict',           color: 'yellow', summary: 'Trade direction conflicts with zone and/or market context' },
   UNCLEAR:              { label: 'Run Station Analysis',   color: 'slate',  summary: 'Station analysis needed to identify zones and classify setup' },
@@ -116,7 +118,7 @@ function regimeToBias(regime) {
   return null; // RANGE_DAY, TRAP_DAY, BREAKOUT_DAY etc. have no clear single direction
 }
 
-function gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structureChecks, marketRegime }) {
+function gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structureChecks, marketRegime, order }) {
   const signals = [];
 
   // ── Market bias (intraday) ────────────────────────────────────────────────
@@ -135,7 +137,8 @@ function gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structur
   }
 
   // ── Zone context ──────────────────────────────────────────────────────────
-  if (zone && zone.distance < 2) {
+  const threshold = (order?.productType === 'MIS' || order?.productType === 'BO') ? 0.75 : 2;
+  if (zone && zone.distance <= threshold) {
     const z = zone;
     const zLabel = `${z.type.charAt(0)}${z.type.slice(1).toLowerCase()} ₹${z.price.toFixed(0)}`;
 
@@ -166,7 +169,8 @@ function gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structur
       const aligned = (z.type === 'RESISTANCE' && tradeBias === 'BEARISH') ||
                       (z.type === 'SUPPORT'    && tradeBias === 'BULLISH');
       const qualSuffix = z.quality >= 7 ? ' (strong)' : '';
-      signals.push({ aligned, label: `At ${zLabel}${qualSuffix} — ${aligned ? 'zone aligned' : 'fighting zone'}`, weight: aligned ? 2 : 3 });
+      const prefix = zoneState === 'APPROACHING' ? 'Approaching' : 'At';
+      signals.push({ aligned, label: `${prefix} ${zLabel}${qualSuffix} — ${aligned ? 'zone aligned' : 'fighting zone'}`, weight: aligned ? 2 : 3 });
     }
 
     // Zone quality
@@ -256,9 +260,9 @@ export function runScenarioAgent({ order, sentiment, stationOutput, oiData, stru
   // stationLoaded: station agent has run and returned results (not just null/unrun)
   const stationLoaded = stationOutput != null;
 
-  const scenario  = classifyScenario(tradeBias, zoneState, zoneType, zoneDistance, stationLoaded);
+  const scenario  = classifyScenario(tradeBias, zoneState, zoneType, zoneDistance, stationLoaded, order);
   const meta      = SCENARIO_META[scenario] ?? SCENARIO_META.UNCLEAR;
-  const signals   = gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structureChecks, marketRegime });
+  const signals   = gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structureChecks, marketRegime, order });
   const confidence = scoreConfidence(signals, scenario);
 
   const forSignals     = signals.filter(s => s.aligned);

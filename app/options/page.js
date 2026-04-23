@@ -71,10 +71,10 @@ function getStraddleCommentary(candles, chainData, scData) {
   if (futOISig?.detail && !futOISig.detail.includes('No OI snapshot') && !futOISig.detail.includes('Insufficient')) {
     if (futOISig.hit) {
       lines.push({ key: 'futoi', icon: '⚡', color: 'text-emerald-400',
-        text: `Short covering confirmed — ${futOISig.detail}. Futures OI falling while spot rises means trapped shorts exiting; CE buyers have structural tailwind.` });
+        text: `Short covering confirmed — ${futOISig.detail}. CE buyers have structural tailwind.` });
     } else {
       lines.push({ key: 'futoi', icon: '◈', color: 'text-slate-400',
-        text: `Futures OI: ${futOISig.detail}. No short-covering divergence — directional move not yet confirmed by OI.` });
+        text: `Futures OI: ${futOISig.detail}` });
     }
   }
 
