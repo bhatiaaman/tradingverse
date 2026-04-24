@@ -545,12 +545,17 @@ export function runThirdEye(executionCandles, biasCandles, prevEngineState, opti
     prevState, sLong, sShort, features, prevPending, cfg
   );
 
-  // Candles in state
-  const candlesInState = newState === prevState
-    ? (prevEngineState?.candlesInState ?? 0) + 1
-    : 1;
+  // ── Candles in state & Timing
+  // Significant: Only increment when a NEW candle timestamp is detected in the input series.
+  // Prevents "fake duration" when scanning more frequently than the candle timeframe (e.g. every 30s on 5m chart).
+  const isNewCandle = features.time !== prevEngineState?.features?.time;
+  const isNewState  = newState !== prevState;
 
-  const stateStartTime = newState !== prevState
+  const candlesInState = isNewState
+    ? 1
+    : (isNewCandle ? (prevEngineState?.candlesInState ?? 0) + 1 : (prevEngineState?.candlesInState ?? 1));
+
+  const stateStartTime = isNewState
     ? features.time
     : (prevEngineState?.stateStartTime ?? features.time);
 

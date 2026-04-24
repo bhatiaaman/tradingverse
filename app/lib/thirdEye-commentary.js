@@ -83,10 +83,8 @@ function biasNote(biasAlignment, biasSummary, biasTf) {
 function buildOptionsOverlay(optionsCtx) {
   if (!optionsCtx?.available) return null;
   const lines = [];
-  if (optionsCtx.pcrInfo?.label) lines.push(`PCR ${optionsCtx.pcrInfo.label}`);
   if (optionsCtx.wallAlerts?.length) lines.push(...optionsCtx.wallAlerts);
   if (optionsCtx.maxPainNote)         lines.push(optionsCtx.maxPainNote);
-  if (optionsCtx.activityLabel)       lines.push(optionsCtx.activityLabel);
   return lines.length ? lines : null;
 }
 
