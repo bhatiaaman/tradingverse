@@ -124,6 +124,41 @@ export class KiteBroker {
     return res.json();
   }
 
+  // ── Charges Estimation ──────────────────────────────────────────────────────
+  // Uses the Kite Margins API with virtual COMPLETED orders to get precise charges breakdown.
+  // https://kite.trade/docs/connect/v3/margins/#order-margins
+  async getOrderCharges(orders) {
+    const payload = Array.isArray(orders) ? orders : [orders];
+    // Map kite orders to the minimal format expected by margins API
+    const mapped = payload.map(o => ({
+      exchange:         o.exchange,
+      tradingsymbol:    o.tradingsymbol,
+      transaction_type: o.transaction_type,
+      variety:          o.variety || 'regular',
+      product:          o.product,
+      order_type:       o.order_type || 'MARKET',
+      quantity:         o.quantity,
+      price:            parseFloat(o.average_price || o.price || 0),
+      trigger_price:    parseFloat(o.trigger_price || 0),
+    }));
+
+    const res = await fetch('https://api.kite.trade/margins/orders', {
+      method: 'POST',
+      headers: {
+        'Authorization': `token ${this._apiKey}:${this._accessToken}`,
+        'X-Kite-Version': '3',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(mapped),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Kite charges error: ${err}`);
+    }
+    const data = await res.json();
+    return data.data || [];
+  }
+
   // ── Static auth helpers (no live token needed) ───────────────────────────────
 
   static async getConnectionStatus(apiKey, accessToken) {

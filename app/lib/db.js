@@ -192,11 +192,17 @@ export async function migrateSchema() {
       symbol     TEXT,
       tags       JSONB DEFAULT '[]',
       comment    TEXT,
+      snapshot   JSONB DEFAULT '{}',
+      brokerage  NUMERIC DEFAULT 0,
+      other_charges NUMERIC DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS journal_trades_date_idx ON journal_trades (date)`;
+  await sql`ALTER TABLE journal_trades ADD COLUMN IF NOT EXISTS snapshot JSONB DEFAULT '{}'`;
+  await sql`ALTER TABLE journal_trades ADD COLUMN IF NOT EXISTS brokerage NUMERIC DEFAULT 0`;
+  await sql`ALTER TABLE journal_trades ADD COLUMN IF NOT EXISTS other_charges NUMERIC DEFAULT 0`;
 
   console.log('[db] schema migration complete');
 }

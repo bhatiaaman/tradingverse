@@ -46,14 +46,29 @@ export default function JournalPage() {
         setIsToday(data.data.isToday);
         setLivePnl(data.data.livePnl || 0);
 
-        // Process comments array into map by symbol
+        // 1. Process comments array into map by symbol, AGGREGating charges
         const commentsMap = {};
         (data.data.comments || []).forEach(c => {
-          commentsMap[c.symbol] = c;
+          if (!commentsMap[c.symbol]) {
+            commentsMap[c.symbol] = {
+              symbol: c.symbol,
+              comment: c.comment || '',
+              tags: c.tags || [],
+              brokerage: 0,
+              other_charges: 0
+            };
+          }
+          // Sum up charges if from multiple trades (order_ids)
+          commentsMap[c.symbol].brokerage += parseFloat(c.brokerage || 0);
+          commentsMap[c.symbol].other_charges += parseFloat(c.other_charges || 0);
+          
+          // Use the non-empty comment/tags if available
+          if (c.comment) commentsMap[c.symbol].comment = c.comment;
+          if (c.tags?.length) commentsMap[c.symbol].tags = c.tags;
         });
         setTradeComments(commentsMap);
 
-        // Process Kite positions & trades
+        // 2. Process Kite positions & trades
         const posDay = data.data.kitePositions?.day || [];
         const rawTrades = data.data.kiteTrades || [];
         
@@ -159,7 +174,33 @@ export default function JournalPage() {
     });
   };
 
-  const totalPnl = isToday ? livePnl : journal.pnl;
+  const fetchCharges = async () => {
+    setSaving(true);
+    try {
+      // Gather all trades from all grouped symbols
+      const allTrades = groupedSymbols.flatMap(g => g.trades);
+      if (!allTrades.length) return;
+
+      const res = await fetch('/api/journal/charges', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: currentDate, trades: allTrades })
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Reload journal to get updated database values
+        loadJournal(currentDate);
+      }
+    } catch (err) {
+      console.error('Fetch charges error', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const grossPnl = isToday ? livePnl : journal.pnl;
+  const totalCharges = Object.values(tradeComments).reduce((acc, c) => acc + (parseFloat(c.brokerage || 0) + parseFloat(c.other_charges || 0)), 0);
+  const realNetPnl = grossPnl - totalCharges;
 
   return (
     <div className="min-h-screen bg-[#060c14] text-slate-300 font-sans p-6 pb-20">
@@ -197,13 +238,31 @@ export default function JournalPage() {
 
           <div className="flex bg-[#060c14] p-3 rounded-xl border border-slate-800">
              <div className="px-6 py-2 border-r border-slate-800">
-                <p className="text-xs text-slate-500 uppercase tracking-wide font-bold mb-1">Symbols Traded</p>
-                <p className="text-xl font-bold font-mono text-white">{groupedSymbols.length}</p>
+                <p className="text-xs text-slate-500 uppercase tracking-wide font-bold mb-1">Gross P&L</p>
+                <p className={`text-lg font-bold font-mono ${grossPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                   {grossPnl >= 0 ? '+' : ''}₹{parseFloat(grossPnl).toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                </p>
+             </div>
+             <div className="px-6 py-2 border-r border-slate-800 relative group">
+                <p className="text-xs text-slate-500 uppercase tracking-wide font-bold mb-1">Total Charges</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-lg font-bold font-mono text-slate-400">
+                    ₹{totalCharges.toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                  </p>
+                  <button 
+                    onClick={fetchCharges}
+                    disabled={saving}
+                    className="p-1 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 transition-colors"
+                    title="Fetch charges from Kite"
+                  >
+                    <TrendingUp size={12} className="rotate-90" />
+                  </button>
+                </div>
              </div>
              <div className="px-6 py-2">
-                <p className="text-xs text-slate-500 uppercase tracking-wide font-bold mb-1">Net P&L</p>
-                <p className={`text-xl font-bold font-mono ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                   {totalPnl >= 0 ? '+' : ''}₹{parseFloat(totalPnl).toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                <p className="text-xs text-slate-500 uppercase tracking-wide font-bold mb-1">Real Net P&L</p>
+                <p className={`text-xl font-bold font-mono ${realNetPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                   {realNetPnl >= 0 ? '+' : ''}₹{parseFloat(realNetPnl).toLocaleString('en-IN', {minimumFractionDigits: 2})}
                 </p>
              </div>
           </div>
@@ -272,17 +331,33 @@ export default function JournalPage() {
                       <div key={group.symbol} className="bg-[#0a1424] border border-blue-900/30 rounded-xl overflow-hidden shadow-lg shadow-black/20">
                          {/* Header */}
                          <div className="bg-[#0c1a2e] p-4 flex items-center justify-between border-b border-blue-900/50">
-                            <div>
-                               <h3 className="font-bold text-white flex items-center gap-2">
-                                  {group.symbol}
-                                  {group.qty !== 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-mono">Qty: {Math.abs(group.qty)} Open</span>}
-                               </h3>
-                               <p className="text-[10px] text-slate-500 mt-0.5">{group.trades?.length || 0} Executions</p>
+                            <div className="flex items-center gap-4">
+                               <div>
+                                  <h3 className="font-bold text-white flex items-center gap-2">
+                                     {group.symbol}
+                                     {group.qty !== 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-mono">Qty: {Math.abs(group.qty)} Open</span>}
+                                  </h3>
+                                  <p className="text-[10px] text-slate-500 mt-0.5">{group.trades?.length || 0} Executions</p>
+                               </div>
+                               {(cmt.brokerage > 0 || cmt.other_charges > 0) && (
+                                 <div className="px-3 border-l border-slate-800">
+                                   <p className="text-[9px] text-slate-500 uppercase font-bold">Charges</p>
+                                   <p className="text-xs font-mono text-slate-400">₹{(parseFloat(cmt.brokerage || 0) + parseFloat(cmt.other_charges || 0)).toFixed(2)}</p>
+                                 </div>
+                               )}
                             </div>
                             <div className="text-right">
-                               <p className={`font-bold font-mono ${group.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                  {group.pnl >= 0 ? '+' : ''}₹{parseFloat(group.pnl).toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                               <p className={`font-bold font-mono ${group.pnl - (parseFloat(cmt.brokerage || 0) + parseFloat(cmt.other_charges || 0)) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                  {group.pnl - (parseFloat(cmt.brokerage || 0) + parseFloat(cmt.other_charges || 0)) >= 0 ? '+' : ''}₹{(group.pnl - (parseFloat(cmt.brokerage || 0) + parseFloat(cmt.other_charges || 0))).toLocaleString('en-IN', {minimumFractionDigits: 2})}
                                </p>
+                               <p className="text-[9px] text-slate-500 uppercase font-bold mt-1">Real Net P&L</p>
+                               <div className="mt-1 flex flex-col items-end">
+                                  <p className="text-[9px] text-slate-500">Gross: <span className={group.pnl >= 0 ? 'text-emerald-500/70' : 'text-red-500/70'}>₹{parseFloat(group.pnl).toFixed(2)}</span></p>
+                                  <div className="flex gap-2">
+                                     <p className="text-[9px] text-slate-500">Brkg: <span className="text-slate-400">₹{parseFloat(cmt.brokerage || 0).toFixed(2)}</span></p>
+                                     <p className="text-[9px] text-slate-500">Other: <span className="text-slate-400">₹{parseFloat(cmt.other_charges || 0).toFixed(2)}</span></p>
+                                  </div>
+                               </div>
                             </div>
                          </div>
 
