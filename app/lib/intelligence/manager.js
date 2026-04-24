@@ -207,8 +207,11 @@ async function collectPatternData(symbol) {
   const { apiKey, accessToken } = await dp.getAuth();
   if (!apiKey || !accessToken) return null;
 
-  const candles15m = await fetchKiteCandles(token, '15minute', 3, apiKey, accessToken);
-  return { candles15m: candles15m ?? [], candlesDaily: [] };
+  const [c15m, cDaily] = await Promise.all([
+    fetchKiteCandles(token, '15minute', 3,  apiKey, accessToken),
+    fetchKiteCandles(token, 'day',      30, apiKey, accessToken),
+  ]);
+  return { candles15m: c15m ?? [], candlesDaily: cDaily ?? [] };
 }
 
 async function collectStationData(symbol) {
@@ -218,8 +221,11 @@ async function collectStationData(symbol) {
   const { apiKey, accessToken } = await dp.getAuth();
   if (!apiKey || !accessToken) return null;
 
-  const candles15m = await fetchKiteCandles(token, '15minute', 7, apiKey, accessToken);
-  return { candles15m: candles15m ?? [], candlesDaily: [] };
+  const [c15m, cDaily] = await Promise.all([
+    fetchKiteCandles(token, '15minute', 7,  apiKey, accessToken),
+    fetchKiteCandles(token, 'day',      60, apiKey, accessToken),
+  ]);
+  return { candles15m: c15m ?? [], candlesDaily: cDaily ?? [] };
 }
 
 async function collectOIData(symbol, base) {
