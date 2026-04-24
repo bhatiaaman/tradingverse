@@ -163,6 +163,7 @@ function ChartPageInner() {
 
   const [chartInterval, setChartInterval] = useState(params.get('interval') || '5minute');
   const [candles, setCandles]             = useState([]);
+  const [lastTick, setLastTick]             = useState(null);
   const [dailyCandles, setDailyCandles]   = useState([]);
   const [loading, setLoading]             = useState(true);
   const [vwap, setVwap]                   = useState(null);
@@ -414,7 +415,7 @@ function ChartPageInner() {
         if (res.ok) setIntelligence(await res.json());
       } catch { /* non-fatal */ }
     };
-    const id = setInterval(refreshIntel, 3 * 60 * 1000);
+    const id = setInterval(refreshIntel, 90 * 1000);
     return () => clearInterval(id);
   }, [symbol, chartInterval]);
 

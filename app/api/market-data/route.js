@@ -94,21 +94,40 @@ async function fetchNiftyHistoricalFromKite(dp) {
         return null;
       }
 
-      const closePrices = completedCandles.map(c => c.close);
-      const yesterdayClose = isMarketHours()
-        ? closePrices[closePrices.length - 1]
-        : closePrices[closePrices.length - 2];
+      const lastCandle = completedCandles[completedCandles.length - 1];
+      const lastCandleDate = new Date(lastCandle.date);
+      const daysOld = (Date.now() - lastCandleDate.getTime()) / (1000 * 60 * 60 * 24);
 
-      console.log(`[market-data] Nifty PrevClose Calc: marketHours=${isMarketHours()}, lastCandle=${completedCandles[completedCandles.length-1].date}, prevClose=${yesterdayClose}`);
+      let yesterdayClose = isMarketHours()
+        ? lastCandle.close
+        : (completedCandles.length >= 2 ? completedCandles[completedCandles.length - 2].close : lastCandle.close);
+
+      // ── Stale Data Protection: If latest candle is >3 days old, cross-check with Yahoo ──
+      if (daysOld > 3) {
+        console.warn(`[market-data] Kite Nifty stale! Last candle ${lastCandle.date} is ${daysOld.toFixed(1)} days old. Checking Yahoo fallback...`);
+        try {
+          const yRes = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1d&range=5d', { headers: { 'User-Agent': 'Mozilla/5.0' }, cache: 'no-store' });
+          const yJson = await yRes.json();
+          const yMeta = yJson.chart?.result?.[0]?.meta;
+          if (yMeta?.chartPreviousClose) {
+            console.log(`[market-data] Yahoo Nifty PrevClose: ${yMeta.chartPreviousClose}`);
+            yesterdayClose = yMeta.chartPreviousClose;
+          }
+        } catch (e) {
+          console.error('[market-data] Yahoo fallback failed:', e.message);
+        }
+      }
+
+      console.log(`[market-data] Nifty PrevClose: ${yesterdayClose} (Kite last candle: ${lastCandle.date})`);
 
       const last5      = completedCandles.slice(-5);
       const weeklyHigh = Math.max(...last5.map(c => c.high));
       const weeklyLow  = Math.min(...last5.map(c => c.low));
 
       return {
-        prices:           closePrices,
+        prices:           completedCandles.map(c => c.close),
         previousClose:    yesterdayClose,
-        lastSessionClose: closePrices[closePrices.length - 1],
+        lastSessionClose: lastCandle.close,
         weeklyHigh,
         weeklyLow,
       };

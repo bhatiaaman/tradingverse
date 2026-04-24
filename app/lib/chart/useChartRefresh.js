@@ -20,6 +20,7 @@ const CANDLE_REFRESH_MS = {
   '5minute':  30_000,
   '15minute': 60_000,
   '60minute': 180_000,
+  'day':      120_000, // 2 min — daily bar updates occasionally
 };
 
 /**
@@ -64,8 +65,8 @@ export function useChartRefresh({ symbol, interval, chartRef, candlesRef, onRefr
 
   // ── Timer 1: 5s LTP tick via /api/quotes ─────────────────────────────────
   useEffect(() => {
-    const isIntraday = interval !== 'day' && interval !== 'week';
-    if (!symbol || !isIntraday) return;
+    const isSupported = interval !== 'week';
+    if (!symbol || !isSupported) return;
 
     const tick = async () => {
       if (!chartRef.current) return; // chart not yet initialised — skip this tick
