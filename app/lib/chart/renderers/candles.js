@@ -17,9 +17,10 @@ function borderFor(hex) {
 export function renderCandles(ctx, vp, candles, colors = {}) {
   if (!candles?.length) return;
 
-  const UP_COLOR   = colors.bull || '#22c55e';
-  const DOWN_COLOR = colors.bear || '#ef4444';
-  const UP_BORDER  = borderFor(UP_COLOR);
+  const UP_COLOR    = colors.bull || '#22c55e';
+  const DOWN_COLOR  = colors.bear || '#ef4444';
+  const UP_BORDER   = borderFor(UP_COLOR);
+  const DOWN_BORDER = borderFor(DOWN_COLOR);
 
   const from = Math.max(0, Math.floor(vp.logFrom));
   const to   = Math.min(candles.length - 1, Math.ceil(vp.logTo));
@@ -38,7 +39,8 @@ export function renderCandles(ctx, vp, candles, colors = {}) {
     const c      = candles[i];
     const cx     = vp.barCenterX(i);
     const isUp   = c.close >= c.open;
-    const color  = isUp ? UP_COLOR : DOWN_COLOR;
+    const color  = isUp ? UP_COLOR  : DOWN_COLOR;
+    const border = isUp ? UP_BORDER : DOWN_BORDER;
 
     const highY  = vp.priceToY(c.high);
     const lowY   = vp.priceToY(c.low);
@@ -49,24 +51,22 @@ export function renderCandles(ctx, vp, candles, colors = {}) {
     const bodyBottom = Math.max(openY, closeY);
     const bodyH      = Math.max(MIN_BODY, bodyBottom - bodyTop);
 
-    ctx.fillStyle   = color;
-    ctx.strokeStyle = color;
+    // Wick — always use the contrasting border color
+    ctx.strokeStyle = border;
     ctx.lineWidth   = 1;
-
-    // Wick
     ctx.beginPath();
     ctx.moveTo(cx, highY);
     ctx.lineTo(cx, lowY);
     ctx.stroke();
 
-    // Body — bull: fill + contrasting border (so white candles stay visible on any bg)
-    //        bear: solid fill, no border
-    if (isUp) {
-      ctx.fillRect(cx - halfBody, bodyTop, bodyW, bodyH);
-      ctx.strokeStyle = UP_BORDER;
+    // Body
+    ctx.fillStyle = color;
+    ctx.fillRect(cx - halfBody, bodyTop, bodyW, bodyH);
+
+    // Only draw border if it differs from the fill color (e.g. for white/black candles)
+    if (color !== border) {
+      ctx.strokeStyle = border;
       ctx.strokeRect(cx - halfBody, bodyTop, bodyW, bodyH);
-    } else {
-      ctx.fillRect(cx - halfBody, bodyTop, bodyW, bodyH);
     }
   }
 

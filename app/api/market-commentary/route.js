@@ -12,9 +12,56 @@ import { detectIntradayRegime } from '@/app/api/market-regime/intraday.js';
 import { trackRedis } from '@/app/lib/redis-tracker';
 import { cachedRedisGet as redisGet, cachedRedisSet as redisSet } from '@/app/lib/cached-redis';
 
-const NS          = process.env.REDIS_NAMESPACE || 'default';
-
 const NIFTY_TOKEN = 256265;
+const NS = process.env.REDIS_NAMESPACE || 'default';
+const REDIS_KEY_LATEST = `${NS}:market-commentary-v2`;
+
+const TOKEN_MAP = {
+  NIFTY:      { token: 256265, fut: 'NIFTY' },
+  BANKNIFTY:  { token: 260105, fut: 'BANKNIFTY' },
+  SENSEX:     { token: 265,    fut: 'SENSEX',     exchange: 'BSE' },
+  FINNIFTY:   { token: 257801, fut: 'FINNIFTY' },
+  MIDCPNIFTY: { token: 288009, fut: 'MIDCPNIFTY' },
+  BANKEX:     { token: 274,    fut: 'BANKEX',     exchange: 'BSE' },
+};
+
+function getMarketSessionBoundaries() {
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(now.getTime() + istOffset);
+  
+  const yyyy = istNow.getUTCFullYear();
+  const mm = String(istNow.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(istNow.getUTCDate()).padStart(2, '0');
+  const todayStr = `${yyyy}-${mm}-${dd}`;
+
+  const sessionStart = new Date(`${todayStr}T09:15:00+05:30`);
+  return { todayStr, sessionStart };
+}
+
+async function fetchFuturesCandlesCombined(dp, symbol, interval, from, to) {
+  try {
+    const config = TOKEN_MAP[symbol] || TOKEN_MAP.NIFTY;
+    const futName = config.fut;
+    
+    const instruments = await dp.getInstruments();
+    const now = new Date();
+    const futures = instruments.filter(inst => 
+      inst.name === futName && 
+      (config.exchange === 'BSE' ? inst.exchange === 'BFO' : inst.exchange === 'NFO') && 
+      inst.instrument_type === 'FUT' &&
+      new Date(inst.expiry) >= now
+    ).sort((a, b) => new Date(a.expiry) - new Date(b.expiry));
+    
+    if (futures.length === 0) return [];
+    const futToken = futures[0].instrument_token;
+    
+    return await dp.getHistoricalRaw(futToken, interval, from, to);
+  } catch (err) {
+    console.error(`Error fetching futures volume for ${symbol}:`, err);
+    return [];
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Market hours helpers
@@ -135,21 +182,28 @@ function calcMACD(closes) {
 // ─────────────────────────────────────────────────────────────────────
 // Intraday candles — interval-aware (default 5minute)
 // ─────────────────────────────────────────────────────────────────────
-async function fetchIntradayCandles(dp, interval = '5minute') {
+async function fetchIntradayCandles(dp, symbol = 'NIFTY') {
   try {
-    const toDate   = new Date();
-    const fromDate = new Date();
-    fromDate.setDate(fromDate.getDate() - 2);
+    const { sessionStart } = getMarketSessionBoundaries();
+    const now = new Date();
+    
+    // We fetch from market open today. 
+    // In pre-market, sessionStart is 9:15 AM today. 
+    // We might want to fetch previous day if it's currently pre-market, 
+    // but the system is designed for live commentary.
+    const from = sessionStart.toISOString().split('T')[0] + " 09:15:00";
+    const to = now.toISOString().split('T')[0] + " 15:30:00";
+    
+    const config = TOKEN_MAP[symbol] || TOKEN_MAP.NIFTY;
+    const token = config.token;
 
-    const fmt = (d) => {
-      const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
-      return ist.toISOString().slice(0, 19).replace('T', ' ');
-    };
-
-    const fromStr = encodeURIComponent(fmt(fromDate));
-    const toStr = encodeURIComponent(fmt(toDate));
-
-    const data = await dp.getHistoricalRaw(NIFTY_TOKEN, interval, fromStr, toStr);
+    // 1. Fetch spot index candles
+    const data = await dp.getHistoricalRaw(token, 'minute', from, to);
+    // Note: dp handles the formatting. If using raw Kite API, we'd need to parse candles.
+    // Based on existing code, it returns an array of objects/arrays.
+    // Let's assume it returns { data: { candles: [...] } } or just [...]
+    // Investigating existing fetchIntradayCandles: it uses data.data.candles.
+    
     if (!data?.data?.candles?.length) return null;
 
     const allCandles = data.data.candles.map(([time, open, high, low, close, volume]) => ({
@@ -157,15 +211,28 @@ async function fetchIntradayCandles(dp, interval = '5minute') {
       open, high, low, close, volume: volume || 0,
     }));
 
-    // Filter to today's market session only (9:15 AM IST onward)
-    const ist = getISTTime();
-    const todayIST = new Date(ist);
-    todayIST.setUTCHours(3, 45, 0, 0); // 9:15 AM IST = 03:45 UTC
-    const todayStart = todayIST.getTime() / 1000;
+    // 2. Fetch futures candles for volume overlay
+    const futCandles = await fetchFuturesCandlesCombined(dp, symbol, 'minute', from, to);
+    
+    const futMap = new Map();
+    if (futCandles?.data?.candles) {
+      futCandles.data.candles.forEach(([time, o, h, l, c, vol]) => {
+        const ts = new Date(time).getTime();
+        futMap.set(ts, vol);
+      });
+    }
 
-    const todayCandles = allCandles.filter(c => c.time >= todayStart);
-    const prevCandles  = allCandles.filter(c => c.time < todayStart);
-    const prevClose    = prevCandles.length > 0 ? prevCandles[prevCandles.length - 1].close : null;
+    // 3. Process and Overlay volume
+    const processed = allCandles.map(c => {
+      const ts = c.time * 1000;
+      return {
+        ...c,
+        volume: futMap.get(ts) || 0
+      };
+    });
+
+    const todayCandles = processed; // Already filtered by 'from/to'
+    const prevClose    = null; // Daily bias handles prevClose better
     const closes       = todayCandles.map(c => c.close);
     const lastCandle   = todayCandles[todayCandles.length - 1] || null;
 
@@ -175,13 +242,12 @@ async function fetchIntradayCandles(dp, interval = '5minute') {
     const volCurrent = lastCandle?.volume || 0;
     const volumeSpike = volAvg > 0 && volCurrent > volAvg * 2;
 
-    // 5-min price change %
+    // 5-min price change
     const prev5candle   = todayCandles.length >= 2 ? todayCandles[todayCandles.length - 2] : null;
     const change5min    = (lastCandle && prev5candle)
       ? ((lastCandle.close - prev5candle.close) / prev5candle.close) * 100
       : null;
 
-    // Trend direction from last 3 closes
     let trendDirection = 'NEUTRAL';
     if (closes.length >= 3) {
       const last3 = closes.slice(-3);
@@ -189,11 +255,8 @@ async function fetchIntradayCandles(dp, interval = '5minute') {
       else if (last3[2] < last3[0]) trendDirection = 'DOWN';
     }
 
-    // Opening Range: first candle of the session (9:15–9:30)
     const orCandle = todayCandles[0] || null;
 
-    // Swing pivot detection from 5-min candles (lookback = 3 candles each side)
-    // Returns the most recent swing highs and lows (up to 5 each) for S/R confluence
     const swingHighs = [], swingLows = [];
     const N = 3;
     for (let i = N; i < todayCandles.length - N; i++) {
@@ -206,7 +269,6 @@ async function fetchIntradayCandles(dp, interval = '5minute') {
       if (isSwingLow)  swingLows.push(parseFloat(c.low.toFixed(2)));
     }
 
-    // Run intraday regime on same candles — used to qualify commentary state
     const intradayRegime = detectIntradayRegime(todayCandles, null, { prevClose });
 
     return {
@@ -226,7 +288,7 @@ async function fetchIntradayCandles(dp, interval = '5minute') {
       intradayRegime,
       orHigh:      orCandle?.high || null,
       orLow:       orCandle?.low  || null,
-      swingHighs:  swingHighs.slice(-5),   // most recent 5
+      swingHighs:  swingHighs.slice(-5),
       swingLows:   swingLows.slice(-5),
     };
   } catch (err) {
@@ -246,7 +308,7 @@ function calcEMAValue(closes, period) {
   return ema;
 }
 
-async function fetchDailyBias(dp) {
+async function fetchDailyBias(dp, symbol = 'NIFTY') {
   try {
     const toDate   = new Date();
     const fromDate = new Date();
@@ -256,7 +318,11 @@ async function fetchDailyBias(dp) {
       const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
       return ist.toISOString().slice(0, 19).replace('T', ' ');
     };
-    const data = await dp.getHistoricalRaw(NIFTY_TOKEN, 'day',
+    
+    const config = TOKEN_MAP[symbol] || TOKEN_MAP.NIFTY;
+    const token = config.token;
+
+    const data = await dp.getHistoricalRaw(token, 'day',
       encodeURIComponent(fmt(fromDate)), encodeURIComponent(fmt(toDate)));
     if (!data?.data?.candles?.length) return null;
 
@@ -299,7 +365,7 @@ async function fetchDailyBias(dp) {
 // ─────────────────────────────────────────────────────────────────────
 // 15m bias — regime detection on today's 15-min candles
 // ─────────────────────────────────────────────────────────────────────
-async function fetchFifteenMinBias(dp) {
+async function fetchFifteenMinBias(dp, symbol = 'NIFTY') {
   try {
     const toDate   = new Date();
     const fromDate = new Date();
@@ -309,7 +375,11 @@ async function fetchFifteenMinBias(dp) {
       const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
       return ist.toISOString().slice(0, 19).replace('T', ' ');
     };
-    const data = await dp.getHistoricalRaw(NIFTY_TOKEN, '15minute',
+
+    const config = TOKEN_MAP[symbol] || TOKEN_MAP.NIFTY;
+    const token = config.token;
+
+    const data = await dp.getHistoricalRaw(token, '15minute',
       encodeURIComponent(fmt(fromDate)), encodeURIComponent(fmt(toDate)));
     if (!data?.data?.candles?.length) return null;
 
@@ -360,8 +430,8 @@ async function fetchFifteenMinBias(dp) {
 // ─────────────────────────────────────────────────────────────────────
 // 5-min OI snapshot for detecting short-term OI changes
 // ─────────────────────────────────────────────────────────────────────
-async function getOIChange5Min(currentCallOI, currentPutOI) {
-  const KEY = `${NS}:oi-snapshot-5min`;
+async function getOIChange5Min(symbol, currentCallOI, currentPutOI) {
+  const KEY = `${NS}:oi-snapshot-5min:${symbol}`;
   const snapshot = await redisGet(KEY);
 
   if (!snapshot || !snapshot.callOI || !snapshot.putOI) {
