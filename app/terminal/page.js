@@ -1779,7 +1779,7 @@ function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder
   };
 
   return (
-    <div className={`flex-shrink-0 border-l border-gray-200 dark:border-white/10 flex flex-col bg-gray-50 dark:bg-slate-900/40 transition-all duration-200 ${open ? 'w-screen md:w-[300px]' : 'w-screen md:w-9'}`}>
+    <div className={`flex-shrink-0 h-full border-l border-gray-200 dark:border-white/10 flex flex-col bg-gray-50 dark:bg-slate-900/40 transition-all duration-200 ${open ? 'w-screen md:w-[300px]' : 'w-screen md:w-9'}`}>
       {/* Toggle + header */}
       <div className={`flex items-center flex-shrink-0 border-b border-gray-200 dark:border-white/10 ${open ? 'px-2 py-1 justify-between' : 'justify-center py-2'}`}>
         {open ? (
@@ -3902,7 +3902,7 @@ export default function TerminalPage() {
         </div>
 
         {/* Orders right panel: always visible on md+, mobile-controlled */}
-        <div className={`${mobileTab !== 'orders' ? 'hidden md:block' : 'block'} flex-shrink-0`}>
+        <div className={`${mobileTab !== 'orders' ? 'hidden md:block' : 'block'} flex-shrink-0 h-full`}>
           <OrdersRightPanel
             orders={panelOrders}
             loading={panelOrdersLoading}
