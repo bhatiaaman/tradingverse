@@ -4,13 +4,11 @@ import { cachedRedisGet as redisGet, cachedRedisSet as redisSet } from '@/app/li
 const NS = process.env.REDIS_NAMESPACE || 'default';
 
 function isMarketHours() {
-  const now = new Date();
-  const istOffset = 5.5 * 60 * 60 * 1000;
-  const istTime = new Date(now.getTime() + istOffset);
-  const day = istTime.getUTCDay(); // 0=Sun, 6=Sat
+  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const day = ist.getUTCDay();
   if (day === 0 || day === 6) return false;
-  const hours = istTime.getUTCHours();
-  return hours >= 9 && hours < 16; // 9:00–16:00 IST covers market (9:15–15:30)
+  const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  return mins >= 555 && mins <= 945; // 9:15 AM – 3:45 PM IST
 }
 
 const MARKET_INDICES = {
@@ -73,42 +71,44 @@ async function fetchNiftyHistoricalFromKite(dp) {
     );
 
     if (historicalData && historicalData.length >= 2) {
-      // During market hours Kite includes today's PARTIAL candle as the last element.
-      // Its close = last traded price ≈ current price, NOT yesterday's close.
-      // Filter it out so previousClose is always the last COMPLETE trading day's close.
-      //
-      // IMPORTANT: Kite returns dates in IST (e.g. "2026-03-13T00:00:00+0530").
-      // Comparing against UTC today would make today's IST candle appear as yesterday
-      // in UTC (IST is UTC+5:30, so midnight IST = 6:30 PM previous UTC day),
-      // causing it to pass the filter and become a false "previous close".
-      // Fix: compare both candle dates and today's date in IST.
-      const istOffset = 5.5 * 60 * 60 * 1000;
-      const todayIST = new Date(Date.now() + istOffset).toISOString().slice(0, 10);
+      const istOffsetStr = "+05:30";
+      const todayISO = new Date(Date.now() + 5.5 * 3600000).toISOString();
+      const todayIST = todayISO.slice(0, 10);
+      
       const completedCandles = historicalData.filter(c => {
-        const candleDateIST = new Date(new Date(c.date).getTime() + istOffset).toISOString().slice(0, 10);
+        // Kite dates are like "2026-04-24T00:00:00+0530"
+        // new Date() handles the +0530 offset correctly. 
+        // We just need to know the date portion in IST.
+        const dt = new Date(c.date);
+        const istDateStr = new Date(dt.getTime() + 5.5 * 3600000).getUTCOffset === undefined 
+          ? new Date(dt.getTime() + 5.5 * 3600000).toISOString().slice(0, 10)
+          : ""; // fallback handled below
+        
+        // Simpler/Reliable IST Date extraction from Kite string
+        const candleDateIST = c.date.slice(0, 10); 
         return candleDateIST < todayIST;
       });
-      if (completedCandles.length < 2) return null;
+
+      if (completedCandles.length < 2) {
+        console.warn(`[market-data] Nifty historical fetch insufficient completed candles: ${completedCandles.length}`);
+        return null;
+      }
 
       const closePrices = completedCandles.map(c => c.close);
-      // During market hours: previousClose = last completed day's close (yesterday)
-      //   niftyData.price = live ≠ yesterdayClose → correct change%
-      // Outside market hours: niftyData.price = last traded = closePrices[-1] (today is closed)
-      //   If we use closePrices[-1] as previousClose, change = 0 — wrong.
-      //   Use closePrices[-2] (day before last) so we show the last trading day's actual move.
       const yesterdayClose = isMarketHours()
         ? closePrices[closePrices.length - 1]
         : closePrices[closePrices.length - 2];
 
-      // Weekly H/L: max high / min low across last 5 COMPLETE trading days
+      console.log(`[market-data] Nifty PrevClose Calc: marketHours=${isMarketHours()}, lastCandle=${completedCandles[completedCandles.length-1].date}, prevClose=${yesterdayClose}`);
+
       const last5      = completedCandles.slice(-5);
       const weeklyHigh = Math.max(...last5.map(c => c.high));
       const weeklyLow  = Math.min(...last5.map(c => c.low));
 
       return {
-        prices:           closePrices,                          // For EMA9 (today's price appended later)
-        previousClose:    yesterdayClose,                       // For Nifty change % display
-        lastSessionClose: closePrices[closePrices.length - 1],  // Always last trading day's close — for gap calc
+        prices:           closePrices,
+        previousClose:    yesterdayClose,
+        lastSessionClose: closePrices[closePrices.length - 1],
         weeklyHigh,
         weeklyLow,
       };
@@ -136,7 +136,7 @@ async function fetchNiftyFromYahoo() {
   try {
     const response = await fetch(
       'https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1d&range=1mo',
-      { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }
+      { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000), cache: 'no-store' }
     );
     if (!response.ok) throw new Error('Yahoo Nifty fetch failed');
     const data = await response.json();
@@ -202,6 +202,7 @@ async function fetchGIFTNifty() {
               'Accept': 'application/json',
             },
             signal: AbortSignal.timeout(6000),
+            cache: 'no-store',
           }
         );
         if (!res.ok) continue;
@@ -229,9 +230,9 @@ async function fetchGIFTNifty() {
 async function fetchGlobalIndices() {
   try {
     const [dow, nasdaq, dax] = await Promise.all([
-      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EDJI?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }).then(r => r.json()),
-      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EIXIC?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }).then(r => r.json()),
-      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGDAXI?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }).then(r => r.json()),
+      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EDJI?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000), cache: 'no-store' }).then(r => r.json()),
+      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EIXIC?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000), cache: 'no-store' }).then(r => r.json()),
+      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGDAXI?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000), cache: 'no-store' }).then(r => r.json()),
     ]);
     function extract(meta) {
       const price = meta.regularMarketPrice;

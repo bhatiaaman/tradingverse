@@ -3134,7 +3134,7 @@ export default function TerminalPage() {
   // ── Market indices
   const fetchIndices = useCallback(async () => {
     try {
-      const r = await fetch('/api/market-data');
+      const r = await fetch(`/api/market-data?v=${Date.now()}`, { cache: 'no-store' });
       const d = await r.json();
       if (d.indices) setIndices(d.indices);
     } catch {}
@@ -3152,8 +3152,8 @@ export default function TerminalPage() {
     setRegimeLoading(true);
     try {
       const [nifty, bnf] = await Promise.allSettled([
-        fetch('/api/market-regime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: 'NIFTY',     type: 'intraday' }) }).then(r => r.json()),
-        fetch('/api/market-regime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: 'BANKNIFTY', type: 'intraday' }) }).then(r => r.json()),
+        fetch('/api/market-regime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: 'NIFTY',     type: 'intraday' }), cache: 'no-store' }).then(r => r.json()),
+        fetch('/api/market-regime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: 'BANKNIFTY', type: 'intraday' }), cache: 'no-store' }).then(r => r.json()),
       ]);
       setRegimeData({
         NIFTY:     nifty.status     === 'fulfilled' ? nifty.value     : null,

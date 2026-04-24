@@ -94,11 +94,11 @@ async function fetchKiteCandles(token, interval, days, apiKey, accessToken) {
 // ── Data collectors (mirrors order-intelligence/route.js) ─────────────────────
 async function collectBehavioralData(symbol, base) {
   const [positionsRes, ordersRes, sentimentRes, sectorRes, marketDataRes] = await Promise.allSettled([
-    fetch(`${base}/api/kite-positions`),
-    fetch(`${base}/api/kite-orders?limit=50`),
-    fetch(`${base}/api/sentiment`),
-    fetch(`${base}/api/sector-performance`),
-    fetch(`${base}/api/market-data`),
+    fetch(`${base}/api/kite-positions`, { cache: 'no-store' }),
+    fetch(`${base}/api/kite-orders?limit=50`, { cache: 'no-store' }),
+    fetch(`${base}/api/sentiment`, { cache: 'no-store' }),
+    fetch(`${base}/api/sector-performance`, { cache: 'no-store' }),
+    fetch(`${base}/api/market-data`, { cache: 'no-store' }),
   ]);
 
   let allPositions = [];
@@ -178,7 +178,7 @@ async function collectStructureData(symbol, base) {
     fetchKiteCandles(token,  '15minute', 7,  apiKey, accessToken),
     fetchKiteCandles(token,  'day',      90, apiKey, accessToken),
     fetchKiteCandles(256265, 'day',      90, apiKey, accessToken), // NIFTY
-    fetch(`${base}/api/market-breadth`).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(`${base}/api/market-breadth`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
 
   let breadth = null;
@@ -227,7 +227,7 @@ async function collectOIData(symbol, base) {
   const underlying = OI_INDEX_MAP[symbol?.toUpperCase()];
   if (!underlying) return null;
   try {
-    const r    = await fetch(`${base}/api/option-chain?underlying=${underlying}&expiry=weekly`);
+    const r    = await fetch(`${base}/api/option-chain?underlying=${underlying}&expiry=weekly`, { cache: 'no-store' });
     if (!r.ok) return null;
     const data = await r.json();
     if (!data.pcr) return null;
@@ -275,6 +275,7 @@ export async function getIntelligence(symbol, { base, interval = '15minute', tra
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol: regimeSym, type: 'intraday' }),
+        cache: 'no-store',
       }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
     ]);
 

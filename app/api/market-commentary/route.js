@@ -1416,8 +1416,8 @@ export async function GET(request) {
 
     // Parallel data fetch
     const [marketData, optionChainData] = await Promise.all([
-      fetch(`${baseUrl}/api/market-data`).then(r => r.json()),
-      fetch(`${baseUrl}/api/option-chain?underlying=NIFTY&expiry=weekly`).then(r => r.json()).catch(() => null),
+      fetch(`${baseUrl}/api/market-data`, { cache: 'no-store' }).then(r => r.json()),
+      fetch(`${baseUrl}/api/option-chain?underlying=NIFTY&expiry=weekly`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
     ]);
 
     let commentary;

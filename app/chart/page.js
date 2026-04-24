@@ -287,9 +287,9 @@ function ChartPageInner() {
       // For weekly, fetch daily candles from API and aggregate client-side
       const apiInterval = isWeeklyInterval ? 'day' : chartInterval;
       const [cd, dd] = await Promise.all([
-        fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${apiInterval}${(chartInterval === 'day' || isWeeklyInterval) ? '&days=730' : ''}&bust=1`).then(r => r.json()),
+        fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${apiInterval}${(chartInterval === 'day' || isWeeklyInterval) ? '&days=730' : ''}&bust=1`, { cache: 'no-store' }).then(r => r.json()),
         needDailyFetch && !isWeeklyInterval
-          ? fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=day&days=730&bust=1`).then(r => r.json())
+          ? fetch(`/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=day&days=730&bust=1`, { cache: 'no-store' }).then(r => r.json())
           : Promise.resolve(null),
       ]);
       const rawDaily = cd?.candles || [];
@@ -308,7 +308,8 @@ function ChartPageInner() {
     try {
       const intelInterval = chartInterval === 'week' ? 'day' : chartInterval;
       const intelRes = await fetch(
-        `/api/intelligence?symbol=${encodeURIComponent(symbol)}&interval=${intelInterval}`
+        `/api/intelligence?symbol=${encodeURIComponent(symbol)}&interval=${intelInterval}`,
+        { cache: 'no-store' }
       );
       if (intelRes.ok) setIntelligence(await intelRes.json());
 
@@ -394,8 +395,13 @@ function ChartPageInner() {
     // after every 30s background candle refresh (candlesRef.current is already updated
     // by the hook before this callback fires).
     onRefreshed: (newCandles) => {
+      setCandles(newCandles);
+      setLastTick(null); // clear tick after full refresh
       if (chartRef.current) applyOverlays(chartRef.current, newCandles);
     },
+    onTick: (ltp) => {
+      setLastTick(ltp);
+    }
   });
 
 
@@ -1297,7 +1303,13 @@ function ChartPageInner() {
 
         {/* OHLCV overlay — top-left */}
         {(() => {
-          const bar    = hoverOHLC || (candles.length > 0 ? candles[candles.length - 1] : null);
+          let bar = hoverOHLC || (candles.length > 0 ? { ...candles[candles.length - 1] } : null);
+          // If we have a fresh tick and are showing the current (non-hover) bar, update its close
+          if (!hoverOHLC && bar && lastTick != null) {
+            bar.close = lastTick;
+            if (lastTick > bar.high) bar.high = lastTick;
+            if (lastTick < bar.low)  bar.low  = lastTick;
+          }
           const chgPct = bar ? ((bar.close - bar.open) / bar.open * 100) : null;
           const barUp  = bar ? bar.close >= bar.open : null;
           const isLight  = chartTheme === 'light';

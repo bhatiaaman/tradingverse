@@ -23,9 +23,25 @@ const SUP = { dot: 'bg-emerald-400', text: 'text-emerald-400', border: 'border-e
 const AMB = { dot: 'bg-amber-400',   text: 'text-amber-400',   border: 'border-amber-500/30'   };
 const SLT = { dot: 'bg-slate-400',   text: 'text-slate-400',   border: 'border-slate-500/30'   };
 
-function getZoneContext(station) {
-  const zoneState = station?.zoneState;
-  const zone      = station?.nearestStation;
+function getZoneContext(stationAgent, regime) {
+  const zoneState = stationAgent?.zoneState;
+  const all       = stationAgent?.allStations ?? [];
+  let zone        = stationAgent?.nearestStation;
+
+  // ── Smart Prioritization: If trending, show the zone we are likely heading TOWARDS ──
+  if (regime && all.length > 0 && !['INSIDE_ZONE', 'AT_ZONE', 'REJECTION'].includes(zoneState)) {
+    const isDown = ['TREND_DAY_DOWN', 'LONG_LIQUIDATION'].includes(regime);
+    const isUp   = ['TREND_DAY_UP', 'SHORT_SQUEEZE', 'BREAKOUT_DAY'].includes(regime);
+    
+    if (isDown) {
+      const nearSup = all.find(s => s.type === 'SUPPORT');
+      if (nearSup && nearSup.distance < 2.5) zone = nearSup;
+    } else if (isUp) {
+      const nearRes = all.find(s => s.type === 'RESISTANCE');
+      if (nearRes && nearRes.distance < 2.5) zone = nearRes;
+    }
+  }
+
   if (!zoneState || !zone) return { ...SLT, label: 'Open Space', sub: null, desc: 'No S/R zones detected nearby.' };
 
   const price = `₹${zone.price.toFixed(0)}`;
@@ -104,7 +120,10 @@ export default function IntelligencePill({ intelligence, bottomOffset = 16 }) {
     ? (REGIME_STYLE[regimeKey] ?? { text: 'text-slate-400', dot: 'bg-slate-400', label: regimeKey })
     : { text: 'text-slate-500', dot: 'bg-slate-600', label: 'No Regime' };
 
-  const zone = getZoneContext(agents?.station);
+  const zone = getZoneContext(agents?.station, regime?.regime);
+  const allStations = agents?.station?.allStations ?? [];
+  const nearestRes = allStations.find(s => s.type === 'RESISTANCE');
+  const nearestSup = allStations.find(s => s.type === 'SUPPORT');
 
   // Use niftyContext VIX if available (always NIFTY VIX regardless of symbol), else fall back
   const vix    = niftyContext?.vix ?? rawVix;
@@ -140,7 +159,20 @@ export default function IntelligencePill({ intelligence, bottomOffset = 16 }) {
               <span className={`text-[10px] font-semibold ${zone.text}`}>{zone.label}</span>
               {zone.sub && <span className="text-[10px] text-slate-500 ml-auto">{zone.sub}</span>}
             </div>
-            {zone.desc && <p className="text-[10px] text-slate-400 pl-3 leading-relaxed">{zone.desc}</p>}
+            {nearestRes && nearestRes.price !== zone.price && (
+              <div className="flex items-center gap-1.5 ml-3 opacity-60">
+                <span className="w-1 h-1 rounded-full bg-red-400" />
+                <span className="text-[9px] text-slate-400">Res ₹{nearestRes.price.toFixed(0)}</span>
+                <span className="text-[9px] text-slate-500 ml-auto">{nearestRes.distance.toFixed(1)}%</span>
+              </div>
+            )}
+            {nearestSup && nearestSup.price !== zone.price && (
+              <div className="flex items-center gap-1.5 ml-3 opacity-60">
+                <span className="w-1 h-1 rounded-full bg-emerald-400" />
+                <span className="text-[9px] text-slate-400">Sup ₹{nearestSup.price.toFixed(0)}</span>
+                <span className="text-[9px] text-slate-500 ml-auto">{nearestSup.distance.toFixed(1)}%</span>
+              </div>
+            )}
           </div>
 
           {/* Price action — direction-agnostic patterns on 15m candles */}

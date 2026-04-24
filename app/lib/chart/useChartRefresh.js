@@ -51,11 +51,16 @@ const CANDLE_REFRESH_MS = {
  * @param {object}   chartRef     React ref pointing at the live chart instance
  * @param {object}   candlesRef   React ref pointing at the current candle array
  * @param {function} [onRefreshed] Called with (newCandles) after each 30s candle refresh
+ * @param {function} [onTick]      Called with (ltp) after each 5s price tick
  */
-export function useChartRefresh({ symbol, interval, chartRef, candlesRef, onRefreshed }) {
+export function useChartRefresh({ symbol, interval, chartRef, candlesRef, onRefreshed, onTick }) {
   // Keep the callback stable — callers may inline-define it each render
   const onRefreshedRef = useRef(onRefreshed);
-  useEffect(() => { onRefreshedRef.current = onRefreshed; }, [onRefreshed]);
+  const onTickRef      = useRef(onTick);
+  useEffect(() => { 
+    onRefreshedRef.current = onRefreshed; 
+    onTickRef.current      = onTick;
+  }, [onRefreshed, onTick]);
 
   // ── Timer 1: 5s LTP tick via /api/quotes ─────────────────────────────────
   useEffect(() => {
@@ -65,10 +70,13 @@ export function useChartRefresh({ symbol, interval, chartRef, candlesRef, onRefr
     const tick = async () => {
       if (!chartRef.current) return; // chart not yet initialised — skip this tick
       try {
-        const res  = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbol)}`);
+        const res  = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
         const data = await res.json();
         const ltp  = data.quotes?.[0]?.ltp;
-        if (ltp != null) chartRef.current.updateTick(ltp);
+        if (ltp != null) {
+          chartRef.current.updateTick(ltp);
+          onTickRef.current?.(ltp);
+        }
       } catch { /* non-fatal — next tick will retry */ }
     };
 
@@ -85,7 +93,8 @@ export function useChartRefresh({ symbol, interval, chartRef, candlesRef, onRefr
       if (!chartRef.current || !isMarketHours()) return;
       try {
         const res = await fetch(
-          `/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${interval}&bust=1`
+          `/api/chart-data?symbol=${encodeURIComponent(symbol)}&interval=${interval}&bust=1`,
+          { cache: 'no-store' }
         );
         if (!res.ok) return;
         const data = await res.json();
