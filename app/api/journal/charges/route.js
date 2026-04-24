@@ -22,13 +22,31 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Broker not connected' }, { status: 502 });
     }
 
-    // 1. Fetch exact charges for each trade from Kite
-    const chargesData = await broker.getOrderCharges(trades);
+    // 1. Group trades by order_id to avoid multiple brokerage charges and overwriting split taxes
+    const ordersMap = {};
+    trades.forEach(t => {
+      const oid = t.order_id || `${date}_${t.tradingsymbol}`;
+      if (!ordersMap[oid]) {
+        ordersMap[oid] = { ...t, quantity: 0, total_value: 0 };
+      }
+      const q = Math.abs(parseFloat(t.quantity || 0));
+      const p = parseFloat(t.average_price || t.price || 0);
+      ordersMap[oid].quantity += q;
+      ordersMap[oid].total_value += (q * p);
+    });
 
-    // 2. Map charges back to trade_id and update DB
-    // Zerodha returns the charges in the SAME ORDER as the input array.
-    for (let i = 0; i < trades.length; i++) {
-      const trade = trades[i];
+    // 2. Map back to array and ensure correct price (weighted average)
+    const groupedOrders = Object.values(ordersMap).map(o => ({
+      ...o,
+      price: o.total_value / o.quantity
+    }));
+
+    // 3. Fetch exact charges for each unique order from Kite
+    const chargesData = await broker.getOrderCharges(groupedOrders);
+
+    // 4. Map charges back and update DB
+    for (let i = 0; i < groupedOrders.length; i++) {
+      const order = groupedOrders[i];
       const chargeInfo = chargesData[i]?.charges;
       if (!chargeInfo) continue;
 
@@ -37,29 +55,23 @@ export async function POST(request) {
         return isNaN(n) ? 0 : n;
       };
 
+      const total = safeNum(chargeInfo.total);
       const brokerage = safeNum(chargeInfo.brokerage);
-      // Sum up EVERYTHING else from the charges object (STT, GST, SEBI, Stamp, etc)
-      let otherCharges = 0;
-      for (const [key, val] of Object.entries(chargeInfo)) {
-        if (key !== 'brokerage' && key !== 'total' && typeof val === 'number') {
-           otherCharges += val;
-        } else if (key !== 'brokerage' && key !== 'total' && typeof val === 'string') {
-           // Handle string numbers just in case
-           const n = parseFloat(val);
-           if (!isNaN(n)) otherCharges += n;
-        }
+      
+      // Use the total - brokerage logic to ensure we catch every single tax/levy
+      let otherCharges = Math.max(0, total - brokerage);
+
+      // Add DP Charges for CNC Sells (approx 15.93)
+      if (order.product === 'CNC' && order.transaction_type === 'SELL') {
+        otherCharges += 15.93;
       }
 
-      console.log(`[journal-charges] ${trade.tradingsymbol}: brokerage=${brokerage}, others=${otherCharges.toFixed(2)}`);
+      console.log(`[journal-charges] ${order.tradingsymbol}: total=${total}, brokerage=${brokerage}, others=${otherCharges.toFixed(2)}`);
 
-      console.log(`[journal-charges] ${trade.tradingsymbol}: brokerage=${brokerage}, others=${otherCharges}`);
-
-      // We use symbol-based ID if trade_id is missing, or specific trade identifier
-      const tradeId = trade.order_id || `${date}_${trade.tradingsymbol}`;
-
+      const dbTradeId = order.order_id || `${date}_${order.tradingsymbol}`;
       await sql`
         INSERT INTO journal_trades (trade_id, date, symbol, brokerage, other_charges, updated_at)
-        VALUES (${tradeId}, ${date}, ${trade.tradingsymbol}, ${brokerage}, ${otherCharges}, now())
+        VALUES (${dbTradeId}, ${date}, ${order.tradingsymbol}, ${brokerage}, ${otherCharges}, now())
         ON CONFLICT (trade_id) DO UPDATE SET
           brokerage = EXCLUDED.brokerage,
           other_charges = EXCLUDED.other_charges,
