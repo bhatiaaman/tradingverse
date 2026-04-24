@@ -62,6 +62,12 @@ export async function GET(request) {
           console.error('[journal] Error fetching positions from Kite:', e.message);
         }
       }
+    } else {
+      // For past dates, use the snapshot saved in the DB
+      if (dailyJournal.kite_data) {
+        kiteTrades = dailyJournal.kite_data.trades || [];
+        kitePositions = dailyJournal.kite_data.positions || { net: [], day: [] };
+      }
     }
 
     return NextResponse.json({
@@ -99,16 +105,52 @@ export async function POST(request) {
     if (!date) return NextResponse.json({ error: 'Date required' }, { status: 400 });
 
     // UPSERT daily journal
-    await sql`
-      INSERT INTO daily_journals (date, pnl, market_context, emotional_state, analysis, updated_at)
-      VALUES (${date}, ${pnl || 0}, ${market_context}, ${emotional_state}, ${JSON.stringify(analysis)}, now())
-      ON CONFLICT (date) DO UPDATE SET
-        pnl = EXCLUDED.pnl,
-        market_context = EXCLUDED.market_context,
-        emotional_state = EXCLUDED.emotional_state,
-        analysis = EXCLUDED.analysis,
-        updated_at = EXCLUDED.updated_at
-    `;
+    let kiteDataSnapshot = null;
+    const isToday = date === getIstNow().toISOString().split('T')[0];
+
+    // If saving today's journal, snapshot the live broker data
+    if (isToday) {
+      const broker = await getBroker();
+      if (broker && broker.isConnected()) {
+        try {
+          const [tRes, pRes] = await Promise.all([
+            broker.getTradesRaw(),
+            broker.getPositionsRaw()
+          ]);
+          kiteDataSnapshot = {
+            trades: tRes.data || [],
+            positions: pRes.data || { net: [], day: [] }
+          };
+        } catch (e) {
+          console.error('[journal] Error snapshotting for POST:', e.message);
+        }
+      }
+    }
+
+    if (kiteDataSnapshot) {
+      await sql`
+        INSERT INTO daily_journals (date, pnl, market_context, emotional_state, analysis, kite_data, updated_at)
+        VALUES (${date}, ${pnl || 0}, ${market_context}, ${emotional_state}, ${JSON.stringify(analysis)}, ${JSON.stringify(kiteDataSnapshot)}, now())
+        ON CONFLICT (date) DO UPDATE SET
+          pnl = EXCLUDED.pnl,
+          market_context = EXCLUDED.market_context,
+          emotional_state = EXCLUDED.emotional_state,
+          analysis = EXCLUDED.analysis,
+          kite_data = EXCLUDED.kite_data,
+          updated_at = EXCLUDED.updated_at
+      `;
+    } else {
+      await sql`
+        INSERT INTO daily_journals (date, pnl, market_context, emotional_state, analysis, updated_at)
+        VALUES (${date}, ${pnl || 0}, ${market_context}, ${emotional_state}, ${JSON.stringify(analysis)}, now())
+        ON CONFLICT (date) DO UPDATE SET
+          pnl = EXCLUDED.pnl,
+          market_context = EXCLUDED.market_context,
+          emotional_state = EXCLUDED.emotional_state,
+          analysis = EXCLUDED.analysis,
+          updated_at = EXCLUDED.updated_at
+      `;
+    }
 
     // UPSERT trade comments 
     // Usually easier to delete all for date and re-insert, but let's upsert by group_id -> trade_id

@@ -177,12 +177,14 @@ export async function migrateSchema() {
       market_context TEXT,
       emotional_state TEXT,
       analysis   JSONB DEFAULT '{}',
+      kite_data  JSONB DEFAULT '{}',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
+  await sql`ALTER TABLE daily_journals ADD COLUMN IF NOT EXISTS kite_data JSONB DEFAULT '{}'`;
 
-  // Journal Trades (Individual Trade Notes)
+  // Journal Trades
   await sql`
     CREATE TABLE IF NOT EXISTS journal_trades (
       trade_id   TEXT PRIMARY KEY,
