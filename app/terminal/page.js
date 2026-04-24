@@ -1262,7 +1262,9 @@ function hasSL(position, openOrders) {
 function AddSLModal({ position, onClose, onPlaced }) {
   const isLong = (position.quantity || 0) > 0;
   const side   = isLong ? 'SELL' : 'BUY';
+  const fullQty = Math.abs(position.quantity);
   const ltp    = position.last_price || 0;
+
   // Default trigger: 1% below avg (long) or above (short)
   const defaultTrigger = isLong
     ? (position.average_price * 0.99).toFixed(2)
@@ -1273,10 +1275,32 @@ function AddSLModal({ position, onClose, onPlaced }) {
 
   const [trigger, setTrigger] = useState(defaultTrigger);
   const [price,   setPrice]   = useState(defaultPrice);
+  const [qty,     setQty]     = useState(fullQty);
+  const [lotSize, setLotSize] = useState(1);
   const [placing, setPlacing] = useState(false);
   const [error,   setError]   = useState('');
 
+  useEffect(() => {
+    // Determine underlying symbol and fetch lot size for derivatives
+    const derivExchanges = ['NFO', 'BFO', 'MCX', 'CDS'];
+    if (derivExchanges.includes(position.exchange)) {
+      const underlying = position.tradingsymbol.match(/^[A-Z&]+/)?.[0];
+      if (underlying) {
+        fetch(`/api/lot-size?symbol=${underlying}`)
+          .then(r => r.json())
+          .then(d => { if (d.lotSize) setLotSize(d.lotSize); });
+      }
+    }
+  }, [position.tradingsymbol, position.exchange]);
+
   async function place() {
+    if (qty <= 0) { setError('Quantity must be greater than zero'); return; }
+    if (qty > fullQty) { setError('Quantity cannot exceed position'); return; }
+    if (lotSize > 1 && (qty % lotSize !== 0)) {
+      setError(`Quantity must be a multiple of lot size (${lotSize})`);
+      return;
+    }
+
     setPlacing(true);
     setError('');
     try {
@@ -1287,7 +1311,7 @@ function AddSLModal({ position, onClose, onPlaced }) {
           tradingsymbol:    position.tradingsymbol,
           exchange:         position.exchange || 'NSE',
           transaction_type: side,
-          quantity:         Math.abs(position.quantity),
+          quantity:         qty,
           order_type:       'SL',
           product:          position.product,
           trigger_price:    Number(trigger),
@@ -1311,33 +1335,48 @@ function AddSLModal({ position, onClose, onPlaced }) {
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-sm font-semibold text-gray-900 dark:text-white">Add Stop Loss</p>
-            <p className="text-xs text-gray-400">{position.tradingsymbol} · {side} · {Math.abs(position.quantity)} qty</p>
+            <p className="text-xs text-gray-400">{position.tradingsymbol} · {side} · {qty} qty</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-lg leading-none">×</button>
         </div>
         <div className="space-y-3 mb-4">
+          {/* Quantity field */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs text-gray-500 dark:text-white/50 block">Quantity</label>
+              <button onClick={() => setQty(fullQty)} className="text-[10px] text-blue-500 hover:underline">Full ({fullQty})</button>
+            </div>
+            <div className="relative">
+              <input
+                type="number" step={lotSize} value={qty} onChange={e => setQty(parseInt(e.target.value) || 0)}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+              />
+              {lotSize > 1 && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">{Math.floor(qty/lotSize)} LOTS</span>}
+            </div>
+          </div>
+
           <div>
             <label className="text-xs text-gray-500 dark:text-white/50 block mb-1">Trigger Price</label>
             <input
               type="number" step="0.05" value={trigger} onChange={e => setTrigger(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
             />
           </div>
           <div>
             <label className="text-xs text-gray-500 dark:text-white/50 block mb-1">Limit Price</label>
             <input
               type="number" step="0.05" value={price} onChange={e => setPrice(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
             />
           </div>
-          <p className="text-xs text-gray-400">LTP: ₹{ltp.toFixed(2)} · Avg: ₹{position.average_price?.toFixed(2)}</p>
+          <p className="text-xs text-gray-400 font-mono">LTP: ₹{ltp.toFixed(2)} · Avg: ₹{position.average_price?.toFixed(2)}</p>
         </div>
-        {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+        {error && <p className="text-[11px] text-red-500 mb-3 bg-red-50 dark:bg-red-500/10 p-2 rounded-lg border border-red-100 dark:border-red-500/20">{error}</p>}
         <button
           onClick={place} disabled={placing}
-          className="w-full py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 transition-colors"
+          className="w-full py-2.5 rounded-lg text-sm font-semibold bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 transition-colors"
         >
-          {placing ? 'Placing…' : `Place SL ${side}`}
+          {placing ? 'Placing…' : `Place SL ${side} ${qty}`}
         </button>
       </div>
     </div>
@@ -1348,9 +1387,11 @@ function AddSLModal({ position, onClose, onPlaced }) {
 function ExitModal({ position, onClose, onPlaced }) {
   const isLong = (position.quantity || 0) > 0;
   const side   = isLong ? 'SELL' : 'BUY';
-  const qty    = Math.abs(position.quantity);
+  const fullQty = Math.abs(position.quantity);
   const ltp    = position.last_price || 0;
 
+  const [exitQty,   setExitQty]   = useState(fullQty);
+  const [lotSize,   setLotSize]   = useState(1);
   const [orderType, setOrderType] = useState('MARKET'); // 'MARKET' | 'LIMIT'
   const [price,     setPrice]     = useState(ltp.toFixed(2));
   const [placing,   setPlacing]   = useState(false);
@@ -1358,7 +1399,27 @@ function ExitModal({ position, onClose, onPlaced }) {
 
   const pnl = position.pnl || 0;
 
+  useEffect(() => {
+    // Determine underlying symbol and fetch lot size for derivatives
+    const derivExchanges = ['NFO', 'BFO', 'MCX', 'CDS'];
+    if (derivExchanges.includes(position.exchange)) {
+      const underlying = position.tradingsymbol.match(/^[A-Z&]+/)?.[0];
+      if (underlying) {
+        fetch(`/api/lot-size?symbol=${underlying}`)
+          .then(r => r.json())
+          .then(d => { if (d.lotSize) setLotSize(d.lotSize); });
+      }
+    }
+  }, [position.tradingsymbol, position.exchange]);
+
   async function place() {
+    if (exitQty <= 0) { setError('Quantity must be greater than zero'); return; }
+    if (exitQty > fullQty) { setError('Quantity cannot exceed position'); return; }
+    if (lotSize > 1 && (exitQty % lotSize !== 0)) {
+      setError(`Quantity must be a multiple of lot size (${lotSize})`);
+      return;
+    }
+
     setPlacing(true);
     setError('');
     try {
@@ -1366,7 +1427,7 @@ function ExitModal({ position, onClose, onPlaced }) {
         tradingsymbol:    position.tradingsymbol,
         exchange:         position.exchange || 'NSE',
         transaction_type: side,
-        quantity:         qty,
+        quantity:         exitQty,
         order_type:       orderType,
         product:          position.product,
         variety:          'regular',
@@ -1395,7 +1456,7 @@ function ExitModal({ position, onClose, onPlaced }) {
           <div>
             <p className="text-sm font-semibold text-gray-900 dark:text-white">Exit Position</p>
             <p className="text-xs text-gray-400">
-              {position.tradingsymbol} · {side} · {qty} qty
+              {position.tradingsymbol} · {side} · {exitQty} qty
             </p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-lg leading-none">×</button>
@@ -1408,6 +1469,38 @@ function ExitModal({ position, onClose, onPlaced }) {
         }`}>
           <span>Unrealised P&L</span>
           <span className="font-bold">{pnl >= 0 ? '+' : ''}₹{pnl.toFixed(2)}</span>
+        </div>
+
+        {/* Quantity input */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs text-gray-500 dark:text-white/50 block">Quantity</label>
+            <button
+              onClick={() => setExitQty(fullQty)}
+              className="text-[10px] text-indigo-500 hover:text-indigo-600 font-semibold uppercase tracking-wider"
+            >
+              Exit Full ({fullQty})
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <input
+                type="number"
+                step={lotSize}
+                value={exitQty}
+                onChange={e => setExitQty(parseInt(e.target.value) || 0)}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+              />
+              {lotSize > 1 && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 pointer-events-none">
+                  {Math.floor(exitQty / lotSize)} LOTS
+                </div>
+              )}
+            </div>
+          </div>
+          {lotSize > 1 && (
+            <p className="text-[10px] text-gray-400 mt-1">Lot Size: {lotSize}</p>
+          )}
         </div>
 
         {/* Order type toggle */}
@@ -1434,16 +1527,19 @@ function ExitModal({ position, onClose, onPlaced }) {
             <input
               type="number" step="0.05" value={price}
               onChange={e => setPrice(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
             />
             <p className="text-xs text-gray-400 mt-1">LTP: ₹{ltp.toFixed(2)} · Avg: ₹{position.average_price?.toFixed(2)}</p>
           </div>
         )}
         {orderType === 'MARKET' && (
-          <p className="text-xs text-gray-400 mb-4">LTP: ₹{ltp.toFixed(2)} · Avg: ₹{position.average_price?.toFixed(2)} · Order executes at best available price.</p>
+          <p className="text-xs text-gray-400 mb-4 font-mono leading-relaxed">
+            LTP: ₹{ltp.toFixed(2)} · Avg: ₹{position.average_price?.toFixed(2)}<br/>
+            Order executes at best available market price.
+          </p>
         )}
 
-        {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+        {error && <p className="text-[11px] text-red-500 mb-3 bg-red-50 dark:bg-red-500/10 p-2 rounded-lg border border-red-100 dark:border-red-500/20">{error}</p>}
 
         <button
           onClick={place} disabled={placing}
@@ -1453,7 +1549,7 @@ function ExitModal({ position, onClose, onPlaced }) {
               : 'bg-green-600 hover:bg-green-700 text-white'
           }`}
         >
-          {placing ? 'Placing…' : `Exit ${side} @ ${orderType === 'MARKET' ? 'MKT' : `₹${price}`}`}
+          {placing ? 'Placing…' : `Exit ${side} ${exitQty} @ ${orderType === 'MARKET' ? 'MKT' : `₹${price}`}`}
         </button>
       </div>
     </div>
