@@ -21,11 +21,32 @@ export async function GET(request) {
       orders = await broker.getOrdersRaw(limit);
     } catch (err) {
       console.error('Kite orders error:', err.message);
-      // Surface the Kite error message so UI can show "token expired" vs generic failure
       const msg = err.message?.includes('Incorrect') || err.message?.includes('403')
         ? 'Kite session expired — please re-login to Zerodha'
         : 'Failed to fetch orders from Kite';
       return NextResponse.json({ success: false, kiteError: msg, orders: [] }, { status: 502 });
+    }
+
+    // Enrich open orders with LTP
+    const OPEN_STATUSES = ['OPEN', 'TRIGGER PENDING', 'PUT ORDER REQ RECEIVED', 'VALIDATION PENDING', 'OPEN PENDING', 'MODIFY PENDING', 'MODIFY VALIDATION PENDING', 'MODIFIED', 'CANCEL PENDING', 'AMO REQ RECEIVED'];
+    const openOrders = orders.filter(o => OPEN_STATUSES.includes(o.status?.toUpperCase()));
+
+    if (openOrders.length > 0) {
+      try {
+        const instruments = [...new Set(openOrders.map(o => `${o.exchange}:${o.tradingsymbol}`))];
+        const ltpRes = await broker.getLTP(instruments);
+        const ltpMap = ltpRes.data || {};
+        
+        orders.forEach(o => {
+          const key = `${o.exchange}:${o.tradingsymbol}`;
+          const live = ltpMap[key]?.last_price;
+          if (live != null) {
+            o.last_price = live;
+          }
+        });
+      } catch (ltpErr) {
+        console.error('Kite LTP enrichment failed for orders:', ltpErr.message);
+      }
     }
 
     return NextResponse.json({

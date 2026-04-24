@@ -1705,7 +1705,12 @@ function OrdersTab({ orders, loading, onRefresh }) {
                     {o.transaction_type}
                   </td>
                   <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">{o.quantity}</td>
-                  <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">{o.price > 0 ? `₹${o.price}` : 'MKT'}</td>
+                  <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">
+                    <div>{o.price > 0 ? `₹${o.price}` : 'MKT'}</div>
+                    {o.last_price && (
+                      <div className="text-[9px] text-blue-500 font-medium leading-none mt-0.5">LTP ₹{o.last_price.toFixed(2)}</div>
+                    )}
+                  </td>
                   <td className="py-2.5 text-right"><OrderStatusBadge status={o.status} /></td>
                   <td className="py-2.5 text-right text-gray-400">
                     {o.order_timestamp ? new Date(o.order_timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
@@ -1727,9 +1732,30 @@ function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder
   const [modifyForm,    setModifyForm]    = useState(null);
   const [modifying,     setModifying]     = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(null); // order_id pending confirm
+  const [editLotSize,   setEditLotSize]   = useState(1);
+
+  useEffect(() => {
+    if (!modifyForm) { setEditLotSize(1); return; }
+    const order = orders.find(o => o.order_id === modifyForm.order_id);
+    if (order && ['NFO', 'BFO', 'MCX', 'CDS'].includes(order.exchange)) {
+      const underlying = order.tradingsymbol.match(/^[A-Z&]+/)?.[0];
+      if (underlying) {
+        fetch(`/api/lot-size?symbol=${underlying}`)
+          .then(r => r.json())
+          .then(d => { if (d.lotSize) setEditLotSize(d.lotSize); });
+      }
+    } else {
+      setEditLotSize(1);
+    }
+  }, [modifyForm?.order_id, orders]);
 
   const submitModify = async () => {
     if (!modifyForm) return;
+    if (editLotSize > 1 && (Number(modifyForm.quantity) % editLotSize !== 0)) {
+       // Silent failure or local error? Let's just use alert for now as it's a side panel
+       alert(`Quantity must be a multiple of lot size (${editLotSize})`);
+       return;
+    }
     setModifying(modifyForm.order_id);
     const d = await onModifyOrder(modifyForm);
     setModifying(null);
@@ -1807,9 +1833,14 @@ function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder
                       </div>
                     </div>
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
                         <span className="text-[10px] text-gray-400">Qty {o.quantity}</span>
                         <span className="text-[10px] text-gray-400">{o.price > 0 ? `@ ₹${o.price}` : '@ MKT'}</span>
+                        {o.last_price && (
+                          <span className="text-[10px] font-mono text-blue-500 font-semibold ml-1 whitespace-nowrap">
+                            · LTP ₹{o.last_price.toFixed(2)}
+                          </span>
+                        )}
                       </div>
                       <OrderStatusBadge status={o.status} />
                     </div>
@@ -1835,7 +1866,7 @@ function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder
                         <div className="grid grid-cols-2 gap-1.5">
                           <div>
                             <label className="text-[10px] text-gray-400 mb-0.5 block">Qty</label>
-                            <input type="number" value={modifyForm.quantity}
+                            <input type="number" step={editLotSize} value={modifyForm.quantity}
                               onChange={e => setModifyForm(f => ({ ...f, quantity: e.target.value }))}
                               className="w-full bg-gray-100 dark:bg-slate-700 border border-gray-200 dark:border-white/10 rounded px-2 py-1 text-xs text-gray-900 dark:text-white focus:border-blue-500 focus:outline-none" />
                           </div>
