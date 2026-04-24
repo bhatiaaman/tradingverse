@@ -937,8 +937,8 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
   // ── S12: VWAP + Key Level Confluence (VWAP fallback: EMA21) ─────────────────────────
   // Within 0.3% of VWAP (or EMA21 if no VWAP) AND within 0.4% of BOS level simultaneously.
   {
-    const s12VwapDist = t('s12', 'vwapDistPct', 0.3);
-    const s12BosDist  = t('s12', 'bosDistPct', 0.4);
+    const s12VwapDist = t('s12', 'vwapDistPct', 0.1);
+    const s12BosDist  = t('s12', 'bosDistPct', 0.2);
     const atVwapOrEma = pre.vwap ? pre.vwap.distPct <= s12VwapDist
                                   : (pre.ema?.atEma21 || pre.ema?.atEma50);
     const anchorSl    = pre.vwap ? pre.vwap.price : (pre.ema?.ema21 ?? null);
@@ -1068,7 +1068,7 @@ export function detectSetups(candles, patterns, context, pre, cfg = {}) {
         Math.abs(c0.close - pre.tradingRange.low)  / pre.tradingRange.low  * 100 <= 0.2;
       if (atBoundary) factors++;
     }
-    if (factors >= t('s17', 'minFactors', 3) && stackDir) {
+    if (factors >= t('s17', 'minFactors', 4) && stackDir) {
       const hasConf = patterns.some(p => p.direction === stackDir || p.direction === 'neutral');
       if (hasConf)
         setups.push({ id: `s17_confluence_${stackDir}`, name: 'Confluence Stack', direction: stackDir, strength: 5,

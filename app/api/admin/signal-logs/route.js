@@ -22,7 +22,18 @@ export async function GET(req) {
       countRow = await sql`SELECT COUNT(*) AS c FROM signal_logs`;
     }
 
-    const entries = rows.map(r => ({ ...r.data, type: r.type, ts: r.ts, symbol: r.symbol }));
+    // Group and deduplicate in memory for cleaner UI (since some duplicate events might still bypass client-side checks)
+    const seen = new Set();
+    const entries = rows.reduce((acc, r) => {
+      const key = `${r.type}:${r.symbol}:${r.data.time}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        // Ensure ts is a number (it might be a string from BIGINT)
+        acc.push({ ...r.data, type: r.type, ts: Number(r.ts), symbol: r.symbol });
+      }
+      return acc;
+    }, []);
+
     return NextResponse.json({ entries, total: Number(countRow[0]?.c ?? 0) });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });

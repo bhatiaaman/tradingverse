@@ -8,7 +8,9 @@ const TABS = ['Eye Setups', 'Options Signals', 'System'];
 
 function timeIST(ts) {
   if (!ts) return '—';
-  return new Date(ts).toLocaleString('en-IN', {
+  const date = typeof ts === 'number' ? new Date(ts) : (!isNaN(Number(ts)) ? new Date(Number(ts)) : new Date(ts));
+  if (isNaN(date.getTime())) return '—';
+  return date.toLocaleString('en-IN', {
     timeZone: 'Asia/Kolkata',
     day: '2-digit', month: 'short',
     hour: '2-digit', minute: '2-digit',
@@ -17,7 +19,10 @@ function timeIST(ts) {
 }
 
 function timeAgo(ts) {
-  const seconds = Math.floor((Date.now() - new Date(ts)) / 1000);
+  if (!ts) return '';
+  const date = typeof ts === 'number' ? new Date(ts) : (!isNaN(Number(ts)) ? new Date(Number(ts)) : new Date(ts));
+  if (isNaN(date.getTime())) return '';
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
   if (seconds < 60)   return 'just now';
   if (seconds < 3600) return `${Math.floor(seconds / 60)} mins ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
@@ -40,20 +45,41 @@ function EyeSetupCard({ e }) {
         </span>
         <div className="text-[10px] text-slate-500 mt-0.5">{e.interval}</div>
       </td>
-      <td className="py-4 px-6">
-        <div className="flex items-center gap-2">
-          {isBull && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />}
-          {isBear && <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />}
-          {!isBull && !isBear && <div className="w-1.5 h-1.5 rounded-full bg-cyan-500" />}
-          <span className={`text-sm font-bold ${isBull ? 'text-emerald-400' : isBear ? 'text-red-400' : 'text-slate-200'}`}>
+      <td className="py-4 px-6 align-top">
+        <div className="flex items-center gap-2 mb-2">
+          {isBull && <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]" />}
+          {isBear && <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]" />}
+          {!isBull && !isBear && <div className="w-2 h-2 rounded-full bg-cyan-500" />}
+          
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider border ${
+            isBull ? 'bg-emerald-400/10 text-emerald-400 border-emerald-500/30' :
+            isBear ? 'bg-rose-400/10 text-rose-400 border-rose-500/30' :
+            'bg-slate-400/10 text-slate-400 border-slate-500/30'
+          }`}>
+            {isBull ? 'BULLISH' : isBear ? 'BEARISH' : 'NEUTRAL'}
+          </span>
+          
+          <span className="text-sm font-bold text-white leading-none">
             {e.setupName}
           </span>
         </div>
-        {e.allSetups?.slice(1).map((s, i) => (
-          <span key={i} className="inline-block text-[10px] text-slate-500 border border-white/10 px-1.5 py-0.5 rounded-full mr-1 mt-1">
-            {s.name} ({s.score})
-          </span>
-        ))}
+        
+        <div className="flex flex-wrap gap-1.5">
+          {e.factors && (
+            <span className="inline-flex items-center text-[9px] font-bold bg-cyan-900/40 text-cyan-400 border border-cyan-800/50 px-1.5 py-0.5 rounded">
+              {e.factors} FACTORS
+            </span>
+          )}
+          {e.allSetups?.map((s, i) => (
+            <span key={i} className={`inline-flex items-center text-[9px] font-medium border px-1.5 py-0.5 rounded-full ${
+              s.direction === 'bull' ? 'text-emerald-500 border-emerald-500/20 bg-emerald-500/5' :
+              s.direction === 'bear' ? 'text-rose-500 border-rose-500/20 bg-rose-500/5' :
+              'text-slate-500 border-slate-500/20 bg-slate-500/5'
+            }`}>
+              {s.name}
+            </span>
+          ))}
+        </div>
       </td>
       <td className="py-4 px-6">
         <div className="flex items-center gap-4 text-xs">
@@ -152,8 +178,8 @@ export default function LogsPage() {
   const [search, setSearch]   = useState('');
   const [lastFetch, setLastFetch] = useState(null);
 
-  const fetchLogs = useCallback(async () => {
-    setLoading(true);
+  const fetchLogs = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       let url;
       if (tab === 'Eye Setups')       url = '/api/admin/signal-logs?type=THIRD_EYE&n=100';
@@ -178,8 +204,8 @@ export default function LogsPage() {
   useEffect(() => {
     setLoading(true);
     setEntries([]);
-    fetchLogs();
-    const id = setInterval(fetchLogs, 30_000);
+    fetchLogs(false);
+    const id = setInterval(() => fetchLogs(true), 30_000);
     return () => clearInterval(id);
   }, [fetchLogs]);
 

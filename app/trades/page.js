@@ -385,6 +385,7 @@ function getNiftyLevelAlerts(indices) {
     const [setupEyeTestMode, setSetupEyeTestMode] = useState(false); // Ctrl+Shift+T toggles test card
     const setupEyeEnvRef      = useRef('medium');
     const lastCandleCountRef  = useRef(0);
+    const lastLoggedCandleTimeRef = useRef(null);
 
     // Restore Setup Eye log from Redis on mount (survives browser refresh)
     useEffect(() => {
@@ -1026,11 +1027,14 @@ function getNiftyLevelAlerts(indices) {
                 });
               }
 
-              // Append to rolling log only when a new candle has formed
-              const newCount = data.candles.length;
-              if (newCount > lastCandleCountRef.current) {
-                lastCandleCountRef.current = newCount;
-                const lastCandle = data.candles[data.candles.length - 1];
+            // Append to rolling log only when a new candle has formed
+            const newCount = data.candles.length;
+            const lastCandle = data.candles[data.candles.length - 1];
+            const candleTimeStr = lastCandle ? new Date((lastCandle.time + 19800) * 1000).toISOString() : null;
+
+            if (newCount > lastCandleCountRef.current && candleTimeStr !== lastLoggedCandleTimeRef.current) {
+              lastCandleCountRef.current = newCount;
+              lastLoggedCandleTimeRef.current = candleTimeStr;
                 // Format IST time from unix timestamp
                 const d = new Date((lastCandle.time + 19800) * 1000); // +5:30 offset
                 const hh = String(d.getUTCHours()).padStart(2, '0');
@@ -1068,6 +1072,7 @@ function getNiftyLevelAlerts(indices) {
                       setupName: top.pattern?.name,
                       direction: top.pattern?.direction,
                       score: top.score,
+                      factors: top.details?.factors || 0,
                       allSetups: heResult.strongSetups.map(s => ({
                         id: s.pattern?.id, name: s.pattern?.name,
                         direction: s.pattern?.direction, score: s.score,
