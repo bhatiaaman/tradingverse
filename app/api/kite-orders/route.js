@@ -27,9 +27,10 @@ export async function GET(request) {
       return NextResponse.json({ success: false, kiteError: msg, orders: [] }, { status: 502 });
     }
 
-    // Enrich open orders with LTP
-    const OPEN_STATUSES = ['OPEN', 'TRIGGER PENDING', 'PUT ORDER REQ RECEIVED', 'VALIDATION PENDING', 'OPEN PENDING', 'MODIFY PENDING', 'MODIFY VALIDATION PENDING', 'MODIFIED', 'CANCEL PENDING', 'AMO REQ RECEIVED'];
-    const openOrders = orders.filter(o => OPEN_STATUSES.includes(o.status?.toUpperCase()));
+    // Enrich ALL orders with LTP (if available) to ensure both open and recent orders show it.
+    // We only fetch LTP for open/pending orders to save API calls, but we apply it to all returned orders.
+    const OPEN_STATUS_LIST = ['OPEN', 'TRIGGER PENDING', 'PUT ORDER REQ RECEIVED', 'VALIDATION PENDING', 'OPEN PENDING', 'MODIFY PENDING', 'MODIFY VALIDATION PENDING', 'MODIFIED', 'CANCEL PENDING', 'AMO REQ RECEIVED'];
+    const openOrders = orders.filter(o => OPEN_STATUS_LIST.includes(o.status?.toUpperCase()));
 
     if (openOrders.length > 0) {
       try {
@@ -37,9 +38,15 @@ export async function GET(request) {
         const ltpRes = await broker.getLTP(instruments);
         const ltpMap = ltpRes.data || {};
         
+        // Build a normalized map for easier matching
+        const normalizedMap = {};
+        Object.entries(ltpMap).forEach(([k, v]) => {
+          normalizedMap[k.toUpperCase().trim()] = v.last_price;
+        });
+
         orders.forEach(o => {
-          const key = `${o.exchange}:${o.tradingsymbol}`;
-          const live = ltpMap[key]?.last_price;
+          const key = `${o.exchange}:${o.tradingsymbol}`.toUpperCase().trim();
+          const live = normalizedMap[key];
           if (live != null) {
             o.last_price = live;
           }

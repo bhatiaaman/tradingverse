@@ -1707,7 +1707,7 @@ function OrdersTab({ orders, loading, onRefresh }) {
                   <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">{o.quantity}</td>
                   <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">
                     <div>{o.price > 0 ? `₹${o.price}` : 'MKT'}</div>
-                    {o.last_price && (
+                    {o.last_price != null && (
                       <div className="text-[9px] text-blue-500 font-medium leading-none mt-0.5">LTP ₹{o.last_price.toFixed(2)}</div>
                     )}
                   </td>
@@ -1836,7 +1836,7 @@ function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder
                       <div className="flex items-center gap-1.5 flex-1 min-w-0">
                         <span className="text-[10px] text-gray-400">Qty {o.quantity}</span>
                         <span className="text-[10px] text-gray-400">{o.price > 0 ? `@ ₹${o.price}` : '@ MKT'}</span>
-                        {o.last_price && (
+                        {o.last_price != null && (
                           <span className="text-[10px] font-mono text-blue-500 font-semibold ml-1 whitespace-nowrap">
                             · LTP ₹{o.last_price.toFixed(2)}
                           </span>
