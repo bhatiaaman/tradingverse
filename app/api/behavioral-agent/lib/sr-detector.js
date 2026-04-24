@@ -189,6 +189,32 @@ function countTests(candles, level, thresholdPercent = 0.5) {
 export function detectAllSR(candles, currentPrice) {
   const stations = [];
   
+  // ── Psychological Levels (Round Numbers) ──
+  // These are major anchors for traders. 500/1000 multiples are Strong.
+  const round100  = 100;
+  const lower100  = Math.floor(currentPrice / round100) * round100;
+  const upper100  = Math.ceil(currentPrice / round100) * round100;
+  
+  const psychLevels = [lower100, upper100, lower100 - 100, upper100 + 100];
+  const uniquePsych = [...new Set(psychLevels)];
+  
+  for (const lev of uniquePsych) {
+    const dist = Math.abs((currentPrice - lev) / lev * 100);
+    if (dist <= 1.5) { // Only show if within 1.5%
+      const isRes   = lev > currentPrice;
+      const isMajor = (lev % 500 === 0);
+      stations.push({
+        type:      isRes ? 'RESISTANCE' : 'SUPPORT',
+        timeframe: 'Psych',
+        price:     lev,
+        distance:  dist,
+        label:     `${isMajor ? 'Major ' : ''}Psych ${lev}`,
+        strength:  isMajor ? 4 : 2,
+        tests:     isMajor ? 5 : 2, // simulated strength
+      });
+    }
+  }
+  
   if (candles.candles5m) {
     stations.push(...detectSRStations(candles.candles5m, '5m', currentPrice, 20));
   }
