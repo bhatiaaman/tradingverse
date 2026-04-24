@@ -1611,7 +1611,22 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
                   <tr key={p.tradingsymbol} className="border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                     <td className="py-2.5 font-medium text-gray-900 dark:text-white">{p.tradingsymbol}</td>
                     <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">{p.quantity}</td>
-                    <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">₹{p.average_price?.toFixed(2)}</td>
+                    <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">
+                      <div>₹{p.average_price?.toFixed(2)}</div>
+                      {(() => {
+                        const lastFill = openOrders
+                          ?.filter(o => o.tradingsymbol === p.tradingsymbol && o.status === 'COMPLETE')
+                          ?.sort((a, b) => new Date(b.order_timestamp || 0) - new Date(a.order_timestamp || 0))[0];
+                        if (lastFill) {
+                          return (
+                            <div className="text-[9px] text-gray-400 font-medium leading-none mt-0.5" title="Last executed price">
+                              exec ₹{lastFill.average_price?.toFixed(2)}
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </td>
                     <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">₹{p.last_price?.toFixed(2)}</td>
                     <td className={`py-2.5 text-right font-mono font-semibold ${pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                       {pnl >= 0 ? '+' : ''}₹{pnl.toFixed(2)}
@@ -1728,7 +1743,8 @@ function OrdersTab({ orders, loading, onRefresh }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // OrdersRightPanel — collapsible right sidebar for today's orders + FnO movers
 // ─────────────────────────────────────────────────────────────────────────────
-function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder, onModifyOrder, open, setOpen }) {
+function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder, onModifyOrder, open, setOpen, positions = [] }) {
+  const [activeTab,     setActiveTab]     = useState('open'); // 'open' | 'all'
   const [modifyForm,    setModifyForm]    = useState(null);
   const [modifying,     setModifying]     = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(null); // order_id pending confirm
@@ -1765,10 +1781,25 @@ function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder
   return (
     <div className={`flex-shrink-0 border-l border-gray-200 dark:border-white/10 flex flex-col bg-gray-50 dark:bg-slate-900/40 transition-all duration-200 ${open ? 'w-screen md:w-[300px]' : 'w-screen md:w-9'}`}>
       {/* Toggle + header */}
-      <div className={`flex items-center flex-shrink-0 border-b border-gray-200 dark:border-white/10 ${open ? 'px-3 py-2 justify-between' : 'justify-center py-2'}`}>
-        {open && <span className="text-[10px] font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">Open Orders</span>}
+      <div className={`flex items-center flex-shrink-0 border-b border-gray-200 dark:border-white/10 ${open ? 'px-2 py-1 justify-between' : 'justify-center py-2'}`}>
+        {open ? (
+          <div className="flex bg-gray-200/50 dark:bg-white/5 rounded-md p-0.5">
+            <button
+              onClick={() => setActiveTab('open')}
+              className={`px-2 py-1 rounded text-[9px] font-bold uppercase tracking-tight transition-all ${
+                activeTab === 'open' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-500'
+              }`}
+            >Open</button>
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`px-2 py-1 rounded text-[9px] font-bold uppercase tracking-tight transition-all ${
+                activeTab === 'all' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-500'
+              }`}
+            >Today</button>
+          </div>
+        ) : null}
         {open && (
-          <button onClick={onRefresh} className="p-1 hover:bg-gray-200 dark:hover:bg-white/10 rounded transition-colors">
+          <button onClick={onRefresh} className="p-1 hover:bg-gray-200 dark:hover:bg-white/10 rounded transition-colors ml-auto mr-1">
             <RefreshCw size={11} className="text-gray-400" />
           </button>
         )}
@@ -1791,11 +1822,24 @@ function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder
               <a href="/api/kite-config" className="text-[10px] text-blue-500 underline">Re-connect</a>
             </div>
           ) : orders.length === 0 ? (
+            <div className="flex items-center justify-center h-16 text-gray-400 text-xs">No orders today</div>
+          ) : activeTab === 'open' && orders.filter(o => ['OPEN', 'TRIGGER PENDING', 'PUT ORDER REQ RECEIVED', 'VALIDATION PENDING', 'OPEN PENDING', 'MODIFY PENDING', 'MODIFY VALIDATION PENDING', 'MODIFIED', 'CANCEL PENDING', 'AMO REQ RECEIVED'].includes(o.status?.toUpperCase())).length === 0 ? (
             <div className="flex items-center justify-center h-16 text-gray-400 text-xs">No open orders</div>
           ) : (
 
             <div className="p-2 space-y-1.5">
-              {orders.map(o => {
+              {(() => {
+                const OPEN_STATUS_LIST = ['OPEN', 'TRIGGER PENDING', 'PUT ORDER REQ RECEIVED', 'VALIDATION PENDING', 'OPEN PENDING', 'MODIFY PENDING', 'MODIFY VALIDATION PENDING', 'MODIFIED', 'CANCEL PENDING', 'AMO REQ RECEIVED'];
+                const filtered = activeTab === 'open'
+                  ? orders.filter(o => OPEN_STATUS_LIST.includes(o.status?.toUpperCase()))
+                  : orders;
+
+                return [...filtered].sort((a, b) => {
+                  const aOpen = OPEN_STATUS_LIST.includes(a.status?.toUpperCase()) ? 1 : 0;
+                  const bOpen = OPEN_STATUS_LIST.includes(b.status?.toUpperCase()) ? 1 : 0;
+                  if (aOpen !== bOpen) return bOpen - aOpen; // Open on top
+                  return new Date(b.order_timestamp || 0) - new Date(a.order_timestamp || 0); // Recent first
+                }).map(o => {
                 const isBuy        = o.transaction_type === 'BUY';
                 const isCancelable = !['COMPLETE', 'CANCELLED', 'REJECTED', 'CANCEL PENDING'].includes(o.status?.toUpperCase());
                 const isEditing    = modifyForm?.order_id === o.order_id;
@@ -1835,14 +1879,33 @@ function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5 flex-1 min-w-0">
                         <span className="text-[10px] text-gray-400">Qty {o.quantity}</span>
-                        <span className="text-[10px] text-gray-400">{o.price > 0 ? `@ ₹${o.price}` : '@ MKT'}</span>
+                        <span className="text-[10px] text-gray-400">
+                          {o.status === 'COMPLETE' && o.average_price > 0 ? (
+                            <span className="text-gray-900 dark:text-white font-medium">Avg. ₹{o.average_price.toFixed(2)}</span>
+                          ) : (
+                            <span>{o.price > 0 ? `@ ₹${o.price}` : '@ MKT'}</span>
+                          )}
+                        </span>
                         {o.last_price != null && (
                           <span className="text-[10px] font-mono text-blue-500 font-semibold ml-1 whitespace-nowrap">
                             · LTP ₹{o.last_price.toFixed(2)}
                           </span>
                         )}
                       </div>
-                      <OrderStatusBadge status={o.status} />
+                      <div className="flex items-center gap-1.5">
+                        {(() => {
+                           const pos = positions?.find(p => p.tradingsymbol === o.tradingsymbol);
+                           if (pos && pos.quantity !== 0) {
+                             return (
+                               <span className="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-white/40 font-medium">
+                                 net avg ₹{pos.average_price.toFixed(2)}
+                               </span>
+                             );
+                           }
+                           return null;
+                        })()}
+                        <OrderStatusBadge status={o.status} />
+                      </div>
                     </div>
 
                     {confirmCancel === o.order_id && (
@@ -1902,7 +1965,7 @@ function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder
                     )}
                   </div>
                 );
-              })}
+              })})()}
             </div>
           )}
         </div>
@@ -3249,8 +3312,8 @@ export default function TerminalPage() {
         allOrders.map(o => [o.order_id, o.status?.toUpperCase()])
       );
 
-      const openOrders = allOrders.filter(o => OPEN_STATUSES.has(o.status?.toUpperCase()));
-      setPanelOrders(openOrders);
+      // We show all today's orders in the sidebar so the user can see fills (Executed Prices)
+      setPanelOrders(allOrders);
     } catch { /* keep existing list on transient error */ }
     finally { setPanelOrdersLoading(false); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -3849,6 +3912,7 @@ export default function TerminalPage() {
             onModifyOrder={handleModifyPanelOrder}
             open={ordersOpen}
             setOpen={setOrdersOpen}
+            positions={positions}
           />
 
         </div>
