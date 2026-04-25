@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Settings, Eye, RefreshCw, Wifi, WifiOff, ChevronDown, ChevronUp, X } from 'lucide-react';
 import SetupZone        from './SetupZone';
 import DomPressureStrip from './DomPressureStrip';
+import BiasArbitration  from './BiasArbitration';
 
 // ── Colour maps ───────────────────────────────────────────────────────────────
 const STATE_COLORS = {
@@ -621,7 +622,10 @@ export default function ThirdEyePanel() {
         </div>
       )}
 
-      {/* ── Zone 5: Live market pressure (always-on DOM strip) ──────────── */}
+      {/* ── Zone 5: Bias Arbitration ──────────────────────────────────── */}
+      <BiasArbitration data={scanData?.biasArbitration ?? null} />
+
+      {/* ── Zone 6: Live market pressure (always-on DOM strip) ──────────── */}
       <DomPressureStrip underlying={underlying} devMode={isDevMode} />
 
       {/* ── Zone 6: Setups ────────────────────────────────────────────────── */}

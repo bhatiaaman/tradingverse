@@ -19,6 +19,7 @@ import { buildCommentary }                                  from '@/app/lib/thir
 import { getOptionsContext }                                from '@/app/lib/thirdEye-options';
 import { detectScalpSetup }                                 from '@/app/lib/thirdEye-scalp';
 import { getDomContext, getMockDomContext }                 from '@/app/lib/dom-context';
+import { runArbitration }                                   from '@/app/lib/bias-arbitration';
 import { getDataProvider }                                  from '@/app/lib/providers';
 import { sql }                                              from '@/app/lib/db';
 
@@ -253,6 +254,7 @@ function devModeResponse(execTf, underlying) {
       candleTime:     Math.floor(nowSec / 60) * 60, // changes every minute
       volumeSpike:    tick % 4 === 0,
       domVerdict:     process.env.DOM_ENABLED === 'true' ? getMockDomContext(dir) : null,
+      // (domVerdict attached to scalpSetup — arbitration computed separately below)
       ...(type === 'ORB'           ? { orHigh, orLow }                                  : {}),
       ...(type === 'ATR_EXPANSION' ? { atrExpansionHigh: spot + 40, atrExpansionLow: spot - 10 } : {}),
     },
@@ -262,6 +264,17 @@ function devModeResponse(execTf, underlying) {
     tf:          execTf,
     underlying,
     timestamp:   new Date().toISOString(),
+    biasArbitration: runArbitration({
+      engineResult: {
+        smoothedLong:  dir === 'bull' ? 72 : 28,
+        smoothedShort: dir === 'bull' ? 28 : 72,
+        side: dir,
+        features: { adx: 28, adxRising: true, rsi: dir === 'bull' ? 58 : 42, aboveEma9: dir === 'bull', aboveEma21: dir === 'bull' },
+      },
+      optionsCtx: { available: true, pcr: 0.92, callWall: strike + 100, putWall: strike - 100 },
+      domVerdict: process.env.DOM_ENABLED === 'true' ? getMockDomContext(dir) : null,
+      spot,
+    }),
   });
 }
 
@@ -438,6 +451,14 @@ export async function POST(req) {
     }
   }
 
+  // Bias arbitration — weighted consensus across all five engines
+  const biasArbitration = runArbitration({
+    engineResult,
+    optionsCtx: optionsCtx?.available !== false ? optionsCtx : null,
+    domVerdict,
+    spot,
+  });
+
   // Log scalp setup to signal_logs when a new one fires
   if (scalpSetup) {
     const isNewSignal = !prevState?.lastSignal ||
@@ -528,6 +549,7 @@ export async function POST(req) {
       isExpiryDay:  optionsCtx.isExpiryDay,
     } : { available: false },
     scalpSetup: scalpSetup ? { ...scalpSetup, domVerdict } : null,
+    biasArbitration,
     orHigh,
     orLow,
     marketHours: isMarketHours(),

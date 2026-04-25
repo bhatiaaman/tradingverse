@@ -254,6 +254,28 @@ function buildVerdict(snap, direction, entryPrice, targetPrice, vwap = null) {
   return { level: 'go', icon: '✅', confidence: conf, message: sigLine, bias: `${biasStr.replace(' bias', '')} (${conf.charAt(0).toUpperCase() + conf.slice(1)})`, context, meaning, implication, action, invalidation };
 }
 
+// ── Signed DOM score for arbitration (-10 to +10) ────────────────────────────
+// Mirrors computeScore in pressure/route.js but returns a signed value so the
+// arbitration engine can use it directly without needing the direction separately.
+export function scoreDomSnap(snap) {
+  const imbalance = snap.imbalance ?? 1.0;
+  const delta5m   = snap.delta5m   ?? 0;
+  const bullP = imbalance >= 1.6 && delta5m > 0;
+  const bearP = imbalance <= 0.63 && delta5m < 0;
+  const dir   = bullP ? 'bull' : bearP ? 'bear' : 'neutral';
+  if (dir === 'neutral') return 0;
+  const isBull   = dir === 'bull';
+  const effImb   = isBull ? imbalance : 1 / Math.max(imbalance, 0.01);
+  const effDelta = isBull ? delta5m : -delta5m;
+  const imbScore   = effImb >= 2.5 ? 3 : effImb >= 2.0 ? 2.5 : effImb >= 1.6 ? 2 : 1;
+  const deltaScore = effDelta > 5000 ? 3 : effDelta > 2000 ? 2 : effDelta > 500 ? 1 : 0;
+  const stackScore = (isBull ? snap.bidStacking === 'up' : snap.askStacking === 'up') ? 1.5 : 0;
+  const iceScore   = (isBull ? snap.icebergAsk : snap.icebergBid) ? 1 : 0;
+  const wallBonus  = (isBull && snap.icebergAsk) || (!isBull && snap.icebergBid) ? 0.5 : 0;
+  const raw = Math.min(10, imbScore + deltaScore + stackScore + iceScore + wallBonus);
+  return parseFloat((isBull ? raw : -raw).toFixed(1));
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 // token       — Kite instrument token (Nifty Fut, stock, etc.)
 // direction   — 'bull' | 'bear'
@@ -278,8 +300,9 @@ export async function getDomContext(token, direction, entryPrice = null, targetP
 
   return {
     ...verdict,
-    fresh: true,
-    ltp:   snap.ltp    ?? null,
+    fresh:    true,
+    ltp:      snap.ltp ?? null,
+    domScore: scoreDomSnap(snap),
     numbers: {
       imbalance:    snap.imbalance    ?? null,
       delta5m:      snap.delta5m      ?? null,
@@ -303,8 +326,9 @@ export function getMockDomContext(direction) {
     confidence: 'high',
     message:    `[DEV] ${isBull ? 'Bid stacking + Positive delta + VWAP support' : 'Ask stacking + Negative delta + VWAP resistance'} → Strong ${isBull ? 'bullish' : 'bearish'} bias`,
     detail:     `Above-average probability if structure holds · Scale in on confirmation · ❗ Bias flips if VWAP breaks with ${isBull ? 'negative' : 'positive'} delta`,
-    fresh:   true,
-    ltp:     24050,
+    fresh:    true,
+    domScore: isBull ? 7.5 : -7.5,
+    ltp:      24050,
     numbers: {
       imbalance:    isBull ? 2.1 : 0.46,
       delta5m:      isBull ? 8400 : -8400,
