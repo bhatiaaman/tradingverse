@@ -433,6 +433,7 @@ export async function POST(req) {
         scalpSetup.direction,
         scalpSetup.niftyPrice,
         scalpSetup.niftyTarget,
+        scalpSetup.vwap ?? null,
       );
     }
   }

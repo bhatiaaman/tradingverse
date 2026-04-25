@@ -268,14 +268,53 @@ async function buildInstrumentMap(apiKey, accessToken) {
   }
 }
 
+// Resolve near-month futures token from instruments CSV, update Redis cache.
+async function resolveFutToken(apiKey, accessToken, name, exchange) {
+  try {
+    const res = await fetch(`https://api.kite.trade/instruments/${exchange}`, {
+      headers: { 'X-Kite-Version': '3', Authorization: `token ${apiKey}:${accessToken}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const csv     = await res.text();
+    const lines   = csv.trim().split('\n');
+    const headers = lines[0].split(',');
+    const tokIdx  = headers.indexOf('instrument_token');
+    const nameIdx = headers.indexOf('name');
+    const typeIdx = headers.indexOf('instrument_type');
+    const expIdx  = headers.indexOf('expiry');
+    const today   = new Date(); today.setHours(0, 0, 0, 0);
+    let best = null;
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      if (cols[nameIdx]?.replace(/"/g,'').trim() !== name) continue;
+      if (cols[typeIdx]?.replace(/"/g,'').trim() !== 'FUT') continue;
+      const exp = cols[expIdx]?.replace(/"/g,'').trim();
+      if (!exp) continue;
+      const expiryDate = new Date(exp);
+      if (expiryDate < today) continue;
+      if (!best || expiryDate < new Date(best.expiry)) best = { token: parseInt(cols[tokIdx]), expiry: exp };
+    }
+    if (best) {
+      await redisSet(KEY.futToken(name), best.token, 6 * 3600);
+      console.log(`[bridge] ${name} Fut token: ${best.token} (expiry ${best.expiry})`);
+      return best.token;
+    }
+    console.warn(`[bridge] ${name} Fut: no near-month contract found`);
+  } catch (e) {
+    console.warn(`[bridge] ${name} Fut resolve failed: ${e.message}`);
+  }
+  return null;
+}
+
+const FUT_EXCHANGES = { NIFTY: 'NFO', SENSEX: 'BFO', BANKNIFTY: 'NFO' };
+
 async function resolveTokens(apiKey, accessToken) {
   const tokens = new Set();
 
-  // Always subscribe Nifty + Sensex + BankNifty futures
-  for (const name of ['NIFTY', 'SENSEX', 'BANKNIFTY']) {
-    const t = await redisGet(KEY.futToken(name));
-    if (t) { tokens.add(parseInt(t)); console.log(`[bridge] ${name} Fut token: ${t}`); }
-    else     console.warn(`[bridge] ${name} Fut token not in Redis — nifty-chart page must be loaded first`);
+  // Always subscribe Nifty + Sensex + BankNifty futures — resolve fresh from instruments CSV
+  for (const [name, exchange] of Object.entries(FUT_EXCHANGES)) {
+    const t = await resolveFutToken(apiKey, accessToken, name, exchange);
+    if (t) tokens.add(t);
   }
 
   // Intraday stock list
@@ -441,6 +480,30 @@ async function main() {
 
   // Flush snapshots to Redis every 5s
   setInterval(flushSnapshots, 5_000);
+
+  // Poll intraday watchlist every 5 min between 8:00–10:00 IST — picks up late additions
+  setInterval(async () => {
+    const istHour = (new Date(Date.now() + 5.5 * 3600 * 1000)).getUTCHours();
+    if (istHour < 8 || istHour >= 10) return;
+    const watchlist = await redisGet(KEY.intraday()) ?? [];
+    if (!watchlist.length || !ticker) return;
+    if (!instrumentMap) await buildInstrumentMap(
+      process.env.KITE_API_KEY || await redisGet(KEY.kiteApiKey()),
+      await redisGet(KEY.kiteToken()),
+    );
+    const fresh = [];
+    for (const stock of watchlist) {
+      const sym = (stock.symbol ?? '').replace(/['"]/g, '').trim().toUpperCase();
+      const tok = instrumentMap?.[sym];
+      if (tok && !subscribedSet.has(tok)) fresh.push(tok);
+    }
+    if (fresh.length) {
+      ticker.subscribe(fresh);
+      ticker.setMode(ticker.modeFull, fresh);
+      fresh.forEach(t => subscribedSet.add(t));
+      console.log('[bridge] Watchlist poll — subscribed new stocks:', fresh);
+    }
+  }, 5 * 60 * 1000);
 
   // Schedule daily 9 AM token rotation
   scheduleMorningRotation();

@@ -222,6 +222,37 @@ function getNiftyLevelAlerts(indices) {
     );
   }
 
+  function DomBridgeStatus() {
+    const [status, setStatus] = useState(null);
+    useEffect(() => {
+      let active = true;
+      const check = async () => {
+        try {
+          const res  = await fetch('/api/dom/status', { cache: 'no-store' });
+          const json = await res.json();
+          if (active) setStatus(json);
+        } catch { /* non-fatal */ }
+      };
+      check();
+      const t = setInterval(check, 30_000);
+      return () => { active = false; clearInterval(t); };
+    }, []);
+
+    if (!status || status.reason === 'disabled') return null;
+    const online = status.online;
+    return (
+      <div
+        className="flex items-center gap-1.5 text-xs"
+        title={online ? `DOM bridge live · last tick ${status.lastSeen}s ago` : 'DOM bridge offline — snapshots not updating'}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${online ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+        <span className={online ? 'text-emerald-500' : 'text-rose-500'}>
+          DOM {online ? 'Live' : 'Offline'}
+        </span>
+      </div>
+    );
+  }
+
   function BrokerStatusIndicator() {
     const { status, loading } = useProviderStatus();
 
@@ -1454,9 +1485,12 @@ function getNiftyLevelAlerts(indices) {
         {/* Sub-bar: Kite status + quick links */}
         <div className="border-b border-white/5 bg-[#060b14]">
           <div className="max-w-[1400px] mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between">
-            {/* Broker status — admin only */}
+            {/* Broker status + DOM bridge status — admin only */}
             {userRole === 'admin' ? (
-              <BrokerStatusIndicator />
+              <div className="flex items-center gap-3">
+                <BrokerStatusIndicator />
+                <DomBridgeStatus />
+              </div>
             ) : <div />}
 
             {/* Live ticker — Nifty · BankNifty · VIX */}

@@ -140,28 +140,56 @@ function SetupCard({ setup, onPlace, onSkip, placing, underlying }) {
       )}
 
       {/* DOM verdict */}
-      {setup.domVerdict && setup.domVerdict.level !== 'no-data' && (
-        <div className={`rounded px-2 py-1.5 space-y-0.5 ${
-          setup.domVerdict.level === 'go'      ? 'bg-emerald-900/25 border border-emerald-800/40' :
-          setup.domVerdict.level === 'wait'    ? 'bg-amber-900/25 border border-amber-800/40' :
-          setup.domVerdict.level === 'caution' ? 'bg-amber-900/20 border border-amber-900/30' :
-          setup.domVerdict.level === 'avoid'   ? 'bg-rose-900/25 border border-rose-800/40' :
-          'bg-slate-800/40 border border-slate-700/30'
-        }`}>
-          <div className={`text-[10px] font-semibold font-mono ${
-            setup.domVerdict.level === 'go'      ? 'text-emerald-300' :
-            setup.domVerdict.level === 'wait'    ? 'text-amber-300' :
-            setup.domVerdict.level === 'caution' ? 'text-amber-400' :
-            setup.domVerdict.level === 'avoid'   ? 'text-rose-300' :
-            'text-slate-500'
-          }`}>
-            {setup.domVerdict.icon} {setup.domVerdict.message}
+      {setup.domVerdict && setup.domVerdict.level !== 'no-data' && (() => {
+        const v = setup.domVerdict;
+        const levelColor = {
+          go:      { bg: 'bg-emerald-900/25 border-emerald-800/40', title: 'text-emerald-300' },
+          wait:    { bg: 'bg-amber-900/25 border-amber-800/40',     title: 'text-amber-300'   },
+          caution: { bg: 'bg-amber-900/20 border-amber-900/30',     title: 'text-amber-400'   },
+          avoid:   { bg: 'bg-rose-900/25 border-rose-800/40',       title: 'text-rose-300'    },
+        }[v.level] ?? { bg: 'bg-slate-800/40 border-slate-700/30', title: 'text-slate-500' };
+
+        return (
+          <div className={`rounded border px-2 py-2 space-y-1.5 ${levelColor.bg}`}>
+
+            {/* Row 1 — signal combo + confidence */}
+            <div className="flex items-start justify-between gap-2">
+              <p className={`text-[10px] font-semibold font-mono leading-snug ${levelColor.title}`}>
+                {v.icon} {v.message}
+              </p>
+              {v.confidence && (
+                <span className={`shrink-0 text-[9px] font-mono px-1.5 py-0.5 rounded font-bold ${
+                  v.confidence === 'high'   ? 'bg-amber-900/60 text-amber-300' :
+                  v.confidence === 'medium' ? 'bg-slate-700/60 text-slate-300' :
+                  'bg-slate-800/60 text-slate-500'
+                }`}>{v.confidence.toUpperCase()}</span>
+              )}
+            </div>
+
+            {/* Row 2 — Bias + Context */}
+            {(v.bias || v.context) && (
+              <div className="flex items-center gap-2 text-[9px] font-mono">
+                {v.bias    && <span className="text-slate-400">{v.bias}</span>}
+                {v.bias && v.context && <span className="text-slate-700">·</span>}
+                {v.context && <span className="text-slate-500">{v.context}</span>}
+              </div>
+            )}
+
+            {/* Rows 3–5 — Meaning / Implication / Action */}
+            <div className="space-y-0.5 text-[9px] font-mono text-slate-500">
+              {v.meaning    && <p><span className="text-slate-600">Meaning  </span>{v.meaning}</p>}
+              {v.implication && <p><span className="text-slate-600">→ </span>{v.implication}</p>}
+              {v.action     && <p><span className="text-slate-600">Action   </span>{v.action}</p>}
+            </div>
+
+            {/* Row 6 — Invalidation */}
+            {v.invalidation && (
+              <p className="text-[9px] font-mono text-amber-600/80">❗ {v.invalidation}</p>
+            )}
+
           </div>
-          {setup.domVerdict.detail && (
-            <div className="text-[9px] font-mono text-slate-500">{setup.domVerdict.detail}</div>
-          )}
-        </div>
-      )}
+        );
+      })()}
 
       {/* Qty + Place */}
       <div className="flex items-center gap-2">
