@@ -252,7 +252,7 @@ function devModeResponse(execTf, underlying) {
       sessionPhase:   'primary',
       candleTime:     Math.floor(nowSec / 60) * 60, // changes every minute
       volumeSpike:    tick % 4 === 0,
-      domVerdict:     getMockDomContext(dir),
+      domVerdict:     process.env.DOM_ENABLED === 'true' ? getMockDomContext(dir) : null,
       ...(type === 'ORB'           ? { orHigh, orLow }                                  : {}),
       ...(type === 'ATR_EXPANSION' ? { atrExpansionHigh: spot + 40, atrExpansionLow: spot - 10 } : {}),
     },
@@ -421,10 +421,11 @@ export async function POST(req) {
     orLow,
   );
 
-  // DOM context — read futures snapshot from Redis (written by VPS bridge every 5s).
-  // Non-blocking: if bridge is not running, getDomContext returns null gracefully.
+  // DOM context — only when DOM_ENABLED=true (requires VPS bridge running).
+  // Toggle via Vercel env var; silently skipped when off.
+  const DOM_ENABLED = process.env.DOM_ENABLED === 'true';
   let domVerdict = null;
-  if (scalpSetup) {
+  if (DOM_ENABLED && scalpSetup) {
     const futToken = await redisGet(FUT_TOKEN_KEY(FUTURES_NAME[underlying]));
     if (futToken) {
       domVerdict = await getDomContext(
