@@ -802,6 +802,72 @@ ${schema}`
         </div>
 
         <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-white/10">
+          {/* Simulated Portfolio Widget */}
+          {consolidated20.length > 0 && (
+            <div className="p-4 bg-slate-50/50 dark:bg-white/[0.01] border-b border-slate-100 dark:border-white/5">
+              {(() => {
+                const capital = 200000
+                const validStocks = consolidated20.map(s => {
+                  const quote = performanceData[s.symbol]
+                  let ref = null
+                  if (s.fridayClose) ref = Number(s.fridayClose)
+                  else if (s.referencePrice) ref = s.referencePrice
+                  else if (s.entryLow && s.entryHigh) ref = (s.entryLow + s.entryHigh) / 2
+                  else if (s.entryLow) ref = s.entryLow
+                  else if (s.entryZone) {
+                    const parts = s.entryZone.split(/[-–—/]/).map(p => parseFloat(p.replace(/[^0-9.]/g, '')))
+                    const nums = parts.filter(n => !isNaN(n))
+                    if (nums.length === 2) ref = (nums[0] + nums[1]) / 2
+                    else if (nums.length === 1) ref = nums[0]
+                  }
+                  const roi = (quote?.ltp && ref) ? ((quote.ltp - ref) / ref) * 100 : null
+                  return { ...s, roi }
+                }).filter(s => s.roi !== null)
+
+                const count = validStocks.length
+                const alloc = count > 0 ? capital / count : 0
+                const totalPnl = validStocks.reduce((acc, s) => acc + (alloc * (s.roi / 100)), 0)
+                const totalRoi = capital > 0 ? (totalPnl / capital) * 100 : 0
+                const isPositive = totalPnl >= 0
+
+                const isWeekend = typeof window !== 'undefined' && 
+                  ([0, 6].includes(new Date().getDay()) || new Date().getHours() >= 16)
+
+                if (count === 0) return (
+                  <div className="text-[10px] text-slate-400 text-center py-2 font-medium">
+                    Awaiting live LTPs to calculate return profile...
+                  </div>
+                )
+
+                return (
+                  <div className="bg-gradient-to-r from-violet-600/10 to-indigo-600/10 dark:from-violet-950/40 dark:to-indigo-950/40 border border-violet-500/20 dark:border-violet-800/30 rounded-xl p-3 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-violet-600 dark:text-violet-400 flex items-center gap-1">
+                        💼 Portfolio Simulation 
+                        {isWeekend && <span className="text-[8px] bg-violet-500/20 text-violet-400 border border-violet-500/30 px-1 rounded font-bold">WEEKEND REVIEW</span>}
+                      </span>
+                      <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500">Capital: ₹2L</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Current Value</div>
+                        <div className="text-xs font-mono font-black text-slate-900 dark:text-white">
+                          ₹{Math.round(capital + totalPnl).toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Return / P&L</div>
+                        <div className={`text-xs font-mono font-black ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                          {isPositive ? '+' : ''}{totalRoi.toFixed(2)}% (₹{Math.round(totalPnl).toLocaleString('en-IN')})
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+
           {consolidated20.length === 0 ? (
             <div className="p-4 text-center text-[10px] text-slate-500 italic">No consolidated stocks yet.</div>
           ) : (

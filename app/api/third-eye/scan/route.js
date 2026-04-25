@@ -178,6 +178,91 @@ function isExpiryDayForUnderlying(underlying) {
   return istDay === 4; // Thursday
 }
 
+// ── Dev-mode synthetic response (non-production only) ────────────────────────
+// Rotates through all 5 setup types every 60s, alternates direction, no Kite needed.
+function devModeResponse(execTf, underlying) {
+  const nowSec  = Math.floor(Date.now() / 1000);
+  const tick    = Math.floor(nowSec / 60); // increments every minute
+  const types   = ['VWAP_CROSS', 'PULLBACK_RESUME', 'POWER_CANDLE', 'ATR_EXPANSION', 'ORB'];
+  const type    = types[tick % types.length];
+  const dir     = tick % 2 === 0 ? 'bull' : 'bear';
+  const spot    = 24050 + (tick % 10) * 5;
+  const optType = dir === 'bull' ? 'CE' : 'PE';
+  const step    = underlying === 'SENSEX' ? 100 : 50;
+  const strike  = Math.round(spot / step) * step;
+  const orHigh  = spot - 20;
+  const orLow   = spot - 90;
+
+  return NextResponse.json({
+    state:          dir === 'bull' ? 'CONFIRMED_LONG' : 'CONFIRMED_SHORT',
+    side:           dir,
+    qualifier:      'strengthening',
+    longScore:      dir === 'bull' ? 72 : 28,
+    shortScore:     dir === 'bull' ? 28 : 72,
+    candlesInState: 4,
+    biasAlignment:  { aligned: true, label: 'aligned ↑', counter: false },
+    biasTfLabel:    '15m',
+    keyLevels:      { vwap: spot - 15, support: spot - 80, resistance: spot + 60 },
+    features: {
+      close:          spot,
+      vwap:           spot - 15,
+      vwapAbove:      dir === 'bull',
+      rsi:            dir === 'bull' ? 58 : 42,
+      adx:            28,
+      adxRising:      true,
+      atr:            35,
+      candleStrength: 1.1,
+      direction:      dir,
+      sessionPhase:   'primary',
+      atrExpansionHigh: spot + 40,
+      atrExpansionLow:  spot - 10,
+      volumeSpike:    tick % 4 === 0,
+    },
+    commentary: {
+      headline: `[DEV] ${type.replace(/_/g,' ')} — ${dir === 'bull' ? 'Bullish' : 'Bearish'}`,
+      context:  'Synthetic dev-mode data — Kite not called. Setup type rotates every minute.',
+      watch:    'Test place / skip / history. New setup fires on the next minute boundary.',
+      risk:     'Dev mode only — not connected to live market data.',
+    },
+    optionsCtx: {
+      pcr:           0.92,
+      pcrInfo:       { label: '0.92', bias: 'neutral' },
+      callWall:      strike + 100,
+      putWall:       strike - 100,
+      maxPain:       strike,
+      activityLabel: 'Moderate options activity (dev)',
+      isExpiryDay:   false,
+    },
+    scalpSetup: {
+      type,
+      label:          type.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase()),
+      direction:      dir,
+      optType,
+      strike,
+      confidence:     tick % 3 === 0 ? 'high' : 'medium',
+      niftyPrice:     spot,
+      niftyTarget:    parseFloat((spot + (dir === 'bull' ? 30 : -30)).toFixed(1)),
+      niftySl:        parseFloat((spot + (dir === 'bull' ? -30 :  30)).toFixed(1)),
+      slPts:          30,
+      targetPts:      30,
+      candleStrength: 1.1,
+      rsi:            dir === 'bull' ? 58 : 42,
+      vwap:           spot - 15,
+      sessionPhase:   'primary',
+      candleTime:     Math.floor(nowSec / 60) * 60, // changes every minute
+      volumeSpike:    tick % 4 === 0,
+      ...(type === 'ORB'           ? { orHigh, orLow }                                  : {}),
+      ...(type === 'ATR_EXPANSION' ? { atrExpansionHigh: spot + 40, atrExpansionLow: spot - 10 } : {}),
+    },
+    orHigh,
+    orLow,
+    marketHours: true,
+    tf:          execTf,
+    underlying,
+    timestamp:   new Date().toISOString(),
+  });
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 export async function POST(req) {
   const { session, error } = await requireSession();
@@ -198,6 +283,11 @@ export async function POST(req) {
   const execTf     = TF_PAIRS[body.tf] ? body.tf : '5minute';
   const tfConfig   = TF_PAIRS[execTf];
   const underlying = (body.underlying === 'SENSEX') ? 'SENSEX' : 'NIFTY';
+
+  // DEV MODE: return synthetic data without touching Kite (non-production only)
+  if (body.devMode && process.env.NODE_ENV !== 'production') {
+    return devModeResponse(execTf, underlying);
+  }
 
   // Load user settings (merged with defaults)
   const userSettings = await redisGet(SETTINGS_KEY) ?? {};
@@ -293,6 +383,16 @@ export async function POST(req) {
   // Build commentary
   const commentary = buildCommentary(engineResult, tfConfig.biasTfLabel);
 
+  // Compute Opening Range (9:15–9:44 IST = first 30 min, before 'primary' phase)
+  // Need at least 3 candles (15 min) for a valid range.
+  const istMinOfDay = (c) => Math.floor(((c.time + 19800) % 86400) / 60);
+  const orCandles   = todayExecCandles.filter(c => {
+    const m = istMinOfDay(c);
+    return m >= 555 && m < 585; // 9:15–9:44 IST (full 30-min opening range)
+  });
+  const orHigh = orCandles.length >= 3 ? Math.max(...orCandles.map(c => c.high)) : null;
+  const orLow  = orCandles.length >= 3 ? Math.min(...orCandles.map(c => c.low))  : null;
+
   // Scalp setup detection
   const strikeStep  = underlying === 'SENSEX' ? 100 : 50;
   const expiryDay   = isExpiryDayForUnderlying(underlying);
@@ -304,6 +404,9 @@ export async function POST(req) {
     strikeStep,
     underlying,
     expiryDay,
+    execTf,
+    orHigh,
+    orLow,
   );
 
   // Log scalp setup to signal_logs when a new one fires
@@ -390,6 +493,8 @@ export async function POST(req) {
       isExpiryDay:  optionsCtx.isExpiryDay,
     } : { available: false },
     scalpSetup,
+    orHigh,
+    orLow,
     marketHours: isMarketHours(),
     tf:          execTf,
     underlying,

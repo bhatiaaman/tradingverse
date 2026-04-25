@@ -71,8 +71,8 @@ function istHHMM(unixSec) {
 function sessionPhase(unixSec) {
   const t = istHHMM(unixSec);
   if (t < 915 || t >= 1530)  return 'closed';
-  if (t < 945)               return 'opening';   // 9:15–9:45
-  if (t < 1130)              return 'primary';   // 9:45–11:30
+  if (t < 930)               return 'opening';   // 9:15–9:30
+  if (t < 1130)              return 'primary';   // 9:30–11:30
   if (t < 1300)              return 'lull';      // 11:30–13:00
   if (t < 1500)              return 'secondary'; // 13:00–15:00
   return 'close';                                // 15:00–15:30

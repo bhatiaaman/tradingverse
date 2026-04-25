@@ -1954,7 +1954,7 @@ export default function OptionsPage() {
   // SELL: HIGH only — sell signals are structural, less time-sensitive
   const loggedSignalKeysRef = useRef(new Set());
   useEffect(() => {
-    if (!chainData || !isMarketHours()) return;
+    if (!chainData) return;
     const { buys, sells } = generateTradeDesk(chainData, straddleData);
     const toLog = [
       ...(buys  || []).map(o => ({ ...o, side: 'BUY'  })),                          // all BUY

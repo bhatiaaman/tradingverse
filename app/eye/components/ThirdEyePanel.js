@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Settings, Eye, RefreshCw, Wifi, WifiOff, ChevronDown, ChevronUp, X, TrendingUp, TrendingDown, Zap } from 'lucide-react';
+import { Settings, Eye, RefreshCw, Wifi, WifiOff, ChevronDown, ChevronUp, X } from 'lucide-react';
+import SetupZone from './SetupZone';
 
 // ── Colour maps ───────────────────────────────────────────────────────────────
 const STATE_COLORS = {
@@ -171,119 +172,6 @@ function SettingsFlyout({ settings, onClose, onSave }) {
   );
 }
 
-// ── Scalp trade card ──────────────────────────────────────────────────────────
-function ScalpCard({ setup, onPlace, onSkip, placing, placed, placedResult, underlying }) {
-  const defaultQty = underlying === 'SENSEX' ? 10 : 75;
-  const lotStep    = underlying === 'SENSEX' ? 10 : 25;
-  const [qty, setQty] = useState(defaultQty);
-  const isBull  = setup.direction === 'bull';
-  const accent  = isBull ? 'emerald' : 'rose';
-  const typeLabel = { VWAP_CROSS: 'VWAP Cross', POWER_CANDLE: 'Power Candle', PULLBACK_RESUME: 'Pullback Resume', ATR_EXPANSION: 'ATR Expansion' }[setup.type] ?? setup.type;
-
-  if (placed) {
-    return (
-      <div className={`rounded-lg border border-${accent}-600/50 bg-${accent}-950/60 px-3 py-2.5 space-y-1`}>
-        <div className="flex items-center gap-2">
-          <Zap size={12} className={`text-${accent}-400`} />
-          <span className={`text-xs font-bold text-${accent}-300`}>
-            {setup.optType} order placed
-          </span>
-        </div>
-        {placedResult?.symbol && (
-          <p className="text-[11px] font-mono text-slate-300">{placedResult.symbol}</p>
-        )}
-        {placedResult?.entryLimit && (
-          <div className="flex gap-4 text-[10px] font-mono text-slate-400">
-            <span>Entry ₹{placedResult.entryLimit}</span>
-            {placedResult.slTrigger && <span>SL ₹{placedResult.slTrigger}</span>}
-          </div>
-        )}
-        {placedResult?.slError && (
-          <p className="text-[10px] text-amber-400">{placedResult.slError}</p>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className={`rounded-lg border border-${accent}-600/40 bg-${accent}-950/50 px-3 py-2.5 space-y-2`}>
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {isBull
-            ? <TrendingUp  size={12} className="text-emerald-400" />
-            : <TrendingDown size={12} className="text-rose-400" />}
-          <span className={`text-xs font-bold text-${accent}-300`}>
-            {setup.optType} Scalp
-          </span>
-          <span className="text-[10px] font-mono text-slate-500">· {typeLabel}</span>
-          {setup.confidence === 'high' && (
-            <span className="text-[9px] px-1 py-0.5 rounded bg-amber-900/60 text-amber-300 font-mono">HIGH</span>
-          )}
-          {setup.volumeSpike && (
-            <span className="text-[9px] px-1 py-0.5 rounded bg-violet-900/60 text-violet-300 font-mono">⚡ Vol</span>
-          )}
-        </div>
-        <button onClick={onSkip} className="text-slate-600 hover:text-slate-400">
-          <X size={12} />
-        </button>
-      </div>
-
-      {/* Levels grid */}
-      <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
-        <div className="space-y-0.5">
-          <div className="text-slate-500">{underlying ?? 'Nifty'}</div>
-          <div className="text-slate-200 font-bold">{fmt(setup.niftyPrice, 0)}</div>
-        </div>
-        <div className="space-y-0.5">
-          <div className="text-emerald-500">Target +{setup.targetPts}</div>
-          <div className="text-emerald-300 font-bold">{fmt(setup.niftyTarget, 0)}</div>
-        </div>
-        <div className="space-y-0.5">
-          <div className="text-rose-500">SL -{setup.slPts}</div>
-          <div className="text-rose-300 font-bold">{fmt(setup.niftySl, 0)}</div>
-        </div>
-      </div>
-
-      {/* ATM strike */}
-      <div className="text-[10px] font-mono text-slate-500">
-        ATM {setup.strike} {setup.optType} · {setup.sessionPhase === 'primary' ? 'Primary window' : 'Secondary window'}
-      </div>
-
-      {/* ATR expansion zone — only for ATR_EXPANSION setups */}
-      {setup.type === 'ATR_EXPANSION' && setup.atrExpansionHigh != null && (
-        <div className="text-[10px] font-mono text-violet-400/80 bg-violet-900/20 rounded px-2 py-1">
-          Expansion zone {fmt(setup.atrExpansionLow, 0)} – {fmt(setup.atrExpansionHigh, 0)}
-          <span className="text-slate-500 ml-1">· wait for pullback or enter on momentum</span>
-        </div>
-      )}
-
-      {/* Qty + Place */}
-      <div className="flex items-center gap-2">
-        <span className="text-[10px] text-slate-500 shrink-0">Qty</span>
-        <input
-          type="number"
-          value={qty}
-          min={lotStep} step={lotStep}
-          onChange={e => setQty(Math.max(lotStep, parseInt(e.target.value) || lotStep))}
-          className="w-16 bg-slate-800 border border-slate-600 text-slate-200 text-xs font-mono rounded px-2 py-0.5 text-right"
-        />
-        <button
-          onClick={() => onPlace({ ...setup, qty })}
-          disabled={placing}
-          className={`flex-1 py-1.5 rounded text-xs font-bold transition-colors
-            ${isBull
-              ? 'bg-emerald-700 hover:bg-emerald-600 text-white'
-              : 'bg-rose-700   hover:bg-rose-600   text-white'}
-            disabled:opacity-50`}
-        >
-          {placing ? 'Placing…' : `BUY ${setup.optType}`}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 export default function ThirdEyePanel() {
   const [scanData,      setScanData]      = useState(null);
@@ -302,10 +190,12 @@ export default function ThirdEyePanel() {
   const [placing,       setPlacing]       = useState(false);
   const [placed,        setPlaced]        = useState(false);
   const [placedResult,  setPlacedResult]  = useState(null);
-  const [skippedCandle, setSkippedCandle] = useState(null); // candleTime of dismissed setup
+  const [skippedCandle, setSkippedCandle] = useState(null);
+  const [setupHistory,  setSetupHistory]  = useState([]); // last 5 fired signals
 
-  const scanTimer = useRef(null);
-  const tickTimer = useRef(null);
+  const scanTimer      = useRef(null);
+  const tickTimer      = useRef(null);
+  const prevScalpRef   = useRef(null); // tracks last seen candleTime for history dedup
 
   // ── Fetch settings ──────────────────────────────────────────────────────────
   const fetchSettings = useCallback(async () => {
@@ -338,10 +228,12 @@ export default function ThirdEyePanel() {
 
   const runScan = useCallback(async (activeTf, activeUnderlying) => {
     try {
+      const devMode = typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).has('dev');
       const res = await fetch('/api/third-eye/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tf: activeTf, underlying: activeUnderlying }),
+        body: JSON.stringify({ tf: activeTf, underlying: activeUnderlying, ...(devMode && { devMode: true }) }),
       });
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
@@ -364,19 +256,35 @@ export default function ThirdEyePanel() {
       setScanError(null);
       setLoading(false);
 
-      // Scalp setup: show card if new signal fired and user hasn't skipped this candle
+      // Scalp setup: track history when candleTime changes, then update card
       if (data.scalpSetup) {
-        setScalpSetup(prev => {
-          // Already showing a placed result for this candle — don't overwrite
-          if (placed && placedResult) return prev;
-          return data.scalpSetup;
-        });
-        // Clear placed state if a new candle's signal arrives
-        setPlaced(false);
-        setPlacedResult(null);
+        const newTime = data.scalpSetup.candleTime;
+        if (prevScalpRef.current !== newTime) {
+          // New candle fired a signal — archive the previous one
+          setScalpSetup(prev => {
+            if (prev) {
+              setSetupHistory(h =>
+                [{ ...prev, status: placed ? 'placed' : 'skipped' }, ...h].slice(0, 5)
+              );
+            }
+            return data.scalpSetup;
+          });
+          prevScalpRef.current = newTime;
+          setPlaced(false);
+          setPlacedResult(null);
+        }
+        // Same candle still active — don't overwrite (preserves placed state)
       } else {
-        // No setup from server — clear if candle has changed
-        setScalpSetup(null);
+        // Server sees no setup — if we had one and it's now gone, archive it
+        if (prevScalpRef.current != null) {
+          setScalpSetup(prev => {
+            if (prev && !placed) {
+              setSetupHistory(h => [{ ...prev, status: 'expired' }, ...h].slice(0, 5));
+            }
+            return null;
+          });
+          prevScalpRef.current = null;
+        }
       }
     } catch (err) {
       const msg = err.message ?? 'Network error';
@@ -398,7 +306,11 @@ export default function ThirdEyePanel() {
 
   // ── Polling setup ───────────────────────────────────────────────────────────
   // ── Trading window check (9:00–16:00 IST, Mon–Fri) ────────────────────────
+  const isDevMode = typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('dev');
+
   function isTradingWindow() {
+    if (isDevMode) return true;
     const ist  = new Date(Date.now() + 5.5 * 3600 * 1000);
     const day  = ist.getUTCDay(); // 0=Sun, 6=Sat
     if (day === 0 || day === 6) return false;
@@ -432,7 +344,7 @@ export default function ThirdEyePanel() {
           clearInterval(scanTimer.current);
           clearInterval(tickTimer.current);
         }
-      }, 30_000);
+      }, isDevMode ? 15_000 : 45_000);
 
       tickTimer.current = setInterval(() => {
         if (isTradingWindow()) runTick(underlying);
@@ -674,24 +586,9 @@ export default function ThirdEyePanel() {
         </div>
       )}
 
-      {/* ── Scalp trade card ─────────────────────────────────────────────── */}
-      {(scalpSetup || (placed && placedResult)) && (
-        <div className="px-3 py-2 border-b border-slate-700/30">
-          <ScalpCard
-            setup={scalpSetup ?? { ...placedResult, optType: placedResult?.optionType }}
-            onPlace={handlePlace}
-            onSkip={handleSkip}
-            placing={placing}
-            placed={placed}
-            placedResult={placedResult}
-            underlying={underlying}
-          />
-        </div>
-      )}
-
       {/* ── Zone 4: Options overlay ───────────────────────────────────────── */}
       {optCtx?.available !== false && (optCtx?.pcrInfo || optCtx?.callWall) && (
-        <div className="px-3 py-2 space-y-1">
+        <div className="px-3 py-2 border-b border-slate-700/30 space-y-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             {optCtx?.pcrInfo?.label && (
               <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
@@ -707,8 +604,6 @@ export default function ThirdEyePanel() {
               </span>
             )}
           </div>
-
-          {/* OI walls */}
           {(optCtx?.callWall || optCtx?.putWall) && (
             <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
               {optCtx?.callWall && <span>Call wall <span className="text-rose-400">{fmt(optCtx.callWall)}</span></span>}
@@ -716,18 +611,29 @@ export default function ThirdEyePanel() {
               {optCtx?.maxPain  && <span>Max pain <span className="text-amber-400">{fmt(optCtx.maxPain)}</span></span>}
             </div>
           )}
-
-          {/* Wall proximity alerts */}
           {commentary?.optionsLines?.map((line, i) => (
             <p key={i} className="text-[10px] text-amber-300">{line}</p>
           ))}
-
-          {/* Activity label */}
           {optCtx?.activityLabel && (
             <p className="text-[10px] text-slate-400 font-mono">{optCtx.activityLabel}</p>
           )}
         </div>
       )}
+
+      {/* ── Zone 5: Setups ────────────────────────────────────────────────── */}
+      <SetupZone
+        setup={scalpSetup}
+        sessionPhase={sessionPh}
+        placed={placed}
+        placedResult={placedResult}
+        placing={placing}
+        onPlace={handlePlace}
+        onSkip={handleSkip}
+        history={setupHistory}
+        underlying={underlying}
+        orHigh={scanData?.orHigh ?? null}
+        orLow={scanData?.orLow ?? null}
+      />
 
       {/* ── Outside trading window ───────────────────────────────────────── */}
       {!loading && !scanData && !scanError && !isTradingWindow() && (

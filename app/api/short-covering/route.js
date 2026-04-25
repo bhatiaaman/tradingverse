@@ -134,13 +134,14 @@ async function fetchOptionChain(dp, spot) {
 
   const quotes   = await dp.getQuote(opts.map(o => `NFO:${o.ts}`));
   const strikes  = {};
-  let totalCEOI  = 0, totalPEOI = 0;
+  let totalCEOI  = 0, totalPEOI = 0, totalOptVol = 0;
 
   for (const o of opts) {
     const q = quotes[`NFO:${o.ts}`];
     if (!q) continue;
     if (!strikes[o.strike]) strikes[o.strike] = {};
-    strikes[o.strike][o.type] = { oi: q.oi || 0, ltp: q.last_price || 0, ts: o.ts };
+    strikes[o.strike][o.type] = { oi: q.oi || 0, ltp: q.last_price || 0, ts: o.ts, volume: q.volume || 0 };
+    totalOptVol += (q.volume || 0);
     if (o.type === 'CE') totalCEOI += (q.oi || 0);
     else                  totalPEOI += (q.oi || 0);
   }
@@ -165,6 +166,7 @@ async function fetchOptionChain(dp, spot) {
     pcr: parseFloat(pcr.toFixed(2)),
     expiry: nearestExpiry,
     strikes,
+    totalOptVol,
   };
 }
 
@@ -248,23 +250,40 @@ function scoreFutOIDrop(snap, futOI, spot, candles = []) {
 }
 
 function scoreOptOIBonus(snap, chain) {
-  if (!snap || !chain?.atmPE || snap.atmPEOI == null) {
-    return { score: 0, hit: false, detail: 'No options OI snapshot' };
+  if (!snap || !chain?.strikes || snap.ceOI == null) {
+    return { score: 0, hit: false, detail: 'No options OI baseline' };
   }
-  const peFell = chain.atmPE.oi < snap.atmPEOI * 0.98; // ≥2% drop
-  if (peFell) {
-    const pct = ((chain.atmPE.oi - snap.atmPEOI) / snap.atmPEOI * 100).toFixed(1);
-    return { score: 1, hit: true, detail: `ATM PE OI ↓${Math.abs(pct)}% (shorts exiting puts)` };
+  
+  let currentCEOI = 0;
+  for (const [strikeStr, data] of Object.entries(chain.strikes)) {
+    const s = parseFloat(strikeStr);
+    if (s >= chain.atm && data.CE) currentCEOI += data.CE.oi;
   }
-  return { score: 0, hit: false, detail: 'ATM PE OI stable' };
+  
+  if (currentCEOI < snap.ceOI * 0.97) { // >=3% drop in Call OI above ATM
+    const pct = ((currentCEOI - snap.ceOI) / snap.ceOI * 100).toFixed(1);
+    return { score: 2, hit: true, detail: `ATM/OTM Call OI ↓${Math.abs(pct)}% (Short Covering in options)` };
+  }
+  
+  return { score: 0, hit: false, detail: 'Call OI stable above ATM' };
 }
 
-function scoreVolumeSpike(candles) {
-  if (candles.length < 6) return { score: 0, hit: false, detail: 'Insufficient candles' };
+function scoreVolumeSpike(candles, totalOptVol = 0) {
+  if (candles.length < 6) {
+    if (totalOptVol > 50000) {
+      return { score: 1, hit: true, detail: `Options volume elevated (${totalOptVol.toLocaleString()})` };
+    }
+    return { score: 0, hit: false, detail: 'Insufficient volume data' };
+  }
 
   const curr    = candles.at(-1);
   const prev10  = candles.slice(-11, -1);
   const avgVol  = prev10.reduce((s, c) => s + c.volume, 0) / Math.max(prev10.length, 1);
+
+  if (avgVol < 100 && totalOptVol > 100000) {
+    return { score: 2, hit: true, detail: `Options proxy volume elevated (${totalOptVol.toLocaleString()})` };
+  }
+
   if (avgVol < 100) return { score: 0, hit: false, detail: 'Volume too low to assess' };
 
   const mult    = curr.volume / avgVol;
@@ -414,14 +433,16 @@ export async function GET(request) {
     const vwapSeries = computeVWAP(candles);
     const vwapNow    = vwapSeries.at(-1)?.value ?? spot;
 
-    // 4. Load snapshot
-    const snap = await redisGet(SNAP_KEY);
+    // 4. Load daily persistent snapshot
+    const todayIST = new Date(Date.now() + IST_OFF_MS).toISOString().slice(0, 10);
+    const DAILY_SNAP_KEY = `${NS}:sc-snap:NIFTY:${todayIST}`;
+    let snap = await redisGet(DAILY_SNAP_KEY);
 
     // 5. Score each signal
     const sigVwap      = scoreVwapReclaim(candles, vwapSeries);
     const sigFutOI     = scoreFutOIDrop(snap, futOI, spot, candles);
     const sigOptOI     = scoreOptOIBonus(snap, chain);
-    const sigVolume    = scoreVolumeSpike(candles);
+    const sigVolume    = scoreVolumeSpike(candles, chain?.totalOptVol || 0);
     const sigStraddle  = scoreStraddleContraction(snap, chain, spot, candles);
     const sigPCR       = scorePCRSpike(snap, chain?.pcr ?? 0);
 
@@ -429,16 +450,20 @@ export async function GET(request) {
                   sigVolume.score + sigStraddle.score + sigPCR.score;
     const active = score >= SCORE_THRESHOLD;
 
-    // 6. Save new snapshot only if no snapshot exists or existing one is older than 45 mins
-    // This provides a STABLE baseline for price/OI divergence scoring.
-    // If we overwrite every session, the 'delta' is always zero.
-    const SNAP_REFRESH_THRESHOLD_MS = 45 * 60 * 1000;
-    const isStale = !snap || (Date.now() - snap.ts) > SNAP_REFRESH_THRESHOLD_MS;
-
-    if (isStale) {
-      const newSnap = {
+    // 6. Save baseline only if missing for today
+    if (!snap) {
+      let snapCEOI = 0;
+      if (chain?.strikes) {
+        for (const [strikeStr, data] of Object.entries(chain.strikes)) {
+          const s = parseFloat(strikeStr);
+          if (s >= chain.atm && data.CE) snapCEOI += data.CE.oi;
+        }
+      }
+      
+      snap = {
         spot,
         futOI,
+        ceOI:      snapCEOI,
         pcr:       chain?.pcr ?? 0,
         straddle:  chain ? (chain.atmCE?.ltp ?? 0) + (chain.atmPE?.ltp ?? 0) : null,
         atmCELTP:  chain?.atmCE?.ltp ?? null,
@@ -446,7 +471,7 @@ export async function GET(request) {
         atmPEOI:   chain?.atmPE?.oi  ?? null,
         ts:        Date.now(),
       };
-      redisSet(SNAP_KEY, newSnap, SNAP_TTL).catch(() => {});
+      redisSet(DAILY_SNAP_KEY, snap, 24 * 3600).catch(() => {});
     }
 
     // 7. Build trade suggestion if active
