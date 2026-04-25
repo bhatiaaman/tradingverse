@@ -139,6 +139,30 @@ function SetupCard({ setup, onPlace, onSkip, placing, underlying }) {
         </div>
       )}
 
+      {/* DOM verdict */}
+      {setup.domVerdict && setup.domVerdict.level !== 'no-data' && (
+        <div className={`rounded px-2 py-1.5 space-y-0.5 ${
+          setup.domVerdict.level === 'go'      ? 'bg-emerald-900/25 border border-emerald-800/40' :
+          setup.domVerdict.level === 'wait'    ? 'bg-amber-900/25 border border-amber-800/40' :
+          setup.domVerdict.level === 'caution' ? 'bg-amber-900/20 border border-amber-900/30' :
+          setup.domVerdict.level === 'avoid'   ? 'bg-rose-900/25 border border-rose-800/40' :
+          'bg-slate-800/40 border border-slate-700/30'
+        }`}>
+          <div className={`text-[10px] font-semibold font-mono ${
+            setup.domVerdict.level === 'go'      ? 'text-emerald-300' :
+            setup.domVerdict.level === 'wait'    ? 'text-amber-300' :
+            setup.domVerdict.level === 'caution' ? 'text-amber-400' :
+            setup.domVerdict.level === 'avoid'   ? 'text-rose-300' :
+            'text-slate-500'
+          }`}>
+            {setup.domVerdict.icon} {setup.domVerdict.message}
+          </div>
+          {setup.domVerdict.detail && (
+            <div className="text-[9px] font-mono text-slate-500">{setup.domVerdict.detail}</div>
+          )}
+        </div>
+      )}
+
       {/* Qty + Place */}
       <div className="flex items-center gap-2">
         <span className="text-[10px] text-slate-500 shrink-0">Qty</span>

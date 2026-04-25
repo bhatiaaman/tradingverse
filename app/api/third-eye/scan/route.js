@@ -18,6 +18,7 @@ import { runThirdEye, DEFAULT_CONFIG }                      from '@/app/lib/thir
 import { buildCommentary }                                  from '@/app/lib/thirdEye-commentary';
 import { getOptionsContext }                                from '@/app/lib/thirdEye-options';
 import { detectScalpSetup }                                 from '@/app/lib/thirdEye-scalp';
+import { getDomContext, getMockDomContext }                 from '@/app/lib/dom-context';
 import { getDataProvider }                                  from '@/app/lib/providers';
 import { sql }                                              from '@/app/lib/db';
 
@@ -251,6 +252,7 @@ function devModeResponse(execTf, underlying) {
       sessionPhase:   'primary',
       candleTime:     Math.floor(nowSec / 60) * 60, // changes every minute
       volumeSpike:    tick % 4 === 0,
+      domVerdict:     getMockDomContext(dir),
       ...(type === 'ORB'           ? { orHigh, orLow }                                  : {}),
       ...(type === 'ATR_EXPANSION' ? { atrExpansionHigh: spot + 40, atrExpansionLow: spot - 10 } : {}),
     },
@@ -419,6 +421,21 @@ export async function POST(req) {
     orLow,
   );
 
+  // DOM context — read futures snapshot from Redis (written by VPS bridge every 5s).
+  // Non-blocking: if bridge is not running, getDomContext returns null gracefully.
+  let domVerdict = null;
+  if (scalpSetup) {
+    const futToken = await redisGet(FUT_TOKEN_KEY(FUTURES_NAME[underlying]));
+    if (futToken) {
+      domVerdict = await getDomContext(
+        futToken,
+        scalpSetup.direction,
+        scalpSetup.niftyPrice,
+        scalpSetup.niftyTarget,
+      );
+    }
+  }
+
   // Log scalp setup to signal_logs when a new one fires
   if (scalpSetup) {
     const isNewSignal = !prevState?.lastSignal ||
@@ -508,7 +525,7 @@ export async function POST(req) {
       wallAlerts:   optionsCtx.wallAlerts,
       isExpiryDay:  optionsCtx.isExpiryDay,
     } : { available: false },
-    scalpSetup,
+    scalpSetup: scalpSetup ? { ...scalpSetup, domVerdict } : null,
     orHigh,
     orLow,
     marketHours: isMarketHours(),
