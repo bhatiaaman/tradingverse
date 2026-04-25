@@ -380,8 +380,18 @@ export async function POST(req) {
     return NextResponse.json({ error: engineResult.error, state: 'NEUTRAL' });
   }
 
+  // Track when the trend side was first established today (for CONTINUING commentary context).
+  // Set on first candle where side changes, preserved across scans, cleared on reversal.
+  const currentSide = engineResult.side ?? null;
+  const prevSide    = prevState?.trendSide ?? null;
+  const trendEstablishedAt = currentSide
+    ? (currentSide !== prevSide
+        ? (engineResult.features?.time ?? null)   // fresh direction — record this candle
+        : (prevState?.trendEstablishedAt ?? null)) // same direction — keep existing timestamp
+    : null;
+
   // Build commentary
-  const commentary = buildCommentary(engineResult, tfConfig.biasTfLabel);
+  const commentary = buildCommentary(engineResult, tfConfig.biasTfLabel, trendEstablishedAt);
 
   // Compute Opening Range (9:15–9:44 IST = first 30 min, before 'primary' phase)
   // Need at least 3 candles (15 min) for a valid range.
@@ -444,6 +454,8 @@ export async function POST(req) {
     lastSignal: scalpSetup
       ? { direction: scalpSetup.direction, candleTime: scalpSetup.candleTime }
       : (prevState?.lastSignal ?? null),
+    trendEstablishedAt,
+    trendSide: currentSide,
   };
   await redisSet(engineKey, stateToSave, 86400);
 
@@ -480,6 +492,10 @@ export async function POST(req) {
       aboveExpansion:   engineResult.features?.aboveExpansion,
       belowExpansion:   engineResult.features?.belowExpansion,
       volumeSpike:      engineResult.features?.volumeSpike,
+      ema9:             engineResult.features?.ema9,
+      ema21:            engineResult.features?.ema21,
+      aboveEma9:        engineResult.features?.aboveEma9,
+      aboveEma21:       engineResult.features?.aboveEma21,
     },
     commentary,
     optionsCtx: optionsCtx?.available ? {

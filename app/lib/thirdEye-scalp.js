@@ -166,7 +166,39 @@ export function detectScalpSetup(
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Setup 5: ORB — Opening Range Breakout  (primary + secondary + lull)
+  // Setup 5: MOMENTUM_DRIVE — first directional signal, no VWAP cross needed
+  // Catches gap-opens and trending markets where price never crossed VWAP
+  // (so VWAP_CROSS never fires). Gate: prevSignal must be null — fires ONCE
+  // as the first signal of the day, then steps aside for the other setups.
+  // ─────────────────────────────────────────────────────────────────────────
+  if (isPrimarySecondary(phase) && prevSignal == null && !BLOCKED_STATES.has(state)) {
+    const driveStates = new Set([
+      'BUILDING_LONG', 'CONFIRMED_LONG',
+      'BUILDING_SHORT', 'CONFIRMED_SHORT',
+    ]);
+    if (driveStates.has(state)) {
+      const direction = state.includes('LONG') ? 'bull' : 'bear';
+      const dirMatch  = features.direction === direction;
+
+      // Triple alignment: price must be above/below VWAP, 9 EMA, and 21 EMA.
+      // null means EMA not yet warmed up (early candles) — treat as passing.
+      const vwapSide  = features.vwapAbove  === (direction === 'bull');
+      const ema9Side  = features.aboveEma9  == null || features.aboveEma9  === (direction === 'bull');
+      const ema21Side = features.aboveEma21 == null || features.aboveEma21 === (direction === 'bull');
+
+      const rsiGate = features.rsi == null ||
+        (direction === 'bull' ? features.rsi <= 80 : features.rsi >= 20);
+
+      if (dirMatch && vwapSide && ema9Side && ema21Side &&
+          features.candleStrength >= 0.8 && rsiGate) {
+        const conf = (features.candleStrength >= 1.2 || features.volumeSpike) ? 'high' : 'medium';
+        return _buildSetup('MOMENTUM_DRIVE', 'Momentum Drive', direction, spot, features, conf, strikeStep);
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Setup 6: ORB — Opening Range Breakout  (primary + secondary + lull)
   // Fires after the opening range (9:15–9:45) is complete and price closes
   // above OR High (CE) or below OR Low (PE) with a strong directional candle.
   // OR must have at least 3 candles (15 min of data) to be valid.

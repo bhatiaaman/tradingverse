@@ -29,11 +29,12 @@ const SESSION_INFO = {
 };
 
 const TYPE_LABEL = {
-  VWAP_CROSS:     'VWAP Cross',
-  PULLBACK_RESUME:'Pullback Resume',
-  POWER_CANDLE:   'Power Candle',
-  ATR_EXPANSION:  'ATR Expansion',
-  ORB:            'OR Breakout',
+  VWAP_CROSS:      'VWAP Cross',
+  PULLBACK_RESUME: 'Pullback Resume',
+  POWER_CANDLE:    'Power Candle',
+  ATR_EXPANSION:   'ATR Expansion',
+  MOMENTUM_DRIVE:  'Momentum Drive',
+  ORB:             'OR Breakout',
 };
 
 // ── Placed result card ────────────────────────────────────────────────────────
@@ -233,7 +234,7 @@ export default function SetupZone({
           />
         ) : (
           <p className="text-[10px] text-slate-700 font-mono">
-            Watching · VWAP Cross · Power Candle · Pullback Resume · ATR Expansion · ORB
+            Watching · VWAP Cross · Momentum Drive · Power Candle · Pullback Resume · ATR Expansion · ORB
           </p>
         )}
       </div>

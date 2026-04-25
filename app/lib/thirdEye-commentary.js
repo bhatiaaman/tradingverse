@@ -20,6 +20,12 @@ function fmt(n, dec = 0) {
   return n.toLocaleString('en-IN', { maximumFractionDigits: dec });
 }
 
+function istHHMM(unixSec) {
+  if (!unixSec) return null;
+  const d = new Date((unixSec + 19800) * 1000);
+  return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
+}
+
 function rsiLabel(rsi) {
   if (rsi == null) return '';
   if (rsi >= 70)  return `RSI ${rsi} (overbought)`;
@@ -267,7 +273,7 @@ const TEMPLATES = {
 };
 
 // ── Main export ───────────────────────────────────────────────────────────────
-export function buildCommentary(engineResult, biasTf = '15m') {
+export function buildCommentary(engineResult, biasTf = '15m', trendEstablishedAt = null) {
   const {
     state, qualifier, candlesInState, features,
     biasAlignment, biasSummary, optionsCtx,
@@ -278,7 +284,7 @@ export function buildCommentary(engineResult, biasTf = '15m') {
 
   const templateFn = TEMPLATES[state] ?? TEMPLATES['NEUTRAL'];
 
-  const { headline, context, watch, risk } = templateFn({
+  let { headline, context, watch, risk } = templateFn({
     features,
     qualifier,
     candlesInState,
@@ -289,6 +295,13 @@ export function buildCommentary(engineResult, biasTf = '15m') {
     config,
     optionsCtx,
   });
+
+  // For CONTINUING states: append when the trend was first established so users
+  // loading the page mid-session understand why "continuation" is shown first.
+  if (trendEstablishedAt && (state === 'CONTINUING_LONG' || state === 'CONTINUING_SHORT')) {
+    const t = istHHMM(trendEstablishedAt);
+    if (t) headline = `${headline} · est. ${t}`;
+  }
 
   // Session note appended to context if relevant
   const sNote = sessionNote(features.sessionPhase);

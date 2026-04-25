@@ -105,6 +105,22 @@ function computeATR(candles, period = 14) {
   return out;
 }
 
+// ── EMA (price) ───────────────────────────────────────────────────────────────
+// Seeds with SMA of first `period` candles, then applies Wilder-style EMA.
+function computeEMA(candles, period) {
+  const n     = candles.length;
+  const out   = new Array(n).fill(null);
+  if (n < period) return out;
+  const alpha = 2 / (period + 1);
+  let ema = candles.slice(0, period).reduce((s, c) => s + c.close, 0) / period;
+  out[period - 1] = parseFloat(ema.toFixed(2));
+  for (let i = period; i < n; i++) {
+    ema = alpha * candles[i].close + (1 - alpha) * ema;
+    out[i] = parseFloat(ema.toFixed(2));
+  }
+  return out;
+}
+
 // ── Swing high/low (simple lookback) ─────────────────────────────────────────
 function recentSwings(candles, lookback = 20) {
   const slice = candles.slice(-lookback);
@@ -132,6 +148,8 @@ function computeFeatures(candles, config) {
   const rsiArr   = computeRSI(candles, 14);
   const adxData  = computeADX(candles, 14);
   const atrArr   = computeATR(candles, 14);
+  const ema9Arr  = computeEMA(candles, 9);
+  const ema21Arr = computeEMA(candles, 21);
 
   const vwap = vwapArr[n - 1]?.value ?? null;
   const rsi  = rsiArr[n - 1];
@@ -140,6 +158,8 @@ function computeFeatures(candles, config) {
   const mdi  = adxData.minusDI[n - 1];
   const atr  = atrArr[n - 1];
   const prevAtr = atrArr[n - 2];
+  const ema9  = ema9Arr[n - 1];
+  const ema21 = ema21Arr[n - 1];
 
   // ADX trend: look 3 candles back to determine rising/falling
   const adxPrev3 = adxData.adx[n - 4] ?? adxData.adx[n - 2];
@@ -231,6 +251,10 @@ function computeFeatures(candles, config) {
     aboveExpansion,
     belowExpansion,
     volumeSpike,
+    ema9:        ema9  != null ? parseFloat(ema9.toFixed(1))  : null,
+    ema21:       ema21 != null ? parseFloat(ema21.toFixed(1)) : null,
+    aboveEma9:   ema9  != null ? c.close > ema9  : null,
+    aboveEma21:  ema21 != null ? c.close > ema21 : null,
   };
 }
 
