@@ -806,8 +806,14 @@ ${schema}`
           {consolidated20.length > 0 && (
             <div className="p-4 bg-slate-50/50 dark:bg-white/[0.01] border-b border-slate-100 dark:border-white/5">
               {(() => {
-                const capital = 200000
-                const validStocks = consolidated20.map(s => {
+                let totalAllocated = 0
+                for (let i = 0; i < consolidated20.length; i++) {
+                  if (i < 8) totalAllocated += 20000
+                  else if (i < 15) totalAllocated += 15000
+                  else totalAllocated += 10000
+                }
+
+                const validStocks = consolidated20.map((s, idx) => {
                   const quote = performanceData[s.symbol]
                   let ref = null
                   if (s.fridayClose) ref = Number(s.fridayClose)
@@ -821,13 +827,18 @@ ${schema}`
                     else if (nums.length === 1) ref = nums[0]
                   }
                   const roi = (quote?.ltp && ref) ? ((quote.ltp - ref) / ref) * 100 : null
-                  return { ...s, roi }
+                  
+                  let alloc = 0
+                  if (idx < 8) alloc = 20000
+                  else if (idx < 15) alloc = 15000
+                  else alloc = 10000
+
+                  return { ...s, roi, alloc }
                 }).filter(s => s.roi !== null)
 
                 const count = validStocks.length
-                const alloc = count > 0 ? capital / count : 0
-                const totalPnl = validStocks.reduce((acc, s) => acc + (alloc * (s.roi / 100)), 0)
-                const totalRoi = capital > 0 ? (totalPnl / capital) * 100 : 0
+                const totalPnl = validStocks.reduce((acc, s) => acc + (s.alloc * (s.roi / 100)), 0)
+                const totalRoi = totalAllocated > 0 ? (totalPnl / totalAllocated) * 100 : 0
                 const isPositive = totalPnl >= 0
 
                 const isWeekend = typeof window !== 'undefined' && 
@@ -846,13 +857,15 @@ ${schema}`
                         💼 Portfolio Simulation 
                         {isWeekend && <span className="text-[8px] bg-violet-500/20 text-violet-400 border border-violet-500/30 px-1 rounded font-bold">WEEKEND REVIEW</span>}
                       </span>
-                      <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500">Capital: ₹2L</span>
+                      <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500">
+                        Capital: ₹{(totalAllocated / 100000).toFixed(2)}L
+                      </span>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Current Value</div>
                         <div className="text-xs font-mono font-black text-slate-900 dark:text-white">
-                          ₹{Math.round(capital + totalPnl).toLocaleString('en-IN')}
+                          ₹{Math.round(totalAllocated + totalPnl).toLocaleString('en-IN')}
                         </div>
                       </div>
                       <div className="text-right">
@@ -876,6 +889,7 @@ ${schema}`
                 <thead>
                   <tr className="bg-slate-50/50 dark:bg-white/[0.02]">
                     <th className="px-4 py-2 text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">Symbol</th>
+                    <th className="px-3 py-2 text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider text-center">Alloc</th>
                     <th className="px-3 py-2 text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider text-right">ROI %</th>
                   </tr>
                 </thead>
@@ -913,6 +927,14 @@ ${schema}`
                           <div className="text-[11px] font-black text-slate-700 dark:text-slate-300">{s.symbol}</div>
                           <div className={`text-[9px] font-mono ${isMidFallback ? 'text-amber-500/80' : 'text-slate-400 dark:text-slate-500'}`}>
                             {ref ? `${isMidFallback ? '🀄' : '🏁'} ${ref.toLocaleString('en-IN')}` : 'No Baseline'}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <div className="text-[10px] font-bold font-mono text-violet-500 dark:text-violet-400">
+                            ₹{idx < 8 ? '20K' : idx < 15 ? '15K' : '10K'}
+                          </div>
+                          <div className="text-[8px] text-slate-400 dark:text-slate-600 font-mono font-bold">
+                            #{idx + 1}
                           </div>
                         </td>
                         <td className="px-3 py-2.5 text-right">
