@@ -51,12 +51,13 @@ if (!REDIS_URL || !REDIS_TOKEN) {
 
 // ── Redis keys ────────────────────────────────────────────────────────────────
 const KEY = {
-  kiteToken:  () => `${NS}:kite:access_token`,
-  kiteApiKey: () => `${NS}:kite:api_key`,
-  futToken:   (name) => `${NS}:fut-token-${name}`,
-  snapshot:   (token) => `${NS}:dom:snapshot:${token}`,
-  wsAuthToken:(tok)   => `${NS}:dom:ws-token:${tok}`,
-  intraday:   () => {
+  kiteToken:   () => `${NS}:kite:access_token`,
+  kiteApiKey:  () => `${NS}:kite:api_key`,
+  futToken:    (name) => `${NS}:fut-token-${name}`,
+  snapshot:    (token) => `${NS}:dom:snapshot:${token}`,
+  stockToken:  (sym)   => `${NS}:dom:stock-token:${sym}`,
+  wsAuthToken: (tok)   => `${NS}:dom:ws-token:${tok}`,
+  intraday:    () => {
     const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
     return `${NS}:pre-market:intraday-watchlist:${ist.toISOString().slice(0, 10)}`;
   },
@@ -324,8 +325,13 @@ async function resolveTokens(apiKey, accessToken) {
     for (const stock of watchlist) {
       const sym = (stock.symbol ?? '').replace(/['"]/g, '').trim().toUpperCase();
       const tok = instrumentMap?.[sym];
-      if (tok) { tokens.add(tok); console.log(`[bridge] Stock ${sym}: ${tok}`); }
-      else       console.warn(`[bridge] Token not found for ${sym}`);
+      if (tok) {
+        tokens.add(tok);
+        await redisSet(KEY.stockToken(sym), tok, 86400); // symbol → token map, 24h TTL
+        console.log(`[bridge] Stock ${sym}: ${tok}`);
+      } else {
+        console.warn(`[bridge] Token not found for ${sym}`);
+      }
     }
   }
 
@@ -495,7 +501,10 @@ async function main() {
     for (const stock of watchlist) {
       const sym = (stock.symbol ?? '').replace(/['"]/g, '').trim().toUpperCase();
       const tok = instrumentMap?.[sym];
-      if (tok && !subscribedSet.has(tok)) fresh.push(tok);
+      if (tok && !subscribedSet.has(tok)) {
+        fresh.push(tok);
+        await redisSet(KEY.stockToken(sym), tok, 86400);
+      }
     }
     if (fresh.length) {
       ticker.subscribe(fresh);
