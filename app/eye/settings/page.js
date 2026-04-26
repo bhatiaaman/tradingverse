@@ -2,6 +2,99 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { X } from 'lucide-react';
+
+// ── DOM Subscriptions ─────────────────────────────────────────────────────────
+function DomSubscriptions() {
+  const [subs,   setSubs]   = useState([]);
+  const [input,  setInput]  = useState('');
+  const [adding, setAdding] = useState(false);
+  const [error,  setError]  = useState(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/dom/subscriptions', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => setSubs(d.subscriptions ?? []))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, []);
+
+  const add = async () => {
+    const sym = input.trim().toUpperCase();
+    if (!sym) return;
+    setAdding(true); setError(null);
+    try {
+      const res  = await fetch('/api/dom/subscriptions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: sym }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? 'Failed'); return; }
+      setSubs(data.subscriptions ?? []); setInput('');
+    } catch { setError('Network error'); }
+    finally { setAdding(false); }
+  };
+
+  const remove = async (sym) => {
+    const res  = await fetch(`/api/dom/subscriptions?symbol=${sym}`, { method: 'DELETE' });
+    const data = await res.json();
+    setSubs(data.subscriptions ?? []);
+  };
+
+  if (!loaded) return <p className="text-xs text-slate-600 animate-pulse">Loading…</p>;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-slate-500 leading-relaxed">
+        The DOM bridge subscribes to these stock symbols in addition to Nifty / BankNifty / Sensex futures.
+        Add a symbol here and the bridge picks it up within its next poll cycle (~60s).
+        Max 10 symbols.
+      </p>
+
+      {subs.length === 0 ? (
+        <p className="text-xs text-slate-700 font-mono">No stocks subscribed yet.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {subs.map(s => (
+            <div key={s.symbol} className="flex items-center gap-2 bg-[#0d1829] border border-white/[0.06] rounded-lg px-3 py-2">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${s.alive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-700'}`} />
+              <span className="text-sm font-mono font-semibold text-slate-200 flex-1">{s.symbol}</span>
+              {s.ltp != null && (
+                <span className="text-xs font-mono tabular-nums text-slate-400">₹{Number(s.ltp).toLocaleString('en-IN')}</span>
+              )}
+              <span className={`text-[10px] font-mono ${s.alive ? 'text-emerald-600' : 'text-slate-700'}`}>
+                {s.alive ? 'LIVE' : s.ageSeconds != null ? `${s.ageSeconds}s ago` : 'offline'}
+              </span>
+              <button onClick={() => remove(s.symbol)} className="text-slate-700 hover:text-rose-400 transition-colors ml-1">
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={input}
+          placeholder="e.g. HDFCBANK"
+          onChange={e => setInput(e.target.value.toUpperCase())}
+          onKeyDown={e => e.key === 'Enter' && add()}
+          className="flex-1 bg-[#060b14] border border-white/10 rounded-lg px-3 py-1.5 text-sm font-mono text-white placeholder:text-slate-700 focus:outline-none focus:border-indigo-500"
+        />
+        <button
+          onClick={add}
+          disabled={adding || !input.trim()}
+          className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-sm text-white font-semibold transition-colors"
+        >
+          {adding ? '…' : 'Add'}
+        </button>
+      </div>
+      {error && <p className="text-xs text-rose-400">{error}</p>}
+    </div>
+  );
+}
 
 // ── Setup catalogue ───────────────────────────────────────────────────────────
 // Each entry: id (matches cfg key), name, description, thresholds (editable params)
@@ -223,7 +316,7 @@ export default function EyeSettingsPage() {
           Eye
         </Link>
         <span className="text-white/20">/</span>
-        <span className="text-white font-semibold text-sm">Setup Settings</span>
+        <span className="text-white font-semibold text-sm">Third Eye Settings</span>
         <div className="flex-1" />
         {!loading && (
           <span className="text-xs text-slate-500">{enabledCount} / {SETUPS.length} enabled</span>
@@ -353,6 +446,20 @@ export default function EyeSettingsPage() {
               </div>
             );
           })
+        )}
+
+        {/* ── DOM Subscriptions ──────────────────────────────────────────────── */}
+        {!loading && (
+          <div className="mt-6 rounded-xl border border-white/[0.06] bg-[#090e18] overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/[0.04] flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-indigo-500" />
+              <span className="text-sm font-semibold text-white">DOM Stock Subscriptions</span>
+              <span className="text-[10px] font-mono text-slate-600 ml-1">requires DOM_ENABLED=true + bridge running</span>
+            </div>
+            <div className="px-4 py-3">
+              <DomSubscriptions />
+            </div>
+          </div>
         )}
       </div>
     </div>
