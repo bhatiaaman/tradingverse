@@ -3194,7 +3194,21 @@ export default function TerminalPage() {
   // Derived — memoized so useEffect deps get stable references
   const scannerSymbols      = useMemo(() => scannerStocks.map(s => s.symbol), [scannerStocks]);
   const activeWatchlist     = useMemo(
-    () => watchTab === 'S' ? scannerSymbols : (watchTab === 'W' ? weeklyStocks.list.map(s => s.symbol) : (watchTab === 'I' ? intradayStocks.list.map(s => s.symbol) : (watchTab === 'M' ? [] : (watchTab === 1 ? watchlist1 : watchlist2)))),
+    () => {
+      if (watchTab === 'S') return scannerSymbols;
+      if (watchTab === 'W') return weeklyStocks.list.map(s => s.symbol);
+      if (watchTab === 'I') {
+        const ai = intradayStocks.list?.aiBreakouts || [];
+        const exp = intradayStocks.list?.expertBreakouts || [];
+        const dict = {};
+        [...ai, ...exp].forEach(item => {
+          if (item.symbol) dict[item.symbol] = true;
+        });
+        return Object.keys(dict);
+      }
+      if (watchTab === 'M') return [];
+      return watchTab === 1 ? watchlist1 : watchlist2;
+    },
     [watchTab, scannerSymbols, watchlist1, watchlist2, weeklyStocks.list, intradayStocks.list]
   );
   const setActiveWatchlist  = watchTab === 1 ? setWatchlist1 : setWatchlist2;
