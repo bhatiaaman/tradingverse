@@ -6,25 +6,68 @@ import SetupZone        from './SetupZone';
 import DomPressureStrip from './DomPressureStrip';
 import BiasArbitration  from './BiasArbitration';
 
-// ── Colour maps ───────────────────────────────────────────────────────────────
+// ── State: text + badge only (bg/border now handled by glow system) ───────────
 const STATE_COLORS = {
-  BUILDING_LONG:       { bg: 'bg-emerald-950', border: 'border-emerald-700', text: 'text-emerald-300', badge: 'bg-emerald-900 text-emerald-200' },
-  CONFIRMED_LONG:      { bg: 'bg-emerald-950', border: 'border-emerald-500', text: 'text-emerald-200', badge: 'bg-emerald-700 text-emerald-100' },
-  CONTINUING_LONG:     { bg: 'bg-emerald-950', border: 'border-emerald-500', text: 'text-emerald-200', badge: 'bg-emerald-700 text-emerald-100' },
-  PULLBACK_LONG:       { bg: 'bg-amber-950',   border: 'border-amber-600',   text: 'text-amber-300',   badge: 'bg-amber-900 text-amber-100' },
-  DEEP_PULLBACK_LONG:  { bg: 'bg-amber-950',   border: 'border-amber-500',   text: 'text-amber-200',   badge: 'bg-amber-800 text-amber-100' },
-  EXHAUSTED_LONG:      { bg: 'bg-yellow-950',  border: 'border-yellow-600',  text: 'text-yellow-300',  badge: 'bg-yellow-900 text-yellow-100' },
-  BUILDING_SHORT:      { bg: 'bg-rose-950',    border: 'border-rose-700',    text: 'text-rose-300',    badge: 'bg-rose-900 text-rose-200' },
-  CONFIRMED_SHORT:     { bg: 'bg-rose-950',    border: 'border-rose-500',    text: 'text-rose-200',    badge: 'bg-rose-700 text-rose-100' },
-  CONTINUING_SHORT:    { bg: 'bg-rose-950',    border: 'border-rose-500',    text: 'text-rose-200',    badge: 'bg-rose-700 text-rose-100' },
-  PULLBACK_SHORT:      { bg: 'bg-amber-950',   border: 'border-amber-600',   text: 'text-amber-300',   badge: 'bg-amber-900 text-amber-100' },
-  DEEP_PULLBACK_SHORT: { bg: 'bg-amber-950',   border: 'border-amber-500',   text: 'text-amber-200',   badge: 'bg-amber-800 text-amber-100' },
-  EXHAUSTED_SHORT:     { bg: 'bg-yellow-950',  border: 'border-yellow-600',  text: 'text-yellow-300',  badge: 'bg-yellow-900 text-yellow-100' },
-  INVALIDATED:         { bg: 'bg-slate-900',   border: 'border-slate-600',   text: 'text-slate-300',   badge: 'bg-slate-700 text-slate-200' },
-  TRAPPED_LONG:        { bg: 'bg-orange-950',  border: 'border-orange-600',  text: 'text-orange-300',  badge: 'bg-orange-900 text-orange-100' },
-  TRAPPED_SHORT:       { bg: 'bg-orange-950',  border: 'border-orange-600',  text: 'text-orange-300',  badge: 'bg-orange-900 text-orange-100' },
-  RANGING:             { bg: 'bg-slate-900',   border: 'border-slate-600',   text: 'text-slate-300',   badge: 'bg-slate-700 text-slate-200' },
-  NEUTRAL:             { bg: 'bg-slate-900',   border: 'border-slate-700',   text: 'text-slate-400',   badge: 'bg-slate-800 text-slate-300' },
+  BUILDING_LONG:       { text: 'text-emerald-300', badge: 'bg-emerald-900/60 text-emerald-200' },
+  CONFIRMED_LONG:      { text: 'text-emerald-300', badge: 'bg-emerald-800/70 text-emerald-100' },
+  CONTINUING_LONG:     { text: 'text-emerald-300', badge: 'bg-emerald-800/70 text-emerald-100' },
+  PULLBACK_LONG:       { text: 'text-amber-300',   badge: 'bg-amber-900/60 text-amber-100'    },
+  DEEP_PULLBACK_LONG:  { text: 'text-amber-300',   badge: 'bg-amber-800/60 text-amber-100'    },
+  EXHAUSTED_LONG:      { text: 'text-yellow-300',  badge: 'bg-yellow-900/60 text-yellow-100'  },
+  BUILDING_SHORT:      { text: 'text-rose-300',    badge: 'bg-rose-900/60 text-rose-200'      },
+  CONFIRMED_SHORT:     { text: 'text-rose-300',    badge: 'bg-rose-800/70 text-rose-100'      },
+  CONTINUING_SHORT:    { text: 'text-rose-300',    badge: 'bg-rose-800/70 text-rose-100'      },
+  PULLBACK_SHORT:      { text: 'text-amber-300',   badge: 'bg-amber-900/60 text-amber-100'    },
+  DEEP_PULLBACK_SHORT: { text: 'text-amber-300',   badge: 'bg-amber-800/60 text-amber-100'    },
+  EXHAUSTED_SHORT:     { text: 'text-yellow-300',  badge: 'bg-yellow-900/60 text-yellow-100'  },
+  INVALIDATED:         { text: 'text-slate-300',   badge: 'bg-slate-700/60 text-slate-200'    },
+  TRAPPED_LONG:        { text: 'text-orange-300',  badge: 'bg-orange-900/60 text-orange-100'  },
+  TRAPPED_SHORT:       { text: 'text-orange-300',  badge: 'bg-orange-900/60 text-orange-100'  },
+  RANGING:             { text: 'text-slate-300',   badge: 'bg-slate-700/60 text-slate-200'    },
+  NEUTRAL:             { text: 'text-slate-400',   badge: 'bg-slate-800/60 text-slate-300'    },
+};
+
+// ── Radial glow bloom per state ───────────────────────────────────────────────
+// Charcoal base (#131722) + obsidian-style bloom from top center.
+const STATE_GLOW = {
+  BUILDING_LONG:       'radial-gradient(ellipse 90% 45% at 50% 0%, rgba(16,185,129,0.13) 0%, transparent 100%)',
+  CONFIRMED_LONG:      'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(16,185,129,0.18) 0%, transparent 100%)',
+  CONTINUING_LONG:     'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(16,185,129,0.16) 0%, transparent 100%)',
+  PULLBACK_LONG:       'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(245,158,11,0.13) 0%, transparent 100%)',
+  DEEP_PULLBACK_LONG:  'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(245,158,11,0.14) 0%, transparent 100%)',
+  EXHAUSTED_LONG:      'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(234,179,8,0.12) 0%, transparent 100%)',
+  BUILDING_SHORT:      'radial-gradient(ellipse 90% 45% at 50% 0%, rgba(244,63,94,0.13) 0%, transparent 100%)',
+  CONFIRMED_SHORT:     'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(244,63,94,0.18) 0%, transparent 100%)',
+  CONTINUING_SHORT:    'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(244,63,94,0.16) 0%, transparent 100%)',
+  PULLBACK_SHORT:      'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(245,158,11,0.13) 0%, transparent 100%)',
+  DEEP_PULLBACK_SHORT: 'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(245,158,11,0.14) 0%, transparent 100%)',
+  EXHAUSTED_SHORT:     'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(234,179,8,0.12) 0%, transparent 100%)',
+  INVALIDATED:         'none',
+  TRAPPED_LONG:        'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(249,115,22,0.13) 0%, transparent 100%)',
+  TRAPPED_SHORT:       'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(249,115,22,0.13) 0%, transparent 100%)',
+  RANGING:             'none',
+  NEUTRAL:             'none',
+};
+
+// ── Thin top accent strip per state ──────────────────────────────────────────
+const STATE_ACCENT_COLOR = {
+  BUILDING_LONG:       '#059669',
+  CONFIRMED_LONG:      '#10b981',
+  CONTINUING_LONG:     '#10b981',
+  PULLBACK_LONG:       '#f59e0b',
+  DEEP_PULLBACK_LONG:  '#d97706',
+  EXHAUSTED_LONG:      '#ca8a04',
+  BUILDING_SHORT:      '#e11d48',
+  CONFIRMED_SHORT:     '#f43f5e',
+  CONTINUING_SHORT:    '#f43f5e',
+  PULLBACK_SHORT:      '#f59e0b',
+  DEEP_PULLBACK_SHORT: '#d97706',
+  EXHAUSTED_SHORT:     '#ca8a04',
+  INVALIDATED:         '#475569',
+  TRAPPED_LONG:        '#f97316',
+  TRAPPED_SHORT:       '#f97316',
+  RANGING:             '#334155',
+  NEUTRAL:             '#1e293b',
 };
 
 const QUALIFIER_COLOR = {
@@ -36,14 +79,14 @@ const QUALIFIER_COLOR = {
 };
 
 const SESSION_BADGE = {
-  opening:      { label: 'Opening Range',    color: 'bg-amber-900 text-amber-200' },
-  primary:      { label: 'Primary Window',   color: 'bg-emerald-900 text-emerald-200' },
-  lull:         { label: 'Midday Lull',      color: 'bg-slate-700 text-slate-300' },
-  secondary:    { label: 'Secondary Window', color: 'bg-emerald-900 text-emerald-200' },
-  close:        { label: 'Square-off Zone',  color: 'bg-rose-900 text-rose-200' },
-  closed:       { label: 'Market Closed',    color: 'bg-slate-800 text-slate-400' },
-  waiting:      { label: 'Waiting for open…',color: 'bg-slate-800 text-slate-500' },
-  disconnected: { label: 'Kite Disconnected',color: 'bg-rose-950 text-rose-400' },
+  opening:      { label: 'Opening',      title: 'Opening Range',      color: 'bg-amber-950/80 border border-amber-800/40 text-amber-300' },
+  primary:      { label: 'Primary',      title: 'Primary Window',     color: 'bg-emerald-950/80 border border-emerald-800/40 text-emerald-300' },
+  lull:         { label: 'Lull',         title: 'Midday Lull',        color: 'bg-slate-800/80 border border-slate-700/40 text-slate-400' },
+  secondary:    { label: 'Secondary',    title: 'Secondary Window',   color: 'bg-emerald-950/80 border border-emerald-800/40 text-emerald-300' },
+  close:        { label: 'Square-off',   title: 'Square-off Zone',    color: 'bg-rose-950/80 border border-rose-800/40 text-rose-300' },
+  closed:       { label: 'Closed',       title: 'Market Closed',      color: 'bg-slate-800/80 border border-slate-700/40 text-slate-500' },
+  waiting:      { label: 'Waiting…',     title: 'Waiting for open',   color: 'bg-slate-800/80 border border-slate-700/40 text-slate-500' },
+  disconnected: { label: 'Disconnected', title: 'Kite Disconnected',  color: 'bg-rose-950/80 border border-rose-800/40 text-rose-400' },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -51,6 +94,42 @@ function stateLabel(state) {
   return (state ?? 'NEUTRAL')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function marketStateDescription(state, biasAlign) {
+  const s      = state ?? 'NEUTRAL';
+  const isLong  = s.includes('LONG');
+  const isShort = s.includes('SHORT');
+  const aligned = biasAlign?.aligned;
+  const counter = biasAlign?.counter;
+
+  const htfBull = (isLong && aligned) || (isShort && counter);
+  const htfBear = (isShort && aligned) || (isLong && counter);
+  const trend   = htfBull ? 'Uptrend' : htfBear ? 'Downtrend' : null;
+
+  let phase;
+  if      (s === 'CONFIRMED_LONG'  || s === 'BUILDING_LONG'  || s === 'CONTINUING_LONG')
+    phase = htfBull ? 'Momentum Phase'    : 'Counter Rally';
+  else if (s === 'PULLBACK_LONG')
+    phase = htfBull ? 'Pullback'          : 'Dead-cat Bounce';
+  else if (s === 'DEEP_PULLBACK_LONG')
+    phase = htfBull ? 'Deep Pullback'     : 'Failed Rally';
+  else if (s === 'EXHAUSTED_LONG')
+    phase = 'Bullish Exhaustion';
+  else if (s === 'CONFIRMED_SHORT' || s === 'BUILDING_SHORT' || s === 'CONTINUING_SHORT')
+    phase = htfBear ? 'Momentum Phase'    : 'Counter Sell';
+  else if (s === 'PULLBACK_SHORT')
+    phase = htfBear ? 'Bounce / Pullback' : 'Failed Breakdown';
+  else if (s === 'DEEP_PULLBACK_SHORT')
+    phase = htfBear ? 'Deep Bounce'       : 'Failed Breakdown';
+  else if (s === 'EXHAUSTED_SHORT')
+    phase = 'Bearish Exhaustion';
+  else if (s === 'TRAPPED_LONG')  phase = 'Long Squeeze';
+  else if (s === 'TRAPPED_SHORT') phase = 'Short Squeeze';
+  else if (s === 'RANGING')       phase = 'Range Bound';
+  else return stateLabel(s);
+
+  return trend ? `${trend} · ${phase}` : phase;
 }
 
 function fmt(n, dec = 0) {
@@ -65,49 +144,27 @@ function elapsed(candlesInState, tf) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
-function scoreBarWidth(score) {
-  return `${Math.max(2, Math.min(100, score ?? 0))}%`;
-}
-
 // ── Settings schema ───────────────────────────────────────────────────────────
 const SETTINGS_SCHEMA = [
-  { key: 'activeTf',               label: 'Chart TF',              type: 'select', options: [{ v: '5minute', l: '5m → 15m bias' }, { v: '15minute', l: '15m → 1hr bias' }] },
-  { key: 'adxStrong',              label: 'ADX strong trend',       type: 'number', min: 15, max: 40 },
-  { key: 'adxForming',             label: 'ADX trend forming',      type: 'number', min: 10, max: 30 },
-  { key: 'rsiBull',                label: 'RSI bull zone (above)',  type: 'number', min: 50, max: 80 },
-  { key: 'rsiBear',                label: 'RSI bear zone (below)',  type: 'number', min: 20, max: 50 },
-  { key: 'candleStrengthImpulsive',label: 'Candle strength impulse',type: 'number', min: 0.5, max: 3, step: 0.1 },
-  { key: 'confirmationCandles',    label: 'Confirmation candles',   type: 'number', min: 1, max: 4 },
-  { key: 'scoreSmoothing',         label: 'Score smoothing (EMA)',  type: 'number', min: 1, max: 5 },
-  { key: 'staleGuardCandles',      label: 'Stale guard candles',    type: 'number', min: 4, max: 20 },
-  { key: 'buildingThreshold',      label: 'Building threshold',     type: 'number', min: 40, max: 70 },
-  { key: 'confirmedThreshold',     label: 'Confirmed threshold',    type: 'number', min: 50, max: 80 },
-  { key: 'optionsOverlay',         label: 'Options overlay',        type: 'boolean' },
-  { key: 'sessionGateOpening',     label: 'Opening session gate',   type: 'select', options: [{ v: 'suppress', l: 'Suppress' }, { v: 'warn', l: 'Warn only' }, { v: 'allow', l: 'Allow' }] },
-  { key: 'sessionGateLull',        label: 'Lull session gate',      type: 'select', options: [{ v: 'suppress', l: 'Suppress' }, { v: 'warn', l: 'Warn only' }, { v: 'allow', l: 'Allow' }] },
+  { key: 'activeTf',               label: 'Chart TF',               type: 'select', options: [{ v: '5minute', l: '5m → 15m bias' }, { v: '15minute', l: '15m → 1hr bias' }] },
+  { key: 'adxStrong',              label: 'ADX strong trend',        type: 'number', min: 15, max: 40 },
+  { key: 'adxForming',             label: 'ADX trend forming',       type: 'number', min: 10, max: 30 },
+  { key: 'rsiBull',                label: 'RSI bull zone (above)',   type: 'number', min: 50, max: 80 },
+  { key: 'rsiBear',                label: 'RSI bear zone (below)',   type: 'number', min: 20, max: 50 },
+  { key: 'candleStrengthImpulsive',label: 'Candle strength impulse', type: 'number', min: 0.5, max: 3, step: 0.1 },
+  { key: 'confirmationCandles',    label: 'Confirmation candles',    type: 'number', min: 1, max: 4 },
+  { key: 'scoreSmoothing',         label: 'Score smoothing (EMA)',   type: 'number', min: 1, max: 5 },
+  { key: 'staleGuardCandles',      label: 'Stale guard candles',     type: 'number', min: 4, max: 20 },
+  { key: 'buildingThreshold',      label: 'Building threshold',      type: 'number', min: 40, max: 70 },
+  { key: 'confirmedThreshold',     label: 'Confirmed threshold',     type: 'number', min: 50, max: 80 },
+  { key: 'optionsOverlay',         label: 'Options overlay',         type: 'boolean' },
+  { key: 'sessionGateOpening',     label: 'Opening session gate',    type: 'select', options: [{ v: 'suppress', l: 'Suppress' }, { v: 'warn', l: 'Warn only' }, { v: 'allow', l: 'Allow' }] },
+  { key: 'sessionGateLull',        label: 'Lull session gate',       type: 'select', options: [{ v: 'suppress', l: 'Suppress' }, { v: 'warn', l: 'Warn only' }, { v: 'allow', l: 'Allow' }] },
 ];
-
-// ── Score bar ─────────────────────────────────────────────────────────────────
-function ScoreBar({ label, score, color }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs font-mono text-slate-400 w-10">{label}</span>
-      <div className="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden">
-        <div
-          className={`h-2 rounded-full transition-all duration-700 ${color}`}
-          style={{ width: scoreBarWidth(score) }}
-        />
-      </div>
-      <span className="text-xs font-mono font-bold w-7 text-right text-slate-200">
-        {score ?? '—'}
-      </span>
-    </div>
-  );
-}
 
 // ── Settings flyout ───────────────────────────────────────────────────────────
 function SettingsFlyout({ settings, onClose, onSave }) {
-  const [local, setLocal] = useState(settings ?? {});
+  const [local,  setLocal]  = useState(settings ?? {});
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -118,10 +175,13 @@ function SettingsFlyout({ settings, onClose, onSave }) {
   };
 
   return (
-    <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-sm rounded-xl overflow-y-auto p-4">
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-sm font-semibold text-white">Third Eye Settings</span>
-        <button onClick={onClose} className="text-slate-400 hover:text-white">
+    <div className="absolute inset-0 z-50 bg-[#0e1218]/97 backdrop-blur-sm rounded-xl overflow-y-auto p-4">
+      <div className="flex items-center justify-between mb-5">
+        <div className="space-y-0.5">
+          <span className="text-sm font-semibold text-white">Third Eye Settings</span>
+          <p className="text-[10px] font-mono text-slate-500">Engine parameters</p>
+        </div>
+        <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
           <X size={16} />
         </button>
       </div>
@@ -129,11 +189,15 @@ function SettingsFlyout({ settings, onClose, onSave }) {
       <div className="space-y-3">
         {SETTINGS_SCHEMA.map(({ key, label, type, options, min, max, step }) => (
           <div key={key} className="flex items-center justify-between gap-3">
-            <span className="text-xs text-slate-300 flex-1">{label}</span>
+            <span className="text-[11px] text-slate-400 flex-1">{label}</span>
             {type === 'boolean' ? (
               <button
                 onClick={() => setLocal(p => ({ ...p, [key]: !p[key] }))}
-                className={`px-2 py-0.5 rounded text-xs font-mono ${local[key] ? 'bg-emerald-800 text-emerald-200' : 'bg-slate-700 text-slate-400'}`}
+                className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold border transition-colors ${
+                  local[key]
+                    ? 'bg-emerald-950 border-emerald-700/50 text-emerald-300'
+                    : 'bg-[#1c2030] border-slate-600/40 text-slate-500'
+                }`}
               >
                 {local[key] ? 'ON' : 'OFF'}
               </button>
@@ -141,7 +205,7 @@ function SettingsFlyout({ settings, onClose, onSave }) {
               <select
                 value={local[key] ?? ''}
                 onChange={e => setLocal(p => ({ ...p, [key]: e.target.value }))}
-                className="bg-slate-800 border border-slate-600 text-slate-200 text-xs rounded px-2 py-0.5"
+                className="bg-[#1c2030] border border-slate-600/40 text-slate-200 text-xs rounded-lg px-2 py-0.5 focus:outline-none focus:border-slate-500"
               >
                 {options.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
               </select>
@@ -151,22 +215,26 @@ function SettingsFlyout({ settings, onClose, onSave }) {
                 value={local[key] ?? ''}
                 min={min} max={max} step={step ?? 1}
                 onChange={e => setLocal(p => ({ ...p, [key]: parseFloat(e.target.value) }))}
-                className="bg-slate-800 border border-slate-600 text-slate-200 text-xs rounded px-2 py-0.5 w-20 text-right"
+                className="bg-[#1c2030] border border-slate-600/40 text-slate-200 text-xs rounded-lg px-2 py-0.5 w-20 text-right focus:outline-none focus:border-slate-500"
               />
             )}
           </div>
         ))}
       </div>
 
-      <div className="flex gap-2 mt-4">
+      <div className="flex gap-2 mt-5">
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex-1 bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-semibold py-1.5 rounded disabled:opacity-50"
+          className="flex-1 text-white text-xs font-semibold py-2 rounded-lg disabled:opacity-50 transition-all"
+          style={{ background: 'linear-gradient(135deg, #3730a3 0%, #4f46e5 100%)' }}
         >
-          {saving ? 'Saving…' : 'Save'}
+          {saving ? 'Saving…' : 'Save Settings'}
         </button>
-        <button onClick={onClose} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs rounded">
+        <button
+          onClick={onClose}
+          className="px-4 py-2 bg-[#1c2030] hover:bg-[#252b3b] text-slate-300 text-xs rounded-lg transition-colors"
+        >
           Cancel
         </button>
       </div>
@@ -184,22 +252,21 @@ export default function ThirdEyePanel() {
   const [showSettings,  setShowSettings]  = useState(false);
   const [showDetails,   setShowDetails]   = useState(false);
   const [tf,            setTf]            = useState('5minute');
-  const [underlying,    setUnderlying]    = useState('NIFTY'); // 'NIFTY' | 'SENSEX'
-  // scanError: null | { message: string, isAuth: boolean }
+  const [underlying,    setUnderlying]    = useState('NIFTY');
   const [scanError,     setScanError]     = useState(null);
-  // Scalp trade state
   const [scalpSetup,    setScalpSetup]    = useState(null);
   const [placing,       setPlacing]       = useState(false);
   const [placed,        setPlaced]        = useState(false);
   const [placedResult,  setPlacedResult]  = useState(null);
   const [skippedCandle, setSkippedCandle] = useState(null);
-  const [setupHistory,  setSetupHistory]  = useState([]); // last 5 fired signals
+  const [setupHistory,  setSetupHistory]  = useState([]);
+  const [scoreTrend,    setScoreTrend]    = useState(null);
 
-  const scanTimer      = useRef(null);
-  const tickTimer      = useRef(null);
-  const prevScalpRef   = useRef(null); // tracks last seen candleTime for history dedup
+  const scanTimer        = useRef(null);
+  const tickTimer        = useRef(null);
+  const prevScalpRef     = useRef(null);
+  const prevArbScoreRef  = useRef(null);
 
-  // ── Fetch settings ──────────────────────────────────────────────────────────
   const fetchSettings = useCallback(async () => {
     try {
       const res  = await fetch('/api/third-eye/settings');
@@ -210,7 +277,6 @@ export default function ThirdEyePanel() {
     } catch { /* silent */ }
   }, []);
 
-  // ── Save settings ───────────────────────────────────────────────────────────
   const saveSettings = useCallback(async (newSettings) => {
     try {
       const res = await fetch('/api/third-eye/settings', {
@@ -225,7 +291,6 @@ export default function ThirdEyePanel() {
     } catch { /* silent */ }
   }, []);
 
-  // ── Scan ────────────────────────────────────────────────────────────────────
   const AUTH_RE = /token|expired|reconnect|credential|unauthori[sz]ed|invalid.*access/i;
 
   const runScan = useCallback(async (activeTf, activeUnderlying) => {
@@ -245,8 +310,6 @@ export default function ThirdEyePanel() {
         return;
       }
       const data = await res.json();
-      // A 200 can carry an error field (e.g. stale token → "No candle data").
-      // Don't overwrite last good scanData — preserve scores/state while error shows.
       if (data.error) {
         const msg = data.error;
         setScanError({ message: msg, isAuth: AUTH_RE.test(msg) });
@@ -258,11 +321,16 @@ export default function ThirdEyePanel() {
       setScanError(null);
       setLoading(false);
 
-      // Scalp setup: track history when candleTime changes, then update card
+      const newScore = data.biasArbitration?.finalScore ?? null;
+      if (newScore != null && prevArbScoreRef.current != null) {
+        const diff = newScore - prevArbScoreRef.current;
+        setScoreTrend(diff > 0.4 ? 'up' : diff < -0.4 ? 'down' : 'flat');
+      }
+      prevArbScoreRef.current = newScore;
+
       if (data.scalpSetup) {
         const newTime = data.scalpSetup.candleTime;
         if (prevScalpRef.current !== newTime) {
-          // New candle fired a signal — archive the previous one
           setScalpSetup(prev => {
             if (prev) {
               setSetupHistory(h =>
@@ -275,9 +343,7 @@ export default function ThirdEyePanel() {
           setPlaced(false);
           setPlacedResult(null);
         }
-        // Same candle still active — don't overwrite (preserves placed state)
       } else {
-        // Server sees no setup — if we had one and it's now gone, archive it
         if (prevScalpRef.current != null) {
           setScalpSetup(prev => {
             if (prev && !placed) {
@@ -296,7 +362,6 @@ export default function ThirdEyePanel() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skippedCandle]);
 
-  // ── Tick ────────────────────────────────────────────────────────────────────
   const runTick = useCallback(async (activeUnderlying) => {
     try {
       const res = await fetch(`/api/third-eye/tick?underlying=${activeUnderlying}`);
@@ -306,26 +371,21 @@ export default function ThirdEyePanel() {
     } catch { /* silent */ }
   }, []);
 
-  // ── Polling setup ───────────────────────────────────────────────────────────
-  // ── Trading window check (9:00–16:00 IST, Mon–Fri) ────────────────────────
   const isDevMode = typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).has('dev');
 
   function isTradingWindow() {
     if (isDevMode) return true;
     const ist  = new Date(Date.now() + 5.5 * 3600 * 1000);
-    const day  = ist.getUTCDay(); // 0=Sun, 6=Sat
+    const day  = ist.getUTCDay();
     if (day === 0 || day === 6) return false;
     const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-    return mins >= 540 && mins < 960; // 09:00–16:00
+    return mins >= 540 && mins < 960;
   }
 
-  useEffect(() => {
-    fetchSettings();
-  }, [fetchSettings]);
+  useEffect(() => { fetchSettings(); }, [fetchSettings]);
 
   useEffect(() => {
-    // Reset display state when underlying switches
     setScanData(null);
     setLtp(null);
     setScalpSetup(null);
@@ -357,7 +417,6 @@ export default function ThirdEyePanel() {
       startPolling();
     } else {
       setLoading(false);
-      // Check every 60s — start polling automatically when market opens
       wakeupTimer = setInterval(() => {
         if (isTradingWindow()) {
           clearInterval(wakeupTimer);
@@ -374,7 +433,6 @@ export default function ThirdEyePanel() {
     };
   }, [tf, underlying, runScan, runTick]);
 
-  // ── Place scalp order ───────────────────────────────────────────────────────
   const handlePlace = useCallback(async (setup) => {
     setPlacing(true);
     try {
@@ -400,7 +458,6 @@ export default function ThirdEyePanel() {
     }
   }, []);
 
-  // ── Skip setup ──────────────────────────────────────────────────────────────
   const handleSkip = useCallback(() => {
     setSkippedCandle(scalpSetup?.candleTime ?? null);
     setScalpSetup(null);
@@ -411,6 +468,8 @@ export default function ThirdEyePanel() {
   // ── Derived values ──────────────────────────────────────────────────────────
   const state      = scanData?.state ?? 'NEUTRAL';
   const colors     = STATE_COLORS[state] ?? STATE_COLORS.NEUTRAL;
+  const glow       = STATE_GLOW[state]   ?? 'none';
+  const accentColor = STATE_ACCENT_COLOR[state] ?? '#1e293b';
   const commentary = scanData?.commentary;
   const features   = scanData?.features;
   const keyLevels  = scanData?.keyLevels;
@@ -425,11 +484,30 @@ export default function ThirdEyePanel() {
   const ltpDisplay = ltp?.ltp ?? features?.close;
   const vwapVal    = keyLevels?.vwap ?? features?.vwap;
 
+  const structNet  = scanData ? (scanData.longScore ?? 50) - (scanData.shortScore ?? 50) : null;
+  const structPct  = structNet != null ? Math.min(50, Math.abs(structNet) * 0.5) : 0;
+  const structBull = structNet != null && structNet >= 0;
+  const structGrad = structBull
+    ? 'linear-gradient(to right, #065f46, #34d399)'
+    : 'linear-gradient(to left, #9f1239, #fb7185)';
+
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className={`relative rounded-xl border ${colors.border} ${colors.bg} text-sm overflow-hidden flex flex-col`}>
+    <div className="relative rounded-xl border border-slate-700/25 bg-[#131722] text-sm overflow-hidden flex flex-col">
 
-      {/* ── Settings overlay ─────────────────────────────────────────────── */}
+      {/* ── Obsidian state glow bloom (absolute, behind content) ────────────── */}
+      <div
+        className="absolute top-0 left-0 right-0 h-48 pointer-events-none z-0 transition-all duration-1000"
+        style={{ background: glow }}
+      />
+
+      {/* ── Top accent strip ────────────────────────────────────────────────── */}
+      <div
+        className="absolute top-0 left-0 right-0 h-[2.5px] z-10 transition-all duration-700"
+        style={{ background: `linear-gradient(to right, transparent 0%, ${accentColor}cc 30%, ${accentColor} 50%, ${accentColor}cc 70%, transparent 100%)` }}
+      />
+
+      {/* ── Settings overlay ────────────────────────────────────────────────── */}
       {showSettings && settings && (
         <SettingsFlyout
           settings={settings}
@@ -438,140 +516,176 @@ export default function ThirdEyePanel() {
         />
       )}
 
-      {/* ── Header ───────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700/50">
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
+      <div className="relative z-10 flex items-center justify-between px-3 py-2.5 border-b border-white/[0.05]">
         <div className="flex items-center gap-2 flex-wrap">
-          <Eye size={14} className={colors.text} />
-          <span className={`text-xs font-bold tracking-wide ${colors.text}`}>THIRD EYE</span>
-          {/* Nifty / Sensex toggle */}
-          <div className="flex items-center rounded overflow-hidden border border-slate-700 text-[10px] font-mono">
+          <Eye size={13} className={`${colors.text} opacity-80`} />
+          <span className="text-[10px] font-mono font-bold tracking-[0.2em] text-slate-400 uppercase">
+            Third Eye
+          </span>
+          {/* Underlying toggle */}
+          <div className="flex items-center rounded-lg overflow-hidden border border-slate-700/40 text-[10px] font-mono">
             <button
               onClick={() => setUnderlying('NIFTY')}
-              className={`px-2 py-0.5 transition-colors ${underlying === 'NIFTY' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+              className={`px-2.5 py-0.5 transition-colors ${underlying === 'NIFTY' ? 'bg-indigo-600/80 text-white' : 'bg-[#1c2030]/60 text-slate-500 hover:text-slate-300'}`}
             >NIFTY</button>
             <button
               onClick={() => setUnderlying('SENSEX')}
-              className={`px-2 py-0.5 transition-colors ${underlying === 'SENSEX' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+              className={`px-2.5 py-0.5 transition-colors ${underlying === 'SENSEX' ? 'bg-indigo-600/80 text-white' : 'bg-[#1c2030]/60 text-slate-500 hover:text-slate-300'}`}
             >SENSEX</button>
           </div>
-          <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${sessBadge.color}`}>
+          {/* Session badge */}
+          <span
+            className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-semibold ${sessBadge.color}`}
+            title={sessBadge.title}
+          >
             {sessBadge.label}
           </span>
-          {/* TF badge */}
-          <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-slate-800 text-slate-400">
-            {tf === '5minute' ? '5m/15m' : '15m/1hr'}
-          </span>
+          {/* TF toggle — clickable, saves a trip to settings */}
+          <div className="flex items-center rounded-lg overflow-hidden border border-slate-700/40 text-[10px] font-mono">
+            <button
+              onClick={() => { setTf('5minute'); saveSettings({ ...settings, activeTf: '5minute' }); }}
+              className={`px-2 py-0.5 transition-colors ${tf === '5minute' ? 'bg-indigo-600/80 text-white' : 'bg-[#1c2030]/60 text-slate-500 hover:text-slate-300'}`}
+              title="5-minute candles, 15-minute trend bias"
+            >5m</button>
+            <button
+              onClick={() => { setTf('15minute'); saveSettings({ ...settings, activeTf: '15minute' }); }}
+              className={`px-2 py-0.5 transition-colors ${tf === '15minute' ? 'bg-indigo-600/80 text-white' : 'bg-[#1c2030]/60 text-slate-500 hover:text-slate-300'}`}
+              title="15-minute candles, 1-hour trend bias"
+            >15m</button>
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Connection indicator */}
           {scanData?.marketHours !== undefined && (
             scanData.marketHours
-              ? <Wifi size={12} className="text-emerald-400" />
-              : <WifiOff size={12} className="text-slate-600" />
+              ? <Wifi size={11} className="text-emerald-500/60" />
+              : <WifiOff size={11} className="text-slate-700" />
           )}
-          {loading && <RefreshCw size={12} className="text-slate-500 animate-spin" />}
+          {loading && <RefreshCw size={11} className="text-slate-600 animate-spin" />}
           <button
             onClick={() => setShowSettings(true)}
-            className="text-slate-500 hover:text-slate-200 transition-colors"
+            className="text-slate-600 hover:text-slate-300 transition-colors"
             title="Third Eye Settings"
           >
-            <Settings size={13} />
+            <Settings size={12} />
           </button>
         </div>
       </div>
 
-      {/* ── Tier 1: State strip (label + price only) ─────────────────────── */}
-      <div className="px-3 py-2 border-b border-slate-700/30 space-y-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`text-xs font-bold uppercase tracking-wide ${colors.text}`}>
-            {stateLabel(state)}
-          </span>
-          {scanData?.qualifier && scanData.qualifier !== 'neutral' && (
-            <span className={`text-[10px] font-mono ${qualColor}`}>· {scanData.qualifier}</span>
-          )}
+      {/* ── Tier 1: State — hero section ────────────────────────────────────── */}
+      <div className="relative z-10 px-3 py-3 border-b border-white/[0.04] space-y-2">
+
+        {/* State label + qualifier + live price */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-0.5 min-w-0">
+            <span className={`text-sm font-bold leading-tight block ${colors.text}`}>
+              {marketStateDescription(state, biasAlign)}
+            </span>
+            {scanData?.qualifier && scanData.qualifier !== 'neutral' && (
+              <span className={`text-[10px] font-mono ${qualColor}`}>· {scanData.qualifier}</span>
+            )}
+          </div>
           {ltpDisplay && (
-            <span className="text-slate-300 font-bold text-[10px] font-mono ml-auto">{fmt(ltpDisplay, 1)}</span>
+            <div className="shrink-0 text-right">
+              <span className="text-[15px] font-bold tabular-nums text-slate-100 leading-tight">
+                {fmt(ltpDisplay, 1)}
+              </span>
+            </div>
           )}
         </div>
-        <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
+
+        {/* VWAP · time in state · bias alignment */}
+        <div className="flex items-center gap-3 flex-wrap text-[10px] font-mono text-slate-500">
           {vwapVal && (
-            <span title="Volume Weighted Average Price — today's average price weighted by volume. Price above VWAP = buyers in control. Price below = sellers in control.">
-              VWAP {fmt(vwapVal, 0)}
+            <span title="Volume Weighted Average Price — price above VWAP = buyers in control.">
+              VWAP <span className="text-slate-400 tabular-nums">{fmt(vwapVal, 0)}</span>
             </span>
           )}
           {scanData?.candlesInState != null && (
-            <span title="Time the engine has been in this state. Resets each time the market bias changes — not from session open.">
-              {elapsed(scanData.candlesInState, tf)} in state
+            <span title="Time the engine has been in this state. Resets each time the market bias changes.">
+              <span className="tabular-nums">{elapsed(scanData.candlesInState, tf)}</span> in state
             </span>
           )}
           {biasAlign && state !== 'NEUTRAL' && state !== 'RANGING' && (
-            <span className={biasAlign.aligned ? 'text-emerald-400' : biasAlign.counter ? 'text-rose-400' : 'text-slate-500'}>
+            <span className={
+              biasAlign.aligned ? 'text-emerald-500' :
+              biasAlign.counter ? 'text-rose-500'    : 'text-slate-500'
+            }>
               {biasTf} {biasAlign.label}
             </span>
           )}
         </div>
 
-        {/* Structure conviction bar — net long minus short score, center-origin */}
-        {scanData && (() => {
-          const net  = (scanData.longScore ?? 50) - (scanData.shortScore ?? 50);
-          const pct  = Math.min(50, Math.abs(net) * 0.5);
-          const bull = net >= 0;
-          return (
-            <div
-              className="flex items-center gap-2 pt-0.5"
-              title="Market structure conviction — how strongly candle patterns, VWAP position, and EMA stacking favour bulls vs bears. Score is -100 (full bear) to +100 (full bull). Bar fills right (green) for bullish, left (red) for bearish. Can diverge from Bias Arbitration if DOM or options disagree with price structure."
-            >
-              <span className="text-[9px] font-mono text-slate-600 w-14 shrink-0">Structure</span>
-              <div className="relative flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                <div className="absolute inset-y-0 w-px bg-slate-600/50" style={{ left: '50%' }} />
-                {net !== 0 && (
-                  <div
-                    className={`absolute inset-y-0 transition-all duration-700 ${bull ? 'bg-emerald-500' : 'bg-rose-500'}`}
-                    style={bull ? { left: '50%', width: `${pct}%` } : { right: '50%', width: `${pct}%` }}
-                  />
-                )}
-              </div>
-              <span className={`text-[9px] font-mono w-7 text-right shrink-0 tabular-nums ${bull ? 'text-emerald-400' : net < 0 ? 'text-rose-400' : 'text-slate-500'}`}>
-                {net > 0 ? '+' : ''}{net}
-              </span>
+        {/* Structure conviction bar */}
+        {structNet != null && (
+          <div
+            className="flex items-center gap-2"
+            title="Market structure conviction — candle patterns, VWAP position, and EMA stacking. -100 (full bear) to +100 (full bull)."
+          >
+            <span className="text-[9px] font-mono text-slate-600 w-14 shrink-0 uppercase tracking-[0.1em]">Structure</span>
+            <div className="relative flex-1 bg-white/[0.05] rounded-full overflow-hidden h-2">
+              <div className="absolute inset-y-0 w-px bg-white/10" style={{ left: '50%' }} />
+              {structNet !== 0 && (
+                <div
+                  className="absolute inset-y-0 transition-all duration-700"
+                  style={{
+                    background: structGrad,
+                    ...(structBull
+                      ? { left: '50%',                 width: `${structPct}%` }
+                      : { right: `${50 - structPct}%`, width: `${structPct}%` }),
+                  }}
+                />
+              )}
             </div>
-          );
-        })()}
+            <span className={`text-[9px] font-mono w-7 text-right shrink-0 tabular-nums font-semibold ${structBull ? 'text-emerald-400' : structNet < 0 ? 'text-rose-400' : 'text-slate-500'}`}>
+              {structNet > 0 ? '+' : ''}{structNet}
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* ── Tier 2: Analysis details (collapsed by default) ──────────────── */}
-      <div className="border-b border-slate-700/30">
+      {/* ── Tier 2: Analysis details (collapsed) ────────────────────────────── */}
+      <div className="relative z-10 border-b border-white/[0.04]">
         <button
           onClick={() => setShowDetails(p => !p)}
-          className="w-full px-3 py-1.5 flex items-center justify-between text-[10px] font-mono text-slate-600 hover:text-slate-400 transition-colors"
+          className="w-full px-3 py-1.5 flex items-center justify-between text-[9px] font-mono text-slate-600 hover:text-slate-400 transition-colors uppercase tracking-[0.12em]"
         >
-          <span>Analysis details</span>
+          <span>Analysis Details</span>
           {showDetails ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
         </button>
 
         {showDetails && (
-          <div className="pb-2 space-y-3">
+          <div className="pb-3 space-y-3">
 
             {/* Indicators */}
             {features && (
-              <div className="px-3 flex items-center gap-3 text-[10px] font-mono text-slate-500">
+              <div className="px-3 flex items-center gap-3 flex-wrap text-[10px] font-mono">
                 {features.adx != null && (
-                  <span className={features.adx >= 25 ? 'text-indigo-400' : features.adx >= 20 ? 'text-slate-400' : 'text-slate-600'}>
-                    ADX {features.adx}{features.adxRising ? '↑' : ''}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-600 uppercase tracking-[0.1em] text-[9px]">ADX</span>
+                    <span className={`font-bold tabular-nums ${features.adx >= 25 ? 'text-indigo-400' : features.adx >= 20 ? 'text-slate-300' : 'text-slate-600'}`}>
+                      {features.adx}{features.adxRising ? '↑' : ''}
+                    </span>
+                  </div>
                 )}
                 {features.rsi != null && (
-                  <span className={features.rsi >= 60 ? 'text-emerald-400' : features.rsi <= 40 ? 'text-rose-400' : 'text-slate-500'}>
-                    RSI {features.rsi}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-600 uppercase tracking-[0.1em] text-[9px]">RSI</span>
+                    <span className={`font-bold tabular-nums ${features.rsi >= 60 ? 'text-emerald-400' : features.rsi <= 40 ? 'text-rose-400' : 'text-slate-400'}`}>
+                      {features.rsi}
+                    </span>
+                  </div>
                 )}
                 {features.candleStrength != null && (
-                  <span className={features.candleStrength >= 1.2 ? 'text-amber-400' : 'text-slate-600'}>
-                    CS {features.candleStrength.toFixed(1)}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-600 uppercase tracking-[0.1em] text-[9px]">CS</span>
+                    <span className={`font-bold tabular-nums ${features.candleStrength >= 1.2 ? 'text-amber-400' : 'text-slate-500'}`}>
+                      {features.candleStrength.toFixed(1)}
+                    </span>
+                  </div>
                 )}
                 {features.direction && (
-                  <span className={features.direction === 'bull' ? 'text-emerald-500' : features.direction === 'bear' ? 'text-rose-500' : 'text-slate-600'}>
+                  <span className={`text-xs ${features.direction === 'bull' ? 'text-emerald-500' : features.direction === 'bear' ? 'text-rose-500' : 'text-slate-600'}`}>
                     {features.direction === 'bull' ? '▲' : features.direction === 'bear' ? '▼' : '—'}
                   </span>
                 )}
@@ -580,18 +694,18 @@ export default function ThirdEyePanel() {
 
             {/* Commentary */}
             {commentary && (
-              <div className="px-3 space-y-1.5">
+              <div className="px-3 space-y-2">
                 <p className={`text-xs font-semibold ${colors.text}`}>{commentary.headline}</p>
                 <p className="text-[11px] text-slate-400 leading-relaxed">{commentary.context}</p>
                 {commentary.watch && (
-                  <div className="flex gap-1.5 items-start">
-                    <span className="text-[10px] font-semibold text-indigo-400 shrink-0 mt-0.5">WATCH</span>
+                  <div className="flex gap-2 items-start bg-indigo-950/30 border border-indigo-900/30 rounded-lg px-2.5 py-1.5">
+                    <span className="text-[9px] font-bold text-indigo-400 shrink-0 mt-0.5 uppercase tracking-[0.1em]">Watch</span>
                     <span className="text-[11px] text-slate-300 leading-relaxed">{commentary.watch}</span>
                   </div>
                 )}
                 {commentary.risk && (
-                  <div className="flex gap-1.5 items-start">
-                    <span className="text-[10px] font-semibold text-rose-400 shrink-0 mt-0.5">RISK</span>
+                  <div className="flex gap-2 items-start bg-rose-950/20 border border-rose-900/20 rounded-lg px-2.5 py-1.5">
+                    <span className="text-[9px] font-bold text-rose-500 shrink-0 mt-0.5 uppercase tracking-[0.1em]">Risk</span>
                     <span className="text-[11px] text-slate-300 leading-relaxed">{commentary.risk}</span>
                   </div>
                 )}
@@ -600,32 +714,32 @@ export default function ThirdEyePanel() {
 
             {/* Options */}
             {optCtx?.available !== false && (optCtx?.pcrInfo || optCtx?.callWall) && (
-              <div className="px-3 space-y-1">
+              <div className="px-3 space-y-1.5">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {optCtx?.pcrInfo?.label && (
-                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                      optCtx.pcrInfo.bias === 'bullish' ? 'bg-emerald-900/60 text-emerald-300' :
-                      optCtx.pcrInfo.bias === 'bearish' ? 'bg-rose-900/60 text-rose-300' :
-                      'bg-slate-800 text-slate-400'}`}>
+                    <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border font-semibold ${
+                      optCtx.pcrInfo.bias === 'bullish' ? 'bg-emerald-950/60 border-emerald-800/40 text-emerald-300' :
+                      optCtx.pcrInfo.bias === 'bearish' ? 'bg-rose-950/60 border-rose-800/40 text-rose-300' :
+                      'bg-[#1c2030] border-slate-700/40 text-slate-400'}`}>
                       PCR {optCtx.pcrInfo.label}
                     </span>
                   )}
                   {optCtx?.isExpiryDay && (
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300">Expiry Day</span>
+                    <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800/40 text-amber-300 font-semibold">Expiry Day</span>
                   )}
                 </div>
                 {(optCtx?.callWall || optCtx?.putWall) && (
                   <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
-                    {optCtx?.callWall && <span>Call wall <span className="text-rose-400">{fmt(optCtx.callWall)}</span></span>}
-                    {optCtx?.putWall  && <span>Put wall <span className="text-emerald-400">{fmt(optCtx.putWall)}</span></span>}
-                    {optCtx?.maxPain  && <span>Max pain <span className="text-amber-400">{fmt(optCtx.maxPain)}</span></span>}
+                    {optCtx?.callWall && <span>Call wall <span className="text-rose-400 font-bold tabular-nums">{fmt(optCtx.callWall)}</span></span>}
+                    {optCtx?.putWall  && <span>Put wall  <span className="text-emerald-400 font-bold tabular-nums">{fmt(optCtx.putWall)}</span></span>}
+                    {optCtx?.maxPain  && <span>Max pain  <span className="text-amber-400 font-bold tabular-nums">{fmt(optCtx.maxPain)}</span></span>}
                   </div>
                 )}
                 {commentary?.optionsLines?.map((line, i) => (
-                  <p key={i} className="text-[10px] text-amber-300">{line}</p>
+                  <p key={i} className="text-[10px] text-amber-300/80">{line}</p>
                 ))}
                 {optCtx?.activityLabel && (
-                  <p className="text-[10px] text-slate-400 font-mono">{optCtx.activityLabel}</p>
+                  <p className="text-[10px] text-slate-500 font-mono">{optCtx.activityLabel}</p>
                 )}
               </div>
             )}
@@ -634,56 +748,63 @@ export default function ThirdEyePanel() {
         )}
       </div>
 
-      {/* ── Zone 5: Bias Arbitration ──────────────────────────────────── */}
-      <BiasArbitration data={scanData?.biasArbitration ?? null} />
+      {/* ── Bias Arbitration ────────────────────────────────────────────────── */}
+      <div className="relative z-10">
+        <BiasArbitration data={scanData?.biasArbitration ?? null} trend={scoreTrend} />
+      </div>
 
-      {/* ── Zone 6: Live market pressure (always-on DOM strip) ──────────── */}
-      <DomPressureStrip underlying={underlying} devMode={isDevMode} />
+      {/* ── Live DOM pressure ────────────────────────────────────────────────── */}
+      <div className="relative z-10">
+        <DomPressureStrip underlying={underlying} devMode={isDevMode} />
+      </div>
 
-      {/* ── Zone 6: Setups ────────────────────────────────────────────────── */}
-      <SetupZone
-        setup={scalpSetup}
-        sessionPhase={sessionPh}
-        placed={placed}
-        placedResult={placedResult}
-        placing={placing}
-        onPlace={handlePlace}
-        onSkip={handleSkip}
-        history={setupHistory}
-        underlying={underlying}
-        orHigh={scanData?.orHigh ?? null}
-        orLow={scanData?.orLow ?? null}
-      />
+      {/* ── Setup Zone ──────────────────────────────────────────────────────── */}
+      <div className="relative z-10">
+        <SetupZone
+          setup={scalpSetup}
+          sessionPhase={sessionPh}
+          placed={placed}
+          placedResult={placedResult}
+          placing={placing}
+          onPlace={handlePlace}
+          onSkip={handleSkip}
+          history={setupHistory}
+          underlying={underlying}
+          orHigh={scanData?.orHigh ?? null}
+          orLow={scanData?.orLow ?? null}
+        />
+      </div>
 
-      {/* ── Outside trading window ───────────────────────────────────────── */}
+      {/* ── Outside trading window ───────────────────────────────────────────── */}
       {!loading && !scanData && !scanError && !isTradingWindow() && (
-        <div className="px-3 py-4 text-center space-y-1">
-          <p className="text-xs text-slate-500">Third Eye is dormant</p>
-          <p className="text-[10px] font-mono text-slate-600">Active 9:00 – 16:00 IST, Mon–Fri</p>
+        <div className="relative z-10 px-3 py-5 text-center space-y-1.5">
+          <p className="text-xs text-slate-500 font-semibold">Third Eye is dormant</p>
+          <p className="text-[10px] font-mono text-slate-700">Active 9:00 – 16:00 IST, Mon–Fri</p>
         </div>
       )}
 
-      {/* ── Scan error ────────────────────────────────────────────────────── */}
+      {/* ── Scan error ──────────────────────────────────────────────────────── */}
       {scanError && (
-        <div className="px-3 py-2 border-t border-rose-900/40 bg-rose-950/30 flex items-center justify-between gap-2">
+        <div className="relative z-10 px-3 py-2 border-t border-rose-900/20 bg-rose-950/10 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
-            <WifiOff size={11} className="text-rose-400 flex-shrink-0" />
-            <span className="text-[11px] text-rose-300 font-mono truncate">{scanError.message}</span>
+            <WifiOff size={10} className="text-rose-500 flex-shrink-0" />
+            <span className="text-[11px] text-rose-400 font-mono truncate">{scanError.message}</span>
           </div>
           {scanError.isAuth && (
             <a
               href="/settings"
-              className="text-[10px] text-indigo-400 hover:text-indigo-200 whitespace-nowrap font-mono underline flex-shrink-0"
+              className="text-[10px] text-indigo-400 hover:text-indigo-200 whitespace-nowrap font-mono underline flex-shrink-0 transition-colors"
             >
-              Reconnect Kite →
+              Reconnect →
             </a>
           )}
         </div>
       )}
 
-      {/* ── Footer: last updated ──────────────────────────────────────────── */}
+      {/* ── Footer ──────────────────────────────────────────────────────────── */}
       {lastScan && (
-        <div className="px-3 py-1 text-[10px] font-mono text-slate-600 border-t border-slate-800/50">
+        <div className="relative z-10 px-3 py-1.5 text-[9px] font-mono text-slate-700 border-t border-white/[0.03] flex items-center gap-1.5">
+          <span className="w-1 h-1 rounded-full bg-slate-700 inline-block" />
           Updated {lastScan.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
         </div>
       )}
