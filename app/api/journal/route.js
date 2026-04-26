@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { sql } from '@/app/lib/db';
 import { getBroker } from '@/app/lib/providers';
 import { requireSession, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
+import { buildTechnicalSnapshot } from '@/app/lib/analysis/snapshotBuilder';
+
 
 function getIstNow() {
   const now = new Date();
@@ -156,12 +158,24 @@ export async function POST(request) {
     // Usually easier to delete all for date and re-insert, but let's upsert by group_id -> trade_id
     for (const c of trade_comments) {
       const gId = c.group_id || `${date}_${c.symbol}`;
+      const existing = await sql`SELECT snapshot FROM journal_trades WHERE trade_id = ${gId}`;
+      let snapshotData = existing[0]?.snapshot;
+
+      if (!snapshotData || Object.keys(snapshotData).length === 0) {
+        try {
+          snapshotData = await buildTechnicalSnapshot(c.symbol);
+        } catch (e) {
+          console.error(`[journal] snapshot build failed for ${c.symbol}:`, e);
+        }
+      }
+
       await sql`
-        INSERT INTO journal_trades (trade_id, date, symbol, tags, comment, updated_at)
-        VALUES (${gId}, ${date}, ${c.symbol}, ${JSON.stringify(c.tags || [])}, ${c.comment || ''}, now())
+        INSERT INTO journal_trades (trade_id, date, symbol, tags, comment, snapshot, updated_at)
+        VALUES (${gId}, ${date}, ${c.symbol}, ${JSON.stringify(c.tags || [])}, ${c.comment || ''}, ${JSON.stringify(snapshotData || {})}, now())
         ON CONFLICT (trade_id) DO UPDATE SET
           tags = EXCLUDED.tags,
           comment = EXCLUDED.comment,
+          snapshot = EXCLUDED.snapshot,
           updated_at = EXCLUDED.updated_at
       `;
     }
