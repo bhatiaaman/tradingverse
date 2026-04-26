@@ -12,8 +12,10 @@ export default function Nav({ fixed = false }) {
   const { isDark, toggleTheme } = useTheme()
   const [user, setUser]         = useState(null)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [learnOpen, setLearnOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [mounted, setMounted]   = useState(false)
+  const learnRef = useRef(null)
   const moreRef = useRef(null)
 
   useEffect(() => { setMounted(true) }, [])
@@ -22,15 +24,22 @@ export default function Nav({ fixed = false }) {
     fetch('/api/auth/me').then(r => r.json()).then(d => setUser(d.user || null)).catch(() => {})
   }, [path])
 
-  useEffect(() => { setMobileOpen(false); setMoreOpen(false) }, [path])
+  useEffect(() => { setMobileOpen(false); setLearnOpen(false); setMoreOpen(false) }, [path])
 
-  // Close "More" on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     if (!moreOpen) return
     const handler = (e) => { if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false) }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [moreOpen])
+
+  useEffect(() => {
+    if (!learnOpen) return
+    const handler = (e) => { if (learnRef.current && !learnRef.current.contains(e.target)) setLearnOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [learnOpen])
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -40,19 +49,24 @@ export default function Nav({ fixed = false }) {
   const primaryLinks = [
     { href: '/trades',    label: 'Dashboard' },
     { href: '/options',   label: 'Options' },
-    { href: '/games',     label: 'Games' },
     { href: '/investing', label: 'Investing' },
-    { href: '/learn',     label: 'Learn' },
+  ]
+
+  const learnLinks = [
+    { href: '/games', label: 'Play Games' },
+    { href: '/learn', label: 'Books & Articles' },
   ]
 
   const moreLinks = [
-    { href: '/eye',      label: 'Third Eye' },
-    { href: '/settings', label: 'Settings' },
-    { href: '/pricing',  label: 'Pricing' },
+    { href: '/trades/journal', label: 'Journal' },
+    { href: '/eye',            label: 'Third Eye' },
+    { href: '/settings',       label: 'Settings' },
+    { href: '/pricing',        label: 'Pricing' },
   ]
 
-  const allLinks = [...primaryLinks, ...moreLinks]
+  const allLinks = [...primaryLinks, ...learnLinks, ...moreLinks]
   const isActive = (href) => path === href || path.startsWith(href + '/')
+  const learnActive = learnLinks.some(l => isActive(l.href))
   const moreActive = moreLinks.some(l => isActive(l.href))
 
   return (
@@ -78,6 +92,39 @@ export default function Nav({ fixed = false }) {
             {l.label}
           </Link>
         ))}
+
+        {/* Learn dropdown */}
+        <div ref={learnRef} className="relative">
+          <button
+            onClick={() => setLearnOpen(o => !o)}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-medium transition-colors ${
+              learnActive
+                ? 'text-slate-900 dark:text-white bg-slate-100 dark:bg-white/[0.08]'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-white/[0.05]'
+            }`}
+          >
+            Learn
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"
+              className={`transition-transform ${learnOpen ? 'rotate-180' : ''}`}>
+              <path d="M7.247 11.14L2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
+            </svg>
+          </button>
+
+          {learnOpen && (
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 w-44 bg-white dark:bg-[#0f1629] border border-slate-200 dark:border-white/[0.12] rounded-xl shadow-2xl overflow-hidden z-50">
+              {learnLinks.map(l => (
+                <Link key={l.href} href={l.href}
+                  className={`flex items-center px-4 py-2.5 text-sm font-medium transition-colors ${
+                    isActive(l.href)
+                      ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.07] hover:text-slate-900 dark:hover:text-white'
+                  }`}>
+                  {l.label}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* More dropdown */}
         <div ref={moreRef} className="relative">
