@@ -967,6 +967,11 @@ ${schema}`
     )
   }
 
+  const OUTLOOK_PROMPT = `Act as an expert market technician. Analyze the technical structure of the Nifty 50 index heading into the new week. 
+Examine the price action, daily/weekly candlestick patterns, volume, key support and resistance levels, and short/long-term moving average metrics (e.g., 50/200 DMAs).
+
+Provide a concise market review, and at the very end, output ONLY a single valid JSON object — without markdown fences, text, or tags around it — conforming exactly to this schema:`
+
   const OUTLOOK_SCHEMA = `{
   "bias": "Bullish",
   "biasStrength": "Strong | Moderate | Weak",
@@ -1291,21 +1296,21 @@ ${schema}`
                 {[
                   {
                     n: '1',
-                    title: 'Copy the schema below',
-                    desc: 'Click the button to copy a JSON instruction to your clipboard.',
+                    title: 'Copy the prompt below',
+                    desc: 'Click the button to copy the research prompt and schema to your clipboard.',
                     action: (
                       <button
                         onClick={() => {
-                          navigator.clipboard.writeText(`At the end of your response, output ONLY a single valid JSON object — no markdown fences, no text outside the JSON:\n\n${OUTLOOK_SCHEMA}`)
+                          navigator.clipboard.writeText(`${OUTLOOK_PROMPT}\n\n${OUTLOOK_SCHEMA}`)
                           setOutlookSchemaCopied(true)
                           setTimeout(() => setOutlookSchemaCopied(false), 2000)
                         }}
                         className={`mt-2 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${outlookSchemaCopied ? 'bg-emerald-500 text-white' : 'bg-violet-600 text-white hover:bg-violet-700'}`}
                       >
-                        {outlookSchemaCopied ? '✅ Copied!' : '📋 Copy Schema'}
+                        {outlookSchemaCopied ? '✅ Prompt Copied!' : '📋 Copy Prompt'}
                       </button>
                     ),
-                    preview: <pre className="mt-2 text-[10px] font-mono text-slate-400 whitespace-pre-wrap leading-relaxed max-h-24 overflow-y-auto border border-slate-200 dark:border-white/5 rounded-lg p-2 bg-slate-50 dark:bg-[#060a0f]">{OUTLOOK_SCHEMA}</pre>,
+                    preview: <pre className="mt-2 text-[10px] font-mono text-slate-400 whitespace-pre-wrap leading-relaxed max-h-28 overflow-y-auto border border-slate-200 dark:border-white/5 rounded-lg p-2 bg-slate-50 dark:bg-[#060a0f]">{`${OUTLOOK_PROMPT}\n\n${OUTLOOK_SCHEMA}`}</pre>,
                   },
                   {
                     n: '2',
