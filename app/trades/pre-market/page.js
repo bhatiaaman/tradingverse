@@ -65,7 +65,8 @@ export default function PreMarketPage() {
 
   // Intraday Breakouts State
   const [isAdmin, setIsAdmin] = useState(false);
-  const [intradayWatchlist, setIntradayWatchlist] = useState([]);
+  const [watchlistObjIntraday, setWatchlistObjIntraday] = useState({ aiBreakouts: [], expertBreakouts: [] });
+  const [activeTabIntraday, setActiveTabIntraday] = useState('aiBreakouts');
   const [isEditingIntraday, setIsEditingIntraday] = useState(false);
   const [jsonInputIntraday, setJsonInputIntraday] = useState('[\n\n]');
   const [intradaySaveStatus, setIntradaySaveStatus] = useState('');
@@ -94,7 +95,10 @@ export default function PreMarketPage() {
       const res = await fetch('/api/pre-market/intraday-watchlist');
       const data = await res.json();
       if (data.success) {
-        setIntradayWatchlist(data.data || []);
+        setWatchlistObjIntraday({
+          aiBreakouts:     data.data?.aiBreakouts     || [],
+          expertBreakouts: data.data?.expertBreakouts || [],
+        });
       }
     } catch (e) {
       console.error('Failed to load intraday watchlist:', e);
@@ -138,7 +142,7 @@ export default function PreMarketPage() {
       priceContext = `\n\nCRITICAL CONTEXT — Current Prices (use as baseline):\n${priceEntries.map(([s, p]) => `- ${s}: ~₹${p}`).join('\n')}\nDo NOT hallucinate or estimate prices if provided above.\n`;
     }
 
-    const rawPrompt = `Role: You are an elite Intraday Trader specializing in Opening Range Breakouts.
+    let rawPrompt = `Role: You are an elite Intraday Trader specializing in Opening Range Breakouts.
 
 System Rule (Context Awareness):
 
@@ -148,9 +152,15 @@ Check Current Time: If it is after 15:15 IST, set the "Target Trading Date" to t
 If it is before 15:15 IST, perform analysis for the current session.
 
 Step 1: Mandatory Fresh Data Retrieval
+`;
 
-Search for the LTP (Last Traded Price), High, and Low for [ ${userStocksIntraday || 'INFY, TCS'} ] as of the most recent market close.${priceContext}
+    if (activeTabIntraday === 'expertBreakouts') {
+      rawPrompt += `\nSearch for the LTP (Last Traded Price), High, and Low for [ ${userStocksIntraday || 'INFY, TCS'} ] as of the most recent market close.${priceContext}\n`;
+    } else {
+      rawPrompt += `\nScan for top 5-8 high-conviction breakout setups across the NSE universe for the upcoming session.\n`;
+    }
 
+    rawPrompt += `
 Verify accuracy: Cross-reference from two financial portals (e.g., NSE India, Moneycontrol, or Economic Times).
 
 Identify the Previous Day High (PDH) and Previous Day Low (PDL) for each symbol.
@@ -196,14 +206,13 @@ At the end of your response, output ONLY a valid JSON array in this exact format
     setTimeout(() => setCopiedIntradayPrompt(false), 2000);
   };
 
-  const handleSaveIntraday = async (action = 'replace') => {
+  const handleSaveIntraday = async () => {
     setIntradaySaveStatus('Saving...');
     try {
       let rawJson = jsonInputIntraday;
-      // Auto-extract JSON if they pasted the full text with markdown
-      if (rawJson.includes('\`\`\`json')) {
-        const start = rawJson.indexOf('\`\`\`json') + 7;
-        const end = rawJson.lastIndexOf('\`\`\`');
+      if (rawJson.includes('```json')) {
+        const start = rawJson.indexOf('```json') + 7;
+        const end = rawJson.lastIndexOf('```');
         if (end > start) rawJson = rawJson.substring(start, end).trim();
       } else if (rawJson.includes('[') && rawJson.lastIndexOf(']') > rawJson.indexOf('[')) {
         const start = rawJson.indexOf('[');
@@ -217,15 +226,18 @@ At the end of your response, output ONLY a valid JSON array in this exact format
       const res = await fetch('/api/pre-market/intraday-watchlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, data: parsed }),
+        body: JSON.stringify({ tab: activeTabIntraday, list: parsed }),
       });
       const data = await res.json();
       if (data.success) {
-        setIntradayWatchlist(data.data);
+        setWatchlistObjIntraday({
+          aiBreakouts:     data.data?.aiBreakouts     || [],
+          expertBreakouts: data.data?.expertBreakouts || [],
+        });
         setIsEditingIntraday(false);
         setIntradaySaveStatus('');
       } else {
-        setIntradaySaveStatus('Failed to save to database');
+        setIntradaySaveStatus(data.error || 'Failed to save to database');
       }
     } catch (err) {
       setIntradaySaveStatus(`Error parsing JSON: ${err.message}`);
@@ -233,19 +245,27 @@ At the end of your response, output ONLY a valid JSON array in this exact format
   };
 
   const handleDeleteIntradayStock = async (symbol) => {
-    const newData = intradayWatchlist.filter(s => s.symbol !== symbol);
+    const currentList = activeTabIntraday === 'aiBreakouts'
+      ? (watchlistObjIntraday.aiBreakouts || [])
+      : (watchlistObjIntraday.expertBreakouts || []);
+      
+    const stampedList = currentList.filter(s => s.symbol !== symbol);
     try {
       const res = await fetch('/api/pre-market/intraday-watchlist', {
-
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'replace', data: newData }),
+        body: JSON.stringify({ tab: activeTabIntraday, list: stampedList }),
       });
       const data = await res.json();
       if (data.success) {
-        setIntradayWatchlist(data.data);
+        setWatchlistObjIntraday({
+          aiBreakouts:     data.data?.aiBreakouts     || [],
+          expertBreakouts: data.data?.expertBreakouts || [],
+        });
       }
-    } catch {}
+    } catch (err) {
+      console.error('Delete failed:', err);
+    }
   };
 
 
@@ -1056,99 +1076,152 @@ At the end of your response, output ONLY a valid JSON array in this exact format
 
         {/* INTRADAY BREAKOUTS COMPONENT (Bottom Full Width) */}
         <div className="mt-8 border-t border-blue-900/40 pt-8">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-xl font-bold text-blue-300 flex items-center gap-2">
-                🎯 AI Intraday Breakouts
-              </h2>
-              <p className="text-sm text-slate-400 mt-1">High-probability intraday setups generated from pre-market action</p>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              {intradayWatchlist?.length > 0 && (
-                <button
-                  onClick={() => setExecutionModalOpen(true)}
-                  className="px-4 py-2 text-sm font-bold bg-purple-600/20 text-purple-400 hover:bg-purple-600/30 border border-purple-500/50 rounded-lg transition-colors flex items-center gap-2"
-                >
-                  ⚡ Execute Basket
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  const template = [{
-                    symbol: "NSE_SYMBOL",
-                    companyName: "Company Name",
-                    sector: "Sector Name",
-                    direction: "LONG",
-                    breakoutLevel: "0.00",
-                    prevDayAction: "Setup description",
-                    volumeSpike: "1.5x",
-                    catalyst: "News/Event",
-                    entry: "Above X",
-                    stopLoss: "0.00",
-                    target1: "0.00",
-                    target2: "0.00",
-                    riskReward: "1:2",
-                    conviction: "High",
-                    convictionReason: "Setup reason"
-                  }];
-                  setJsonInputIntraday(JSON.stringify(template, null, 2));
-                  setIsEditingIntraday(true);
-                }}
-                className="px-4 py-2 text-sm font-bold text-emerald-400 bg-emerald-950/40 hover:bg-emerald-900/40 hover:text-emerald-300 border border-emerald-800/50 rounded-lg transition-colors"
-              >
-                + Add New Stocks
-              </button>
-              
-              <button
-                onClick={() => setIsEditingIntraday(!isEditingIntraday)}
-                className="px-4 py-2 text-sm font-bold bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 hover:text-blue-300 border border-blue-800/50 rounded-lg transition-colors"
-              >
-                {isEditingIntraday ? 'Close Editor' : '✏️ Add / Edit Stocks'}
-              </button>
-            </div>
+          
+          {/* Tabs Selector */}
+          <div className="flex border-b border-blue-950 mb-6 gap-2">
+            <button
+              onClick={() => { setActiveTabIntraday('aiBreakouts'); setIsEditingIntraday(false); }}
+              className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${
+                activeTabIntraday === 'aiBreakouts'
+                  ? 'border-purple-500 text-purple-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              🤖 AI Breakouts
+            </button>
+            <button
+              onClick={() => { setActiveTabIntraday('expertBreakouts'); setIsEditingIntraday(false); }}
+              className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${
+                activeTabIntraday === 'expertBreakouts'
+                  ? 'border-emerald-500 text-emerald-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              💡 Expert Breakouts
+            </button>
+            <button
+              onClick={() => { setActiveTabIntraday('consolidated'); setIsEditingIntraday(false); }}
+              className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${
+                activeTabIntraday === 'consolidated'
+                  ? 'border-blue-500 text-blue-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              📊 Consolidated (Top 20)
+            </button>
           </div>
 
+          {(() => {
+            const displayWatchlistIntraday = (() => {
+              if (activeTabIntraday === 'aiBreakouts') return watchlistObjIntraday.aiBreakouts || [];
+              if (activeTabIntraday === 'expertBreakouts') return watchlistObjIntraday.expertBreakouts || [];
+              if (activeTabIntraday === 'consolidated') {
+                const ai = watchlistObjIntraday.aiBreakouts || [];
+                const exp = watchlistObjIntraday.expertBreakouts || [];
+                const dict = {};
+                [...ai, ...exp].forEach(item => {
+                  if (item.symbol) dict[item.symbol] = item;
+                });
+                return Object.values(dict);
+              }
+              return [];
+            })();
 
-          {/* Editor Panel */}
-          {isEditingIntraday && (
-            <div className="mb-8 bg-[#0d1d35] border border-blue-800/60 rounded-xl p-6 shadow-xl">
-              <h3 className="text-sm font-bold text-blue-300 mb-4">Step 1: Generate AI Prompt</h3>
-              
-              <div className="mb-4">
-                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Enter Symbols (NSE Tickers)</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={userStocksIntraday}
-                    onChange={e => setUserStocksIntraday(e.target.value)}
-                    placeholder="e.g. INFY, TCS, RELIANCE"
-                    className="flex-1 bg-[#0a1628] border border-blue-900/50 rounded-lg px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-purple-500 transition-colors"
-                  />
-                  {isPromptPriceLoadingIntraday ? (
-                    <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-950/40 rounded-lg border border-blue-800/30 animate-pulse">
-                      <div className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-bounce" />
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Syncing...</span>
-                    </div>
-                  ) : Object.keys(promptPriceMapIntraday).length > 0 ? (
-                    <div className="flex items-center gap-2 px-3 py-2.5 bg-emerald-950/40 rounded-lg border border-emerald-800/30">
-                      <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
-                      <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-tighter">Prices Ready</span>
-                    </div>
-                  ) : null}
+            return (
+              <>
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-xl font-bold text-blue-300 flex items-center gap-2">
+                      {activeTabIntraday === 'aiBreakouts' && '🎯 AI Intraday Breakouts'}
+                      {activeTabIntraday === 'expertBreakouts' && '🔍 Expert Intraday Breakouts'}
+                      {activeTabIntraday === 'consolidated' && '📋 Consolidated Watchlist'}
+                    </h2>
+                    <p className="text-sm text-slate-400 mt-1">
+                      {activeTabIntraday === 'aiBreakouts' && 'High-probability setups scanned across the NSE universe'}
+                      {activeTabIntraday === 'expertBreakouts' && 'Targeted breakout parameters for pre-selected tickers'}
+                      {activeTabIntraday === 'consolidated' && 'Combined execution basket for all breakouts'}
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    {displayWatchlistIntraday?.length > 0 && (
+                      <button
+                        onClick={() => setExecutionModalOpen(true)}
+                        className="px-4 py-2 text-sm font-bold bg-purple-600/20 text-purple-400 hover:bg-purple-600/30 border border-purple-500/50 rounded-lg transition-colors flex items-center gap-2"
+                      >
+                        ⚡ Execute Basket
+                      </button>
+                    )}
+                    {isAdmin && activeTabIntraday !== 'consolidated' && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setJsonInputIntraday('[\n\n]');
+                            setIsEditingIntraday(true);
+                          }}
+                          className="px-4 py-2 text-sm font-bold text-emerald-400 bg-emerald-950/40 hover:bg-emerald-900/40 hover:text-emerald-300 border border-emerald-800/50 rounded-lg transition-colors"
+                        >
+                          + Add New Stocks
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            const currentList = activeTabIntraday === 'aiBreakouts' 
+                              ? (watchlistObjIntraday.aiBreakouts || []) 
+                              : (watchlistObjIntraday.expertBreakouts || []);
+                            setJsonInputIntraday(currentList.length > 0 ? JSON.stringify(currentList, null, 2) : '[\n\n]');
+                            setIsEditingIntraday(!isEditingIntraday);
+                          }}
+                          className="px-4 py-2 text-sm font-bold bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 hover:text-blue-300 border border-blue-800/50 rounded-lg transition-colors"
+                        >
+                          {isEditingIntraday ? 'Close Editor' : '✏️ Add / Edit Stocks'}
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {Object.keys(promptPriceMapIntraday).length > 0 && (
-                <div className="flex flex-wrap gap-2 p-3 bg-[#0a1628] border border-blue-900/50 rounded-lg shadow-inner mb-4">
-                  {Object.entries(promptPriceMapIntraday).map(([s, p]) => (
-                    <div key={s} className="flex items-center gap-1.5 px-2 py-1 bg-blue-950/40 rounded border border-blue-900/30">
-                      <span className="text-[10px] font-bold text-slate-500">{s}</span>
-                      <span className="text-[10px] font-mono font-bold text-purple-400">₹{p.toLocaleString('en-IN')}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+                {/* Editor Panel */}
+                {isEditingIntraday && (
+                  <div className="mb-8 bg-[#0d1d35] border border-blue-800/60 rounded-xl p-6 shadow-xl">
+                    <h3 className="text-sm font-bold text-blue-300 mb-4">Step 1: Generate AI Prompt</h3>
+                    
+                    {activeTabIntraday === 'expertBreakouts' && (
+                      <div className="mb-4">
+                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Enter Symbols (NSE Tickers)</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={userStocksIntraday}
+                            onChange={e => setUserStocksIntraday(e.target.value)}
+                            placeholder="e.g. INFY, TCS, RELIANCE"
+                            className="flex-1 bg-[#0a1628] border border-blue-900/50 rounded-lg px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-purple-500 transition-colors"
+                          />
+                          {isPromptPriceLoadingIntraday ? (
+                            <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-950/40 rounded-lg border border-blue-800/30 animate-pulse">
+                              <div className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-bounce" />
+                              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Syncing...</span>
+                            </div>
+                          ) : Object.keys(promptPriceMapIntraday).length > 0 ? (
+                            <div className="flex items-center gap-2 px-3 py-2.5 bg-emerald-950/40 rounded-lg border border-emerald-800/30">
+                              <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-tighter">Prices Ready</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    )}
+
+                    {activeTabIntraday === 'expertBreakouts' && Object.keys(promptPriceMapIntraday).length > 0 && (
+                      <div className="flex flex-wrap gap-2 p-3 bg-[#0a1628] border border-blue-900/50 rounded-lg shadow-inner mb-4">
+                        {Object.entries(promptPriceMapIntraday).map(([s, p]) => (
+                          <div key={s} className="flex items-center gap-1.5 px-2 py-1 bg-blue-950/40 rounded border border-blue-900/30">
+                            <span className="text-[10px] font-bold text-slate-500">{s}</span>
+                            <span className="text-[10px] font-mono font-bold text-purple-400">₹{p.toLocaleString('en-IN')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
               <div className="flex items-center gap-3 mb-6">
                 <button
@@ -1188,32 +1261,30 @@ At the end of your response, output ONLY a valid JSON array in this exact format
                   className="px-4 py-2 text-sm font-bold text-slate-400 hover:text-white transition-colors">
                   Cancel
                 </button>
-                <button onClick={() => handleSaveIntraday('replace')}
-                  className="px-4 py-2 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                  Save Replace
-                </button>
-                <button onClick={() => handleSaveIntraday('append')}
-                  className="px-4 py-2 text-sm font-bold bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
-                  ➕ Append
+                <button onClick={handleSaveIntraday}
+                  className="px-4 py-2 text-sm font-bold bg-purple-600 text-white rounded-lg hover:bg-purple-700 shadow-lg shadow-purple-500/20 transition-colors">
+                  Save to Database
                 </button>
               </div>
             </div>
           )}
 
           {/* Cards Grid */}
-          {!intradayWatchlist || intradayWatchlist.length === 0 ? (
-            <div className="text-center py-12 border border-dashed border-blue-800/40 rounded-xl bg-blue-900/5">
-              <p className="text-slate-400 text-sm">No intraday stocks added for today yet.</p>
+          {!displayWatchlistIntraday || displayWatchlistIntraday.length === 0 ? (
+            <div className="text-center py-12 border border-dashed border-blue-800/40 rounded-xl bg-blue-900/5 mt-6">
+              <p className="text-slate-400 text-sm">No breakout setups listed in this tab yet.</p>
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {intradayWatchlist.map((stock, i) => (
+            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6 mt-6">
+              {displayWatchlistIntraday.map((stock, i) => (
                 <div key={i} className="bg-[#112240] border border-blue-800/40 rounded-xl p-5 hover:border-blue-600/50 transition-colors relative group">
-                  <button
-                    onClick={() => handleDeleteIntradayStock(stock.symbol)}
-                    className="absolute top-3 right-3 w-6 h-6 rounded-full bg-red-500/10 hover:bg-red-500/30 text-red-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all text-xs border border-transparent hover:border-red-500/50 z-10"
-                    title="Remove"
-                  >✕</button>
+                  {activeTabIntraday !== 'consolidated' && (
+                    <button
+                      onClick={() => handleDeleteIntradayStock(stock.symbol)}
+                      className="absolute top-3 right-3 w-6 h-6 rounded-full bg-red-500/10 hover:bg-red-500/30 text-red-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all text-xs border border-transparent hover:border-red-500/50 z-10"
+                      title="Remove"
+                    >✕</button>
+                  )}
                   
                   <div className="flex justify-between items-start mb-3">
 
@@ -1276,12 +1347,23 @@ At the end of your response, output ONLY a valid JSON array in this exact format
               ))}
             </div>
           )}
-        </div>
+        </>
+        );
+      })()}
+    </div>
 
         <BasketExecutionModal
           isOpen={executionModalOpen}
           onClose={() => setExecutionModalOpen(false)}
-          intradayWatchlist={intradayWatchlist}
+          intradayWatchlist={(() => {
+            const ai = watchlistObjIntraday.aiBreakouts || [];
+            const exp = watchlistObjIntraday.expertBreakouts || [];
+            const dict = {};
+            [...ai, ...exp].forEach(item => {
+              if (item.symbol) dict[item.symbol] = item;
+            });
+            return Object.values(dict);
+          })()}
         />
       </main>
     </div>

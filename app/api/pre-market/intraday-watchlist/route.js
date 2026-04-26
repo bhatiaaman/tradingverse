@@ -38,33 +38,58 @@ function getTodayKey() {
 
 export async function GET() {
   const dateKey = getTodayKey();
-  const data = await redisGet(dateKey) || [];
+  let data = await redisGet(dateKey);
+
+  // Migrate legacy array to object structure
+  if (Array.isArray(data)) {
+    data = { aiBreakouts: data, expertBreakouts: [] };
+    await redisSet(dateKey, data);
+  }
+
+  if (!data) {
+    data = { aiBreakouts: [], expertBreakouts: [] };
+  }
+
   return NextResponse.json({ success: true, data });
 }
 
 export async function POST(req) {
   try {
     const body = await req.json();
-    const dateKey = getTodayKey();
-    let currentData = [];
-    
-    if (body.action === 'append') {
-      currentData = await redisGet(dateKey) || [];
-    }
-    
-    // De-duplicate appended stocks by symbol
-    const finalData = body.action === 'append' ? [...currentData, ...body.data] : body.data;
-    const uniqueDict = {};
-    for (const item of finalData) {
-      if (item.symbol) uniqueDict[item.symbol] = item;
-    }
-    const filteredArray = Object.values(uniqueDict);
+    const { tab, list } = body;
 
-    const ok = await redisSet(dateKey, filteredArray);
+    if (!['aiBreakouts', 'expertBreakouts'].includes(tab)) {
+      return NextResponse.json({ success: false, error: "Invalid tab specified." }, { status: 400 });
+    }
+    if (!Array.isArray(list)) {
+      return NextResponse.json({ success: false, error: "Invalid data format. Expected an array." }, { status: 400 });
+    }
+
+    const dateKey = getTodayKey();
+    let currentData = await redisGet(dateKey);
+
+    // Migrate legacy array
+    if (Array.isArray(currentData)) {
+      currentData = { aiBreakouts: currentData, expertBreakouts: [] };
+    }
+    if (!currentData) {
+      currentData = { aiBreakouts: [], expertBreakouts: [] };
+    }
+
+    // Stamp uppercase symbols securely
+    const stampedList = list.map(s => ({
+      ...s,
+      symbol: (s.symbol || '').toUpperCase().trim()
+    })).filter(s => s.symbol);
+
+    // Update the specific tab entirely
+    currentData[tab] = stampedList;
+    
+    const ok = await redisSet(dateKey, currentData);
     
     return NextResponse.json({ 
       success: ok, 
-      data: filteredArray 
+      data: currentData 
     });
   } catch (err) {
     console.error(err);
