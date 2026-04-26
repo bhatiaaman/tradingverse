@@ -1588,14 +1588,14 @@ ${schema}`
             </div>
           )}
 
-          {isAdmin && activeTab === 'expertsResearch' && currentList.length > 0 && (
+          {activeTab === 'expertsResearch' && currentList.length > 0 && (
             <button onClick={() => { setJsonInput('[\n\n]'); setIsEditing('append') }}
               className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-200 dark:hover:bg-emerald-800/50 transition-colors mr-2">
               + Add New Stocks
             </button>
           )}
 
-          {isAdmin && activeTab !== 'consolidated' && (
+          {activeTab !== 'consolidated' && (
             <div className="flex items-center gap-2">
               {['aiResearch', 'expertsResearch', 'chartink'].includes(activeTab) && currentList.length > 0 && (
                 <button
@@ -1760,25 +1760,23 @@ ${schema}`
                   </div>
                 )}
                 
-                {isAdmin && (
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={handleCopyPrompt}
-                      className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-lg active:scale-[0.98] ${
-                        copied
-                          ? 'bg-emerald-500 text-white shadow-emerald-500/20'
-                          : 'bg-violet-600 text-white hover:bg-violet-700 shadow-violet-500/20'
-                      }`}
-                    >
-                      <span>{copied ? '✅ Prompt Copied' : '📋 Copy Prompt for Claude'}</span>
-                    </button>
-                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tight">
-                      {activeTab === 'expertsResearch'
-                        ? 'Baseline prices included for accuracy'
-                        : 'Claude will scan for best setups'}
-                    </span>
-                  </div>
-                )}
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleCopyPrompt}
+                    className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-lg active:scale-[0.98] ${
+                      copied
+                        ? 'bg-emerald-500 text-white shadow-emerald-500/20'
+                        : 'bg-violet-600 text-white hover:bg-violet-700 shadow-violet-500/20'
+                    }`}
+                  >
+                    <span>{copied ? '✅ Prompt Copied' : '📋 Copy Prompt for Claude'}</span>
+                  </button>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tight">
+                    {activeTab === 'expertsResearch'
+                      ? 'Baseline prices included for accuracy'
+                      : 'Claude will scan for best setups'}
+                  </span>
+                </div>
               </div>
             </div>
 
