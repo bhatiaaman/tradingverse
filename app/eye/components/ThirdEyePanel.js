@@ -504,6 +504,30 @@ export default function ThirdEyePanel() {
             </span>
           )}
         </div>
+
+        {/* Structure conviction bar — net long minus short score, center-origin */}
+        {scanData && (() => {
+          const net  = (scanData.longScore ?? 50) - (scanData.shortScore ?? 50);
+          const pct  = Math.min(50, Math.abs(net) * 0.5);
+          const bull = net >= 0;
+          return (
+            <div className="flex items-center gap-2 pt-0.5">
+              <span className="text-[9px] font-mono text-slate-600 w-14 shrink-0">Structure</span>
+              <div className="relative flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                <div className="absolute inset-y-0 w-px bg-slate-600/50" style={{ left: '50%' }} />
+                {net !== 0 && (
+                  <div
+                    className={`absolute inset-y-0 transition-all duration-700 ${bull ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                    style={bull ? { left: '50%', width: `${pct}%` } : { right: '50%', width: `${pct}%` }}
+                  />
+                )}
+              </div>
+              <span className={`text-[9px] font-mono w-7 text-right shrink-0 ${bull ? 'text-emerald-400' : net < 0 ? 'text-rose-400' : 'text-slate-500'}`}>
+                {net > 0 ? '+' : ''}{net}
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Tier 2: Analysis details (collapsed by default) ──────────────── */}
@@ -518,12 +542,6 @@ export default function ThirdEyePanel() {
 
         {showDetails && (
           <div className="pb-2 space-y-3">
-
-            {/* Score bars */}
-            <div className="px-3 space-y-1.5">
-              <ScoreBar label="LONG"  score={scanData?.longScore}  color="bg-emerald-500" />
-              <ScoreBar label="SHORT" score={scanData?.shortScore} color="bg-rose-500" />
-            </div>
 
             {/* Indicators */}
             {features && (
