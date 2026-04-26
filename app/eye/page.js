@@ -2048,8 +2048,9 @@ function getNiftyLevelAlerts(indices) {
             {/* Quick links */}
             <div className="hidden sm:flex items-center gap-1">
               {[
-                { href: '/terminal',       label: 'Terminal'    },
+                { href: '/terminal',          label: 'Terminal'    },
                 { href: '/trades/pre-market', label: 'Pre-Market' },
+                { href: '/trades/journal',    label: 'Journal'    },
               ].map(l => (
                 <Link key={l.href} href={l.href}
                   className="px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-white border border-transparent hover:border-white/10 rounded-lg transition-all">
