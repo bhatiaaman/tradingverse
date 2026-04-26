@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server';
-import { Resend }       from 'resend';
-import { sql }          from '@/app/lib/db';
+import { NextResponse }                from 'next/server';
+import { Resend }                      from 'resend';
+import { sql }                         from '@/app/lib/db';
+import { requireSession, unauthorized } from '@/app/lib/session';
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -52,12 +53,12 @@ async function redisSet(key, value, ttl) {
 // Called by Vercel Cron every minute (or manually). Checks for bridge-triggered
 // alerts, sends email via Resend, marks done in Neon, removes from active list.
 export async function POST(req) {
-  // Accept cron secret or valid session
+  // Accept cron secret (Vercel Cron) OR authenticated user session (terminal poll)
   const authHeader = req.headers.get('authorization');
   const cronOk     = CRON_SECRET && authHeader === `Bearer ${CRON_SECRET}`;
   if (!cronOk) {
-    // Also allow calls without auth in dev (no CRON_SECRET set)
-    if (CRON_SECRET) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    const { session } = await requireSession();
+    if (!session) return unauthorized();
   }
 
   // Find all triggered alert keys written by bridge

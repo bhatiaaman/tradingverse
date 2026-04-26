@@ -3721,6 +3721,17 @@ export default function TerminalPage() {
     return () => clearInterval(iv);
   }, [isVisible, fetchPanelOrders]);
 
+  // Alert notify poll — fires triggered alerts (email) every 30s during market hours.
+  // Replaces Vercel Cron (Hobby plan only allows 1 cron, already used for kite-login).
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (isMarketHours() && isVisible) {
+        fetch('/api/alerts/notify', { method: 'POST' }).catch(() => {});
+      }
+    }, 30_000);
+    return () => clearInterval(iv);
+  }, [isVisible]);
+
   // ── Watchlist search (debounced)
   useEffect(() => {
     clearTimeout(watchSearchTimer.current);
@@ -4201,10 +4212,11 @@ export default function TerminalPage() {
             {/* Bell — price alerts */}
             <button
               onClick={() => setAlertDrawer(true)}
-              className="shrink-0 p-2 mr-1 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors"
+              className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 mr-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition-colors"
               title="Price alerts"
             >
-              <Bell size={14} className="text-gray-400 dark:text-slate-500 hover:text-amber-500 dark:hover:text-amber-400 transition-colors" />
+              <Bell size={12} className="text-amber-500 dark:text-amber-400" />
+              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 hidden sm:inline">Alerts</span>
             </button>
           </div>
 
