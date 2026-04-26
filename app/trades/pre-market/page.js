@@ -1078,38 +1078,54 @@ At the end of your response, output ONLY a valid JSON array in this exact format
         <div className="mt-8 border-t border-blue-900/40 pt-8">
           
           {/* Tabs Selector */}
-          <div className="flex border-b border-blue-950 mb-6 gap-2">
-            <button
-              onClick={() => { setActiveTabIntraday('aiBreakouts'); setIsEditingIntraday(false); }}
-              className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${
-                activeTabIntraday === 'aiBreakouts'
-                  ? 'border-purple-500 text-purple-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-300'
-              }`}
-            >
-              🤖 AI Breakouts
-            </button>
-            <button
-              onClick={() => { setActiveTabIntraday('expertBreakouts'); setIsEditingIntraday(false); }}
-              className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${
-                activeTabIntraday === 'expertBreakouts'
-                  ? 'border-emerald-500 text-emerald-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-300'
-              }`}
-            >
-              💡 Expert Breakouts
-            </button>
-            <button
-              onClick={() => { setActiveTabIntraday('consolidated'); setIsEditingIntraday(false); }}
-              className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${
-                activeTabIntraday === 'consolidated'
-                  ? 'border-blue-500 text-blue-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-300'
-              }`}
-            >
-              📊 Consolidated (Top 20)
-            </button>
-          </div>
+          {(() => {
+            const aiCount = watchlistObjIntraday.aiBreakouts?.length || 0;
+            const expertCount = watchlistObjIntraday.expertBreakouts?.length || 0;
+            const consolidatedCount = (() => {
+              const ai = watchlistObjIntraday.aiBreakouts || [];
+              const exp = watchlistObjIntraday.expertBreakouts || [];
+              const dict = {};
+              [...ai, ...exp].forEach(item => {
+                if (item.symbol) dict[item.symbol] = item;
+              });
+              return Object.keys(dict).length;
+            })();
+
+            return (
+              <div className="flex border-b border-blue-950 mb-6 gap-2">
+                <button
+                  onClick={() => { setActiveTabIntraday('aiBreakouts'); setIsEditingIntraday(false); }}
+                  className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${
+                    activeTabIntraday === 'aiBreakouts'
+                      ? 'border-purple-500 text-purple-400'
+                      : 'border-transparent text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  🤖 AI Breakouts ({aiCount})
+                </button>
+                <button
+                  onClick={() => { setActiveTabIntraday('expertBreakouts'); setIsEditingIntraday(false); }}
+                  className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${
+                    activeTabIntraday === 'expertBreakouts'
+                      ? 'border-emerald-500 text-emerald-400'
+                      : 'border-transparent text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  💡 Expert Breakouts ({expertCount})
+                </button>
+                <button
+                  onClick={() => { setActiveTabIntraday('consolidated'); setIsEditingIntraday(false); }}
+                  className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${
+                    activeTabIntraday === 'consolidated'
+                      ? 'border-blue-500 text-blue-400'
+                      : 'border-transparent text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  📊 Consolidated (Top 20) ({consolidatedCount})
+                </button>
+              </div>
+            );
+          })()}
 
           {(() => {
             const displayWatchlistIntraday = (() => {
@@ -1131,10 +1147,27 @@ At the end of your response, output ONLY a valid JSON array in this exact format
               <>
                 <div className="flex items-center justify-between mb-6">
                   <div>
-                    <h2 className="text-xl font-bold text-blue-300 flex items-center gap-2">
-                      {activeTabIntraday === 'aiBreakouts' && '🎯 AI Intraday Breakouts'}
-                      {activeTabIntraday === 'expertBreakouts' && '🔍 Expert Intraday Breakouts'}
-                      {activeTabIntraday === 'consolidated' && '📋 Consolidated Watchlist'}
+                    <h2 className="text-xl font-bold text-blue-300 flex items-center gap-2 flex-wrap">
+                      <span>
+                        {activeTabIntraday === 'aiBreakouts' && '🎯 AI Intraday Breakouts'}
+                        {activeTabIntraday === 'expertBreakouts' && '🔍 Expert Intraday Breakouts'}
+                        {activeTabIntraday === 'consolidated' && '📋 Consolidated Watchlist'}
+                      </span>
+                      <span className="text-xs font-bold px-2 py-0.5 bg-blue-950/60 border border-blue-800/60 text-purple-300 rounded font-mono">
+                        Valid for: {(() => {
+                          const now = new Date();
+                          const istOffset = 5.5 * 60 * 60 * 1000;
+                          const istNow = new Date(now.getTime() + istOffset + (now.getTimezoneOffset() * 60 * 1000));
+                          let target = new Date(istNow);
+                          if (istNow.getHours() * 60 + istNow.getMinutes() >= 930) {
+                            target.setDate(target.getDate() + 1);
+                          }
+                          while (target.getDay() === 0 || target.getDay() === 6) {
+                            target.setDate(target.getDate() + 1);
+                          }
+                          return target.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                        })()}
+                      </span>
                     </h2>
                     <p className="text-sm text-slate-400 mt-1">
                       {activeTabIntraday === 'aiBreakouts' && 'High-probability setups scanned across the NSE universe'}
@@ -1153,30 +1186,18 @@ At the end of your response, output ONLY a valid JSON array in this exact format
                       </button>
                     )}
                     {activeTabIntraday !== 'consolidated' && (
-                      <>
-                        <button
-                          onClick={() => {
-                            setJsonInputIntraday('[\n\n]');
-                            setIsEditingIntraday(true);
-                          }}
-                          className="px-4 py-2 text-sm font-bold text-emerald-400 bg-emerald-950/40 hover:bg-emerald-900/40 hover:text-emerald-300 border border-emerald-800/50 rounded-lg transition-colors"
-                        >
-                          + Add New Stocks
-                        </button>
-                        
-                        <button
-                          onClick={() => {
-                            const currentList = activeTabIntraday === 'aiBreakouts' 
-                              ? (watchlistObjIntraday.aiBreakouts || []) 
-                              : (watchlistObjIntraday.expertBreakouts || []);
-                            setJsonInputIntraday(currentList.length > 0 ? JSON.stringify(currentList, null, 2) : '[\n\n]');
-                            setIsEditingIntraday(!isEditingIntraday);
-                          }}
-                          className="px-4 py-2 text-sm font-bold bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 hover:text-blue-300 border border-blue-800/50 rounded-lg transition-colors"
-                        >
-                          {isEditingIntraday ? 'Close Editor' : '✏️ Add / Edit Stocks'}
-                        </button>
-                      </>
+                      <button
+                        onClick={() => {
+                          const currentList = activeTabIntraday === 'aiBreakouts' 
+                            ? (watchlistObjIntraday.aiBreakouts || []) 
+                            : (watchlistObjIntraday.expertBreakouts || []);
+                          setJsonInputIntraday(currentList.length > 0 ? JSON.stringify(currentList, null, 2) : '[\n\n]');
+                          setIsEditingIntraday(!isEditingIntraday);
+                        }}
+                        className="px-4 py-2 text-sm font-bold bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 hover:text-blue-300 border border-blue-800/50 rounded-lg transition-colors"
+                      >
+                        {isEditingIntraday ? 'Close Editor' : '✏️ Add / Edit Stocks'}
+                      </button>
                     )}
                   </div>
                 </div>
