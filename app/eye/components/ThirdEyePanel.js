@@ -494,9 +494,15 @@ export default function ThirdEyePanel() {
           )}
         </div>
         <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
-          {vwapVal && <span>VWAP {fmt(vwapVal, 0)}</span>}
+          {vwapVal && (
+            <span title="Volume Weighted Average Price — today's average price weighted by volume. Price above VWAP = buyers in control. Price below = sellers in control.">
+              VWAP {fmt(vwapVal, 0)}
+            </span>
+          )}
           {scanData?.candlesInState != null && (
-            <span>{elapsed(scanData.candlesInState, tf)} in state</span>
+            <span title="Time the engine has been in this state. Resets each time the market bias changes — not from session open.">
+              {elapsed(scanData.candlesInState, tf)} in state
+            </span>
           )}
           {biasAlign && state !== 'NEUTRAL' && state !== 'RANGING' && (
             <span className={biasAlign.aligned ? 'text-emerald-400' : biasAlign.counter ? 'text-rose-400' : 'text-slate-500'}>
@@ -511,7 +517,10 @@ export default function ThirdEyePanel() {
           const pct  = Math.min(50, Math.abs(net) * 0.5);
           const bull = net >= 0;
           return (
-            <div className="flex items-center gap-2 pt-0.5">
+            <div
+              className="flex items-center gap-2 pt-0.5"
+              title="Market structure conviction — how strongly candle patterns, VWAP position, and EMA stacking favour bulls vs bears. Bar fills right (green) for bullish structure, left (red) for bearish. Center = no edge."
+            >
               <span className="text-[9px] font-mono text-slate-600 w-14 shrink-0">Structure</span>
               <div className="relative flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
                 <div className="absolute inset-y-0 w-px bg-slate-600/50" style={{ left: '50%' }} />
