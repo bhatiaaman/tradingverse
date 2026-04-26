@@ -1152,7 +1152,7 @@ At the end of your response, output ONLY a valid JSON array in this exact format
                         ⚡ Execute Basket
                       </button>
                     )}
-                    {isAdmin && activeTabIntraday !== 'consolidated' && (
+                    {activeTabIntraday !== 'consolidated' && (
                       <>
                         <button
                           onClick={() => {
