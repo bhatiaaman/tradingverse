@@ -1485,11 +1485,10 @@ function getNiftyLevelAlerts(indices) {
         {/* Sub-bar: Kite status + quick links */}
         <div className="border-b border-white/5 bg-[#060b14]">
           <div className="max-w-[1400px] mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between">
-            {/* Broker status + DOM bridge status — admin only */}
+            {/* Broker status — admin only */}
             {userRole === 'admin' ? (
               <div className="flex items-center gap-3">
                 <BrokerStatusIndicator />
-                <DomBridgeStatus />
               </div>
             ) : <div />}
 
@@ -1556,23 +1555,30 @@ function getNiftyLevelAlerts(indices) {
             )}
 
             {/* Quick links */}
-            <div className="hidden sm:flex items-center gap-1">
+            <div className="hidden sm:flex flex-col items-end gap-1">
+              <div className="flex items-center gap-1">
+                {userRole === 'admin' && (
+                  <Link href="/eye"
+                    className="px-3 py-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-200 border border-transparent hover:border-white/10 rounded-lg transition-all">
+                    👁 Eye
+                  </Link>
+                )}
+                {[
+                  { href: '/terminal',          label: 'Terminal'    },
+                  { href: '/trades/pre-market', label: 'Pre-Market' },
+                  { href: '/trades/journal',    label: 'Journal'     },
+                ].map(l => (
+                  <Link key={l.href} href={l.href}
+                    className="px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-white border border-transparent hover:border-white/10 rounded-lg transition-all">
+                    {l.label}
+                  </Link>
+                ))}
+              </div>
               {userRole === 'admin' && (
-                <Link href="/eye"
-                  className="px-3 py-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-200 border border-transparent hover:border-indigo-500/20 rounded-lg transition-all">
-                  👁 Eye
-                </Link>
+                <div className="pr-2 mt-0.5 opacity-90">
+                  <DomBridgeStatus />
+                </div>
               )}
-              {[
-                { href: '/terminal',       label: 'Terminal'    },
-                { href: '/trades/pre-market', label: 'Pre-Market' },
-                { href: '/trades/journal', label: 'Journal' },
-              ].map(l => (
-                <Link key={l.href} href={l.href}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-white border border-transparent hover:border-white/10 rounded-lg transition-all">
-                  {l.label}
-                </Link>
-              ))}
             </div>
           </div>
         </div>
