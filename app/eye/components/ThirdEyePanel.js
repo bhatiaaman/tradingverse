@@ -182,7 +182,7 @@ export default function ThirdEyePanel() {
   const [lastScan,      setLastScan]      = useState(null);
   const [settings,      setSettings]      = useState(null);
   const [showSettings,  setShowSettings]  = useState(false);
-  const [showCommentary,setShowCommentary]= useState(true);
+  const [showDetails,   setShowDetails]   = useState(false);
   const [tf,            setTf]            = useState('5minute');
   const [underlying,    setUnderlying]    = useState('NIFTY'); // 'NIFTY' | 'SENSEX'
   // scanError: null | { message: string, isAuth: boolean }
@@ -480,147 +480,132 @@ export default function ThirdEyePanel() {
         </div>
       </div>
 
-      {/* ── Zone 1: Intent meter ─────────────────────────────────────────── */}
-      <div className="px-3 py-2 border-b border-slate-700/30 space-y-1.5">
-        <ScoreBar label="LONG"  score={scanData?.longScore}  color="bg-emerald-500" />
-        <ScoreBar label="SHORT" score={scanData?.shortScore} color="bg-rose-500" />
-      </div>
-
-      {/* ── Zone 2: State + alignment ─────────────────────────────────────── */}
+      {/* ── Tier 1: State strip (label + price only) ─────────────────────── */}
       <div className="px-3 py-2 border-b border-slate-700/30 space-y-1">
-        {/* State + qualifier */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`text-xs font-bold uppercase tracking-wide ${colors.text}`}>
             {stateLabel(state)}
           </span>
           {scanData?.qualifier && scanData.qualifier !== 'neutral' && (
-            <span className={`text-[10px] font-mono ${qualColor}`}>
-              · {scanData.qualifier}
+            <span className={`text-[10px] font-mono ${qualColor}`}>· {scanData.qualifier}</span>
+          )}
+          {ltpDisplay && (
+            <span className="text-slate-300 font-bold text-[10px] font-mono ml-auto">{fmt(ltpDisplay, 1)}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
+          {vwapVal && <span>VWAP {fmt(vwapVal, 0)}</span>}
+          {scanData?.candlesInState != null && (
+            <span>{elapsed(scanData.candlesInState, tf)} in state</span>
+          )}
+          {biasAlign && state !== 'NEUTRAL' && state !== 'RANGING' && (
+            <span className={biasAlign.aligned ? 'text-emerald-400' : biasAlign.counter ? 'text-rose-400' : 'text-slate-500'}>
+              {biasTf} {biasAlign.label}
             </span>
           )}
         </div>
+      </div>
 
-        {/* Duration + time */}
-        <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
-          {scanData?.candlesInState != null && (
-            <span>{scanData.candlesInState} candles · {elapsed(scanData.candlesInState, tf)}</span>
-          )}
-          {ltpDisplay && (
-            <span className="text-slate-300 font-bold">{fmt(ltpDisplay, 1)}</span>
-          )}
-          {vwapVal && (
-            <span>VWAP {fmt(vwapVal, 0)}</span>
-          )}
-        </div>
+      {/* ── Tier 2: Analysis details (collapsed by default) ──────────────── */}
+      <div className="border-b border-slate-700/30">
+        <button
+          onClick={() => setShowDetails(p => !p)}
+          className="w-full px-3 py-1.5 flex items-center justify-between text-[10px] font-mono text-slate-600 hover:text-slate-400 transition-colors"
+        >
+          <span>Analysis details</span>
+          {showDetails ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+        </button>
 
-        {/* TF alignment */}
-        {biasAlign && state !== 'NEUTRAL' && state !== 'RANGING' && (
-          <div className={`text-[10px] font-mono ${biasAlign.aligned ? 'text-emerald-400' : biasAlign.counter ? 'text-rose-400' : 'text-slate-500'}`}>
-            {biasTf} {biasAlign.label}
-          </div>
-        )}
+        {showDetails && (
+          <div className="pb-2 space-y-3">
 
-        {/* ADX + RSI mini indicators */}
-        {features && (
-          <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500 pt-0.5">
-            {features.adx != null && (
-              <span className={features.adx >= 25 ? 'text-indigo-400' : features.adx >= 20 ? 'text-slate-400' : 'text-slate-600'}>
-                ADX {features.adx}{features.adxRising ? '↑' : ''}
-              </span>
+            {/* Score bars */}
+            <div className="px-3 space-y-1.5">
+              <ScoreBar label="LONG"  score={scanData?.longScore}  color="bg-emerald-500" />
+              <ScoreBar label="SHORT" score={scanData?.shortScore} color="bg-rose-500" />
+            </div>
+
+            {/* Indicators */}
+            {features && (
+              <div className="px-3 flex items-center gap-3 text-[10px] font-mono text-slate-500">
+                {features.adx != null && (
+                  <span className={features.adx >= 25 ? 'text-indigo-400' : features.adx >= 20 ? 'text-slate-400' : 'text-slate-600'}>
+                    ADX {features.adx}{features.adxRising ? '↑' : ''}
+                  </span>
+                )}
+                {features.rsi != null && (
+                  <span className={features.rsi >= 60 ? 'text-emerald-400' : features.rsi <= 40 ? 'text-rose-400' : 'text-slate-500'}>
+                    RSI {features.rsi}
+                  </span>
+                )}
+                {features.candleStrength != null && (
+                  <span className={features.candleStrength >= 1.2 ? 'text-amber-400' : 'text-slate-600'}>
+                    CS {features.candleStrength.toFixed(1)}
+                  </span>
+                )}
+                {features.direction && (
+                  <span className={features.direction === 'bull' ? 'text-emerald-500' : features.direction === 'bear' ? 'text-rose-500' : 'text-slate-600'}>
+                    {features.direction === 'bull' ? '▲' : features.direction === 'bear' ? '▼' : '—'}
+                  </span>
+                )}
+              </div>
             )}
-            {features.rsi != null && (
-              <span className={features.rsi >= 60 ? 'text-emerald-400' : features.rsi <= 40 ? 'text-rose-400' : 'text-slate-500'}>
-                RSI {features.rsi}
-              </span>
+
+            {/* Commentary */}
+            {commentary && (
+              <div className="px-3 space-y-1.5">
+                <p className={`text-xs font-semibold ${colors.text}`}>{commentary.headline}</p>
+                <p className="text-[11px] text-slate-400 leading-relaxed">{commentary.context}</p>
+                {commentary.watch && (
+                  <div className="flex gap-1.5 items-start">
+                    <span className="text-[10px] font-semibold text-indigo-400 shrink-0 mt-0.5">WATCH</span>
+                    <span className="text-[11px] text-slate-300 leading-relaxed">{commentary.watch}</span>
+                  </div>
+                )}
+                {commentary.risk && (
+                  <div className="flex gap-1.5 items-start">
+                    <span className="text-[10px] font-semibold text-rose-400 shrink-0 mt-0.5">RISK</span>
+                    <span className="text-[11px] text-slate-300 leading-relaxed">{commentary.risk}</span>
+                  </div>
+                )}
+              </div>
             )}
-            {features.candleStrength != null && (
-              <span className={features.candleStrength >= 1.2 ? 'text-amber-400' : 'text-slate-600'}>
-                CS {features.candleStrength.toFixed(1)}
-              </span>
+
+            {/* Options */}
+            {optCtx?.available !== false && (optCtx?.pcrInfo || optCtx?.callWall) && (
+              <div className="px-3 space-y-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {optCtx?.pcrInfo?.label && (
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                      optCtx.pcrInfo.bias === 'bullish' ? 'bg-emerald-900/60 text-emerald-300' :
+                      optCtx.pcrInfo.bias === 'bearish' ? 'bg-rose-900/60 text-rose-300' :
+                      'bg-slate-800 text-slate-400'}`}>
+                      PCR {optCtx.pcrInfo.label}
+                    </span>
+                  )}
+                  {optCtx?.isExpiryDay && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300">Expiry Day</span>
+                  )}
+                </div>
+                {(optCtx?.callWall || optCtx?.putWall) && (
+                  <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
+                    {optCtx?.callWall && <span>Call wall <span className="text-rose-400">{fmt(optCtx.callWall)}</span></span>}
+                    {optCtx?.putWall  && <span>Put wall <span className="text-emerald-400">{fmt(optCtx.putWall)}</span></span>}
+                    {optCtx?.maxPain  && <span>Max pain <span className="text-amber-400">{fmt(optCtx.maxPain)}</span></span>}
+                  </div>
+                )}
+                {commentary?.optionsLines?.map((line, i) => (
+                  <p key={i} className="text-[10px] text-amber-300">{line}</p>
+                ))}
+                {optCtx?.activityLabel && (
+                  <p className="text-[10px] text-slate-400 font-mono">{optCtx.activityLabel}</p>
+                )}
+              </div>
             )}
-            {features.direction && (
-              <span className={features.direction === 'bull' ? 'text-emerald-500' : features.direction === 'bear' ? 'text-rose-500' : 'text-slate-600'}>
-                {features.direction === 'bull' ? '▲' : features.direction === 'bear' ? '▼' : '—'}
-              </span>
-            )}
+
           </div>
         )}
       </div>
-
-      {/* ── Zone 3: Commentary ────────────────────────────────────────────── */}
-      {commentary && (
-        <div className="px-3 py-2 space-y-2 border-b border-slate-700/30">
-          {/* Toggle */}
-          <button
-            className="flex items-center justify-between w-full"
-            onClick={() => setShowCommentary(p => !p)}
-          >
-            <span className={`text-xs font-semibold ${colors.text}`}>{commentary.headline}</span>
-            {showCommentary
-              ? <ChevronUp size={12} className="text-slate-500 shrink-0" />
-              : <ChevronDown size={12} className="text-slate-500 shrink-0" />}
-          </button>
-
-          {showCommentary && (
-            <div className="space-y-2">
-              {/* Context */}
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                {commentary.context}
-              </p>
-
-              {/* Watch */}
-              {commentary.watch && (
-                <div className="flex gap-1.5 items-start">
-                  <span className="text-[10px] font-semibold text-indigo-400 shrink-0 mt-0.5">WATCH</span>
-                  <span className="text-[11px] text-slate-300 leading-relaxed">{commentary.watch}</span>
-                </div>
-              )}
-
-              {/* Risk */}
-              {commentary.risk && (
-                <div className="flex gap-1.5 items-start">
-                  <span className="text-[10px] font-semibold text-rose-400 shrink-0 mt-0.5">RISK</span>
-                  <span className="text-[11px] text-slate-300 leading-relaxed">{commentary.risk}</span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Zone 4: Options overlay ───────────────────────────────────────── */}
-      {optCtx?.available !== false && (optCtx?.pcrInfo || optCtx?.callWall) && (
-        <div className="px-3 py-2 border-b border-slate-700/30 space-y-1">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {optCtx?.pcrInfo?.label && (
-              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                optCtx.pcrInfo.bias === 'bullish' ? 'bg-emerald-900/60 text-emerald-300' :
-                optCtx.pcrInfo.bias === 'bearish' ? 'bg-rose-900/60 text-rose-300' :
-                'bg-slate-800 text-slate-400'}`}>
-                PCR {optCtx.pcrInfo.label}
-              </span>
-            )}
-            {optCtx?.isExpiryDay && (
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300">
-                Expiry Day
-              </span>
-            )}
-          </div>
-          {(optCtx?.callWall || optCtx?.putWall) && (
-            <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
-              {optCtx?.callWall && <span>Call wall <span className="text-rose-400">{fmt(optCtx.callWall)}</span></span>}
-              {optCtx?.putWall  && <span>Put wall <span className="text-emerald-400">{fmt(optCtx.putWall)}</span></span>}
-              {optCtx?.maxPain  && <span>Max pain <span className="text-amber-400">{fmt(optCtx.maxPain)}</span></span>}
-            </div>
-          )}
-          {commentary?.optionsLines?.map((line, i) => (
-            <p key={i} className="text-[10px] text-amber-300">{line}</p>
-          ))}
-          {optCtx?.activityLabel && (
-            <p className="text-[10px] text-slate-400 font-mono">{optCtx.activityLabel}</p>
-          )}
-        </div>
-      )}
 
       {/* ── Zone 5: Bias Arbitration ──────────────────────────────────── */}
       <BiasArbitration data={scanData?.biasArbitration ?? null} />
