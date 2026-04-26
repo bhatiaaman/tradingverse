@@ -107,6 +107,89 @@ const CONFIDENCE_STYLE = {
   LOW:    'text-slate-400',
 };
 
+// ── DOM Stock Verdict — live order book pre-trade check ───────────────────────
+const DOM_LEVEL_STYLE = {
+  go:      { bg: 'bg-emerald-950/40 border-emerald-800/40', title: 'text-emerald-300' },
+  wait:    { bg: 'bg-amber-950/40 border-amber-800/40',     title: 'text-amber-300'   },
+  caution: { bg: 'bg-amber-950/30 border-amber-900/30',     title: 'text-amber-400'   },
+  avoid:   { bg: 'bg-rose-950/40 border-rose-800/40',       title: 'text-rose-300'    },
+};
+
+function DomStockVerdict({ symbol, transactionType, price, spotPrice }) {
+  const [verdict,  setVerdict]  = useState(null);
+  const [loading,  setLoading]  = useState(false);
+  const timerRef  = useRef(null);
+  const entryRef  = useRef(null);
+
+  const direction = transactionType === 'BUY' ? 'bull' : transactionType === 'SELL' ? 'bear' : null;
+  entryRef.current = parseFloat(price) || spotPrice || null;
+
+  const fetch_ = useCallback(async () => {
+    if (!symbol || !direction) { setVerdict(null); return; }
+    try {
+      const params = new URLSearchParams({ symbol, direction });
+      if (entryRef.current) params.set('entry', entryRef.current);
+      const res  = await fetch(`/api/dom/stock-verdict?${params}`, { cache: 'no-store' });
+      if (!res.ok) { setVerdict(null); return; }
+      const data = await res.json();
+      setVerdict(data.available ? data : null);
+    } catch { setVerdict(null); }
+    finally  { setLoading(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, direction]);
+
+  useEffect(() => {
+    setLoading(true);
+    setVerdict(null);
+    fetch_();
+    timerRef.current = setInterval(fetch_, 10_000);
+    return () => clearInterval(timerRef.current);
+  }, [fetch_]);
+
+  if (loading && !verdict) return null;
+  if (!verdict) return null;
+
+  const ls = DOM_LEVEL_STYLE[verdict.level] ?? { bg: 'bg-slate-800/40 border-slate-700/30', title: 'text-slate-400' };
+
+  return (
+    <div className={`rounded-xl border px-3 py-2.5 space-y-1.5 ${ls.bg}`}>
+      {/* Header row */}
+      <div className="flex items-start justify-between gap-2">
+        <p className={`text-[11px] font-semibold font-mono leading-snug ${ls.title}`}>
+          {verdict.icon} {verdict.message}
+        </p>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {verdict.confidence && (
+            <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full border font-bold ${
+              verdict.confidence === 'high'   ? 'bg-amber-950 border-amber-700/50 text-amber-300'  :
+              verdict.confidence === 'medium' ? 'bg-slate-800 border-slate-600/50 text-slate-300'  :
+              'bg-slate-900 border-slate-700/40 text-slate-500'
+            }`}>{verdict.confidence.toUpperCase()}</span>
+          )}
+          <span className="text-[9px] font-mono text-slate-600 bg-slate-800/60 border border-slate-700/30 px-1.5 py-0.5 rounded-full">DOM</span>
+        </div>
+      </div>
+      {/* Bias + context */}
+      {(verdict.bias || verdict.context) && (
+        <div className="flex items-center gap-2 text-[9px] font-mono">
+          {verdict.bias    && <span className="text-slate-400">{verdict.bias}</span>}
+          {verdict.bias && verdict.context && <span className="text-slate-700">·</span>}
+          {verdict.context && <span className="text-slate-500">{verdict.context}</span>}
+        </div>
+      )}
+      {/* Detail lines */}
+      <div className="space-y-0.5 text-[9px] font-mono text-slate-500">
+        {verdict.meaning     && <p><span className="text-slate-600">Meaning  </span>{verdict.meaning}</p>}
+        {verdict.implication && <p><span className="text-slate-600">→ </span>{verdict.implication}</p>}
+        {verdict.action      && <p><span className="text-slate-600">Action   </span>{verdict.action}</p>}
+      </div>
+      {verdict.invalidation && (
+        <p className="text-[9px] font-mono text-amber-600/80">❗ {verdict.invalidation}</p>
+      )}
+    </div>
+  );
+}
+
 function ScenarioCard({ scenarioResult, isLoading }) {
   const [open, setOpen] = useState(true);
 
@@ -2869,6 +2952,16 @@ function PlaceOrderTab({
         </div>
 
         <div className="space-y-3">
+          {/* ── DOM order book pre-trade check (stocks only) ── */}
+          {symbol && !isIndex && (
+            <DomStockVerdict
+              symbol={symbol}
+              transactionType={transactionType}
+              price={price}
+              spotPrice={spotPrice}
+            />
+          )}
+
           {/* ── Verdict — full width ── */}
           {symbol && <VerdictCard
             regimeData={regimeData} scenarioResult={scenarioResult} symbol={symbol}
