@@ -482,6 +482,29 @@ export async function GET(request) {
       marketActivity
     );
 
+    // ── Per-strike ΔOI from session-open baseline ────────────────────────────────
+    // Stores per-strike OI at session open (9:15 AM) and annotates each option
+    // with oiChange = current - baseline. Null outside market hours.
+    if (isMarketSession) {
+      const sessionStrikesKey = `${NS}:session-strikes-${underlying}-${expiryType}`;
+      let sessionStrikes = await redisGet(sessionStrikesKey);
+      if (!sessionStrikes) {
+        sessionStrikes = {};
+        for (const opt of optionData) sessionStrikes[`${opt.strike}_${opt.type}`] = opt.oi;
+        await redisSet(sessionStrikesKey, sessionStrikes, 8 * 3600);
+      }
+      for (const opt of optionData) {
+        const base = sessionStrikes[`${opt.strike}_${opt.type}`];
+        opt.oiChange = (base != null && base > 0) ? opt.oi - base : null;
+      }
+    }
+
+    // ── PCR rolling history (last 10 readings) ───────────────────────────────────
+    const pcrHistKey = `${NS}:pcr-history-${underlying}-${expiryType}`;
+    let pcrHistory   = await redisGet(pcrHistKey) || [];
+    pcrHistory       = [...pcrHistory, { v: parseFloat(pcr.toFixed(2)), t: Date.now() }].slice(-10);
+    await redisSet(pcrHistKey, pcrHistory, HISTORY_TTL);
+
     const response = {
       underlying, expiryType,
       spotPrice: spotPrice.toFixed(2),
@@ -490,14 +513,16 @@ export async function GET(request) {
       isExpiryDayZeroOI,
       expiries: { weekly: expiries.weekly, monthly: expiries.monthly },
       pcr: parseFloat(pcr.toFixed(2)),
+      pcrHistory,
       maxPain,
       support: support.level, supportOI: support.oi,
       support2: support2.level, support2OI: support2.oi,
       resistance: resistance.level, resistanceOI: resistance.oi,
       resistance2: resistance2.level, resistance2OI: resistance2.oi,
       totalCallOI, totalPutOI,
-      marketActivity,        // NEW - Activity type (Long Buildup, Short Covering, etc.)
-      actionableInsights,    // NEW - Array of actionable messages
+      futuresOI: futOI,
+      marketActivity,
+      actionableInsights,
       alerts: alertHistory,
       optionChain: optionData.sort((a, b) => a.strike - b.strike),
       timestamp: new Date().toISOString(),

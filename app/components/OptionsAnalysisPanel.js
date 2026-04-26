@@ -1,357 +1,659 @@
 'use client'
 
-import { RefreshCw } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
-// ── Commentary logic ──────────────────────────────────────────────────────────
-// scData is optional — only eye page passes it (futures OI signal from /api/short-covering)
-function getOptionsAnalysisCommentary(chainData, scData) {
-  if (!chainData) return [];
-  const lines = [];
-  const spot = parseFloat(chainData.spotPrice) || 0;
-  const { pcr, marketActivity, optionChain, atmStrike, maxPain } = chainData;
+// ── Formatters ────────────────────────────────────────────────────────────────
+function fmtL(oi) {
+  if (oi == null || oi === 0) return '—'
+  const v = oi / 100000
+  return (v >= 10 ? v.toFixed(1) : v.toFixed(2)) + 'L'
+}
 
-  // 1. Market activity — richer narrative
+function fmtDeltaL(delta) {
+  if (delta == null) return null
+  const v = delta / 100000
+  const sign = delta > 0 ? '+' : ''
+  return sign + (Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2)) + 'L'
+}
+
+function fmtNum(n) {
+  if (n == null) return '—'
+  return Number(n).toLocaleString('en-IN')
+}
+
+// ── Data age hook — updates every 30s ─────────────────────────────────────────
+function useDataAge(timestamp) {
+  const [ageS, setAgeS] = useState(0)
+  useEffect(() => {
+    if (!timestamp) return
+    const compute = () => setAgeS(Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000))
+    compute()
+    const iv = setInterval(compute, 30_000)
+    return () => clearInterval(iv)
+  }, [timestamp])
+  return ageS
+}
+
+function ageLabel(s) {
+  if (s < 60)  return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m`
+  return `${Math.floor(s / 3600)}h`
+}
+
+// ── PCR mini sparkline — last 5 readings as coloured dots ────────────────────
+function PCRSparkline({ history }) {
+  if (!history?.length) return null
+  const pts = history.slice(-6)
+  return (
+    <div className="flex items-center gap-[3px] ml-1">
+      {pts.map((p, i) => (
+        <div
+          key={i}
+          title={`PCR ${p.v}`}
+          className={`rounded-full transition-all ${
+            p.v > 1.2 ? 'bg-emerald-400' :
+            p.v < 0.8 ? 'bg-rose-400'    : 'bg-amber-400'
+          }`}
+          style={{ width: 5, height: i === pts.length - 1 ? 7 : 5 }}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ── PCR trend arrow ──────────────────────────────────────────────────────────
+function PCRTrend({ history }) {
+  if (!history || history.length < 2) return null
+  const delta = history[history.length - 1].v - history[0].v
+  if (Math.abs(delta) < 0.03) return <Minus size={10} className="text-slate-500" />
+  return delta > 0
+    ? <TrendingUp  size={10} className="text-emerald-400" title={`PCR rising +${delta.toFixed(2)}`} />
+    : <TrendingDown size={10} className="text-rose-400"   title={`PCR falling ${delta.toFixed(2)}`} />
+}
+
+// ── Market activity badge ─────────────────────────────────────────────────────
+function ActivityBadge({ activity, strength }) {
+  if (!activity || activity === 'Unknown') return null
+  const isBull = ['Long Buildup', 'Short Covering', 'Long Buildup & Short Covering'].some(a => activity.startsWith(a))
+  const isBear = ['Short Buildup', 'Long Unwinding', 'Short Buildup & Long Unwinding'].some(a => activity.startsWith(a))
+  const cls    = isBull
+    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+    : isBear
+    ? 'bg-rose-500/10 text-rose-400 border-rose-500/25'
+    : 'bg-slate-700/40 text-slate-400 border-slate-600/25'
+  return (
+    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border flex items-center gap-1 ${cls}`}>
+      {activity.split(' (')[0]}
+      {strength > 0 && <span className="opacity-60">{strength}/10</span>}
+    </span>
+  )
+}
+
+// ── Commentary ────────────────────────────────────────────────────────────────
+function getCommentary(chainData, scData) {
+  if (!chainData) return []
+  const lines = []
+  const spot = parseFloat(chainData.spotPrice) || 0
+  const { pcr, marketActivity, optionChain, atmStrike, maxPain, actionableInsights } = chainData
+
+  // Prefer synthesised actionable insights if available
+  if (actionableInsights?.length) {
+    for (const ins of actionableInsights) {
+      const isBull = ins.emoji === '🚀' || ins.emoji === '🐂' || ins.emoji === '🛡️' || ins.emoji === '⬆️'
+      const isBear = ins.emoji === '📉' || ins.emoji === '🐻' || ins.emoji === '🚧' || ins.emoji === '⬇️'
+      lines.push({
+        key: ins.type,
+        icon: ins.emoji,
+        color: isBull ? 'text-emerald-400' : isBear ? 'text-rose-400' : 'text-slate-300',
+        text: ins.message,
+      })
+    }
+    return lines
+  }
+
+  // Fallback: legacy commentary
   if (marketActivity?.activity) {
-    const isBull = ['Long Buildup', 'Short Covering'].includes(marketActivity.activity);
-    const isBear = ['Short Buildup', 'Long Unwinding'].includes(marketActivity.activity);
-    const color  = isBull ? 'text-emerald-400' : isBear ? 'text-red-400' : 'text-slate-300';
-    const str    = marketActivity.strength;
-    const sNote  = str >= 7 ? 'Strong' : str >= 4 ? 'Moderate' : str > 0 ? 'Weak' : '';
+    const isBull  = ['Long Buildup', 'Short Covering'].includes(marketActivity.activity)
+    const isBear  = ['Short Buildup', 'Long Unwinding'].includes(marketActivity.activity)
+    const color   = isBull ? 'text-emerald-400' : isBear ? 'text-rose-400' : 'text-slate-300'
+    const str     = marketActivity.strength
+    const sNote   = str >= 7 ? 'Strong' : str >= 4 ? 'Moderate' : str > 0 ? 'Weak' : ''
     if (['Pre-Market', 'Market Closed'].includes(marketActivity.activity)) {
       lines.push({ key: 'act', icon: marketActivity.emoji || '🔔', color: 'text-slate-400',
         text: marketActivity.activity === 'Pre-Market'
-          ? `Pre-market — last session OI loaded. Watch GIFT Nifty for gap direction at 9:15 AM.`
-          : `Session ended — OI reflects final closing positions. Review before tomorrow.` });
+          ? 'Pre-market — last session OI loaded. Watch GIFT Nifty for gap direction at 9:15 AM.'
+          : 'Session ended — OI reflects final closing positions. Review before tomorrow.' })
     } else {
-      const desc = marketActivity.description ? ` — ${marketActivity.description}` : '';
-      const act  = marketActivity.actionable  ? ` ${marketActivity.actionable}.`  : '';
+      const desc = marketActivity.description ? ` — ${marketActivity.description}` : ''
+      const act  = marketActivity.actionable  ? ` ${marketActivity.actionable}.` : ''
       lines.push({ key: 'act', icon: marketActivity.emoji || '📊', color,
-        text: `${sNote ? sNote + ' ' : ''}${marketActivity.activity}${desc}.${act}` });
+        text: `${sNote ? sNote + ' ' : ''}${marketActivity.activity}${desc}.${act}` })
     }
   }
 
-  // 2. Futures OI (only when scData is provided — eye page)
-  const futOI = scData?.signals?.futuresOI;
+  const futOI = scData?.signals?.futuresOI
   if (futOI?.detail && !futOI.detail.includes('No OI') && !futOI.detail.includes('Insufficient')) {
-    lines.push({ key: 'futoi', icon: futOI.hit ? '⚡' : '◈', color: futOI.hit ? 'text-emerald-400' : 'text-slate-400',
+    lines.push({ key: 'futoi', icon: futOI.hit ? '⚡' : '◈',
+      color: futOI.hit ? 'text-emerald-400' : 'text-slate-400',
       text: futOI.hit
-        ? `Futures OI falling while spot rises — ${futOI.detail}. Trapped shorts are exiting; CE buyers have structural tailwind.`
-        : `Futures OI: ${futOI.detail}. No short-covering divergence yet.` });
+        ? `Futures OI falling while spot rises — ${futOI.detail}. Trapped shorts exiting; CE buyers have structural tailwind.`
+        : `Futures OI: ${futOI.detail}. No short-covering divergence yet.` })
   }
 
-  // 3. PCR — 5-band interpretation
   if (pcr != null) {
-    let text = '', color = '';
-    if      (pcr > 1.5) { color = 'text-emerald-400'; text = `PCR ${pcr.toFixed(2)} — extreme put loading. Put sellers defending aggressively; strong floor below spot.`; }
-    else if (pcr > 1.2) { color = 'text-emerald-400'; text = `PCR ${pcr.toFixed(2)} — put writers in control. Bullish tilt; dips near support likely to find buyers.`; }
-    else if (pcr > 0.9) { color = 'text-slate-300';   text = `PCR ${pcr.toFixed(2)} — balanced. No strong directional OI edge; range-bound action likely.`; }
-    else if (pcr > 0.7) { color = 'text-amber-400';   text = `PCR ${pcr.toFixed(2)} — call-skewed. Call writers building resistance cap; rallies tend to stall.`; }
-    else                { color = 'text-rose-400';    text = `PCR ${pcr.toFixed(2)} — heavy call writing. Bears positioning hard; CE buyers need a strong catalyst.`; }
-    lines.push({ key: 'pcr', icon: '⊗', color, text });
+    let text = '', color = ''
+    if      (pcr > 1.5) { color = 'text-emerald-400'; text = `PCR ${pcr.toFixed(2)} — extreme put loading. Strong floor below spot.` }
+    else if (pcr > 1.2) { color = 'text-emerald-400'; text = `PCR ${pcr.toFixed(2)} — put writers in control. Dips near support likely to hold.` }
+    else if (pcr > 0.9) { color = 'text-slate-300';   text = `PCR ${pcr.toFixed(2)} — balanced. No directional OI edge; range-bound action likely.` }
+    else if (pcr > 0.7) { color = 'text-amber-400';   text = `PCR ${pcr.toFixed(2)} — call-skewed. Call writers capping rallies.` }
+    else                { color = 'text-rose-400';    text = `PCR ${pcr.toFixed(2)} — heavy call writing. Bears positioning hard; need strong catalyst.` }
+    lines.push({ key: 'pcr', icon: '⊗', color, text })
   }
 
-  // 4. ATM straddle + breakeven distance
   if (optionChain?.length && atmStrike && spot > 0) {
-    const atmCE  = optionChain.find(o => o.strike === atmStrike && o.type === 'CE');
-    const atmPE  = optionChain.find(o => o.strike === atmStrike && o.type === 'PE');
-    const strad  = (atmCE?.ltp || 0) + (atmPE?.ltp || 0);
+    const atmCE  = optionChain.find(o => o.strike === atmStrike && o.type === 'CE')
+    const atmPE  = optionChain.find(o => o.strike === atmStrike && o.type === 'PE')
+    const strad  = (atmCE?.ltp || 0) + (atmPE?.ltp || 0)
     if (strad > 0) {
-      const upper    = atmStrike + strad;
-      const lower    = atmStrike - strad;
-      const nearBE   = spot > atmStrike ? upper : lower;
-      const ptsAway  = Math.abs(nearBE - spot);
-      const imminent = ptsAway < strad * 0.35;
-      const side     = spot > atmStrike ? 'upper' : 'lower';
-      lines.push({ key: 'straddle', icon: '⇔', color: imminent ? 'text-amber-400' : 'text-slate-400',
-        text: `ATM straddle ₹${strad.toFixed(0)} — breakeven range ${lower.toFixed(0)}–${upper.toFixed(0)}. Spot ${ptsAway.toFixed(0)}pts from ${side} BE.${imminent ? ' Breach imminent — gamma accelerating.' : ''}` });
+      const upper   = atmStrike + strad
+      const lower   = atmStrike - strad
+      const nearBE  = spot > atmStrike ? upper : lower
+      const ptsAway = Math.abs(nearBE - spot)
+      const imminent = ptsAway < strad * 0.35
+      lines.push({ key: 'straddle', icon: '⇔',
+        color: imminent ? 'text-amber-400' : 'text-slate-400',
+        text: `ATM straddle ₹${strad.toFixed(0)} — breakeven ${Math.round(lower)}–${Math.round(upper)}. Spot ${ptsAway.toFixed(0)}pts from ${spot > atmStrike ? 'upper' : 'lower'} BE.${imminent ? ' Breach imminent — gamma accelerating.' : ''}` })
     }
   }
 
-  // 5. Max pain gravity
   if (maxPain && spot > 0) {
-    const diff    = spot - maxPain;
-    const absDiff = Math.abs(diff);
-    if (absDiff > 50) {
-      const dir  = diff > 0 ? 'above' : 'below';
-      const pull = diff > 0 ? 'Downward' : 'Upward';
-      const pct  = (absDiff / maxPain * 100).toFixed(1);
+    const diff = spot - maxPain
+    if (Math.abs(diff) > 50) {
+      const dir  = diff > 0 ? 'above' : 'below'
+      const pull = diff > 0 ? 'Downward' : 'Upward'
+      const pct  = (Math.abs(diff) / maxPain * 100).toFixed(1)
       lines.push({ key: 'mp', icon: '🎯', color: 'text-slate-400',
-        text: `Spot ${pct}% ${dir} max pain ₹${maxPain} — ${pull} pull expected as expiry nears.` });
+        text: `Spot ${pct}% ${dir} max pain ₹${maxPain} — ${pull} pull as expiry nears.` })
     }
   }
 
-  return lines;
+  return lines
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
-// Props:
-//   chainData       — optionChainData from /api/option-chain
-//   scData          — from /api/short-covering (pass null on trades page)
-//   loading         — optionLoading boolean
-//   underlying      — 'NIFTY' | 'BANKNIFTY' | 'FINNIFTY' | 'MIDCPNIFTY' | 'SENSEX'
-//   expiry          — 'weekly' | 'monthly'
-//   onRefresh       — () => void — force refresh callback
-//   onUnderlyingChange — (u: string) => void
-//   onExpiryChange  — (e: string) => void
+// ── Main component ─────────────────────────────────────────────────────────────
 export default function OptionsAnalysisPanel({
-  chainData, scData = null, scLastUpdated = null, loading, underlying, expiry,
-  onRefresh, onUnderlyingChange, onExpiryChange,
+  chainData, scData = null, scLastUpdated = null, loading,
+  underlying, expiry, onRefresh, onUnderlyingChange, onExpiryChange,
 }) {
+  const dataAge   = useDataAge(chainData?.timestamp)
+  const isStale   = dataAge > 120 && !loading  // >2 min during potential market hours
+  const pcrHist   = chainData?.pcrHistory || []
+  const pcrTrend  = pcrHist.length >= 2
+    ? pcrHist[pcrHist.length - 1].v - pcrHist[0].v
+    : 0
+
+  const spot      = parseFloat(chainData?.spotPrice || 0)
+  const atm       = chainData?.atmStrike
+  const chain     = chainData?.optionChain || []
+  const activity  = chainData?.marketActivity
+  const futuresOI = chainData?.futuresOI
+
+  // ATM straddle + breakeven
+  const atmCE   = chain.find(o => o.strike === atm && o.type === 'CE')
+  const atmPE   = chain.find(o => o.strike === atm && o.type === 'PE')
+  const strad   = (atmCE?.ltp || 0) + (atmPE?.ltp || 0)
+  const beUpper = strad > 0 ? Math.round(atm + strad) : null
+  const beLower = strad > 0 ? Math.round(atm - strad) : null
+
+  // Strike gap
+  const gap = (underlying === 'BANKNIFTY' || underlying === 'SENSEX') ? 100
+             : underlying === 'MIDCPNIFTY' ? 25 : 50
+
+  // Build ±5 strike rows (was ±4)
+  const rows = []
+  if (atm && chain.length) {
+    for (let i = 5; i >= -5; i--) {
+      const strike = atm + i * gap
+      const ce = chain.find(o => o.strike === strike && o.type === 'CE')
+      const pe = chain.find(o => o.strike === strike && o.type === 'PE')
+      rows.push({
+        strike,
+        cOI: ce?.oi || 0,       pOI: pe?.oi || 0,
+        cVol: ce?.volume || 0,  pVol: pe?.volume || 0,
+        cDelta: ce?.oiChange,   pDelta: pe?.oiChange,
+        isATM: i === 0,
+        isBeUpper: beUpper === strike,
+        isBeLower: beLower === strike,
+      })
+    }
+  }
+
+  // Scale for bars — 90th-percentile cap
+  const allOIs  = rows.flatMap(r => [r.cOI, r.pOI]).filter(v => v > 0).sort((a, b) => a - b)
+  const p90OI   = allOIs[Math.floor(allOIs.length * 0.9)] || 1
+  const allVols = rows.flatMap(r => [r.cVol, r.pVol]).filter(v => v > 0).sort((a, b) => a - b)
+  const p90Vol  = allVols[Math.floor(allVols.length * 0.9)] || 1
+  const oiPct   = v => Math.min(100, Math.round((v / p90OI) * 100))
+  const volPct  = v => Math.min(100, Math.round((v / p90Vol) * 100))
+
+  // S/R from chainData
+  const support    = chainData?.support
+  const resistance = chainData?.resistance
+
+  const commentary = getCommentary(chainData, scData)
+  const updatedAt  = chainData?.timestamp
+    ? new Date(chainData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : null
+
   return (
-    <div className="bg-[#112240] backdrop-blur border border-blue-800/40 rounded-xl p-5">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-blue-300 flex items-center gap-2 flex-wrap">
-          <span className="w-1 h-5 bg-blue-500 rounded flex-shrink-0" />
-          Options Analysis
-          {chainData?.marketActivity?.activity && chainData.marketActivity.activity !== 'Unknown' && (
-            <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex items-center gap-1 ${
-              ['Long Buildup', 'Short Covering'].includes(chainData.marketActivity.activity)
-                ? 'bg-green-500/15 text-green-400 border border-green-500/30'
-                : ['Short Buildup', 'Long Unwinding'].includes(chainData.marketActivity.activity)
-                ? 'bg-red-500/15 text-red-400 border border-red-500/30'
-                : chainData.marketActivity.activity === 'Consolidation'
-                ? 'bg-slate-700/50 text-slate-400 border border-slate-600/30'
-                : 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30'
-            }`}>
-              {chainData.marketActivity.emoji} {chainData.marketActivity.activity}
-            </span>
+    <div className="bg-[#0e1521] border border-slate-700/30 rounded-xl overflow-hidden">
+
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
+      <div className="px-4 py-3 border-b border-slate-700/20 flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="w-[3px] h-5 bg-indigo-500 rounded-full flex-shrink-0" />
+          <span className="text-sm font-semibold text-slate-200">Options Analysis</span>
+          {activity?.activity && activity.activity !== 'Unknown' && (
+            <ActivityBadge activity={activity.activity} strength={activity.strength} />
           )}
-        </h2>
-        <div className="flex gap-2 items-center">
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={onRefresh}
             disabled={loading}
+            className="p-1.5 hover:bg-slate-700/40 rounded-lg transition-colors disabled:opacity-40"
             title="Force refresh OI data"
-            className="p-1.5 hover:bg-blue-800/40 rounded transition-colors disabled:opacity-40"
           >
-            <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${loading ? 'animate-spin' : ''}`} />
           </button>
-          <div className="flex bg-[#0a1628] rounded-lg p-0.5">
-            {['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'].map((u) => (
+          {/* Underlying selector */}
+          <div className="flex bg-[#131d2e] rounded-lg p-0.5 border border-slate-700/30">
+            {['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'].map(u => (
               <button
                 key={u}
                 onClick={() => onUnderlyingChange(u)}
-                className={`px-2 py-1 text-[10px] sm:text-xs rounded-md transition-colors ${underlying === u ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`px-2 py-0.5 text-[10px] font-mono rounded-md transition-colors ${
+                  underlying === u ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-200'
+                }`}
               >
-                {u === 'BANKNIFTY' ? 'BankNifty' : u === 'FINNIFTY' ? 'FinNifty' : u === 'MIDCPNIFTY' ? 'Midcap' : u === 'SENSEX' ? 'Sensex' : 'Nifty'}
+                {u === 'BANKNIFTY' ? 'BNF' : u === 'FINNIFTY' ? 'FIN' : u === 'MIDCPNIFTY' ? 'MID' : u}
               </button>
             ))}
           </div>
-          <div className="flex bg-[#0a1628] rounded-lg p-0.5">
-            {['weekly', 'monthly'].map((e) => {
-              const isDisabled = underlying === 'BANKNIFTY' && e === 'weekly';
+          {/* Expiry selector */}
+          <div className="flex bg-[#131d2e] rounded-lg p-0.5 border border-slate-700/30">
+            {['weekly', 'monthly'].map(e => {
+              const disabled = underlying === 'BANKNIFTY' && e === 'weekly'
               return (
                 <button
                   key={e}
-                  onClick={() => !isDisabled && onExpiryChange(e)}
-                  className={`px-3 py-1 text-xs rounded-md transition-colors ${expiry === e ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'} ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-                  disabled={isDisabled}
+                  onClick={() => !disabled && onExpiryChange(e)}
+                  disabled={disabled}
+                  className={`px-2.5 py-0.5 text-[10px] font-mono rounded-md transition-colors ${
+                    expiry === e ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-200'
+                  } ${disabled ? 'opacity-30 cursor-not-allowed' : ''}`}
                 >
-                  {e === 'weekly' ? 'Weekly' : 'Monthly'}
+                  {e === 'weekly' ? 'Wkly' : 'Mthly'}
                 </button>
-              );
+              )
             })}
           </div>
         </div>
       </div>
 
-      {/* Body */}
+      {/* ── Staleness banner ─────────────────────────────────────────────────── */}
+      {isStale && (
+        <div className="px-4 py-1.5 bg-amber-950/30 border-b border-amber-800/20 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-[10px] font-mono text-amber-400">
+            <AlertTriangle size={10} />
+            <span>Data {ageLabel(dataAge)} old — OI may have shifted</span>
+          </div>
+          <button
+            onClick={onRefresh}
+            className="text-[10px] font-mono text-indigo-400 hover:text-indigo-200 transition-colors"
+          >
+            Refresh →
+          </button>
+        </div>
+      )}
+
       {loading ? (
-        <div className="text-slate-400 text-center py-8">Loading options data...</div>
+        <div className="px-4 py-10 text-center text-slate-500 text-sm">Loading options data…</div>
       ) : chainData?.error ? (
-        <div className="text-red-400 text-center py-4">{chainData.error}</div>
+        <div className="px-4 py-6 text-center text-rose-400 text-sm">{chainData.error}</div>
       ) : (
-        <div className="space-y-4">
-          {/* Key stats */}
-          <div className="grid grid-cols-4 gap-3">
-            <div className="bg-[#0a1628] rounded-lg p-3">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider">Spot / ATM</div>
-              <div className="text-lg font-mono text-slate-200 mt-1">{parseFloat(chainData?.spotPrice || 0).toLocaleString()}</div>
-              <div className="text-xs text-slate-400">ATM: {chainData?.atmStrike?.toLocaleString()}</div>
+        <div>
+
+          {/* ── Stat cards ──────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-4 gap-px bg-slate-700/20 border-b border-slate-700/20">
+
+            {/* Spot */}
+            <div className="bg-[#0e1521] px-3 py-2.5">
+              <div className="text-[9px] font-mono text-slate-600 uppercase tracking-[0.12em] mb-1">Spot / ATM</div>
+              <div className="text-sm font-bold font-mono tabular-nums text-slate-100">
+                {fmtNum(parseFloat(spot).toFixed(0))}
+              </div>
+              <div className="text-[10px] font-mono text-slate-500 mt-0.5">ATM {fmtNum(atm)}</div>
             </div>
-            <div className="bg-[#0a1628] rounded-lg p-3">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider">PCR</div>
-              {(chainData && (chainData.totalCallOI === 0 || chainData.totalPutOI === 0)) ? (
+
+            {/* PCR + trend */}
+            <div className="bg-[#0e1521] px-3 py-2.5">
+              <div className="text-[9px] font-mono text-slate-600 uppercase tracking-[0.12em] mb-1">PCR</div>
+              {chainData?.totalCallOI === 0 || chainData?.totalPutOI === 0 ? (
                 <>
-                  <div className="text-lg font-mono mt-1 text-slate-500">N/A</div>
-                  <div className="text-xs text-slate-500">
-                    {chainData.offMarketHours ? 'Market Closed' : 'OI Unavailable — retrying'}
+                  <div className="text-sm font-bold font-mono text-slate-600">N/A</div>
+                  <div className="text-[10px] font-mono text-slate-600 mt-0.5">
+                    {chainData?.offMarketHours ? 'Market Closed' : 'OI Unavailable'}
                   </div>
                 </>
               ) : (
                 <>
-                  <div className={`text-lg font-mono mt-1 ${chainData?.pcr > 1.2 ? 'text-green-400' : chainData?.pcr < 0.8 ? 'text-red-400' : 'text-yellow-400'}`}>
-                    {chainData?.pcr?.toFixed(2) || '—'}
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-sm font-bold font-mono tabular-nums ${
+                      chainData?.pcr > 1.2 ? 'text-emerald-400' :
+                      chainData?.pcr < 0.8 ? 'text-rose-400' : 'text-amber-400'
+                    }`}>{chainData?.pcr?.toFixed(2) || '—'}</span>
+                    <PCRTrend history={pcrHist} />
                   </div>
-                  <div className="text-xs text-slate-400">{chainData?.pcr > 1.2 ? 'Bullish' : chainData?.pcr < 0.8 ? 'Bearish' : 'Neutral'}</div>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <span className="text-[10px] font-mono text-slate-500">
+                      {chainData?.pcr > 1.2 ? 'Bullish' : chainData?.pcr < 0.8 ? 'Bearish' : 'Neutral'}
+                    </span>
+                    <PCRSparkline history={pcrHist} />
+                  </div>
                 </>
               )}
             </div>
-            <div className="bg-[#0a1628] rounded-lg p-3">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider">Max Pain</div>
-              <div className="text-lg font-mono text-orange-400 mt-1">{chainData?.maxPain?.toLocaleString() || '—'}</div>
-              <div className="text-xs text-slate-400">
-                {chainData?.maxPain && chainData?.spotPrice
-                  ? `${((chainData.maxPain - parseFloat(chainData.spotPrice)) / parseFloat(chainData.spotPrice) * 100).toFixed(1)}% from spot`
+
+            {/* Max Pain */}
+            <div className="bg-[#0e1521] px-3 py-2.5">
+              <div className="text-[9px] font-mono text-slate-600 uppercase tracking-[0.12em] mb-1">Max Pain</div>
+              <div className="text-sm font-bold font-mono tabular-nums text-amber-400">
+                {fmtNum(chainData?.maxPain) || '—'}
+              </div>
+              <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+                {chainData?.maxPain && spot
+                  ? `${spot > chainData.maxPain ? '+' : ''}${(spot - chainData.maxPain).toFixed(0)}pts from spot`
                   : '—'}
               </div>
             </div>
-            <div className="bg-[#0a1628] rounded-lg p-3">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider">Expiry / DTE</div>
-              <div className="text-lg font-mono text-slate-200 mt-1">
-                {chainData?.expiry ? new Date(chainData.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}
-              </div>
-              <div className="text-xs text-slate-400">
+
+            {/* Expiry */}
+            <div className="bg-[#0e1521] px-3 py-2.5">
+              <div className="text-[9px] font-mono text-slate-600 uppercase tracking-[0.12em] mb-1">Expiry / DTE</div>
+              <div className="text-sm font-bold font-mono text-slate-100">
                 {chainData?.expiry
-                  ? (() => { const d = Math.ceil((new Date(chainData.expiry) - new Date()) / 86400000); return `${d}d left · ${chainData?.expiryType || ''}`; })()
+                  ? new Date(chainData.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
                   : '—'}
               </div>
+              {chainData?.expiry && (() => {
+                const dte = Math.ceil((new Date(chainData.expiry) - new Date()) / 86400000)
+                return (
+                  <div className={`text-[10px] font-mono mt-0.5 ${dte <= 1 ? 'text-rose-400' : dte <= 3 ? 'text-amber-400' : 'text-slate-500'}`}>
+                    {dte}d left{dte <= 1 ? ' · 0DTE' : ''} · {chainData?.expiryType || ''}
+                  </div>
+                )
+              })()}
             </div>
           </div>
 
-          {/* ATM Premiums + Straddle */}
-          {chainData?.atmStrike && chainData?.optionChain?.length > 0 && (() => {
-            const atm   = chainData.atmStrike;
-            const atmCE = chainData.optionChain.find(o => o.strike === atm && o.type === 'CE');
-            const atmPE = chainData.optionChain.find(o => o.strike === atm && o.type === 'PE');
-            if (!atmCE && !atmPE) return null;
-            const straddle = (atmCE?.ltp || 0) + (atmPE?.ltp || 0);
-            return (
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-[#0a1628] rounded-lg p-3 border-l-2 border-red-500/40">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">{atm} CE (ATM Call)</div>
-                  <div className="text-lg font-mono text-red-400 mt-1">₹{atmCE?.ltp?.toFixed(2) || '—'}</div>
-                  <div className="text-xs text-slate-500">Premium</div>
+          {/* ── ATM Premiums + Straddle ──────────────────────────────────────── */}
+          {atm && (atmCE || atmPE) && (
+            <div className="grid grid-cols-3 gap-px bg-slate-700/20 border-b border-slate-700/20">
+              <div className="bg-[#0e1521] px-3 py-2.5">
+                <div className="text-[9px] font-mono text-slate-600 uppercase tracking-[0.12em] mb-1">{atm} CE · ATM Call</div>
+                <div className="text-base font-bold font-mono tabular-nums text-rose-400">
+                  ₹{atmCE?.ltp?.toFixed(2) || '—'}
                 </div>
-                <div className="bg-[#0a1628] rounded-lg p-3 border-l-2 border-green-500/40">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">{atm} PE (ATM Put)</div>
-                  <div className="text-lg font-mono text-green-400 mt-1">₹{atmPE?.ltp?.toFixed(2) || '—'}</div>
-                  <div className="text-xs text-slate-500">Premium</div>
-                </div>
-                <div className="bg-[#0a1628] rounded-lg p-3">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Straddle Value</div>
-                  <div className="text-lg font-mono text-amber-400 mt-1">₹{straddle.toFixed(2)}</div>
-                  <div className="text-xs text-slate-500">Expected move ±</div>
-                </div>
+                <div className="text-[10px] font-mono text-slate-500 mt-0.5">Premium</div>
               </div>
-            );
-          })()}
-
-          {/* OI Distribution — mini bar chart per strike */}
-          {(() => {
-            const chain = chainData?.optionChain;
-            if (!chain?.length) return null;
-            const atm = chainData.atmStrike;
-            const gap = (underlying === 'BANKNIFTY' || underlying === 'SENSEX') ? 100 : underlying === 'MIDCPNIFTY' ? 25 : 50;
-            const rows = [];
-            for (let i = 4; i >= -4; i--) {
-              const strike = atm + i * gap;
-              const ce = chain.find(o => o.strike === strike && o.type === 'CE');
-              const pe = chain.find(o => o.strike === strike && o.type === 'PE');
-              rows.push({ strike, cOI: ce?.oi || 0, pOI: pe?.oi || 0, isATM: i === 0 });
-            }
-            const allOIs = rows.flatMap(r => [r.cOI, r.pOI]).filter(v => v > 0).sort((a, b) => a - b);
-            const p90  = allOIs[Math.floor(allOIs.length * 0.9)] || 1;
-            const pct  = v => Math.min(100, Math.round((v / p90) * 100));
-            return (
-              <div className="bg-[#0a1628] rounded-lg p-3">
-                <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 flex justify-between">
-                  <span className="text-green-400">← Put OI</span>
-                  <span>Strike</span>
-                  <span className="text-red-400">Call OI →</span>
+              <div className="bg-[#0e1521] px-3 py-2.5">
+                <div className="text-[9px] font-mono text-slate-600 uppercase tracking-[0.12em] mb-1">{atm} PE · ATM Put</div>
+                <div className="text-base font-bold font-mono tabular-nums text-emerald-400">
+                  ₹{atmPE?.ltp?.toFixed(2) || '—'}
                 </div>
-                <div className="space-y-px">
-                  {rows.map(({ strike, cOI, pOI, isATM }) => {
-                    const putPct  = pct(pOI);
-                    const callPct = pct(cOI);
-                    const isS1 = strike === chainData?.support;
-                    const isR1 = strike === chainData?.resistance;
-                    return (
-                      <div key={strike} className={`flex items-center gap-1 h-6 px-1 rounded ${isATM ? 'bg-blue-500/10 ring-1 ring-blue-500/20' : ''}`}>
+                <div className="text-[10px] font-mono text-slate-500 mt-0.5">Premium</div>
+              </div>
+              <div className="bg-[#0e1521] px-3 py-2.5">
+                <div className="text-[9px] font-mono text-slate-600 uppercase tracking-[0.12em] mb-1">Straddle</div>
+                <div className="text-base font-bold font-mono tabular-nums text-amber-400">
+                  ₹{strad > 0 ? strad.toFixed(2) : '—'}
+                </div>
+                {beUpper && (
+                  <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+                    BE {fmtNum(beLower)}–{fmtNum(beUpper)}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Futures OI strip ─────────────────────────────────────────────── */}
+          {(activity?.activity || futuresOI || scData?.signals?.futuresOI?.detail) && (
+            <div className="px-4 py-2 border-b border-slate-700/20 flex items-center gap-3 flex-wrap">
+              <span className="text-[9px] font-mono text-slate-600 uppercase tracking-[0.12em] shrink-0">Futures OI</span>
+              {activity?.activity && activity.activity !== 'Pre-Market' && activity.activity !== 'Market Closed' && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-mono text-slate-300">{activity.emoji}</span>
+                  <span className={`text-[10px] font-mono font-semibold ${
+                    ['Long Buildup','Short Covering'].some(a => activity.activity.startsWith(a))
+                      ? 'text-emerald-400'
+                      : ['Short Buildup','Long Unwinding'].some(a => activity.activity.startsWith(a))
+                      ? 'text-rose-400' : 'text-slate-400'
+                  }`}>{activity.activity.split(' (')[0]}</span>
+                  {activity.strength > 0 && (
+                    <div className="flex items-center gap-px">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <div key={i}
+                          className={`h-2 w-1 rounded-sm ${i < Math.round(activity.strength / 2) ? 'bg-indigo-500' : 'bg-slate-800'}`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {futuresOI != null && (
+                <span className="text-[10px] font-mono text-slate-500">
+                  Fut OI <span className="text-slate-300 tabular-nums">{fmtL(futuresOI)}</span>
+                </span>
+              )}
+              {(() => {
+                const f = scData?.signals?.futuresOI
+                if (!f?.detail || f.detail.includes('No OI') || f.detail.includes('Insufficient')) return null
+                return (
+                  <span className={`text-[10px] font-mono ${f.hit ? 'text-emerald-400' : 'text-slate-500'}`}>
+                    {f.hit ? '⚡ SC signal' : `· ${f.detail.split('.')[0]}`}
+                  </span>
+                )
+              })()}
+            </div>
+          )}
+
+          {/* ── OI Chain ─────────────────────────────────────────────────────── */}
+          {rows.length > 0 && (
+            <div className="px-3 py-3 border-b border-slate-700/20">
+              {/* Column header */}
+              <div className="flex items-center mb-2 text-[9px] font-mono uppercase tracking-[0.12em]">
+                <div className="flex-1 text-left text-emerald-600">← Put OI</div>
+                <div className="w-20 text-center text-slate-600">Strike</div>
+                <div className="flex-1 text-right text-rose-600">Call OI →</div>
+              </div>
+
+              <div className="space-y-0.5">
+                {rows.map(({ strike, cOI, pOI, cVol, pVol, cDelta, pDelta, isATM, isBeUpper, isBeLower }) => {
+                  const isS1 = strike === support
+                  const isR1 = strike === resistance
+
+                  return (
+                    <div key={strike}>
+                      {/* Breakeven upper marker */}
+                      {isBeUpper && (
+                        <div className="flex items-center gap-1 py-0.5">
+                          <div className="flex-1 border-t border-dashed border-amber-600/30" />
+                          <span className="text-[8px] font-mono text-amber-600/70 shrink-0">BE↑ {fmtNum(beUpper)}</span>
+                          <div className="flex-1 border-t border-dashed border-amber-600/30" />
+                        </div>
+                      )}
+
+                      <div className={`flex items-center gap-1 px-1 rounded-sm ${isATM ? 'bg-indigo-500/8 ring-1 ring-indigo-500/15' : ''}`}>
+
+                        {/* PUT side */}
                         <div className="flex-1 flex justify-end items-center gap-1.5">
-                          <span className="text-[9px] text-slate-600 font-mono w-8 text-right tabular-nums">{pOI > 0 ? (pOI/100000).toFixed(1)+'L' : ''}</span>
-                          <div className="w-20 h-3 flex justify-end rounded-sm overflow-hidden">
-                            <div className={`h-full rounded-l ${isS1 ? 'bg-green-400/70' : 'bg-green-500/35'}`} style={{ width: `${putPct}%` }} />
+                          {/* ΔOI + OI labels */}
+                          <div className="text-right shrink-0">
+                            <div className="text-[9px] font-mono tabular-nums text-slate-400 leading-tight">
+                              {fmtL(pOI)}
+                            </div>
+                            {pDelta != null && (
+                              <div className={`text-[8px] font-mono tabular-nums leading-tight ${
+                                pDelta > 0 ? 'text-emerald-500' : pDelta < 0 ? 'text-rose-500' : 'text-slate-700'
+                              }`}>
+                                {fmtDeltaL(pDelta)}
+                              </div>
+                            )}
+                          </div>
+                          {/* OI bar + Volume bar */}
+                          <div className="w-20 space-y-0.5">
+                            <div className="h-2.5 flex justify-end rounded-sm overflow-hidden bg-slate-800/50">
+                              <div
+                                className={`h-full ${isS1 ? 'bg-emerald-400/90' : 'bg-emerald-500/45'} rounded-l-sm`}
+                                style={{ width: `${oiPct(pOI)}%` }}
+                              />
+                            </div>
+                            <div className="h-[3px] flex justify-end rounded-sm overflow-hidden bg-slate-800/30">
+                              <div className="h-full bg-indigo-500/35 rounded-l-sm" style={{ width: `${volPct(pVol)}%` }} />
+                            </div>
                           </div>
                         </div>
-                        <div className="w-16 flex-shrink-0 text-center">
-                          <span className={`text-xs font-mono ${isATM ? 'text-blue-300 font-bold' : isS1 ? 'text-green-400' : isR1 ? 'text-red-400' : 'text-slate-400'}`}>
-                            {strike.toLocaleString()}
-                          </span>
-                          {isATM && <span className="text-[8px] text-blue-500 ml-0.5">ATM</span>}
-                          {isS1 && !isATM && <span className="text-[8px] text-green-500 ml-0.5">S1</span>}
-                          {isR1 && !isATM && <span className="text-[8px] text-red-500 ml-0.5">R1</span>}
+
+                        {/* Strike label */}
+                        <div className="w-20 shrink-0 text-center py-0.5">
+                          <div className={`text-[10px] font-mono tabular-nums leading-tight ${
+                            isATM ? 'text-indigo-300 font-bold' :
+                            isS1  ? 'text-emerald-400' :
+                            isR1  ? 'text-rose-400' : 'text-slate-400'
+                          }`}>
+                            {fmtNum(strike)}
+                          </div>
+                          <div className="text-[7px] font-mono leading-tight">
+                            {isATM && <span className="text-indigo-500">ATM</span>}
+                            {isS1 && !isATM && <span className="text-emerald-600">S1</span>}
+                            {isR1 && !isATM && <span className="text-rose-600">R1</span>}
+                          </div>
                         </div>
+
+                        {/* CALL side */}
                         <div className="flex-1 flex items-center gap-1.5">
-                          <div className="w-20 h-3 rounded-sm overflow-hidden">
-                            <div className={`h-full rounded-r ${isR1 ? 'bg-red-400/70' : 'bg-red-500/35'}`} style={{ width: `${callPct}%` }} />
+                          {/* OI bar + Volume bar */}
+                          <div className="w-20 space-y-0.5">
+                            <div className="h-2.5 rounded-sm overflow-hidden bg-slate-800/50">
+                              <div
+                                className={`h-full ${isR1 ? 'bg-rose-400/90' : 'bg-rose-500/45'} rounded-r-sm`}
+                                style={{ width: `${oiPct(cOI)}%` }}
+                              />
+                            </div>
+                            <div className="h-[3px] rounded-sm overflow-hidden bg-slate-800/30">
+                              <div className="h-full bg-indigo-500/35 rounded-r-sm" style={{ width: `${volPct(cVol)}%` }} />
+                            </div>
                           </div>
-                          <span className="text-[9px] text-slate-600 font-mono w-8 tabular-nums">{cOI > 0 ? (cOI/100000).toFixed(1)+'L' : ''}</span>
+                          {/* ΔOI + OI labels */}
+                          <div className="text-left shrink-0">
+                            <div className="text-[9px] font-mono tabular-nums text-slate-400 leading-tight">
+                              {fmtL(cOI)}
+                            </div>
+                            {cDelta != null && (
+                              <div className={`text-[8px] font-mono tabular-nums leading-tight ${
+                                cDelta > 0 ? 'text-rose-500' : cDelta < 0 ? 'text-emerald-500' : 'text-slate-700'
+                              }`}>
+                                {fmtDeltaL(cDelta)}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-                <div className="mt-2 pt-2 border-t border-slate-800/40 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-red-400 font-medium">R1 {chainData?.resistance?.toLocaleString()}</span>
-                    <span className="text-slate-500">{(chainData?.resistanceOI/100000).toFixed(1)}L</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-green-400 font-medium">S1 {chainData?.support?.toLocaleString()}</span>
-                    <span className="text-slate-500">{(chainData?.supportOI/100000).toFixed(1)}L</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-red-300">R2 {chainData?.resistance2?.toLocaleString()}</span>
-                    <span className="text-slate-500">{(chainData?.resistance2OI/100000).toFixed(1)}L</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-green-300">S2 {chainData?.support2?.toLocaleString()}</span>
-                    <span className="text-slate-500">{(chainData?.support2OI/100000).toFixed(1)}L</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
 
-          {/* Commentary */}
-          <div className="bg-[#0a1628] rounded-lg p-3">
-            {(() => {
-              const lines = getOptionsAnalysisCommentary(chainData, scData);
-              if (!lines.length) return <p className="text-sm text-slate-500">Analyzing market activity…</p>;
-              return (
-                <div className="space-y-2.5">
-                  {lines.map(l => (
-                    <p key={l.key} className="text-xs leading-relaxed">
-                      <span className="mr-1.5">{l.icon}</span>
-                      <span className={l.color}>{l.text}</span>
-                    </p>
-                  ))}
-                </div>
-              );
-            })()}
+                      {/* Breakeven lower marker */}
+                      {isBeLower && (
+                        <div className="flex items-center gap-1 py-0.5">
+                          <div className="flex-1 border-t border-dashed border-amber-600/30" />
+                          <span className="text-[8px] font-mono text-amber-600/70 shrink-0">BE↓ {fmtNum(beLower)}</span>
+                          <div className="flex-1 border-t border-dashed border-amber-600/30" />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* ΔOI legend */}
+              <div className="mt-2 flex items-center gap-3 text-[8px] font-mono text-slate-700">
+                <span>PUT ΔOI: <span className="text-emerald-700">+buildup</span> <span className="text-rose-700">-unwind</span></span>
+                <span>CALL ΔOI: <span className="text-rose-700">+buildup</span> <span className="text-emerald-700">-unwind</span></span>
+                <span className="text-indigo-700">▒ vol</span>
+              </div>
+            </div>
+          )}
+
+          {/* ── S/R levels ───────────────────────────────────────────────────── */}
+          {(chainData?.support || chainData?.resistance) && (
+            <div className="px-4 py-2 border-b border-slate-700/20 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] font-mono">
+              <div className="flex justify-between">
+                <span className="text-rose-400 font-semibold">R1 {fmtNum(chainData?.resistance)}</span>
+                <span className="text-slate-600">{fmtL(chainData?.resistanceOI)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-emerald-400 font-semibold">S1 {fmtNum(chainData?.support)}</span>
+                <span className="text-slate-600">{fmtL(chainData?.supportOI)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-rose-500/70">R2 {fmtNum(chainData?.resistance2)}</span>
+                <span className="text-slate-700">{fmtL(chainData?.resistance2OI)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-emerald-500/70">S2 {fmtNum(chainData?.support2)}</span>
+                <span className="text-slate-700">{fmtL(chainData?.support2OI)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* ── Commentary ───────────────────────────────────────────────────── */}
+          <div className="px-4 py-3 border-b border-slate-700/20 space-y-2">
+            {commentary.length === 0
+              ? <p className="text-xs text-slate-600">Analyzing market activity…</p>
+              : commentary.map(l => (
+                <p key={l.key} className="text-[11px] leading-relaxed">
+                  <span className="mr-1.5 text-slate-500">{l.icon}</span>
+                  <span className={l.color}>{l.text}</span>
+                </p>
+              ))
+            }
           </div>
 
-          {/* Footer */}
-          <div className="flex flex-wrap justify-between items-center gap-y-1 text-[10px] sm:text-xs text-slate-400 pt-2 border-t border-blue-800/40">
+          {/* ── Footer ───────────────────────────────────────────────────────── */}
+          <div className="px-4 py-2 flex items-center justify-between flex-wrap gap-y-1 text-[9px] font-mono text-slate-600">
             <div className="flex gap-3">
-              <span>Total CE: <span className="text-red-400 font-mono">{(chainData?.totalCallOI / 100000).toFixed(1)}L</span></span>
-              <span>Total PE: <span className="text-green-400 font-mono">{(chainData?.totalPutOI / 100000).toFixed(1)}L</span></span>
+              <span>CE <span className="text-rose-500/70 tabular-nums">{fmtL(chainData?.totalCallOI)}</span></span>
+              <span>PE <span className="text-emerald-500/70 tabular-nums">{fmtL(chainData?.totalPutOI)}</span></span>
+              {chainData?.totalCallOI && chainData?.totalPutOI && (
+                <span>PCR <span className="text-slate-400 tabular-nums">{chainData?.pcr?.toFixed(2)}</span></span>
+              )}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-slate-500 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse-slow" />
-                Live Analysis: {scLastUpdated || (chainData?.timestamp ? new Date(chainData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—')}
-              </span>
+              {isStale && <span className="text-amber-600">⚠ {ageLabel(dataAge)} old</span>}
+              {!isStale && updatedAt && (
+                <span className="flex items-center gap-1">
+                  <span className="w-1 h-1 rounded-full bg-emerald-600 animate-pulse inline-block" />
+                  {updatedAt}
+                  {dataAge > 30 && <span className="text-slate-700">· {ageLabel(dataAge)} ago</span>}
+                </span>
+              )}
+              {scLastUpdated && <span className="text-indigo-700">SC active</span>}
             </div>
           </div>
-          <div className="text-[9px] text-slate-600 pt-1 flex justify-between">
-            <span>OI data reflects NSE snapshots · Intraday may lag 5–15m</span>
-            {scLastUpdated && <span className="text-amber-500/60 italic">Signal poller active</span>}
-          </div>
+
         </div>
       )}
     </div>
-  );
+  )
 }
