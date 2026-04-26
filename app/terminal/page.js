@@ -11,7 +11,7 @@ import {
   CheckCircle, XCircle, Clock, AlertTriangle, ShieldCheck,
   ShieldAlert, ShieldX, AlertCircle, ExternalLink,
   Sun, Moon, Activity, ScanSearch, Target, BarChart3,
-  Pencil, Check,
+  Pencil, Check, Bell, BellOff, Plus, Trash2,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1655,9 +1655,210 @@ function ExitModal({ position, onClose, onPlaced }) {
   );
 }
 
+// ── AlertDrawer — price alert management panel ────────────────────────────────
+function AlertDrawer({ open, onClose, prefillSymbol = '' }) {
+  const [alerts,   setAlerts]   = useState([]);
+  const [aLoading, setALoading] = useState(false);
+  const [form,     setForm]     = useState({ symbol: prefillSymbol, threshold: '', direction: 'above', note: '' });
+  const [adding,   setAdding]   = useState(false);
+  const [addErr,   setAddErr]   = useState(null);
+
+  const loadAlerts = useCallback(async () => {
+    setALoading(true);
+    try {
+      const res  = await fetch('/api/alerts');
+      const data = await res.json();
+      setAlerts(data.alerts ?? []);
+    } catch {} finally { setALoading(false); }
+  }, []);
+
+  useEffect(() => { if (open) { loadAlerts(); setForm(f => ({ ...f, symbol: prefillSymbol })); } }, [open, prefillSymbol, loadAlerts]);
+
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    setAdding(true); setAddErr(null);
+    try {
+      const res = await fetch('/api/alerts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol:    form.symbol.toUpperCase().trim(),
+          threshold: parseFloat(form.threshold),
+          direction: form.direction,
+          note:      form.note || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAddErr(data.error || 'Failed'); return; }
+      setForm({ symbol: '', threshold: '', direction: 'above', note: '' });
+      loadAlerts();
+    } catch { setAddErr('Network error'); } finally { setAdding(false); }
+  };
+
+  const handleDelete = async (id) => {
+    await fetch(`/api/alerts/${id}`, { method: 'DELETE' });
+    setAlerts(prev => prev.filter(a => a.id !== id));
+  };
+
+  if (!open) return null;
+
+  const active    = alerts.filter(a => a.status === 'active');
+  const triggered = alerts.filter(a => a.status === 'triggered');
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+      <div
+        className="w-full max-w-sm bg-white dark:bg-slate-900 border-l border-gray-200 dark:border-white/10 h-full flex flex-col shadow-2xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-white/10 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Bell size={15} className="text-amber-500" />
+            <span className="text-sm font-semibold text-gray-800 dark:text-white">Price Alerts</span>
+            {active.length > 0 && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                {active.length}
+              </span>
+            )}
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
+            <X size={14} className="text-gray-400" />
+          </button>
+        </div>
+
+        {/* Add form */}
+        <form onSubmit={handleAdd} className="px-4 py-3 border-b border-gray-100 dark:border-white/10 space-y-2 flex-shrink-0 bg-gray-50 dark:bg-slate-800/50">
+          <p className="text-[10px] font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">New Alert</p>
+          <div className="flex gap-2">
+            <input
+              value={form.symbol} onChange={e => setForm(f => ({ ...f, symbol: e.target.value.toUpperCase() }))}
+              placeholder="HDFCBANK" required
+              className="flex-1 text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-700 border border-gray-200 dark:border-white/10 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+            <select
+              value={form.direction} onChange={e => setForm(f => ({ ...f, direction: e.target.value }))}
+              className="text-xs px-2 py-1.5 rounded-lg bg-white dark:bg-slate-700 border border-gray-200 dark:border-white/10 text-gray-700 dark:text-white focus:outline-none focus:border-blue-500"
+            >
+              <option value="above">Above ▲</option>
+              <option value="below">Below ▼</option>
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="number" step="0.05" value={form.threshold} onChange={e => setForm(f => ({ ...f, threshold: e.target.value }))}
+              placeholder="Price ₹" required
+              className="flex-1 text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-700 border border-gray-200 dark:border-white/10 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
+            />
+            <input
+              value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
+              placeholder="Note (optional)"
+              className="flex-1 text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-700 border border-gray-200 dark:border-white/10 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          {addErr && <p className="text-[11px] text-red-500">{addErr}</p>}
+          <button
+            type="submit" disabled={adding}
+            className="w-full py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-white text-xs font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+          >
+            <Plus size={12} />
+            {adding ? 'Adding…' : 'Set Alert'}
+          </button>
+        </form>
+
+        {/* Alert list */}
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
+          {aLoading && alerts.length === 0 ? (
+            <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-10 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}</div>
+          ) : (
+            <>
+              {active.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[9px] font-semibold text-gray-400 dark:text-slate-600 uppercase tracking-wider">Active</p>
+                  {active.map(a => (
+                    <div key={a.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-slate-800/60 border border-gray-100 dark:border-white/[0.06]">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-gray-800 dark:text-white truncate">
+                          {a.symbol}
+                          <span className={`ml-1.5 text-[10px] font-mono ${a.direction === 'above' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                            {a.direction === 'above' ? '▲' : '▼'} ₹{Number(a.threshold).toFixed(2)}
+                          </span>
+                        </p>
+                        {a.note && <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{a.note}</p>}
+                      </div>
+                      <button onClick={() => handleDelete(a.id)} className="shrink-0 p-1 hover:bg-red-50 dark:hover:bg-red-500/10 rounded transition-colors">
+                        <Trash2 size={12} className="text-gray-300 dark:text-slate-600 hover:text-red-500 dark:hover:text-red-400 transition-colors" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {triggered.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[9px] font-semibold text-gray-400 dark:text-slate-600 uppercase tracking-wider">Triggered</p>
+                  {triggered.map(a => (
+                    <div key={a.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-800/30">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 truncate">
+                          🔔 {a.symbol}
+                          <span className="ml-1.5 font-mono">{a.direction === 'above' ? '▲' : '▼'} ₹{Number(a.threshold).toFixed(2)}</span>
+                        </p>
+                        <p className="text-[10px] text-amber-600/70 dark:text-amber-500/60">
+                          {a.triggered_at ? new Date(a.triggered_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'fired'}
+                        </p>
+                      </div>
+                      <button onClick={() => handleDelete(a.id)} className="shrink-0 p-1 hover:bg-red-50 dark:hover:bg-red-500/10 rounded transition-colors">
+                        <Trash2 size={12} className="text-amber-300 dark:text-amber-700/50 hover:text-red-500 dark:hover:text-red-400 transition-colors" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {active.length === 0 && triggered.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 gap-2">
+                  <BellOff size={24} className="text-gray-200 dark:text-slate-700" />
+                  <p className="text-xs text-gray-400 dark:text-slate-600">No alerts set</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) {
-  const [slModal,   setSlModal]   = useState(null); // position object or null
-  const [exitModal, setExitModal] = useState(null); // position object or null
+  const [slModal,   setSlModal]   = useState(null);
+  const [exitModal, setExitModal] = useState(null);
+  const [liveLtps,  setLiveLtps]  = useState({});  // { [instrument_token]: ltp }
+  const [ltpLive,   setLtpLive]   = useState(false);
+  const esRef = useRef(null);
+
+  // SSE connection to /api/dom/ltp — live price overlay for P&L
+  useEffect(() => {
+    let stopped = false;
+
+    const trySSE = () => {
+      if (stopped || typeof EventSource === 'undefined') return;
+      const es = new EventSource('/api/dom/ltp');
+      esRef.current = es;
+      es.onmessage = (e) => {
+        if (stopped) return;
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'reconnect') { es.close(); if (!stopped) trySSE(); return; }
+          if (msg.type === 'ltp' && msg.data) { setLiveLtps(msg.data); setLtpLive(true); }
+        } catch {}
+      };
+      es.onerror = () => { es.close(); esRef.current = null; if (!stopped) setTimeout(trySSE, 3000); };
+    };
+
+    trySSE();
+    return () => { stopped = true; esRef.current?.close(); esRef.current = null; };
+  }, []);
 
   const unprotected = positions.filter(p => p.quantity !== 0 && !hasSL(p, openOrders));
 
@@ -1666,6 +1867,12 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-gray-600 dark:text-white/70">Open Positions</span>
+          {ltpLive && (
+            <span className="flex items-center gap-1 text-[9px] font-mono text-emerald-500">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              LIVE
+            </span>
+          )}
           {unprotected.length > 0 && (
             <span className="px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-medium">
               {unprotected.length} unprotected
@@ -1702,7 +1909,11 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
             </thead>
             <tbody>
               {positions.map(p => {
-                const pnl      = p.pnl || 0;
+                const liveLtp  = liveLtps[String(p.instrument_token)] ?? null;
+                const dispLtp  = liveLtp ?? p.last_price;
+                const pnl      = liveLtp != null
+                  ? (liveLtp - (p.average_price || 0)) * p.quantity
+                  : (p.pnl || 0);
                 const hasStop  = p.quantity !== 0 && hasSL(p, openOrders);
                 const noStop   = p.quantity !== 0 && !hasStop;
                 const isClosed = p.quantity === 0;
@@ -1726,7 +1937,9 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
                         return null;
                       })()}
                     </td>
-                    <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">₹{p.last_price?.toFixed(2)}</td>
+                    <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">
+                      ₹{dispLtp?.toFixed(2) ?? '—'}
+                    </td>
                     <td className={`py-2.5 text-right font-mono font-semibold ${pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                       {pnl >= 0 ? '+' : ''}₹{pnl.toFixed(2)}
                     </td>
@@ -3137,8 +3350,9 @@ export default function TerminalPage() {
 
 
   // Tabs
-  const [activeTab, setActiveTab]           = useState('placeOrder');
-  const [mobileTab, setMobileTab]           = useState('trade'); // 'watchlist' | 'trade' | 'orders'
+  const [activeTab,    setActiveTab]    = useState('placeOrder');
+  const [mobileTab,    setMobileTab]    = useState('trade'); // 'watchlist' | 'trade' | 'orders'
+  const [alertDrawer,  setAlertDrawer]  = useState(false);
 
   // Positions / Orders
   const [positions, setPositions]           = useState([]);
@@ -3970,18 +4184,28 @@ export default function TerminalPage() {
         {/* Middle panel: always visible on md+, mobile-controlled */}
         <div className={`${mobileTab !== 'trade' ? 'hidden md:flex' : 'flex'} flex-1 flex-col overflow-hidden border-l border-gray-200 dark:border-white/10`}>
           {/* Tab bar */}
-          <div className="flex border-b border-gray-200 dark:border-white/10 flex-shrink-0 bg-white dark:bg-slate-900/40">
-            {[{ id: 'positions', label: 'Positions' }, { id: 'placeOrder', label: 'Place Order' }, { id: 'scSetup', label: '⚡ SC Setup' }].map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.id
-                    ? tab.id === 'scSetup'
-                      ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
-                      : 'border-blue-500 text-blue-600 dark:text-white'
-                    : 'border-transparent text-gray-400 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/70'
-                }`}
-              >{tab.label}</button>
-            ))}
+          <div className="flex items-center border-b border-gray-200 dark:border-white/10 flex-shrink-0 bg-white dark:bg-slate-900/40">
+            <div className="flex flex-1 min-w-0">
+              {[{ id: 'positions', label: 'Positions' }, { id: 'placeOrder', label: 'Place Order' }, { id: 'scSetup', label: '⚡ SC Setup' }].map(tab => (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                  className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                    activeTab === tab.id
+                      ? tab.id === 'scSetup'
+                        ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                        : 'border-blue-500 text-blue-600 dark:text-white'
+                      : 'border-transparent text-gray-400 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/70'
+                  }`}
+                >{tab.label}</button>
+              ))}
+            </div>
+            {/* Bell — price alerts */}
+            <button
+              onClick={() => setAlertDrawer(true)}
+              className="shrink-0 p-2 mr-1 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors"
+              title="Price alerts"
+            >
+              <Bell size={14} className="text-gray-400 dark:text-slate-500 hover:text-amber-500 dark:hover:text-amber-400 transition-colors" />
+            </button>
           </div>
 
           {/* Tab content */}
@@ -4040,6 +4264,13 @@ export default function TerminalPage() {
 
         </div>
       </div>
+
+      {/* Price alert drawer */}
+      <AlertDrawer
+        open={alertDrawer}
+        onClose={() => setAlertDrawer(false)}
+        prefillSymbol={symbol || ''}
+      />
 
       {/* Mobile bottom nav — hidden on md+ */}
       <nav className="md:hidden flex-shrink-0 flex border-t border-gray-200 dark:border-white/10 bg-white dark:bg-slate-900">
