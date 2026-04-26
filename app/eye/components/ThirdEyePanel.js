@@ -531,9 +531,6 @@ export default function ThirdEyePanel() {
                   />
                 )}
               </div>
-              <span className={`text-[9px] font-mono w-7 text-right shrink-0 ${bull ? 'text-emerald-400' : net < 0 ? 'text-rose-400' : 'text-slate-500'}`}>
-                {net > 0 ? '+' : ''}{net}
-              </span>
             </div>
           );
         })()}
