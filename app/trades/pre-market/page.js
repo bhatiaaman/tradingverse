@@ -142,65 +142,66 @@ export default function PreMarketPage() {
       priceContext = `\n\nCRITICAL CONTEXT — Current Prices (use as baseline):\n${priceEntries.map(([s, p]) => `- ${s}: ~₹${p}`).join('\n')}\nDo NOT hallucinate or estimate prices if provided above.\n`;
     }
 
-    let rawPrompt = `Role: You are an elite Intraday Trader specializing in Opening Range Breakouts.
+    let rawPrompt = `Role: You are an elite Intraday Trader specializing in Opening Range Breakouts (ORB).
 
 System Rule (Context Awareness):
 
-(Current Date/Time provided by system: ${dateStr})
-Check Current Time: If it is after 15:15 IST, set the "Target Trading Date" to the next business day.
+Current Date/Time: ${dateStr}
 
-If it is before 15:15 IST, perform analysis for the current session.
+Target Session: If it is after 15:15 IST, set the "Target Trading Date" to the next business day. If before 15:15 IST, analyze the current session.
 
 Step 1: Mandatory Fresh Data Retrieval
+
 `;
 
     if (activeTabIntraday === 'expertBreakouts') {
-      rawPrompt += `\nSearch for the LTP (Last Traded Price), High, and Low for [ ${userStocksIntraday || 'INFY, TCS'} ] as of the most recent market close.${priceContext}\n`;
+      rawPrompt += `Scan for breakout parameters and catalysts for these specific tickers: [ ${userStocksIntraday || 'INFY, TCS'} ]${priceContext}\n`;
     } else {
-      rawPrompt += `\nScan for top 5-8 high-conviction breakout setups across the NSE universe for the upcoming session.\n`;
+      rawPrompt += `Scan for top 6 high-conviction breakout setups across the NSE universe.\n`;
     }
 
     rawPrompt += `
-Verify accuracy: Cross-reference from two financial portals (e.g., NSE India, Moneycontrol, or Economic Times).
+Accuracy Check: Cross-reference prices/news from NSE India or Moneycontrol. Do not estimate or hallucinate prices.
 
 Identify the Previous Day High (PDH) and Previous Day Low (PDL) for each symbol.
 
-Step 2: Technical & Catalyst Selection (First-Hour Focus)
-Filter for 5-6 stocks that meet these high-volatility criteria:
+Step 2: Selection Criteria
 
-Breakout/Gap Potential: Price is within +/- 0.5% of the PDH (Bullish) or PDL (Bearish).
+Directional Bias: Label each stock as Bullish (approaching/breaking PDH) or Bearish (approaching/breaking PDL).
 
-Sector Strength: Prioritize stocks from sectors showing relative strength vs Nifty 50 in the last 24 hours.
+Sector Strength: Prioritize stocks from sectors with high Relative Strength (RS) vs Nifty 50.
 
-Fresh Catalyst: Identify news released after 15:30 today (Earnings, Order wins, Management changes) or events scheduled for the morning.
+Catalysts: Identify news released after 15:30 the previous day (Earnings, Orders, Management changes).
 
 Step 3: Output Format
 
-Table: [Symbol | LTP | Entry Trigger | Target | Stop Loss | Catalyst]
+Summary Table: Include [Symbol | LTP | Direction | Entry Trigger | Target | Stop Loss | Catalyst].
 
-JSON Array: Ensure the entryPrice is the breakout trigger level.
+JSON Array: Output a valid JSON array at the end. Constraint: Ensure every stock mentioned in the table is included in the JSON. Ensure currentPrice and direction fields are populated.
 
-Constraint: Do not estimate. If data for a ticker is unavailable or the symbol is in a "sideways" range (not near PDH/PDL), omit it.
-
-At the end of your response, output ONLY a valid JSON array in this exact format. Do not use markdown fences.
+Required JSON Format:
 [
   {
-    "symbol": "TCS",
-    "companyName": "Tata Consultancy Services",
-    "sector": "IT",
-    "breakoutLevel": "4150",
-    "prevDayAction": "Strong close near PDH",
-    "volumeSpike": "2.5x",
-    "catalyst": "Q3 results beat expectations",
-    "entry": "Above 4160",
-    "stopLoss": "4110",
-    "target1": "4220",
-    "target2": "4280",
-    "riskReward": "1:3",
-    "conviction": "High",
-    "convictionReason": "Clean breakout aligned with sector strength"
+    "symbol": "SYMBOL",
+    "companyName": "Full Name",
+    "sector": "Sector",
+    "currentPrice": "0000.00",
+    "direction": "Bullish/Bearish",
+    "breakoutLevel": "0000.00",
+    "prevDayAction": "Description",
+    "volumeSpike": "X.Xx",
+    "catalyst": "News details",
+    "entry": "Above/Below 0000.00",
+    "stopLoss": "0000.00",
+    "target1": "0000.00",
+    "target2": "0000.00",
+    "riskReward": "1:X",
+    "conviction": "High/Medium",
+    "convictionReason": "Reasoning"
   }
-]`;
+]
+
+Constraint: Output ONLY the table and the raw JSON. Do not use markdown fences for the JSON.`;
     navigator.clipboard.writeText(rawPrompt);
     setCopiedIntradayPrompt(true);
     setTimeout(() => setCopiedIntradayPrompt(false), 2000);
