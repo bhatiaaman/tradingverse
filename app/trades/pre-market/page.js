@@ -75,6 +75,7 @@ export default function PreMarketPage() {
   
   const [userStocksIntraday, setUserStocksIntraday] = useState('');
   const [promptPriceMapIntraday, setPromptPriceMapIntraday] = useState({});
+  const [userStockDirectionsIntraday, setUserStockDirectionsIntraday] = useState({});
   const [isPromptPriceLoadingIntraday, setIsPromptPriceLoadingIntraday] = useState(false);
 
   useEffect(() => {
@@ -155,7 +156,12 @@ Step 1: Mandatory Fresh Data Retrieval
 `;
 
     if (activeTabIntraday === 'expertBreakouts') {
-      rawPrompt += `Scan for breakout parameters and catalysts for these specific tickers: [ ${userStocksIntraday || 'INFY, TCS'} ]${priceContext}\n`;
+      const directionEntries = Object.entries(userStockDirectionsIntraday);
+      let directionContext = '';
+      if (directionEntries.length > 0) {
+        directionContext = `\n\nDIRECTIONAL INTENT (Prioritize finding levels matching this bias):\n${directionEntries.map(([s, d]) => `- ${s}: Target ${d} parameters`).join('\n')}\n`;
+      }
+      rawPrompt += `Scan for breakout parameters and catalysts for these specific tickers: [ ${userStocksIntraday || 'INFY, TCS'} ]${priceContext}${directionContext}\n`;
     } else {
       rawPrompt += `Scan for top 6 high-conviction breakout setups across the NSE universe.\n`;
     }
@@ -1237,9 +1243,24 @@ Constraint: Output ONLY the table and the raw JSON. Do not use markdown fences f
                     {activeTabIntraday === 'expertBreakouts' && Object.keys(promptPriceMapIntraday).length > 0 && (
                       <div className="flex flex-wrap gap-2 p-3 bg-[#0a1628] border border-blue-900/50 rounded-lg shadow-inner mb-4">
                         {Object.entries(promptPriceMapIntraday).map(([s, p]) => (
-                          <div key={s} className="flex items-center gap-1.5 px-2 py-1 bg-blue-950/40 rounded border border-blue-900/30">
-                            <span className="text-[10px] font-bold text-slate-500">{s}</span>
+                          <div key={s} className="flex items-center gap-2 px-2.5 py-1 bg-blue-950/40 rounded border border-blue-900/30">
+                            <span className="text-[10px] font-bold text-slate-300">{s}</span>
                             <span className="text-[10px] font-mono font-bold text-purple-400">₹{p.toLocaleString('en-IN')}</span>
+                            <button
+                              onClick={() => {
+                                setUserStockDirectionsIntraday(prev => {
+                                  const curr = prev[s] || 'Bullish';
+                                  return { ...prev, [s]: curr === 'Bullish' ? 'Bearish' : 'Bullish' };
+                                });
+                              }}
+                              className={`px-1.5 py-0.5 text-[9px] font-extrabold rounded transition-colors ${
+                                (userStockDirectionsIntraday[s] || 'Bullish') === 'Bullish'
+                                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/60'
+                                  : 'bg-red-950 text-red-400 border border-red-800/60'
+                              }`}
+                            >
+                              {(userStockDirectionsIntraday[s] || 'Bullish').toUpperCase()}
+                            </button>
                           </div>
                         ))}
                       </div>
