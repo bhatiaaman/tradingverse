@@ -109,6 +109,15 @@ function getCommentary(chainData, scData) {
         text: ins.message,
       })
     }
+    // Always append Futures OI commentary if available
+    const futOI = scData?.signals?.futuresOI
+    if (futOI?.detail && !futOI.detail.includes('No OI') && !futOI.detail.includes('Insufficient')) {
+      lines.push({ key: 'futoi', icon: futOI.hit ? '⚡' : '◈',
+        color: futOI.hit ? 'text-emerald-400' : 'text-slate-400',
+        text: futOI.hit
+          ? `Futures OI falling while spot rises — ${futOI.detail}. Trapped shorts exiting; CE buyers have structural tailwind.`
+          : `Futures OI: ${futOI.detail}. No short-covering divergence yet.` })
+    }
     return lines
   }
 
@@ -505,9 +514,9 @@ export default function OptionsAnalysisPanel({
                             <div className="text-[9px] font-mono tabular-nums text-slate-400 leading-tight">
                               {fmtL(pOI)}
                             </div>
-                            {pDelta != null && (
+                            {pDelta != null && pDelta !== 0 && (
                               <div className={`text-[8px] font-mono tabular-nums leading-tight ${
-                                pDelta > 0 ? 'text-emerald-500' : pDelta < 0 ? 'text-rose-500' : 'text-slate-700'
+                                pDelta > 0 ? 'text-emerald-500' : 'text-rose-500'
                               }`}>
                                 {fmtDeltaL(pDelta)}
                               </div>
@@ -562,9 +571,9 @@ export default function OptionsAnalysisPanel({
                             <div className="text-[9px] font-mono tabular-nums text-slate-400 leading-tight">
                               {fmtL(cOI)}
                             </div>
-                            {cDelta != null && (
+                            {cDelta != null && cDelta !== 0 && (
                               <div className={`text-[8px] font-mono tabular-nums leading-tight ${
-                                cDelta > 0 ? 'text-rose-500' : cDelta < 0 ? 'text-emerald-500' : 'text-slate-700'
+                                cDelta > 0 ? 'text-rose-500' : 'text-emerald-500'
                               }`}>
                                 {fmtDeltaL(cDelta)}
                               </div>

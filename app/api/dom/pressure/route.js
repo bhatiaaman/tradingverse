@@ -158,5 +158,28 @@ export async function GET(req) {
     : 999;
   if (ageSeconds > STALE_SEC) return NextResponse.json({ available: false });
 
+  // Append delta5m sample to rolling history (used by DOM Ladder sparkline).
+  // Fire-and-forget — don't await so the response isn't delayed.
+  if (snap.delta5m != null) {
+    const histKey = `${NS}:dom:delta-history-${underlying}`;
+    (async () => {
+      try {
+        const raw  = await fetch(`${REDIS_URL}/get/${encodeURIComponent(histKey)}`, {
+          headers: { Authorization: `Bearer ${REDIS_TOKEN}` }, cache: 'no-store',
+        });
+        const rj   = await raw.json();
+        const hist = rj.result ? JSON.parse(rj.result) : [];
+        const now  = Math.floor(Date.now() / 1000);
+        if (now - (hist[hist.length - 1]?.t ?? 0) > 10) {
+          const next = [...hist, { t: now, d: Math.round(snap.delta5m) }].slice(-40);
+          const enc  = encodeURIComponent(JSON.stringify(next));
+          await fetch(`${REDIS_URL}/set/${encodeURIComponent(histKey)}/${enc}?ex=${8 * 3600}`, {
+            headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+          });
+        }
+      } catch { /* non-fatal */ }
+    })();
+  }
+
   return NextResponse.json({ available: true, ...buildPressure(snap) });
 }
