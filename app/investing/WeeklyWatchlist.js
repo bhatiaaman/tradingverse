@@ -137,7 +137,11 @@ export default function WeeklyWatchlist() {
     setArchiveSaving(true)
     setArchiveSaveMsg(null)
     try {
-      const res  = await fetch('/api/weekly-watchlist/archive', { method: 'POST' })
+      const res  = await fetch('/api/weekly-watchlist/archive', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ performanceData })
+      })
       const data = await res.json()
       if (data.success) {
         setArchiveSaveMsg({ ok: true, text: `Saved: ${data.label}` })
@@ -1842,6 +1846,95 @@ Provide a concise market review, and at the very end, output ONLY a single valid
                 ✕ Back to Current Week
               </button>
             </div>
+
+            {/* Archived Portfolio Simulation */}
+            {(() => {
+              const archAi = loadedWeek.snapshot?.aiResearch || [];
+              const archExp = loadedWeek.snapshot?.expertsResearch || [];
+              const archMap = {};
+              [...archAi, ...archExp].forEach(item => {
+                if (item.symbol) archMap[item.symbol] = item;
+              });
+              const archConsolidated = Object.values(archMap).slice(0, 20);
+              const archPerformance = loadedWeek.snapshot?.archivedPerformance || {};
+
+              if (archConsolidated.length === 0) return null;
+
+              let totalAllocated = 0;
+              for (let i = 0; i < archConsolidated.length; i++) {
+                if (i < 8) totalAllocated += 20000;
+                else if (i < 15) totalAllocated += 15000;
+                else totalAllocated += 10000;
+              }
+
+              const validStocks = archConsolidated.map((s, idx) => {
+                const quote = archPerformance[s.symbol];
+                let ref = null;
+                if (s.fridayClose) ref = Number(s.fridayClose);
+                else if (s.referencePrice) ref = s.referencePrice;
+                else if (s.entryLow && s.entryHigh) ref = (s.entryLow + s.entryHigh) / 2;
+                else if (s.entryLow) ref = s.entryLow;
+                else if (s.entryZone) {
+                  const parts = s.entryZone.split(/[-–—/]/).map(p => parseFloat(p.replace(/[^0-9.]/g, '')));
+                  const nums = parts.filter(n => !isNaN(n));
+                  if (nums.length === 2) ref = (nums[0] + nums[1]) / 2;
+                  else if (nums.length === 1) ref = nums[0];
+                }
+                const roi = (quote?.ltp && ref) ? ((quote.ltp - ref) / ref) * 100 : null;
+                
+                let alloc = 0;
+                if (idx < 8) alloc = 20000;
+                else if (idx < 15) alloc = 15000;
+                else alloc = 10000;
+
+                return { ...s, roi, alloc, quote };
+              }).filter(s => s.roi !== null);
+
+              const totalPnl = validStocks.reduce((acc, s) => acc + (s.alloc * (s.roi / 100)), 0);
+              const totalRoi = totalAllocated > 0 ? (totalPnl / totalAllocated) * 100 : 0;
+              const isPositive = totalPnl >= 0;
+
+              if (validStocks.length === 0) {
+                return (
+                  <div className="mb-6 p-3 bg-slate-900 border border-slate-800 rounded-xl text-center text-[10px] text-slate-400">
+                    No performance checkpoints recorded for this historical snapshot.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="mb-6 p-4 bg-gradient-to-r from-purple-950/30 to-indigo-950/30 border border-purple-800/40 rounded-xl shadow-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-black uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
+                      💼 Archived Performance Tracker
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-500">
+                      Allocated Capital: ₹{(totalAllocated / 100000).toFixed(2)}L
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-center">
+                    <div>
+                      <div className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Simulated End Value</div>
+                      <div className="text-base font-mono font-black text-white">
+                        ₹{Math.round(totalAllocated + totalPnl).toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Total ROI</div>
+                      <div className={`text-base font-mono font-black ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {isPositive ? '+' : ''}{totalRoi.toFixed(2)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Simulated P&L</div>
+                      <div className={`text-base font-mono font-black ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        ₹{Math.round(totalPnl).toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Tabs for archived data */}
             {(['aiResearch', 'expertsResearch', 'chartink']).map(tab => {

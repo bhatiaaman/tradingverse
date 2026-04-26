@@ -112,13 +112,18 @@ export async function GET(request) {
 // ── POST /api/weekly-watchlist/archive ────────────────────────────────────────
 // Snapshots the current live watchlist under the week the stocks are FOR
 // (derived from fridayCloseDate), not the current calendar week.
-export async function POST() {
+export async function POST(request) {
   const { session, error } = await requireSession();
   if (error === 'database_error') return serviceUnavailable(error);
   if (!session) return unauthorized();
   if (session.role !== 'admin') return forbidden();
 
   try {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {}
+
     const current = await redisGet(WATCHLIST_KEY);
     if (!current) {
       return NextResponse.json({ error: 'No watchlist to archive' }, { status: 400 });
@@ -126,7 +131,12 @@ export async function POST() {
 
     const weekKey   = getTargetWeekKey(current);
     const weekLabel = getWeekLabel(weekKey);
-    const snapshot  = { ...current, savedAt: new Date().toISOString(), weekLabel };
+    const snapshot  = { 
+      ...current, 
+      savedAt: new Date().toISOString(), 
+      weekLabel,
+      archivedPerformance: body.performanceData || null 
+    };
 
     await sql`
       INSERT INTO weekly_watchlist_archive (week_key, week_label, snapshot, saved_at, updated_at)
