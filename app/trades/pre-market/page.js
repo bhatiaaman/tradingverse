@@ -1036,6 +1036,33 @@ At the end of your response, output ONLY a valid JSON array in this exact format
                 </button>
               )}
               <button
+                onClick={() => {
+                  const template = [{
+                    symbol: "NSE_SYMBOL",
+                    companyName: "Company Name",
+                    sector: "Sector Name",
+                    direction: "LONG",
+                    breakoutLevel: "0.00",
+                    prevDayAction: "Setup description",
+                    volumeSpike: "1.5x",
+                    catalyst: "News/Event",
+                    entry: "Above X",
+                    stopLoss: "0.00",
+                    target1: "0.00",
+                    target2: "0.00",
+                    riskReward: "1:2",
+                    conviction: "High",
+                    convictionReason: "Setup reason"
+                  }];
+                  setJsonInputIntraday(JSON.stringify(template, null, 2));
+                  setIsEditingIntraday(true);
+                }}
+                className="px-4 py-2 text-sm font-bold text-emerald-400 bg-emerald-950/40 hover:bg-emerald-900/40 hover:text-emerald-300 border border-emerald-800/50 rounded-lg transition-colors"
+              >
+                + Add New Stocks
+              </button>
+              
+              <button
                 onClick={() => setIsEditingIntraday(!isEditingIntraday)}
                 className="px-4 py-2 text-sm font-bold bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 hover:text-blue-300 border border-blue-800/50 rounded-lg transition-colors"
               >
