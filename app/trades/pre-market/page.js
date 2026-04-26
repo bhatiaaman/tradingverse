@@ -71,6 +71,10 @@ export default function PreMarketPage() {
   const [intradaySaveStatus, setIntradaySaveStatus] = useState('');
   const [copiedIntradayPrompt, setCopiedIntradayPrompt] = useState(false);
   const [executionModalOpen, setExecutionModalOpen] = useState(false);
+  
+  const [userStocksIntraday, setUserStocksIntraday] = useState('');
+  const [promptPriceMapIntraday, setPromptPriceMapIntraday] = useState({});
+  const [isPromptPriceLoadingIntraday, setIsPromptPriceLoadingIntraday] = useState(false);
 
   useEffect(() => {
     fetch('/api/user')
@@ -97,9 +101,43 @@ export default function PreMarketPage() {
     }
   };
 
+  const handleFetchIntradayPromptPrices = async () => {
+    if (!userStocksIntraday) return;
+    setIsPromptPriceLoadingIntraday(true);
+    try {
+      const symbols = userStocksIntraday.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+      const res = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`);
+      const data = await res.json();
+      if (data.quotes) {
+        const mapped = {};
+        data.quotes.forEach(q => { mapped[q.symbol] = q.ltp; });
+        setPromptPriceMapIntraday(mapped);
+      }
+    } catch (err) {
+      console.error('Prompt price fetch failed:', err);
+    } finally {
+      setIsPromptPriceLoadingIntraday(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!userStocksIntraday) return;
+    const timer = setTimeout(() => {
+      handleFetchIntradayPromptPrices();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [userStocksIntraday]);
+
   const handleCopyIntradayPrompt = () => {
     const istNow = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000);
     const dateStr = istNow.toLocaleString('en-IN', { dateStyle: 'long', timeStyle: 'short' }) + ' IST';
+    
+    const priceEntries = Object.entries(promptPriceMapIntraday);
+    let priceContext = '';
+    if (priceEntries.length > 0) {
+      priceContext = `\n\nCRITICAL CONTEXT — Current Prices (use as baseline):\n${priceEntries.map(([s, p]) => `- ${s}: ~₹${p}`).join('\n')}\nDo NOT hallucinate or estimate prices if provided above.\n`;
+    }
+
     const rawPrompt = `Role: You are an elite Intraday Trader specializing in Opening Range Breakouts.
 
 System Rule (Context Awareness):
@@ -111,7 +149,7 @@ If it is before 15:15 IST, perform analysis for the current session.
 
 Step 1: Mandatory Fresh Data Retrieval
 
-Search for the LTP (Last Traded Price), High, and Low for [Insert Symbols] as of the most recent market close.
+Search for the LTP (Last Traded Price), High, and Low for [ ${userStocksIntraday || 'INFY, TCS'} ] as of the most recent market close.${priceContext}
 
 Verify accuracy: Cross-reference from two financial portals (e.g., NSE India, Moneycontrol, or Economic Times).
 
@@ -1076,6 +1114,42 @@ At the end of your response, output ONLY a valid JSON array in this exact format
           {isEditingIntraday && (
             <div className="mb-8 bg-[#0d1d35] border border-blue-800/60 rounded-xl p-6 shadow-xl">
               <h3 className="text-sm font-bold text-blue-300 mb-4">Step 1: Generate AI Prompt</h3>
+              
+              <div className="mb-4">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Enter Symbols (NSE Tickers)</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={userStocksIntraday}
+                    onChange={e => setUserStocksIntraday(e.target.value)}
+                    placeholder="e.g. INFY, TCS, RELIANCE"
+                    className="flex-1 bg-[#0a1628] border border-blue-900/50 rounded-lg px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-purple-500 transition-colors"
+                  />
+                  {isPromptPriceLoadingIntraday ? (
+                    <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-950/40 rounded-lg border border-blue-800/30 animate-pulse">
+                      <div className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-bounce" />
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Syncing...</span>
+                    </div>
+                  ) : Object.keys(promptPriceMapIntraday).length > 0 ? (
+                    <div className="flex items-center gap-2 px-3 py-2.5 bg-emerald-950/40 rounded-lg border border-emerald-800/30">
+                      <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                      <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-tighter">Prices Ready</span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              {Object.keys(promptPriceMapIntraday).length > 0 && (
+                <div className="flex flex-wrap gap-2 p-3 bg-[#0a1628] border border-blue-900/50 rounded-lg shadow-inner mb-4">
+                  {Object.entries(promptPriceMapIntraday).map(([s, p]) => (
+                    <div key={s} className="flex items-center gap-1.5 px-2 py-1 bg-blue-950/40 rounded border border-blue-900/30">
+                      <span className="text-[10px] font-bold text-slate-500">{s}</span>
+                      <span className="text-[10px] font-mono font-bold text-purple-400">₹{p.toLocaleString('en-IN')}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="flex items-center gap-3 mb-6">
                 <button
                   onClick={handleCopyIntradayPrompt}
