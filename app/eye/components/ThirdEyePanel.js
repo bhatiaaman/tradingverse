@@ -519,7 +519,7 @@ export default function ThirdEyePanel() {
           return (
             <div
               className="flex items-center gap-2 pt-0.5"
-              title="Market structure conviction — how strongly candle patterns, VWAP position, and EMA stacking favour bulls vs bears. Bar fills right (green) for bullish structure, left (red) for bearish. Center = no edge."
+              title="Market structure conviction — how strongly candle patterns, VWAP position, and EMA stacking favour bulls vs bears. Score is -100 (full bear) to +100 (full bull). Bar fills right (green) for bullish, left (red) for bearish. Can diverge from Bias Arbitration if DOM or options disagree with price structure."
             >
               <span className="text-[9px] font-mono text-slate-600 w-14 shrink-0">Structure</span>
               <div className="relative flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
@@ -531,6 +531,9 @@ export default function ThirdEyePanel() {
                   />
                 )}
               </div>
+              <span className={`text-[9px] font-mono w-7 text-right shrink-0 tabular-nums ${bull ? 'text-emerald-400' : net < 0 ? 'text-rose-400' : 'text-slate-500'}`}>
+                {net > 0 ? '+' : ''}{net}
+              </span>
             </div>
           );
         })()}
