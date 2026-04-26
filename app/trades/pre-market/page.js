@@ -1385,6 +1385,32 @@ Constraint: Output ONLY the table and the raw JSON. Do not use markdown fences f
                       <p className="text-xs text-slate-300 leading-snug"><span className="text-slate-500">⚡</span> {stock.catalyst}</p>
                       <p className="text-xs text-slate-400 leading-snug mt-1 italic">— {stock.convictionReason}</p>
                     </div>
+
+                    {/* Chart launch buttons */}
+                    <div className="flex gap-2 pt-3 border-t border-blue-900/30 mt-2">
+                      <Link
+                        href={`/chart?symbol=${encodeURIComponent(stock.symbol)}&interval=15minute&back=/trades/pre-market`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 text-center bg-blue-900/30 hover:bg-blue-800/50 text-blue-300 text-xs font-bold py-2 rounded-lg transition-colors border border-blue-800/40 hover:border-blue-600/60"
+                      >
+                        📈 Launch Chart
+                      </Link>
+                      <a
+                        href={`https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(stock.symbol)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 px-3 py-2 bg-[#2962ff]/10 hover:bg-[#2962ff]/20 text-[#2962ff] dark:text-[#5b9bff] border border-[#2962ff]/20 hover:border-[#2962ff]/40 rounded-lg transition-colors text-xs font-bold whitespace-nowrap"
+                        title="Open on TradingView"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 36 28" fill="currentColor">
+                          <path d="M14 18H8l6-8 6 8h-6z"/>
+                          <path d="M22 18h-2l5-7 5 7h-8z" opacity=".6"/>
+                          <path d="M4 18H0l4-5.5L8 18H4z" opacity=".4"/>
+                        </svg>
+                        TV
+                      </a>
+                    </div>
                   </div>
                 </div>
               ))}

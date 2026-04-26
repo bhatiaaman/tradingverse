@@ -31,13 +31,23 @@ async function redisSet(key, value) {
   }
 }
 
-function getTodayKey() {
+function getTradingDateKey() {
   const istTime = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000);
+  const hours   = istTime.getUTCHours();
+  const minutes = istTime.getUTCMinutes();
+
+  // After 15:30 IST → stocks are for the NEXT trading day
+  if (hours > 15 || (hours === 15 && minutes >= 30)) {
+    const nextDay = new Date(istTime);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    return `${NS}:pre-market:intraday-watchlist:${nextDay.toISOString().split('T')[0]}`;
+  }
+
   return `${NS}:pre-market:intraday-watchlist:${istTime.toISOString().split('T')[0]}`;
 }
 
 export async function GET() {
-  const dateKey = getTodayKey();
+  const dateKey = getTradingDateKey();
   let data = await redisGet(dateKey);
 
   // Migrate legacy array to object structure
@@ -65,7 +75,7 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Invalid data format. Expected an array." }, { status: 400 });
     }
 
-    const dateKey = getTodayKey();
+    const dateKey = getTradingDateKey();
     let currentData = await redisGet(dateKey);
 
     // Migrate legacy array
