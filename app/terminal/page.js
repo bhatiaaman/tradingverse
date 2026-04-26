@@ -1061,16 +1061,32 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
             </button>
           </div>
           <div className="flex-1 overflow-y-auto scrollbar-thin">
-            {intradayStocks.loading && intradayStocks.list.length === 0 ? (
-              <div className="p-2 space-y-1">
-                {[1,2,3,4,5].map(i => <div key={i} className="h-7 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}
-              </div>
-            ) : intradayStocks.list.length === 0 ? (
-              <div className="p-4 text-center text-xs text-slate-500">
-                No intraday stocks found today.
-              </div>
-            ) : (
-              intradayStocks.list.map(s => {
+            {(() => {
+              const ai = intradayStocks.list?.aiBreakouts || [];
+              const exp = intradayStocks.list?.expertBreakouts || [];
+              const dict = {};
+              [...ai, ...exp].forEach(item => {
+                if (item.symbol && !dict[item.symbol]) dict[item.symbol] = item;
+              });
+              const list = Object.values(dict);
+
+              if (intradayStocks.loading && list.length === 0) {
+                return (
+                  <div className="p-2 space-y-1">
+                    {[1,2,3,4,5].map(i => <div key={i} className="h-7 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />)}
+                  </div>
+                );
+              }
+
+              if (list.length === 0) {
+                return (
+                  <div className="p-4 text-center text-xs text-slate-500">
+                    No intraday stocks found today.
+                  </div>
+                );
+              }
+
+              return list.map(s => {
                 const q = watchQuotes[s.symbol];
                 const isUp = q ? q.changePct >= 0 : null;
                 const isActive = s.symbol === activeSymbol;
@@ -1098,8 +1114,8 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
                     </div>
                   </div>
                 );
-              })
-            )}
+              });
+            })()}
           </div>
         </div>
       )}
