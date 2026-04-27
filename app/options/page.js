@@ -555,8 +555,9 @@ function generateTradeDesk(chainData, straddleData) {
       `But: only act when expansion/momentum starts (today is showing early pickup).`,
     ];
 
-    // CE-specific reasons: focus on upside reversal context
-    if (atmCe?.ltp) {
+    // Pick ONE direction based on spot vs ATM — not both simultaneously
+    if (spotAboveAtm && atmCe?.ltp) {
+      // Spot above ATM → CE is directionally aligned
       const ceReasons = [
         ...baseReasons,
         pcr < 0.8
@@ -564,16 +565,14 @@ function generateTradeDesk(chainData, straddleData) {
           : pcr > 1.3
           ? `PCR ${pcr.toFixed(2)} — heavy put loading; any relief rally amplifies CE`
           : `PCR ${pcr.toFixed(2)} — neutral positioning, CE viable on upside catalyst`,
-        `CE edge: buy only on momentum pickup or bullish price confirmation`,
+        `CE edge: spot above ATM confirms bullish bias`,
       ];
       buys.push({
         strike: atm, type: 'CE', confidence: 'MEDIUM', trigger: 'cheap_iv',
         reasons: ceReasons, ltp: atmCe.ltp, sl: (atmCe.ltp * 0.60).toFixed(0),
       });
-    }
-
-    // PE-specific reasons: focus on downside continuation context
-    if (atmPe?.ltp) {
+    } else if (!spotAboveAtm && atmPe?.ltp) {
+      // Spot below ATM → PE is directionally aligned
       const peReasons = [
         ...baseReasons,
         pcr > 1.3
@@ -581,14 +580,16 @@ function generateTradeDesk(chainData, straddleData) {
           : pcr < 0.8
           ? `PCR ${pcr.toFixed(2)} — low PCR; if put writers capitulate, PE accelerates`
           : `PCR ${pcr.toFixed(2)} — neutral positioning, PE viable on bearish price confirmation`,
-        `PE edge: buy only on breakdown confirmation or bearish price action`,
+        `PE edge: spot below ATM confirms bearish bias`,
       ];
       buys.push({
         strike: atm, type: 'PE', confidence: 'MEDIUM', trigger: 'cheap_iv',
         reasons: peReasons, ltp: atmPe.ltp, sl: (atmPe.ltp * 0.60).toFixed(0),
       });
     }
+    // If spot is exactly at ATM (no lean), add neither — wait for direction
   }
+
 
   // ── SELL SIGNALS ─────────────────────────────────────────────────────────────
 
