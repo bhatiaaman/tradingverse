@@ -11,7 +11,7 @@ const DIR_STYLE = {
   neutral: { dot: 'bg-slate-500',   text: 'text-slate-400',   badgeCls: 'bg-slate-800 border-slate-600/50 text-slate-400',      grad: 'linear-gradient(to right, #334155, #64748b)' },
 };
 
-export default function DomPressureStrip({ underlying = 'NIFTY', devMode = false }) {
+export default function DomPressureStrip({ underlying = 'NIFTY', devMode = false, onData, headless = false }) {
   const [data,       setData]       = useState(null);
   const [loading,    setLoading]    = useState(true);
   const [ladderOpen, setLadderOpen] = useState(false);
@@ -22,10 +22,12 @@ export default function DomPressureStrip({ underlying = 'NIFTY', devMode = false
       const params = new URLSearchParams({ underlying });
       if (devMode) params.set('dev', 'true');
       const res  = await fetch(`/api/dom/pressure?${params}`, { cache: 'no-store' });
-      if (!res.ok) { setData(null); return; }
+      if (!res.ok) { setData(null); onData?.(null); return; }
       const json = await res.json();
-      setData(json.available ? json : null);
-    } catch { setData(null); }
+      const resolved = json.available ? json : null;
+      setData(resolved);
+      onData?.(resolved);
+    } catch { setData(null); onData?.(null); }
     finally  { setLoading(false); }
   };
 
@@ -38,7 +40,7 @@ export default function DomPressureStrip({ underlying = 'NIFTY', devMode = false
 
   useEffect(() => { setLadderOpen(false); }, [underlying]);
 
-  if (loading || !data) return null;
+  if (headless || loading || !data) return null;
 
   const style = DIR_STYLE[data.direction] ?? DIR_STYLE.neutral;
   const pct   = data.score != null ? Math.min(100, (data.score / 10) * 100) : 0;
@@ -52,7 +54,7 @@ export default function DomPressureStrip({ underlying = 'NIFTY', devMode = false
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse ${style.dot}`} />
-            <span className="text-[9px] font-mono font-semibold text-slate-500 uppercase tracking-[0.15em]">
+            <span className="text-[9px] font-mono font-semibold text-slate-400 uppercase tracking-[0.15em]">
               Order Book Bias
             </span>
           </div>
@@ -77,17 +79,17 @@ export default function DomPressureStrip({ underlying = 'NIFTY', devMode = false
         )}
 
         {data.signals?.length > 0 && (
-          <p className="text-[10px] font-mono text-slate-500 leading-relaxed">
+          <p className="text-[10px] font-mono text-slate-400 leading-relaxed">
             {data.signals.join(' · ')}
           </p>
         )}
 
         {data.invalidation && (
-          <p className="text-[10px] font-mono text-amber-600/70">❗ {data.invalidation}</p>
+          <p className="text-[10px] font-mono text-amber-400 leading-relaxed">❗ {data.invalidation}</p>
         )}
 
         {data.wallNote && (
-          <p className="text-[10px] font-mono text-amber-500/70">{data.wallNote}</p>
+          <p className="text-[10px] font-mono text-amber-400 leading-relaxed">{data.wallNote}</p>
         )}
 
         {/* Book toggle */}

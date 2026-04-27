@@ -4,7 +4,48 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Settings, Eye, RefreshCw, Wifi, WifiOff, ChevronDown, ChevronUp, X } from 'lucide-react';
 import SetupZone        from './SetupZone';
 import DomPressureStrip from './DomPressureStrip';
-import BiasArbitration  from './BiasArbitration';
+
+// ── Bias verdict styles ───────────────────────────────────────────────────────
+const BIAS_STYLE = {
+  'Strong Bullish': { text: 'text-emerald-300', score: 'text-emerald-300', dot: 'bg-emerald-400', bar: ['#065f46','#34d399'] },
+  'Bullish':        { text: 'text-emerald-400', score: 'text-emerald-400', dot: 'bg-emerald-500', bar: ['#065f46','#10b981'] },
+  'Neutral':        { text: 'text-slate-300',   score: 'text-slate-400',   dot: 'bg-slate-500',  bar: ['#334155','#64748b'] },
+  'Bearish':        { text: 'text-rose-400',    score: 'text-rose-400',   dot: 'bg-rose-500',   bar: ['#9f1239','#fb7185'] },
+  'Strong Bearish': { text: 'text-rose-300',    score: 'text-rose-300',   dot: 'bg-rose-400',   bar: ['#881337','#f43f5e'] },
+};
+const CONF_BADGE = {
+  high:   'bg-amber-950 border-amber-700/50 text-amber-300',
+  medium: 'bg-slate-800 border-slate-600/50 text-slate-300',
+  low:    'bg-slate-900 border-slate-700/40 text-slate-500',
+};
+const ENGINE_META = {
+  structure:  { label: 'Structure',   tip: 'Candle patterns, VWAP position & EMA stacking. Score > 0 = bullish structure; < 0 = bearish.' },
+  dom:        { label: 'DOM',         tip: 'Live bid-ask imbalance from the order book. Score 7–10 = buyers dominant; 0–3 = sellers dominant.' },
+  momentum:   { label: 'Momentum',    tip: 'RSI, ADX trend strength & candle body size. High ADX + bullish RSI = strong directional momentum.' },
+  options:    { label: 'Options',     tip: 'Put-Call Ratio & max OI walls. PCR < 0.8 = bullish positioning; > 1.3 = bears loading puts.' },
+  indicators: { label: 'Indicators',  tip: 'Technical indicator consensus — RSI, EMA crossings & candle confirmation. Supports or questions structure.' },
+};
+
+// ── Verdict bar (center-origin) ───────────────────────────────────────────────
+function VerdictBar({ score, conflict, height = 'h-2.5' }) {
+  const pct  = Math.min(50, Math.abs(score ?? 0) * 5);
+  const bull = (score ?? 0) >= 0;
+  const grad = conflict
+    ? 'linear-gradient(to right,#92400e,#f59e0b)'
+    : bull ? 'linear-gradient(to right,#065f46,#34d399)'
+           : 'linear-gradient(to right,#9f1239,#fb7185)';
+  return (
+    <div className={`relative w-full bg-white/[0.06] rounded-full overflow-hidden ${height}`}>
+      <div className="absolute inset-y-0 w-px bg-slate-600/40" style={{ left: '50%' }} />
+      {score !== 0 && (
+        <div className="absolute inset-y-0 transition-all duration-700" style={{
+          background: grad,
+          ...(bull ? { left: '50%', width: `${pct}%` } : { right: `${50-pct}%`, width: `${pct}%` }),
+        }} />
+      )}
+    </div>
+  );
+}
 
 // ── State: text + badge only (bg/border now handled by glow system) ───────────
 const STATE_COLORS = {
@@ -249,8 +290,9 @@ export default function ThirdEyePanel() {
   const [loading,       setLoading]       = useState(true);
   const [lastScan,      setLastScan]      = useState(null);
   const [settings,      setSettings]      = useState(null);
-  const [showSettings,  setShowSettings]  = useState(false);
-  const [showDetails,   setShowDetails]   = useState(false);
+  const [showSettings,   setShowSettings]   = useState(false);
+  const [showBreakdown,  setShowBreakdown]  = useState(false);
+  const [domData,        setDomData]        = useState(null);
   const [tf,            setTf]            = useState('5minute');
   const [underlying,    setUnderlying]    = useState('NIFTY');
   const [scanError,     setScanError]     = useState(null);
@@ -484,12 +526,9 @@ export default function ThirdEyePanel() {
   const ltpDisplay = ltp?.ltp ?? features?.close;
   const vwapVal    = keyLevels?.vwap ?? features?.vwap;
 
-  const structNet  = scanData ? (scanData.longScore ?? 50) - (scanData.shortScore ?? 50) : null;
-  const structPct  = structNet != null ? Math.min(50, Math.abs(structNet) * 0.5) : 0;
-  const structBull = structNet != null && structNet >= 0;
-  const structGrad = structBull
-    ? 'linear-gradient(to right, #065f46, #34d399)'
-    : 'linear-gradient(to left, #9f1239, #fb7185)';
+  const biasArb   = scanData?.biasArbitration ?? null;
+  const biasStyle = BIAS_STYLE[biasArb?.biasLabel ?? 'Neutral'] ?? BIAS_STYLE.Neutral;
+  const confBadge = CONF_BADGE[biasArb?.confidence ?? 'low'] ?? CONF_BADGE.low;
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -572,191 +611,136 @@ export default function ThirdEyePanel() {
         </div>
       </div>
 
-      {/* ── Tier 1: State — hero section ────────────────────────────────────── */}
-      <div className="relative z-10 px-3 py-3 border-b border-white/[0.04] space-y-2">
+      {/* ── Tier 1: Aggregated Verdict Hero ──────────────────────────────────── */}
+      <div className="relative z-10 px-3 py-3 border-b border-white/[0.04] space-y-2.5">
 
-        {/* State label + qualifier + live price */}
+        {/* Row 1: Big verdict label + live price */}
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-0.5 min-w-0">
-            <span className={`text-sm font-bold leading-tight block ${colors.text}`}>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${biasArb?.conflict ? 'bg-amber-400 animate-pulse' : (biasStyle.dot ?? 'bg-slate-500')}`} />
+              <span className={`text-sm font-bold leading-tight ${biasArb?.conflict ? 'text-amber-300' : biasStyle.text}`}>
+                {biasArb?.conflict ? 'Mixed Signals' : (biasArb?.biasLabel ?? stateLabel(state))}
+              </span>
+              {scoreTrend && scoreTrend !== 'flat' && (
+                <span className={`text-[11px] font-bold leading-none ${scoreTrend === 'up' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {scoreTrend === 'up' ? '↑' : '↓'}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] font-mono text-slate-400 block">
               {marketStateDescription(state, biasAlign)}
+              {scanData?.qualifier && scanData.qualifier !== 'neutral' && (
+                <span className={`ml-1.5 ${qualColor}`}>· {scanData.qualifier}</span>
+              )}
             </span>
-            {scanData?.qualifier && scanData.qualifier !== 'neutral' && (
-              <span className={`text-[10px] font-mono ${qualColor}`}>· {scanData.qualifier}</span>
-            )}
           </div>
           {ltpDisplay && (
-            <div className="shrink-0 text-right">
-              <span className="text-[15px] font-bold tabular-nums text-slate-100 leading-tight">
-                {fmt(ltpDisplay, 1)}
-              </span>
-            </div>
+            <span className="text-[15px] font-bold tabular-nums text-slate-100 leading-tight shrink-0">
+              {fmt(ltpDisplay, 1)}
+            </span>
           )}
         </div>
 
-        {/* VWAP · time in state · bias alignment */}
-        <div className="flex items-center gap-3 flex-wrap text-[10px] font-mono text-slate-500">
-          {vwapVal && (
-            <span title="Volume Weighted Average Price — price above VWAP = buyers in control.">
-              VWAP <span className="text-slate-400 tabular-nums">{fmt(vwapVal, 0)}</span>
+        {/* Row 2: Sentiment bar + score + confidence */}
+        {biasArb && (
+          <div className="flex items-center gap-2.5">
+            <VerdictBar score={biasArb.finalScore} conflict={biasArb.conflict} />
+            <span className={`text-[12px] font-mono font-bold shrink-0 w-8 text-right tabular-nums ${biasArb.conflict ? 'text-amber-400' : biasStyle.score}`}>
+              {biasArb.finalScore > 0 ? '+' : ''}{biasArb.finalScore}
             </span>
-          )}
-          {scanData?.candlesInState != null && (
-            <span title="Time the engine has been in this state. Resets each time the market bias changes.">
-              <span className="tabular-nums">{elapsed(scanData.candlesInState, tf)}</span> in state
+            <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border font-bold shrink-0 ${confBadge}`}>
+              {(biasArb.confidence ?? 'low').toUpperCase()}
             </span>
-          )}
+          </div>
+        )}
+
+        {/* Row 3: Meta chips — session · HTF · time · VWAP */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-semibold ${sessBadge.color}`} title={sessBadge.title}>
+            {sessBadge.label}
+          </span>
           {biasAlign && state !== 'NEUTRAL' && state !== 'RANGING' && (
-            <span className={
-              biasAlign.aligned ? 'text-emerald-500' :
-              biasAlign.counter ? 'text-rose-500'    : 'text-slate-500'
-            }>
+            <span
+              title={biasAlign.aligned ? 'Higher timeframe aligned — trade with the trend.' : biasAlign.counter ? 'Higher timeframe opposing — counter-trend, be cautious.' : 'Higher timeframe neutral.'}
+              className={`text-[9px] font-mono px-2 py-0.5 rounded-full border font-semibold ${
+                biasAlign.aligned ? 'bg-emerald-950/60 border-emerald-800/40 text-emerald-300' :
+                biasAlign.counter ? 'bg-rose-950/60 border-rose-800/40 text-rose-300' :
+                'bg-slate-800/60 border-slate-700/40 text-slate-400'
+              }`}
+            >
               {biasTf} {biasAlign.label}
             </span>
           )}
+          {scanData?.candlesInState != null && (
+            <span className="text-[9px] font-mono text-slate-400" title="How long the engine has been in this state.">
+              {elapsed(scanData.candlesInState, tf)} in state
+            </span>
+          )}
+          {vwapVal && (
+            <span className="text-[9px] font-mono text-slate-400" title="Volume Weighted Average Price — above VWAP = buyers in control.">
+              VWAP <span className="text-slate-300 tabular-nums">{fmt(vwapVal, 0)}</span>
+            </span>
+          )}
         </div>
 
-        {/* Structure conviction bar */}
-        {structNet != null && (
-          <div
-            className="flex items-center gap-2"
-            title="Market structure conviction — candle patterns, VWAP position, and EMA stacking. -100 (full bear) to +100 (full bull)."
-          >
-            <span className="text-[9px] font-mono text-slate-600 w-14 shrink-0 uppercase tracking-[0.1em]">Structure</span>
-            <div className="relative flex-1 bg-white/[0.05] rounded-full overflow-hidden h-2">
-              <div className="absolute inset-y-0 w-px bg-white/10" style={{ left: '50%' }} />
-              {structNet !== 0 && (
-                <div
-                  className="absolute inset-y-0 transition-all duration-700"
-                  style={{
-                    background: structGrad,
-                    ...(structBull
-                      ? { left: '50%',                 width: `${structPct}%` }
-                      : { right: `${50 - structPct}%`, width: `${structPct}%` }),
-                  }}
-                />
-              )}
-            </div>
-            <span className={`text-[9px] font-mono w-7 text-right shrink-0 tabular-nums font-semibold ${structBull ? 'text-emerald-400' : structNet < 0 ? 'text-rose-400' : 'text-slate-500'}`}>
-              {structNet > 0 ? '+' : ''}{structNet}
+        {/* Row 4: DOM alert chip — invalidation / wall note */}
+        {(domData?.invalidation || domData?.wallNote) && (
+          <div className="flex items-start gap-1.5 bg-amber-950/25 border border-amber-800/30 rounded-lg px-2.5 py-1.5">
+            <span className="text-amber-400 text-[10px] shrink-0 mt-px">⚠</span>
+            <span className="text-[10px] font-mono text-amber-300/90 leading-relaxed">
+              {domData.invalidation ?? domData.wallNote}
             </span>
           </div>
         )}
       </div>
 
-      {/* ── Tier 2: Analysis details (collapsed) ────────────────────────────── */}
+      {/* ── Tier 2: Bias Breakdown (collapsible, closed by default) ──────────── */}
       <div className="relative z-10 border-b border-white/[0.04]">
         <button
-          onClick={() => setShowDetails(p => !p)}
-          className="w-full px-3 py-1.5 flex items-center justify-between text-[9px] font-mono text-slate-600 hover:text-slate-400 transition-colors uppercase tracking-[0.12em]"
+          onClick={() => setShowBreakdown(p => !p)}
+          className="w-full px-3 py-1.5 flex items-center justify-between text-[9px] font-mono text-slate-500 hover:text-slate-300 transition-colors uppercase tracking-[0.12em]"
         >
-          <span>Analysis Details</span>
-          {showDetails ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+          <span>Bias Breakdown {biasArb ? `· ${biasArb.agreementNote ?? ''}` : ''}</span>
+          {showBreakdown ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
         </button>
 
-        {showDetails && (
-          <div className="pb-3 space-y-3">
-
-            {/* Indicators */}
-            {features && (
-              <div className="px-3 flex items-center gap-3 flex-wrap text-[10px] font-mono">
-                {features.adx != null && (
-                  <div className="flex items-center gap-1">
-                    <span className="text-slate-600 uppercase tracking-[0.1em] text-[9px]">ADX</span>
-                    <span className={`font-bold tabular-nums ${features.adx >= 25 ? 'text-indigo-400' : features.adx >= 20 ? 'text-slate-300' : 'text-slate-600'}`}>
-                      {features.adx}{features.adxRising ? '↑' : ''}
-                    </span>
+        {showBreakdown && biasArb?.engines && (
+          <div className="px-3 pb-3 space-y-2">
+            {Object.entries(biasArb.engines).map(([key, eng]) => {
+              const meta  = ENGINE_META[key] ?? { label: key, tip: '' };
+              const score = eng.available ? eng.score : 0;
+              const bull  = score >= 0;
+              const pct   = Math.min(50, Math.abs(score) * 5);
+              const grad  = bull
+                ? 'linear-gradient(to right,#065f46,#34d399)'
+                : 'linear-gradient(to right,#9f1239,#fb7185)';
+              const engStyle = BIAS_STYLE[eng.label] ?? BIAS_STYLE.Neutral;
+              return (
+                <div key={key} className="flex items-center gap-2" title={meta.tip}>
+                  <span className="text-[9px] font-mono text-slate-400 w-16 shrink-0">{meta.label}</span>
+                  <div className="relative flex-1 bg-white/[0.06] rounded-full overflow-hidden h-1.5">
+                    <div className="absolute inset-y-0 w-px bg-slate-600/40" style={{ left: '50%' }} />
+                    {score !== 0 && (
+                      <div className="absolute inset-y-0 transition-all duration-700" style={{
+                        background: grad,
+                        ...(bull ? { left: '50%', width: `${pct}%` } : { right: `${50-pct}%`, width: `${pct}%` }),
+                      }} />
+                    )}
                   </div>
-                )}
-                {features.rsi != null && (
-                  <div className="flex items-center gap-1">
-                    <span className="text-slate-600 uppercase tracking-[0.1em] text-[9px]">RSI</span>
-                    <span className={`font-bold tabular-nums ${features.rsi >= 60 ? 'text-emerald-400' : features.rsi <= 40 ? 'text-rose-400' : 'text-slate-400'}`}>
-                      {features.rsi}
-                    </span>
-                  </div>
-                )}
-                {features.candleStrength != null && (
-                  <div className="flex items-center gap-1">
-                    <span className="text-slate-600 uppercase tracking-[0.1em] text-[9px]">CS</span>
-                    <span className={`font-bold tabular-nums ${features.candleStrength >= 1.2 ? 'text-amber-400' : 'text-slate-500'}`}>
-                      {features.candleStrength.toFixed(1)}
-                    </span>
-                  </div>
-                )}
-                {features.direction && (
-                  <span className={`text-xs ${features.direction === 'bull' ? 'text-emerald-500' : features.direction === 'bear' ? 'text-rose-500' : 'text-slate-600'}`}>
-                    {features.direction === 'bull' ? '▲' : features.direction === 'bear' ? '▼' : '—'}
+                  <span className={`text-[9px] font-mono w-7 text-right shrink-0 tabular-nums font-semibold ${eng.available ? engStyle.score : 'text-slate-600'}`}>
+                    {eng.available ? (score > 0 ? '+' : '') + score : 'n/a'}
                   </span>
-                )}
-              </div>
-            )}
-
-            {/* Commentary */}
-            {commentary && (
-              <div className="px-3 space-y-2">
-                <p className={`text-xs font-semibold ${colors.text}`}>{commentary.headline}</p>
-                <p className="text-[11px] text-slate-400 leading-relaxed">{commentary.context}</p>
-                {commentary.watch && (
-                  <div className="flex gap-2 items-start bg-indigo-950/30 border border-indigo-900/30 rounded-lg px-2.5 py-1.5">
-                    <span className="text-[9px] font-bold text-indigo-400 shrink-0 mt-0.5 uppercase tracking-[0.1em]">Watch</span>
-                    <span className="text-[11px] text-slate-300 leading-relaxed">{commentary.watch}</span>
-                  </div>
-                )}
-                {commentary.risk && (
-                  <div className="flex gap-2 items-start bg-rose-950/20 border border-rose-900/20 rounded-lg px-2.5 py-1.5">
-                    <span className="text-[9px] font-bold text-rose-500 shrink-0 mt-0.5 uppercase tracking-[0.1em]">Risk</span>
-                    <span className="text-[11px] text-slate-300 leading-relaxed">{commentary.risk}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Options */}
-            {optCtx?.available !== false && (optCtx?.pcrInfo || optCtx?.callWall) && (
-              <div className="px-3 space-y-1.5">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {optCtx?.pcrInfo?.label && (
-                    <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border font-semibold ${
-                      optCtx.pcrInfo.bias === 'bullish' ? 'bg-emerald-950/60 border-emerald-800/40 text-emerald-300' :
-                      optCtx.pcrInfo.bias === 'bearish' ? 'bg-rose-950/60 border-rose-800/40 text-rose-300' :
-                      'bg-[#1c2030] border-slate-700/40 text-slate-400'}`}>
-                      PCR {optCtx.pcrInfo.label}
-                    </span>
-                  )}
-                  {optCtx?.isExpiryDay && (
-                    <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800/40 text-amber-300 font-semibold">Expiry Day</span>
-                  )}
                 </div>
-                {(optCtx?.callWall || optCtx?.putWall) && (
-                  <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
-                    {optCtx?.callWall && <span>Call wall <span className="text-rose-400 font-bold tabular-nums">{fmt(optCtx.callWall)}</span></span>}
-                    {optCtx?.putWall  && <span>Put wall  <span className="text-emerald-400 font-bold tabular-nums">{fmt(optCtx.putWall)}</span></span>}
-                    {optCtx?.maxPain  && <span>Max pain  <span className="text-amber-400 font-bold tabular-nums">{fmt(optCtx.maxPain)}</span></span>}
-                  </div>
-                )}
-                {commentary?.optionsLines?.map((line, i) => (
-                  <p key={i} className="text-[10px] text-amber-300/80">{line}</p>
-                ))}
-                {optCtx?.activityLabel && (
-                  <p className="text-[10px] text-slate-500 font-mono">{optCtx.activityLabel}</p>
-                )}
-              </div>
-            )}
-
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* ── Bias Arbitration ────────────────────────────────────────────────── */}
-      <div className="relative z-10">
-        <BiasArbitration data={scanData?.biasArbitration ?? null} trend={scoreTrend} />
-      </div>
+      {/* ── DOM data (headless — supplies domData via onData callback) ─────────── */}
+      <DomPressureStrip underlying={underlying} devMode={isDevMode} onData={setDomData} headless={true} />
 
-      {/* ── Live DOM pressure ────────────────────────────────────────────────── */}
-      <div className="relative z-10">
-        <DomPressureStrip underlying={underlying} devMode={isDevMode} />
-      </div>
 
       {/* ── Setup Zone ──────────────────────────────────────────────────────── */}
       <div className="relative z-10">

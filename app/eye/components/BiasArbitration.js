@@ -67,7 +67,7 @@ export default function BiasArbitration({ data, trend }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${conflict ? 'bg-amber-400 animate-pulse' : style.dot}`} />
-          <span className="text-[9px] font-mono font-semibold text-slate-500 uppercase tracking-[0.15em]">
+          <span className="text-[9px] font-mono font-semibold text-slate-400 uppercase tracking-[0.15em]">
             Bias Consensus
           </span>
         </div>
@@ -101,7 +101,7 @@ export default function BiasArbitration({ data, trend }) {
       </div>
 
       {/* Agreement note */}
-      <p className="text-[10px] font-mono text-slate-500 leading-relaxed">{agreementNote}</p>
+      <p className="text-[10px] font-mono text-slate-400 leading-relaxed">{agreementNote}</p>
 
       {/* Collapsible engine breakdown */}
       {open && engines && (
@@ -111,7 +111,7 @@ export default function BiasArbitration({ data, trend }) {
             const eBull = eng.score >= 0;
             return (
               <div key={key} className="flex items-center gap-2">
-                <span className="text-[9px] font-mono text-slate-500 w-16 shrink-0">
+                <span className="text-[9px] font-mono text-slate-400 w-16 shrink-0">
                   {ENGINE_LABEL[key]}
                 </span>
                 <CenterBar
@@ -122,7 +122,7 @@ export default function BiasArbitration({ data, trend }) {
                 <span className={`text-[9px] font-mono w-9 text-right shrink-0 tabular-nums font-semibold ${eng.available ? es.score : 'text-slate-600'}`}>
                   {eng.available ? (eng.score > 0 ? '+' : '') + eng.score : 'n/a'}
                 </span>
-                <span className="text-[9px] font-mono text-slate-700 w-6 text-right shrink-0 tabular-nums">
+                <span className="text-[9px] font-mono text-slate-500 w-6 text-right shrink-0 tabular-nums">
                   {Math.round(eng.weight * 100)}%
                 </span>
               </div>
