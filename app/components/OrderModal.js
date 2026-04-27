@@ -438,6 +438,60 @@ function BrokerStatusBadge() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MinimalIntelCard — compact behavioral + regime display for minimal/quick modes
+// ─────────────────────────────────────────────────────────────────────────────
+function MinimalIntelCard({ minimalIntel, loading }) {
+  if (loading) return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 flex items-center gap-2">
+      <Loader2 size={13} className="animate-spin text-slate-500" />
+      <span className="text-xs text-slate-400">Checking for conflicts…</span>
+    </div>
+  );
+  if (!minimalIntel) return null;
+
+  const { behavioral, regime } = minimalIntel;
+  const behaviors = behavioral?.behaviors ?? [];
+  const regimeMeta = MODAL_REGIME_META[regime?.regime];
+  if (!behaviors.length && !regimeMeta) return null;
+
+  const danger  = behaviors.some(b => b.severity === 'danger');
+  const warning = !danger && behaviors.some(b => b.severity === 'warning');
+  const borderCls = danger ? 'border-red-500/40' : warning ? 'border-amber-500/30' : 'border-white/10';
+  const bgCls     = danger ? 'bg-red-500/8'      : warning ? 'bg-amber-500/8'      : 'bg-white/[0.02]';
+
+  const SEV = {
+    danger:  { dot: 'bg-red-500',   text: 'text-red-400'   },
+    warning: { dot: 'bg-red-400',   text: 'text-red-300'   },
+    caution: { dot: 'bg-amber-400', text: 'text-amber-300' },
+    info:    { dot: 'bg-blue-400',  text: 'text-blue-300'  },
+  };
+
+  return (
+    <div className={`rounded-xl border ${borderCls} ${bgCls} px-3 py-2.5 space-y-1.5`}>
+      {regimeMeta && (
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${regimeMeta.dot}`} />
+          <span className="text-xs font-semibold text-slate-300">{regimeMeta.label}</span>
+          <span className="text-[10px] text-slate-500 ml-auto">Market regime</span>
+        </div>
+      )}
+      {behaviors.slice(0, 3).map((b, i) => {
+        const cfg = SEV[b.severity] || { dot: 'bg-slate-400', text: 'text-slate-300' };
+        return (
+          <div key={i} className="flex items-start gap-1.5">
+            <span className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
+            <span className={`text-[10px] font-medium ${cfg.text} leading-snug`}>{b.title}</span>
+          </div>
+        );
+      })}
+      {behaviors.length > 3 && (
+        <p className="text-[10px] text-slate-500 pl-3">+{behaviors.length - 3} more</p>
+      )}
+    </div>
+  );
+}
+
 export default function OrderModal({
   isOpen,
   onClose,
@@ -446,20 +500,32 @@ export default function OrderModal({
   defaultType = 'BUY',
   optionType = null,
   optionSymbol = null,
-  optionExpiry = null,  // YYYY-MM-DD — explicit expiry from chart, skips server-side date calc
-  optionExpiryType = null,  // 'weekly' or 'monthly' for NIFTY — passed from chart
+  optionExpiry = null,        // YYYY-MM-DD — when provided, skips expiry fetch for all symbols
+  optionExpiryType = null,    // 'weekly' or 'monthly' for NIFTY — passed from chart
   onOrderPlaced,
   intelligence = null,
+  mode = 'full',              // 'full' | 'minimal' | 'quick'
+  lotSize: lotSizeProp = null, // pre-resolved lot size (quick mode skips API lot size fetch)
 }) {
+  const symUpper        = symbol?.toUpperCase();
+  const isBse           = symUpper === 'SENSEX' || symUpper === 'BANKEX';
+  const isResolvedOpt   = !optionType && /^.+(CE|PE)$/.test(symUpper || '');
+  const defaultExchange = optionType
+    ? (isBse ? 'BFO' : 'NFO')
+    : isResolvedOpt
+      ? (symUpper?.startsWith('SENSEX') || symUpper?.startsWith('BANKEX') ? 'BFO' : 'NFO')
+      : 'NSE';
+  const defaultProduct  = (optionType || isResolvedOpt) ? 'NRML' : 'CNC';
+
   const [transactionType, setTransactionType] = useState(defaultType);
   const [quantity, setQuantity] = useState(1);
-  const [product, setProduct] = useState(optionType ? 'NRML' : 'CNC');
+  const [product, setProduct] = useState(defaultProduct);
   const [orderType, setOrderType] = useState('MARKET');
   const [limitPrice, setLimitPrice] = useState('');
   const [triggerPrice, setTriggerPrice] = useState('');
-  const symUpper = symbol?.toUpperCase();
-  const isBse    = symUpper === 'SENSEX' || symUpper === 'BANKEX';
-  const defaultExchange = optionType ? (isBse ? 'BFO' : 'NFO') : 'NSE';
+  const [effectiveMode, setEffectiveMode] = useState(mode);
+  const [minimalIntel, setMinimalIntel]   = useState(null);
+  const [minimalLoading, setMinimalLoading] = useState(false);
 
   const [exchange, setExchange] = useState(defaultExchange);
   const [loading, setLoading] = useState(false);
@@ -495,12 +561,13 @@ export default function OrderModal({
   const [regimeData, setRegimeData]   = useState(null);
   const [regimeLoading, setRegimeLoading] = useState(false);
 
+  const { status: providerStatus } = useProviderStatus();
+
   useEffect(() => {
     if (isOpen) {
       checkKiteAuth();
-      fetchPositions();
+      if (mode !== 'quick') fetchPositions();
     }
-    // Cancel any pending auto-close from a previous order placement
     return () => clearTimeout(closeTimerRef.current);
   }, [isOpen]);
 
@@ -567,12 +634,12 @@ export default function OrderModal({
     }, 500);
   };
 
-  // Fetch available expiries for NIFTY/BANKNIFTY
+  // Fetch available expiries for NIFTY/BANKNIFTY — only when no explicit expiry provided
   useEffect(() => {
-    if (isOpen && optionType && (symbol === 'NIFTY' || symbol === 'BANKNIFTY')) {
+    if (isOpen && optionType && (symbol === 'NIFTY' || symbol === 'BANKNIFTY') && !optionExpiry) {
       fetchAvailableExpiries();
     }
-  }, [isOpen, optionType, symbol]);
+  }, [isOpen, optionType, symbol, optionExpiry]);
 
   const fetchAvailableExpiries = async () => {
     setLoadingExpiries(true);
@@ -581,7 +648,6 @@ export default function OrderModal({
       const data = await res.json();
       if (data.expiries?.length) {
         setAvailableExpiries(data.expiries);
-        // Auto-select nearest expiry
         const nearest = data.expiries[0];
         setSelectedExpiryDate(nearest.date);
       }
@@ -592,12 +658,14 @@ export default function OrderModal({
     }
   };
 
-  // For non-NIFTY/BANKNIFTY: fetch details normally
-  // For NIFTY/BANKNIFTY: wait for selectedExpiryDate to be set (from expiries fetch)
+  // Fetch option details — runs when expiry is known (either from prop or dropdown)
   useEffect(() => {
     if (!isOpen || !optionType || !symbol || !price || !isLoggedIn) return;
 
-    // Skip for NIFTY/BANKNIFTY until dropdown value is set
+    // When optionExpiry is passed explicitly, proceed immediately
+    if (optionExpiry) { fetchOptionDetails(); return; }
+
+    // For NIFTY/BANKNIFTY without explicit expiry, wait for dropdown selection
     if ((symbol === 'NIFTY' || symbol === 'BANKNIFTY') && !selectedExpiryDate) return;
 
     fetchOptionDetails();
@@ -612,10 +680,10 @@ export default function OrderModal({
       url.searchParams.set('price', price);
       url.searchParams.set('type', optionType);
 
-      // For NIFTY/BANKNIFTY, use selected expiry; otherwise use passed optionExpiry
-      const expiryToUse = (symbol === 'NIFTY' || symbol === 'BANKNIFTY')
-        ? selectedExpiryDate
-        : optionExpiry;
+      // Use explicit optionExpiry when provided; for NIFTY/BANKNIFTY without explicit, use dropdown
+      const expiryToUse = optionExpiry
+        ? optionExpiry
+        : (symbol === 'NIFTY' || symbol === 'BANKNIFTY') ? selectedExpiryDate : null;
       if (expiryToUse) url.searchParams.set('expiry', expiryToUse);
 
       // Determine expiryType for NIFTY
@@ -670,14 +738,13 @@ export default function OrderModal({
   useEffect(() => {
     if (isOpen) {
       setTransactionType(defaultType);
-      setQuantity(1);  // temporary — FnO will update to lotSize once API responds
-      setLotSize(1);
-      setProduct(optionType ? 'NRML' : 'CNC');
+      const initLot = lotSizeProp || 1;
+      setLotSize(initLot);
+      setQuantity(initLot);
+      setProduct(defaultProduct);
       setLimitPrice(price?.toString() || '');
       setTriggerPrice('');
-      
-      const isB   = symbol?.toUpperCase() === 'SENSEX' || symbol?.toUpperCase() === 'BANKEX';
-      setExchange(optionType ? (isB ? 'BFO' : 'NFO') : 'NSE');
+      setExchange(defaultExchange);
       setError('');
       setSuccess('');
       setKiteOptionSymbol(null);
@@ -687,6 +754,8 @@ export default function OrderModal({
       setDeepIntelResult(null);
       setRegimeData(null);
       setDepth(null);
+      setMinimalIntel(null);
+      setEffectiveMode(mode);
       setAvailableExpiries([]);
       setSelectedExpiryDate(null);
       if (optionType && price) {
@@ -697,14 +766,12 @@ export default function OrderModal({
     }
   }, [isOpen, defaultType, price, optionType, symbol]);
 
-  // ── Sync quantity to lot size when API returns it (FnO only) ─────────────────
-  // This reactive effect is more reliable than setting qty inside the async fetch,
-  // because it runs AFTER the state update regardless of call order.
+  // Sync quantity to lot size when API returns it (FnO or quick mode with prop)
   useEffect(() => {
-    if (optionType && lotSize > 1) {
+    if ((optionType || isResolvedOpt) && lotSize > 1) {
       setQuantity(lotSize);
     }
-  }, [lotSize, optionType]);
+  }, [lotSize, optionType, isResolvedOpt]);
 
   // ─── FETCH DEEP INTELLIGENCE (5 agents) ─────────────────────────────
   const fetchDeepIntel = async () => {
@@ -756,20 +823,60 @@ export default function OrderModal({
     finally { setRegimeLoading(false); }
   };
 
-  // Trigger deep analysis + regime when modal opens or direction changes.
-  // Never use cached intelligence for scenario — direction (BUY/SELL, CE/PE) changes
-  // the scenario result completely and the chart-pill cache is direction-agnostic.
+  // ─── FETCH MINIMAL INTEL (behavioral + regime) — minimal mode only ─────
+  const fetchMinimalIntel = async () => {
+    setMinimalLoading(true);
+    setMinimalIntel(null);
+    try {
+      const [intelRes, regimeRes] = await Promise.allSettled([
+        fetch('/api/order-intelligence', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            symbol,
+            tradingsymbol: kiteOptionSymbol || optionSymbol || symbol,
+            exchange,
+            instrumentType: optionType || 'EQ',
+            transactionType,
+            productType: product,
+            quantity: quantity || 1,
+            price: optionType ? (optionLtp || price) : (price || 0),
+            spotPrice: price || 0,
+            // No includeStructure/Pattern/Station/OI — behavioral check only
+          }),
+        }).then(r => r.json()),
+        fetch('/api/market-regime', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: 'NIFTY', type: 'intraday' }),
+        }).then(r => r.json()),
+      ]);
+      setMinimalIntel({
+        behavioral: intelRes.status === 'fulfilled' ? intelRes.value?.behavioral : null,
+        regime:     regimeRes.status === 'fulfilled' ? regimeRes.value : null,
+      });
+    } catch {}
+    finally { setMinimalLoading(false); }
+  };
+
+  // Deep intel + regime — full mode only (or when user escalates from minimal/quick)
   useEffect(() => {
-    if (isOpen && symbol && transactionType && isLoggedIn) {
+    if (isOpen && symbol && transactionType && isLoggedIn && effectiveMode === 'full') {
       fetchDeepIntel();
       fetchRegime();
     }
-  }, [isOpen, symbol, transactionType, isLoggedIn, kiteOptionSymbol]);
+  }, [isOpen, symbol, transactionType, isLoggedIn, kiteOptionSymbol, effectiveMode]);
 
-  // ─── FETCH MARKET DEPTH ────────────────────────────────────────────────
+  // Minimal intel — minimal mode only
+  useEffect(() => {
+    if (isOpen && symbol && transactionType && isLoggedIn && effectiveMode === 'minimal') {
+      fetchMinimalIntel();
+    }
+  }, [isOpen, symbol, transactionType, isLoggedIn, effectiveMode]);
+
+  // ─── FETCH MARKET DEPTH — full mode only ──────────────────────────────
   const fetchDepth = useCallback(async () => {
     if (!isLoggedIn) return;
-    // For options use the resolved kiteOptionSymbol; fall back to symbol for equity
     const depthSymbol = optionType ? kiteOptionSymbol : symbol;
     if (!depthSymbol) return;
     const depthExchange = optionType ? 'NFO' : exchange;
@@ -781,13 +888,12 @@ export default function OrderModal({
     finally { setDepthLoading(false); }
   }, [isLoggedIn, symbol, optionType, kiteOptionSymbol, exchange]);
 
-  // Fetch depth when modal opens (equity) or once option symbol is resolved
   useEffect(() => {
-    if (isOpen && isLoggedIn) {
-      if (optionType && !kiteOptionSymbol) return; // wait for option resolution
+    if (isOpen && isLoggedIn && effectiveMode === 'full') {
+      if (optionType && !kiteOptionSymbol) return;
       fetchDepth();
     }
-  }, [isOpen, isLoggedIn, kiteOptionSymbol]);
+  }, [isOpen, isLoggedIn, kiteOptionSymbol, effectiveMode]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -837,6 +943,7 @@ export default function OrderModal({
     setError('');
     setSuccess('');
     try {
+      // For pre-resolved option symbols (quick mode), use symbol directly
       const tradingSymbol = optionType ? (kiteOptionSymbol || optionSymbol) : symbol;
       const orderData = {
         tradingsymbol: tradingSymbol,
@@ -886,6 +993,188 @@ export default function OrderModal({
   };
 
   if (!isOpen) return null;
+
+  // ── Compact display label (minimal / quick modes) ─────────────────────
+  const displaySym = optionType
+    ? (kiteOptionSymbol
+        ? (strike ? `${symbol} ${strike} ${optionType}` : kiteOptionSymbol)
+        : `${symbol} ${optionType}`)
+    : symbol;
+  const isOpt = !!(optionType || isResolvedOpt);
+
+  // ── COMPACT RENDER — minimal and quick modes ──────────────────────────
+  if (effectiveMode === 'minimal' || effectiveMode === 'quick') {
+    return (
+      <div className="fixed inset-0 z-[150] flex items-center justify-center pointer-events-none p-4">
+        <div className="absolute inset-0 pointer-events-auto bg-black/40" onClick={onClose} />
+        <div className="relative z-10 w-[440px] max-w-[calc(100vw-2rem)] bg-[#0d1526] border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] pointer-events-auto flex flex-col overflow-hidden">
+
+          {/* Header: BUY/SELL pill + symbol + close */}
+          <div className="flex bg-white/5 border-b border-white/10 p-1.5 gap-1.5 items-center">
+            <div className="flex bg-black/20 rounded-lg p-0.5 flex-1">
+              <button type="button" onClick={() => setTransactionType('BUY')}
+                className={`flex-1 py-1.5 text-[11px] font-extrabold rounded-md transition-all ${transactionType === 'BUY' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+                BUY
+              </button>
+              <button type="button" onClick={() => setTransactionType('SELL')}
+                className={`flex-1 py-1.5 text-[11px] font-extrabold rounded-md transition-all ${transactionType === 'SELL' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+                SELL
+              </button>
+            </div>
+            <div className="flex flex-col items-end px-2 min-w-0">
+              <div className="text-[11px] font-bold text-white leading-tight truncate max-w-[140px] text-right">{displaySym}</div>
+              <div className="text-[9px] text-slate-400 font-mono">
+                {fetchingLtp ? '…' : optionType ? (optionLtp ? `₹${optionLtp}` : `spot ₹${price}`) : `₹${price?.toFixed(2) ?? '—'}`}
+              </div>
+            </div>
+            <button onClick={onClose} className="p-2 text-slate-500 hover:text-white transition-colors bg-white/5 rounded-lg">
+              <X size={14} />
+            </button>
+          </div>
+
+          {/* Expiry selector — NIFTY/BANKNIFTY without explicit expiry */}
+          {optionType && (symbol === 'NIFTY' || symbol === 'BANKNIFTY') && availableExpiries.length > 0 && (
+            <div className="px-4 pt-3 pb-0">
+              <select value={selectedExpiryDate || ''} onChange={e => setSelectedExpiryDate(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500/50">
+                {availableExpiries.map(exp => (
+                  <option key={exp.date} value={exp.date} className="bg-slate-800">{exp.shortLabel}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Auth states — compact */}
+          {checkingAuth ? (
+            <div className="px-4 py-3 flex items-center gap-2">
+              <Loader2 size={13} className="animate-spin text-slate-500" />
+              <span className="text-xs text-slate-400">Checking auth…</span>
+            </div>
+          ) : !isSessionLoggedIn ? (
+            <div className="px-4 py-3 flex items-center justify-between">
+              <span className="text-xs text-slate-400">Login required to place orders</span>
+              <a href="/login" className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold">Login →</a>
+            </div>
+          ) : userRole === 'user' ? (
+            <div className="px-4 py-3 flex items-center justify-between">
+              <span className="text-xs text-amber-400 font-semibold">Pro feature</span>
+              <a href="/pricing" className="text-xs text-slate-400 hover:text-white">View Plans →</a>
+            </div>
+          ) : !isLoggedIn ? (
+            <div className="px-4 py-3 flex items-center justify-between">
+              <span className="text-xs text-slate-400">Kite not connected</span>
+              <button onClick={handleKiteLogin} className="text-xs text-orange-400 hover:text-orange-300 flex items-center gap-1 font-semibold">
+                <LogIn size={11} /> Connect Kite
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="px-4 py-4 space-y-3">
+              {/* Minimal intel card */}
+              {effectiveMode === 'minimal' && (
+                <MinimalIntelCard minimalIntel={minimalIntel} loading={minimalLoading} />
+              )}
+
+              {/* Qty + Product */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">
+                    Qty{lotSize > 1 ? ` (lot=${lotSize})` : ''}
+                  </label>
+                  <div className="flex bg-white/5 rounded-xl border border-white/10 overflow-hidden h-9">
+                    <button type="button"
+                      onClick={() => setQuantity(q => Math.max(lotSize || 1, (parseInt(q) || (lotSize || 1)) - (lotSize || 1)))}
+                      className="w-9 flex items-center justify-center hover:bg-white/5 border-r border-white/10 text-slate-400 text-sm font-bold">−</button>
+                    <input type="number" value={quantity} onFocus={e => e.target.select()}
+                      onChange={e => { const v = e.target.value; if (v === '') { setQuantity(''); return; } const n = parseInt(v); if (!isNaN(n)) setQuantity(n); }}
+                      className="flex-1 bg-transparent text-center text-[13px] font-bold font-mono focus:outline-none text-white" />
+                    <button type="button"
+                      onClick={() => setQuantity(q => (parseInt(q) || (lotSize || 1)) + (lotSize || 1))}
+                      className="w-9 flex items-center justify-center hover:bg-white/5 border-l border-white/10 text-slate-400 text-sm font-bold">+</button>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Product</label>
+                  <div className="flex bg-white/5 rounded-xl border border-white/10 p-1 h-9 gap-1">
+                    {(isOpt ? ['NRML','MIS'] : ['MIS','CNC']).map(p => (
+                      <button key={p} type="button" onClick={() => setProduct(p)}
+                        className={`flex-1 text-[10px] font-bold rounded-lg transition-all ${
+                          product === p ? 'bg-white/10 text-white border border-white/10 shadow-lg' : 'text-slate-500 hover:text-slate-400'
+                        }`}>{p}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Order type */}
+              <div className="space-y-1">
+                <label className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Order Type</label>
+                <div className="grid grid-cols-4 bg-white/5 rounded-xl border border-white/10 p-1 h-9 gap-1">
+                  {['MARKET','LIMIT','SL','SL-M'].map(t => (
+                    <button key={t} type="button" onClick={() => setOrderType(t)}
+                      className={`text-[10px] font-bold rounded-lg transition-all ${
+                        orderType === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-400'
+                      }`}>{t}</button>
+                  ))}
+                </div>
+                {isOpt && orderType === 'MARKET' && (
+                  <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1.5 mt-1">
+                    <span className="text-[10px] text-amber-400">⚠ Market orders not allowed for Options — use LIMIT</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Price fields */}
+              {orderType !== 'MARKET' && (
+                <div className="grid grid-cols-2 gap-3">
+                  {(orderType === 'LIMIT' || orderType === 'SL') && (
+                    <div className="space-y-1">
+                      <label className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Price</label>
+                      <input type="number" step="0.05" value={limitPrice} onChange={e => setLimitPrice(e.target.value)}
+                        className="w-full h-9 bg-white/5 border border-white/10 rounded-xl px-3 text-[13px] font-bold font-mono text-white focus:outline-none focus:border-indigo-500/50" />
+                    </div>
+                  )}
+                  {(orderType === 'SL' || orderType === 'SL-M') && (
+                    <div className="space-y-1">
+                      <label className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Trigger</label>
+                      <input type="number" step="0.05" value={triggerPrice} onChange={e => setTriggerPrice(e.target.value)}
+                        className="w-full h-9 bg-white/5 border border-white/10 rounded-xl px-3 text-[13px] font-bold font-mono text-white focus:outline-none focus:border-indigo-500/50" />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {error && <div className="text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-2 py-1.5">{error}</div>}
+              {success && <div className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2 py-1.5">{success}</div>}
+
+              {/* Submit + Full Intel */}
+              <div className="flex gap-2 pt-1">
+                <button type="submit" disabled={loading}
+                  className={`flex-[2] py-2.5 rounded-xl font-bold text-[13px] flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 ${
+                    transactionType === 'BUY' ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20' : 'bg-red-600 hover:bg-red-500 text-white shadow-red-500/20'
+                  } shadow-xl`}>
+                  {loading ? <Loader2 size={14} className="animate-spin" /> : null}
+                  {loading ? 'Placing…' : `${transactionType} ${displaySym}`}
+                </button>
+                <button type="button" onClick={() => setEffectiveMode('full')}
+                  className="flex-1 py-2.5 rounded-xl border border-white/10 text-slate-400 hover:bg-white/5 hover:text-white transition-all text-[11px] flex items-center justify-center gap-1.5">
+                  <Brain size={12} className="text-indigo-400" />
+                  Full Intel
+                </button>
+              </div>
+
+              {/* Status bar */}
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <span className={`w-1 h-1 rounded-full ${providerStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest">
+                  {providerStatus?.broker || 'PAPER'} MODE
+                </span>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const displayPrice = optionType ? (optionLtp || 0) : (price || 0);
   const estimatedValue = quantity * (limitPrice !== '' ? (parseFloat(limitPrice) || 0) : displayPrice);
@@ -1048,7 +1337,8 @@ export default function OrderModal({
         ) : (
         <form onSubmit={handleSubmit} className="flex flex-col">
 
-          {/* ── Tab bar ─────────────────────────────────────────────────────── */}
+          {/* ── Tab bar — full mode only ───────────────────────────────────── */}
+          {effectiveMode === 'full' && (
           <div className="flex px-5 pt-3 pb-2 gap-1 border-b border-white/5">
             <button type="button" onClick={() => setActiveTab('order')}
               className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
@@ -1067,6 +1357,7 @@ export default function OrderModal({
               })()}
             </button>
           </div>
+          )}
 
           {/* ── ANALYSIS TAB ─────────────────────────────────────────────────── */}
           {activeTab === 'analysis' && (
@@ -1181,9 +1472,10 @@ export default function OrderModal({
           )}
 
           {/* ── ORDER TAB ────────────────────────────────────────────────────── */}
-          {activeTab === 'order' && (
+          {(effectiveMode !== 'full' || activeTab === 'order') && (
           <div className="p-5 space-y-4">
-            {/* Verdict — regime × scenario alignment */}
+            {/* Verdict — regime × scenario alignment (full mode only) */}
+            {effectiveMode === 'full' && (
             <ModalVerdictCard
               regimeData={regimeData}
               scenarioResult={deepIntelResult?.scenario}
@@ -1192,6 +1484,11 @@ export default function OrderModal({
               sector={deepIntelResult?.sector}
               transactionType={transactionType}
             />
+            )}
+            {/* Minimal intel card — minimal mode only */}
+            {effectiveMode === 'minimal' && (
+              <MinimalIntelCard minimalIntel={minimalIntel} loading={minimalLoading} />
+            )}
 
           {/* Buy/Sell Toggle */}
           <div className="flex gap-2">
@@ -1219,9 +1516,11 @@ export default function OrderModal({
             </button>
           </div>
 
-          {/* Market Depth */}
+          {/* Market Depth — full mode only */}
+          {effectiveMode === 'full' && (
           <DepthPanel depth={depth} loading={depthLoading} onRefresh={fetchDepth}
             transactionType={transactionType} orderType={orderType} />
+          )}
 
           {/* Expiry selector for NIFTY/BANKNIFTY */}
           {(symbol === 'NIFTY' || symbol === 'BANKNIFTY') && availableExpiries.length > 0 && (
@@ -1366,8 +1665,8 @@ export default function OrderModal({
             </span>
           </div>
 
-          {/* ── Structure Risk Bar — surfaces OI warnings onto the Order tab ── */}
-          {(() => {
+          {/* ── Structure Risk Bar — full mode only ──────────────────────────── */}
+          {effectiveMode === 'full' && (() => {
             if (!deepIntelResult) return null;
             // Each agent returns { behaviors (triggered checks), verdict, riskScore }
             // behaviors items: { type, severity, title, detail, riskScore, passed: false }
@@ -1442,13 +1741,27 @@ export default function OrderModal({
                 Placing Order...
               </>
             ) : (
-              `${transactionType} ${symbol}`
+              `${transactionType} ${kiteOptionSymbol ? (strike ? `${symbol} ${strike} ${optionType}` : kiteOptionSymbol) : symbol}`
             )}
           </button>
 
+          {/* Full Analysis escalation — minimal and quick modes */}
+          {effectiveMode !== 'full' && (
+            <button
+              type="button"
+              onClick={() => setEffectiveMode('full')}
+              className="w-full py-2 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-all text-xs flex items-center justify-center gap-1.5"
+            >
+              <Brain className="w-3.5 h-3.5 text-indigo-400" />
+              Full Analysis
+            </button>
+          )}
+
+          {effectiveMode === 'full' && (
           <p className="text-slate-500 text-[10px] text-center">
             Orders are placed via Kite Connect API. Market orders execute at current market price.
           </p>
+          )}
           </div>
           )}
         </form>

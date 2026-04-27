@@ -8,7 +8,6 @@ import { createChart } from '../../lib/chart/Chart';
 import { useChartRefresh } from '@/app/lib/chart/useChartRefresh';
 import DrawingToolbar from '../../components/DrawingToolbar';
 import OrderModal     from '../../components/OrderModal';
-import QuickOrder     from '@/app/components/QuickOrder';
 import WatchlistDrawer from '@/app/components/WatchlistDrawer';
 import { nseStrikeSteps } from '../../lib/nseStrikeSteps';
 import {
@@ -626,13 +625,14 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
         </button>
       </div>
 
-      <QuickOrder
+      <OrderModal
+        mode="quick"
         isOpen={quickOrderOpen}
         onClose={() => setQuickOrderOpen(false)}
         symbol={info?.tradingSymbol || `${symbol} ${strike} ${type}`}
         price={quickOrderPrice}
         lotSize={quickLotSize}
-        type="BUY"
+        defaultType="BUY"
         onOrderPlaced={() => setQuickOrderOpen(false)}
       />
 

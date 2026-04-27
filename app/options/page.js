@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Nav from '../components/Nav';
+import OrderModal from '../components/OrderModal';
 import { probAtTime, probTouch, lognormalPDF, expectedMove } from '@/app/lib/options/black-scholes';
 import { playWarningPing, playShortCoveringAlert } from '@/app/lib/sounds';
 
@@ -659,11 +660,6 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
   const [results,   setResults]   = useState({});   // key → { ok, msg }
   const [expanded,  setExpanded]  = useState(() => ({})); // key -> boolean (strike+side)
   const [orderModal, setOrderModal] = useState(null); // { side, strike, type, ltp } | null
-  const [orderLotSize, setOrderLotSize] = useState(null);
-  const [orderForm,  setOrderForm]  = useState({ lots: '1', entryOrderType: 'LIMIT', limitPrice: '', triggerPrice: '' });
-  const [orderErr,   setOrderErr]   = useState(null);
-  const [orderOk,    setOrderOk]    = useState(null);
-  const [marginEst,  setMarginEst]  = useState(null); // { loading, error, data }
   const [deskOpen,   setDeskOpen]   = useState(true); // collapse buy+sell together
   const lastBuyOpAlertRef = useRef(null); // string key to dedupe alerts
   const alertTimerRef = useRef(null);
@@ -827,145 +823,9 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
   };
 
   const openOrderModal = ({ side, strike, type, ltp }) => {
-    const isBuy = side === 'buy';
-    const buf = (ltp != null ? (ltp < 25 ? 0.5 : ltp < 80 ? 1 : 2) : 1);
-    const defLimit = ltp != null ? (isBuy ? ltp + buf : ltp - buf) : '';
-    const defTrig  = ltp != null ? (isBuy ? ltp + buf : ltp - buf) : '';
-    const defSLim  = ltp != null ? (isBuy ? defTrig + buf : defTrig - buf) : '';
     setOrderModal({ side, strike, type, ltp });
-    setOrderErr(null); setOrderOk(null);
-    setMarginEst(null);
-    setOrderForm({
-      lots: '1',
-      entryOrderType: 'LIMIT',
-      limitPrice: defLimit !== '' ? String(Math.round(defLimit * 20) / 20) : '',
-      triggerPrice: defTrig !== '' ? String(Math.round(defTrig * 20) / 20) : '',
-      // for SL entry we reuse limitPrice as "SL limit", keep default filled
-      slLimitFallback: defSLim !== '' ? String(Math.round(defSLim * 20) / 20) : '',
-    });
-
-    // Fetch lot size for display + quantity derivation (lots × lotSize).
-    fetch(`/api/option-meta?action=lotsize&symbol=${encodeURIComponent(symbol)}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        const lot = d?.lotSize;
-        if (!lot) return;
-        setOrderLotSize(lot);
-      })
-      .catch(() => {});
   };
 
-  const estOrderAmount = (() => {
-    if (!orderModal) return null;
-    const lots = Math.max(1, parseInt(orderForm.lots || '1') || 1);
-    const qty  = orderLotSize ? lots * orderLotSize : null;
-    const px   = orderForm.limitPrice ? parseFloat(orderForm.limitPrice) : null;
-    if (!qty || !px || isNaN(px)) return null;
-    return { qty, px, total: qty * px };
-  })();
-
-  // Margin estimator (SELL only) — runs when modal inputs change.
-  useEffect(() => {
-    if (!orderModal) return;
-    if (orderModal.side !== 'sell') return;
-    if (!resolvedExpiry) return;
-    if (!orderLotSize) return;
-    const lots = Math.max(1, parseInt(orderForm.lots || '1') || 1);
-    const quantity = lots * orderLotSize;
-    const order_type = orderForm.entryOrderType;
-    const price = orderForm.limitPrice ? parseFloat(orderForm.limitPrice) : null;
-    const trigger_price = orderForm.entryOrderType === 'SL' && orderForm.triggerPrice ? parseFloat(orderForm.triggerPrice) : null;
-    if (!price || isNaN(price)) return;
-
-    let cancelled = false;
-    setMarginEst({ loading: true, error: null, data: null });
-
-    const run = async () => {
-      try {
-        // Resolve tradingsymbol via option-meta (same as chart/order modal).
-        const qs = new URLSearchParams({
-          action: 'tradingsymbol',
-          symbol: String(symbol).toUpperCase(),
-          expiry: resolvedExpiry.slice(0, 10),
-          strike: String(orderModal.strike),
-          type: String(orderModal.type).toUpperCase(),
-          bust: '0',
-        });
-        const tsRes = await fetch(`/api/option-meta?${qs.toString()}`, { cache: 'no-store' });
-        const tsData = await tsRes.json();
-        const tradingsymbol = tsData?.tradingSymbol;
-        if (!tradingsymbol) throw new Error(tsData?.error || 'Could not resolve tradingsymbol');
-
-        const res = await fetch('/api/options/margin-estimate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            exchange: 'NFO',
-            tradingsymbol,
-            transaction_type: 'SELL',
-            order_type,
-            product: 'MIS',
-            quantity,
-            price,
-            trigger_price,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.error || 'Margin estimate failed');
-        if (cancelled) return;
-        setMarginEst({ loading: false, error: null, data });
-      } catch (e) {
-        if (cancelled) return;
-        setMarginEst({ loading: false, error: e.message, data: null });
-      }
-    };
-
-    const t = setTimeout(run, 250);
-    return () => { cancelled = true; clearTimeout(t); };
-  }, [orderModal, orderForm.lots, orderForm.entryOrderType, orderForm.limitPrice, orderForm.triggerPrice, orderLotSize, resolvedExpiry, symbol]);
-
-  const placeQuickOrder = async () => {
-    if (!orderModal || !resolvedExpiry) return;
-    const isBuy = orderModal.side === 'buy';
-    const transaction_type = isBuy ? 'BUY' : 'SELL';
-    const entryOrderType = orderForm.entryOrderType;
-    const lots = parseInt(orderForm.lots || '0') || 1;
-    const qty = orderLotSize ? lots * orderLotSize : null;
-    const limitPrice = orderForm.limitPrice ? parseFloat(orderForm.limitPrice) : null;
-    const triggerPrice = orderForm.triggerPrice ? parseFloat(orderForm.triggerPrice) : null;
-
-    setOrderErr(null); setOrderOk(null);
-    setPlacing('modal');
-    try {
-      const res = await fetch('/api/options/quick-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          symbol,
-          expiry: resolvedExpiry.slice(0, 10),
-          strike: orderModal.strike,
-          type: orderModal.type,
-          exchange: 'NFO',
-          qty,
-          transaction_type,
-          entryOrderType,
-          entryLimitPrice: limitPrice,
-          entryTriggerPrice: entryOrderType === 'SL' ? triggerPrice : null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || data?.ok === false) {
-        setOrderErr(data?.error || 'Order failed');
-      } else {
-        setOrderOk(`✓ ${transaction_type} ${orderModal.strike} ${orderModal.type} (${entryOrderType})`);
-        setTimeout(() => { setOrderModal(null); }, 900);
-      }
-    } catch (e) {
-      setOrderErr(e.message);
-    } finally {
-      setPlacing(null);
-    }
-  };
 
   function CardHeader({ side, strike, hasOpp }) {
     const sideCls = side === 'buy'
@@ -1288,140 +1148,19 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
         </div>
       )}
 
-      {/* Quick order modal */}
-      {orderModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#07101d] shadow-2xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between">
-              <div>
-                <div className="text-sm font-bold text-white">
-                  {orderModal.side === 'buy' ? 'Buy' : 'Sell'} {symbol} {orderModal.strike} {orderModal.type}
-                </div>
-                <div className="text-[11px] text-slate-500 font-mono">Expiry {resolvedExpiry?.slice(0, 10) ?? '—'} · LTP {orderModal.ltp != null ? `₹${orderModal.ltp.toFixed(2)}` : '—'}</div>
-              </div>
-              <button onClick={() => setOrderModal(null)} className="text-slate-400 hover:text-white text-xl leading-none">×</button>
-            </div>
+      {/* Order modal — minimal intelligence tier */}
+      <OrderModal
+        mode="minimal"
+        isOpen={!!orderModal}
+        onClose={() => setOrderModal(null)}
+        symbol={symbol}
+        price={orderModal?.strike}
+        defaultType={orderModal?.side === 'buy' ? 'BUY' : 'SELL'}
+        optionType={orderModal?.type}
+        optionExpiry={resolvedExpiry?.slice(0, 10)}
+        onOrderPlaced={() => setOrderModal(null)}
+      />
 
-            <div className="p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500 w-20">Type</span>
-                <div className="flex bg-[#0c1a2e] rounded-lg p-0.5">
-                  {['LIMIT', 'SL'].map(t => (
-                    <button
-                      key={t}
-                      onClick={() => setOrderForm(f => ({ ...f, entryOrderType: t }))}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                        orderForm.entryOrderType === t ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500 w-20">Lots</span>
-                <input
-                  value={orderForm.lots}
-                  onChange={e => setOrderForm(f => ({ ...f, lots: e.target.value }))}
-                  placeholder="1"
-                  className="flex-1 bg-[#060b14] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                />
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setOrderForm(f => {
-                      const cur = Math.max(1, parseInt(f.lots || '1') || 1);
-                      return { ...f, lots: String(Math.max(1, cur - 1)) };
-                    })}
-                    className="px-2 py-1 rounded-md text-[11px] font-bold border bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 transition-colors"
-                    title="Decrease lots"
-                  >
-                    −
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setOrderForm(f => {
-                      const cur = Math.max(1, parseInt(f.lots || '1') || 1);
-                      return { ...f, lots: String(cur + 1) };
-                    })}
-                    className="px-2 py-1 rounded-md text-[11px] font-bold border bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 transition-colors"
-                    title="Increase lots"
-                  >
-                    +
-                  </button>
-                </div>
-                <span className="text-[11px] text-slate-500 font-mono">{orderLotSize ? `×${orderLotSize} = ${Math.max(1, parseInt(orderForm.lots || '1') || 1) * orderLotSize}` : ''}</span>
-              </div>
-
-              {orderForm.entryOrderType === 'SL' && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500 w-20">Trigger</span>
-                  <input
-                    value={orderForm.triggerPrice}
-                    onChange={e => setOrderForm(f => ({ ...f, triggerPrice: e.target.value }))}
-                    className="flex-1 bg-[#060b14] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              )}
-
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500 w-20">{orderForm.entryOrderType === 'SL' ? 'Limit' : 'Price'}</span>
-                <input
-                  value={orderForm.limitPrice}
-                  onChange={e => setOrderForm(f => ({ ...f, limitPrice: e.target.value }))}
-                  className="flex-1 bg-[#060b14] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              {estOrderAmount && (
-                <div className="text-[11px] text-slate-400 font-mono">
-                  Est. {orderModal.side === 'buy' ? 'debit' : 'credit'}: ₹{Math.round(estOrderAmount.total).toLocaleString('en-IN')} ({estOrderAmount.qty} × ₹{estOrderAmount.px.toFixed(2)})
-                </div>
-              )}
-
-              {orderModal.side === 'sell' && (
-                <div className="text-[11px] text-slate-400 font-mono">
-                  {marginEst?.loading
-                    ? 'Est. margin: …'
-                    : marginEst?.error
-                      ? `Est. margin: — (${marginEst.error})`
-                      : (() => {
-                          const row = Array.isArray(marginEst?.data?.margins?.data)
-                            ? marginEst.data.margins.data[0]
-                            : null;
-                          const total = row?.total ?? row?.total_margin ?? null;
-                          return total != null
-                            ? `Est. margin: ₹${Math.round(total).toLocaleString('en-IN')}`
-                            : 'Est. margin: —';
-                        })()
-                  }
-                </div>
-              )}
-
-              {orderErr && <div className="text-sm text-red-400">{orderErr}</div>}
-              {orderOk && <div className="text-sm text-emerald-400">{orderOk}</div>}
-            </div>
-
-            <div className="px-4 py-3 border-t border-white/[0.06] flex items-center justify-end gap-2">
-              <button
-                onClick={() => setOrderModal(null)}
-                className="px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={placeQuickOrder}
-                disabled={!!placing}
-                className="px-3 py-2 rounded-lg text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 transition-colors"
-              >
-                {placing ? 'Placing…' : 'Place order'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
