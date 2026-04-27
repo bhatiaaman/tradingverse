@@ -620,18 +620,23 @@ function ChartPageInner() {
     // ── CBC (Composite Bias Curve) — intraday only ────────────────────────
     const cbcIsIntraday = chartInterval !== 'day' && chartInterval !== 'week';
     if (settings.showCBC && cbcIsIntraday && candles.length >= 26) {
-      const cbc = computeCBC(candles, {
-        atrPeriod:    settings.cbcAtrPeriod  ?? 14,
-        bandMult:     settings.cbcBandMult   ?? 0.5,
-        adxThreshold: 20,
-        showDivDots:  settings.cbcDivDots    ?? true,
-      });
-      if (cbc) {
-        chart.setCBC(cbc, {
-          showDivDots:   settings.cbcDivDots   ?? true,
-          showAdxFilter: settings.cbcAdxFilter ?? true,
+      try {
+        const cbc = computeCBC(candles, {
+          atrPeriod:    settings.cbcAtrPeriod  ?? 14,
+          bandMult:     settings.cbcBandMult   ?? 0.5,
+          adxThreshold: 20,
+          showDivDots:  settings.cbcDivDots    ?? true,
         });
-      } else {
+        if (cbc) {
+          chart.setCBC(cbc, {
+            showDivDots:   settings.cbcDivDots   ?? true,
+            showAdxFilter: settings.cbcAdxFilter ?? true,
+          });
+        } else {
+          chart.clearCBC();
+        }
+      } catch (e) {
+        console.warn('[CBC] computation error:', e);
         chart.clearCBC();
       }
     } else {

@@ -497,8 +497,12 @@ export function computeCBC(candles, opts = {}) {
   const vwMap   = new Map(vwapRaw.map(p => [p.time, p.value]));
 
   // Kijun (26-period midpoint) — from Ichimoku output
+  // Filter to only real candle entries (ichimoku returns n+displacement-1 entries;
+  // the extra ones are future projections with time=null — exclude them)
   const ichRaw = computeIchimoku(candles);
-  const kijMap = new Map(ichRaw.map(p => [p.time, p.kijun]));
+  const kijMap = new Map(
+    ichRaw.filter(p => p.time != null).map(p => [p.time, p.kijun])
+  );
 
   // ATR
   const atr = computeATR(candles, atrPeriod);
