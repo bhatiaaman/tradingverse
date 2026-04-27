@@ -446,3 +446,187 @@ export function computeIchimoku(candles, tenkanPeriod = 9, kijunPeriod = 26, sen
 
   return out;
 }
+
+// ── ATR (Average True Range, Wilder smoothing) ────────────────────────────────
+export function computeATR(candles, period = 14) {
+  const n   = candles.length;
+  const out = new Array(n).fill(null);
+  if (n < period + 1) return out;
+
+  let sumTR = 0;
+  for (let i = 1; i <= period; i++) {
+    const c = candles[i], p = candles[i - 1];
+    sumTR += Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+  }
+  let atr = sumTR / period;
+  out[period] = parseFloat(atr.toFixed(4));
+
+  for (let i = period + 1; i < n; i++) {
+    const c = candles[i], p = candles[i - 1];
+    const tr = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+    atr = (atr * (period - 1) + tr) / period; // Wilder smoothing
+    out[i] = parseFloat(atr.toFixed(4));
+  }
+  return out;
+}
+
+// ── CBC (Composite Bias Curve) ────────────────────────────────────────────────
+// Returns arrays aligned to candles[]:
+//   base[], upper[], lower[]  — the three curve lines
+//   regime[]  — 'bull' | 'bear' | 'chop' per bar
+//   adxStrong[]  — boolean per bar: ADX >= adxThreshold (trend confirmed)
+//   divDots[]  — null | { type: 'bull'|'bear', price } RSI divergence markers
+//
+// opts: { atrPeriod=14, bandMult=0.5, adxThreshold=20, showDivDots=true }
+export function computeCBC(candles, opts = {}) {
+  const { atrPeriod = 14, bandMult = 0.5, adxThreshold = 20, showDivDots = true } = opts;
+  const n = candles.length;
+  const minBars = Math.max(26, atrPeriod + 1, 21); // need Kijun (26), ATR, EMA21
+  if (n < minBars) return null;
+
+  // ── Input series ──────────────────────────────────────────────────────────
+
+  // EMA9 and EMA21 — output { time, value }[]
+  const ema9raw  = computeEMA(candles, 9);
+  const ema21raw = computeEMA(candles, 21);
+  const e9map  = new Map(ema9raw.map(p  => [p.time, p.value]));
+  const e21map = new Map(ema21raw.map(p => [p.time, p.value]));
+
+  // VWAP — output { time, value }[] (resets each day automatically)
+  const vwapRaw = computeVWAP(candles);
+  const vwMap   = new Map(vwapRaw.map(p => [p.time, p.value]));
+
+  // Kijun (26-period midpoint) — from Ichimoku output
+  const ichRaw = computeIchimoku(candles);
+  const kijMap = new Map(ichRaw.map(p => [p.time, p.kijun]));
+
+  // ATR
+  const atr = computeATR(candles, atrPeriod);
+
+  // ADX (reuse computeADX if available, else simplified via RSI proxy)
+  // Simple DX-based ADX (Wilder):
+  const adxOut = _computeADX(candles, 14);
+
+  // RSI for divergence detection
+  const rsiOut = computeRSI(candles, 14);
+
+  // ── Per-bar CBC ───────────────────────────────────────────────────────────
+  const base     = new Array(n).fill(null);
+  const upper    = new Array(n).fill(null);
+  const lower    = new Array(n).fill(null);
+  const regime   = new Array(n).fill('chop');
+  const adxStrong = new Array(n).fill(false);
+  const divDots  = new Array(n).fill(null);
+
+  for (let i = 0; i < n; i++) {
+    const t   = candles[i].time;
+    const e9  = e9map.get(t)  ?? null;
+    const e21 = e21map.get(t) ?? null;
+    const vw  = vwMap.get(t)  ?? null;
+    const kij = kijMap.get(t) ?? null;
+    const a   = atr[i];
+    const adx = adxOut[i];
+    const cl  = candles[i].close;
+
+    if (e9 == null || e21 == null || vw == null || a == null) continue;
+
+    // Composite base (Kijun falls back to EMA21 for early bars)
+    const k = kij ?? e21;
+    const b = 0.4 * vw + 0.3 * e21 + 0.2 * k + 0.1 * e9;
+    const band = bandMult * a;
+
+    base[i]  = parseFloat(b.toFixed(2));
+    upper[i] = parseFloat((b + band).toFixed(2));
+    lower[i] = parseFloat((b - band).toFixed(2));
+
+    // Regime
+    if (cl > upper[i] && e9 > e21) regime[i] = 'bull';
+    else if (cl < lower[i] && e9 < e21) regime[i] = 'bear';
+    else regime[i] = 'chop';
+
+    // ADX strength gate
+    adxStrong[i] = adx != null && adx >= adxThreshold;
+  }
+
+  // ── RSI Divergence dots ───────────────────────────────────────────────────
+  if (showDivDots && n >= 20) {
+    const LOOKBACK = 20; // bars to look back for pivot
+    for (let i = LOOKBACK; i < n; i++) {
+      if (base[i] == null) continue;
+      const rsi = rsiOut[i];
+      if (rsi == null) continue;
+
+      // Find prior swing pivot in lookback window
+      let priorHighIdx = -1, priorLowIdx = -1;
+      for (let j = i - 1; j >= i - LOOKBACK; j--) {
+        if (candles[j].close > candles[j - 1]?.close && candles[j].close > candles[j + 1]?.close) {
+          if (priorHighIdx < 0) priorHighIdx = j;
+        }
+        if (candles[j].close < candles[j - 1]?.close && candles[j].close < candles[j + 1]?.close) {
+          if (priorLowIdx < 0) priorLowIdx = j;
+        }
+      }
+
+      // Bearish divergence: price higher high, RSI lower high
+      if (priorHighIdx >= 0) {
+        const rsiPrior = rsiOut[priorHighIdx];
+        if (rsiPrior != null &&
+            candles[i].high > candles[priorHighIdx].high &&
+            rsi < rsiPrior &&
+            regime[i] === 'bull') {
+          divDots[i] = { type: 'bear', price: upper[i] };
+        }
+      }
+
+      // Bullish divergence: price lower low, RSI higher low
+      if (priorLowIdx >= 0) {
+        const rsiPrior = rsiOut[priorLowIdx];
+        if (rsiPrior != null &&
+            candles[i].low < candles[priorLowIdx].low &&
+            rsi > rsiPrior &&
+            regime[i] === 'bear') {
+          divDots[i] = { type: 'bull', price: lower[i] };
+        }
+      }
+    }
+  }
+
+  return { base, upper, lower, regime, adxStrong, divDots, times: candles.map(c => c.time) };
+}
+
+// ── Internal ADX helper (not exported) ────────────────────────────────────────
+function _computeADX(candles, period = 14) {
+  const n   = candles.length;
+  const out = new Array(n).fill(null);
+  if (n < period * 2) return out;
+
+  let plusDM = 0, minusDM = 0, trSum = 0;
+  for (let i = 1; i <= period; i++) {
+    const c = candles[i], p = candles[i - 1];
+    const upMove   = c.high - p.high;
+    const downMove = p.low  - c.low;
+    plusDM  += upMove   > downMove && upMove   > 0 ? upMove   : 0;
+    minusDM += downMove > upMove   && downMove > 0 ? downMove : 0;
+    trSum   += Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+  }
+  let aPlusDM = plusDM, aMinusDM = minusDM, aTR = trSum;
+  let dx = aTR > 0 ? Math.abs((aPlusDM - aMinusDM) / (aPlusDM + aMinusDM)) * 100 : 0;
+  let adx = dx;
+  out[period] = parseFloat(adx.toFixed(1));
+
+  for (let i = period + 1; i < n; i++) {
+    const c = candles[i], p = candles[i - 1];
+    const upMove   = c.high - p.high;
+    const downMove = p.low  - c.low;
+    const pDM  = upMove   > downMove && upMove   > 0 ? upMove   : 0;
+    const mDM  = downMove > upMove   && downMove > 0 ? downMove : 0;
+    const tr   = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+    aPlusDM  = aPlusDM  - aPlusDM  / period + pDM;
+    aMinusDM = aMinusDM - aMinusDM / period + mDM;
+    aTR      = aTR      - aTR      / period + tr;
+    dx = aTR > 0 ? Math.abs((aPlusDM - aMinusDM) / (aPlusDM + aMinusDM)) * 100 : 0;
+    adx = (adx * (period - 1) + dx) / period;
+    out[i] = parseFloat(adx.toFixed(1));
+  }
+  return out;
+}

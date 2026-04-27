@@ -26,6 +26,7 @@ import { renderSLClusters } from './renderers/slClusters.js';
 import { renderCPR }        from './renderers/cpr.js';
 import { renderBB }         from './renderers/bb.js';
 import { renderIchimoku }   from './renderers/ichimoku.js';
+import { renderCBC }        from './renderers/cbc.js';
 import { renderRSIPane }    from './renderers/rsi-pane.js';
 import { renderDrawings }   from './renderers/drawings.js';
 import { DARK as DARK_PALETTE, LIGHT as LIGHT_PALETTE } from './palette.js';
@@ -69,6 +70,7 @@ export function createChart(container, options = {}) {
   let   cprData     = null;               // { tc, p, bc, r1, r2, s1, s2 }
   let   bbData      = null;               // { basis: number[], upper: number[], lower: number[] }
   let   ichimokuData = null;              // { data: [], config: {} }
+  let   cbcData     = null;               // computeCBC() output
   let   markers     = [];                 // [{ index, direction: 'bull'|'bear' }]
   let   rsiPaneData = null;              // { rsi: number[], rsiMA: number[]|null, label: string }
   let   showVolume    = options.showVolume ?? true;
@@ -119,6 +121,7 @@ export function createChart(container, options = {}) {
     if (slClustersData) renderSLClusters(ctx, vp, slClustersData, crosshair, candles);
     if (cprData)   renderCPR(ctx, vp, cprData, crosshair);
     if (bbData)    renderBB(ctx, vp, bbData);
+    if (cbcData)   renderCBC(ctx, vp, cbcData, { showDivDots: cbcData._showDivDots, showAdxFilter: cbcData._showAdxFilter });
     if (ichimokuData) renderIchimoku(ctx, vp, ichimokuData.data, ichimokuData.config, palette);
     renderZones(ctx, vp, zones, crosshair);
     for (const [, line] of lineMap) {
@@ -419,6 +422,22 @@ export function createChart(container, options = {}) {
 
     clearBB() {
       bbData = null;
+      markDirty();
+    },
+
+    setCBC(data, opts = {}) {
+      if (data) {
+        cbcData = data;
+        cbcData._showDivDots   = opts.showDivDots   ?? true;
+        cbcData._showAdxFilter = opts.showAdxFilter ?? true;
+      } else {
+        cbcData = null;
+      }
+      markDirty();
+    },
+
+    clearCBC() {
+      cbcData = null;
       markDirty();
     },
 
