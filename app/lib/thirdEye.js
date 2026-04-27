@@ -143,15 +143,27 @@ function computeFeatures(candles, config) {
   const c  = candles[n - 1];
   const phase = sessionPhase(c.time);
 
+  // ── Session start (needed for VWAP reset before indicator arrays) ────────────
+  const dayStartSec0 = (() => {
+    const istMs = (c.time + 5.5 * 3600) * 1000;
+    const ist   = new Date(istMs);
+    return new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 3, 45)).getTime() / 1000;
+  })();
+  const firstTodayIdx0 = candles.findIndex(x => x.time >= dayStartSec0);
+
   // Indicators (full arrays, we use last values)
-  const vwapArr  = computeVWAP(candles);
+  // VWAP uses today-only candles so the session VWAP matches what the chart shows.
+  // When prior-day candles are prepended for indicator warm-up, multi-day cumulative
+  // VWAP diverges significantly from the intraday session VWAP.
+  const vwapCandles = firstTodayIdx0 >= 0 ? candles.slice(firstTodayIdx0) : candles;
+  const vwapArr  = computeVWAP(vwapCandles);
   const rsiArr   = computeRSI(candles, 14);
   const adxData  = computeADX(candles, 14);
   const atrArr   = computeATR(candles, 14);
   const ema9Arr  = computeEMA(candles, 9);
   const ema21Arr = computeEMA(candles, 21);
 
-  const vwap = vwapArr[n - 1]?.value ?? null;
+  const vwap = vwapArr[vwapArr.length - 1]?.value ?? null;
   const rsi  = rsiArr[n - 1];
   const adx  = adxData.adx[n - 1];
   const pdi  = adxData.plusDI[n - 1];
@@ -197,13 +209,7 @@ function computeFeatures(candles, config) {
   const pullbackFromLow  = moveRange > 0 ? (c.close - swingLow)  / moveRange : 0;
 
   // ── ATR expansion zone ────────────────────────────────────────────────────
-  // Day open = first candle's open for today's IST session (≥ 09:15)
-  const dayStartSec = (() => {
-    const istMs = (c.time + 5.5 * 3600) * 1000;
-    const ist   = new Date(istMs);
-    return new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 3, 45)).getTime() / 1000; // 09:15 IST = 03:45 UTC
-  })();
-  const firstTodayIdx = candles.findIndex(x => x.time >= dayStartSec);
+  const firstTodayIdx = firstTodayIdx0;
   const dayOpen = firstTodayIdx >= 0 ? candles[firstTodayIdx].open : null;
 
   const atrExpansionHigh = (dayOpen && atr) ? parseFloat((dayOpen + atr).toFixed(1)) : null;

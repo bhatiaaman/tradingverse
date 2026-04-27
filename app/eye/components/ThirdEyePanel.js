@@ -684,7 +684,26 @@ export default function ThirdEyePanel() {
           )}
         </div>
 
-        {/* Row 4: DOM alert chip — invalidation / wall note */}
+        {/* Row 4: Commentary — watch + risk */}
+        {commentary && (commentary.watch || commentary.risk) && (
+          <div className="space-y-1 pt-0.5">
+            <p className="text-[11px] font-semibold text-white/85 leading-snug">
+              {commentary.headline}
+            </p>
+            {commentary.watch && (
+              <p className="text-[10px] text-slate-400 leading-snug">
+                <span className="text-sky-400 mr-0.5">→</span>{commentary.watch}
+              </p>
+            )}
+            {commentary.risk && (
+              <p className="text-[10px] text-slate-500 leading-snug">
+                <span className="text-rose-400/70 mr-0.5">✕</span>{commentary.risk}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Row 5: DOM alert chip — invalidation / wall note */}
         {(domData?.invalidation || domData?.wallNote) && (
           <div className="flex items-start gap-1.5 bg-amber-950/25 border border-amber-800/30 rounded-lg px-2.5 py-1.5">
             <span className="text-amber-400 text-[10px] shrink-0 mt-px">⚠</span>
