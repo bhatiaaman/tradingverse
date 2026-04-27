@@ -3600,7 +3600,20 @@ export default function TerminalPage() {
       const r = await fetch('/api/kite-positions');
       const d = await r.json();
       if (d.kiteError) { setKiteError(d.kiteError); if (!silent) setPositions([]); }
-      else { setKiteError(null); setPositions(d.success ? (d.positions || []) : []); }
+      else {
+        setKiteError(null);
+        const pos = d.success ? (d.positions || []) : [];
+        setPositions(pos);
+        // Subscribe position tokens to bridge so dom:ltp-map covers all open positions
+        const tokens = pos.map(p => p.instrument_token).filter(Boolean);
+        if (tokens.length > 0) {
+          fetch('/api/dom/subscribe-positions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tokens }),
+          }).catch(() => {});
+        }
+      }
     } catch { if (!silent) setPositions([]); }
     finally { if (!silent) setPositionsLoading(false); }
   }, []);
