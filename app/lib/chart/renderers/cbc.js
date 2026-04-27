@@ -18,18 +18,7 @@ const COLORS = {
   divBear:    'rgba(239,68,68,1.0)',      // red dot   — bearish divergence
 };
 
-// Convert unix timestamp → canvas X using the viewport object
-function timeToX(vp, time) {
-  const { x0, x1, tMin, tMax } = vp;
-  if (tMax === tMin) return x0;
-  return x0 + ((time - tMin) / (tMax - tMin)) * (x1 - x0);
-}
-
-function priceToY(vp, price) {
-  const { y0, y1, pMin, pMax } = vp;
-  if (pMax === pMin) return y0;
-  return y1 - ((price - pMin) / (pMax - pMin)) * (y1 - y0);
-}
+// We use the passed index `i` and price `v` with the Chart.js viewport methods.
 
 // Build a canvas path along one of the band arrays
 function buildPath(ctx, vp, times, values) {
@@ -38,8 +27,8 @@ function buildPath(ctx, vp, times, values) {
   for (let i = 0; i < times.length; i++) {
     const v = values[i];
     if (v == null) { started = false; continue; }
-    const x = timeToX(vp, times[i]);
-    const y = priceToY(vp, v);
+    const x = vp.barCenterX(i);
+    const y = vp.priceToY(v);
     if (!started) { ctx.moveTo(x, y); started = true; }
     else            ctx.lineTo(x, y);
   }
@@ -58,11 +47,11 @@ function fillZone(ctx, vp, times, topVals, bottomVals, color) {
   if (pts.length < 2) { ctx.restore(); return; }
 
   ctx.beginPath();
-  ctx.moveTo(timeToX(vp, times[pts[0]]), priceToY(vp, topVals[pts[0]]));
-  for (const i of pts) ctx.lineTo(timeToX(vp, times[i]), priceToY(vp, topVals[i]));
+  ctx.moveTo(vp.barCenterX(pts[0]), vp.priceToY(topVals[pts[0]]));
+  for (const i of pts) ctx.lineTo(vp.barCenterX(i), vp.priceToY(topVals[i]));
   for (let k = pts.length - 1; k >= 0; k--) {
     const i = pts[k];
-    ctx.lineTo(timeToX(vp, times[i]), priceToY(vp, bottomVals[i]));
+    ctx.lineTo(vp.barCenterX(i), vp.priceToY(bottomVals[i]));
   }
   ctx.closePath();
   ctx.fill();
@@ -74,10 +63,12 @@ export function renderCBC(ctx, vp, cbcData, opts = {}) {
   const { base, upper, lower, adxStrong, divDots, times } = cbcData;
   const { showDivDots = true, showAdxFilter = true } = opts;
 
-  const { x0, x1, y0, y1 } = vp;
+  // Use visible range to limit drawing
+  const from = Math.max(0, Math.floor(vp.logFrom) - 1);
+  const to   = Math.min(times.length - 1, Math.ceil(vp.logTo) + 1);
 
   ctx.save();
-  ctx.rect(x0, y0, x1 - x0, y1 - y0);
+  ctx.rect(vp.chartLeft, vp.chartTop, vp.chartW, vp.chartH);
   ctx.clip();
 
   // ── Layer 1: Zone fills ─────────────────────────────────────────────────
@@ -128,8 +119,8 @@ export function renderCBC(ctx, vp, cbcData, opts = {}) {
     ctx.fillStyle = COLORS.adxDiamond;
     for (let i = 0; i < times.length; i++) {
       if (!adxStrong[i] || base[i] == null) continue;
-      const x = timeToX(vp, times[i]);
-      const y = priceToY(vp, base[i]);
+      const x = vp.barCenterX(i);
+      const y = vp.priceToY(base[i]);
       const r = 3;
       ctx.beginPath();
       ctx.moveTo(x,     y - r); // top
@@ -147,8 +138,8 @@ export function renderCBC(ctx, vp, cbcData, opts = {}) {
     for (let i = 0; i < times.length; i++) {
       const dot = divDots[i];
       if (!dot) continue;
-      const x = timeToX(vp, times[i]);
-      const y = priceToY(vp, dot.price);
+      const x = vp.barCenterX(i);
+      const y = vp.priceToY(dot.price);
       const isBull = dot.type === 'bull';
 
       ctx.save();
