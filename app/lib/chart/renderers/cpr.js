@@ -97,7 +97,10 @@ export function renderCPR(ctx, vp, cprData, crosshair) {
   for (const seg of cprData) {
     const { startIdx, endIdx, tc, p, bc, r1, r2, s1, s2, widthClass = 'normal' } = seg;
     const x1 = vp.indexToX(startIdx);
-    const x2 = vp.indexToX(endIdx + 1); // right edge of last bar in segment
+    // For the last (current) segment, extend lines to the full visible right edge
+    // so CPR appears fully formed from the first candle, not growing bar by bar.
+    const isLastSeg = seg === cprData[cprData.length - 1];
+    const x2 = isLastSeg ? vp.chartRight : vp.indexToX(endIdx + 1);
 
     // Skip entirely off-screen segments
     if (x2 < vp.chartLeft || x1 > vp.chartRight) continue;

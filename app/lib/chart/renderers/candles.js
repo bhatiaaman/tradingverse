@@ -14,6 +14,27 @@ function borderFor(hex) {
   return hex;                                    // everything else: same colour
 }
 
+// Returns the wick color — always visible on both light and dark backgrounds.
+// Logic: if the candle is light-colored (luminance > 0.72), the wick would be
+// invisible on a light background if we used the body color, so we use a dark
+// wick. But on DARK backgrounds, a dark wick on a light candle is also invisible.
+// Solution: always use the candle's OWN color for the wick — the candle color
+// is always chosen to be visible (user picks it), so the wick matches and is
+// visible. For very light candles, we darken slightly for better definition.
+function wickFor(hex) {
+  if (!hex || hex[0] !== '#') return hex;
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8)  & 255;
+  const b =  n        & 255;
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  // For very light colors (white, near-white): darken the wick so it's visible on light bg,
+  // but keep enough brightness to be visible on dark bg → use a medium-dark grey
+  if (lum > 0.85) return 'rgba(160,160,160,1)';
+  // For everything else: use the candle color directly — it's visible on any bg
+  return hex;
+}
+
 export function renderCandles(ctx, vp, candles, colors = {}) {
   if (!candles?.length) return;
 
@@ -21,6 +42,8 @@ export function renderCandles(ctx, vp, candles, colors = {}) {
   const DOWN_COLOR  = colors.bear || '#ef4444';
   const UP_BORDER   = borderFor(UP_COLOR);
   const DOWN_BORDER = borderFor(DOWN_COLOR);
+  const UP_WICK     = wickFor(UP_COLOR);
+  const DOWN_WICK   = wickFor(DOWN_COLOR);
 
   const from = Math.max(0, Math.floor(vp.logFrom));
   const to   = Math.min(candles.length - 1, Math.ceil(vp.logTo));
@@ -41,6 +64,7 @@ export function renderCandles(ctx, vp, candles, colors = {}) {
     const isUp   = c.close >= c.open;
     const color  = isUp ? UP_COLOR  : DOWN_COLOR;
     const border = isUp ? UP_BORDER : DOWN_BORDER;
+    const wick   = isUp ? UP_WICK   : DOWN_WICK;
 
     const highY  = vp.priceToY(c.high);
     const lowY   = vp.priceToY(c.low);
@@ -51,8 +75,8 @@ export function renderCandles(ctx, vp, candles, colors = {}) {
     const bodyBottom = Math.max(openY, closeY);
     const bodyH      = Math.max(MIN_BODY, bodyBottom - bodyTop);
 
-    // Wick — always use the contrasting border color
-    ctx.strokeStyle = border;
+    // Wick — use candle-matched wick color (always visible on both themes)
+    ctx.strokeStyle = wick;
     ctx.lineWidth   = 1;
     ctx.beginPath();
     ctx.moveTo(cx, highY);
