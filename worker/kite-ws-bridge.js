@@ -35,6 +35,7 @@
 'use strict';
 
 require('dotenv').config();
+const http           = require('http');
 const { KiteTicker } = require('kiteconnect');
 const WebSocket      = require('ws');
 
@@ -89,6 +90,7 @@ const prevSnaps      = {};   // token → snapshot from previous tick (stacking 
 const prevTicks      = {};   // token → { last_price, volume_traded }
 const deltaMinutes   = {};   // token → { minuteKey: netDelta } — minute-bucketed delta
 const icebergTrack   = {};   // token → { price, bounces } — iceberg detection state
+const futTokens      = {};   // 'NIFTY' | 'BANKNIFTY' | 'SENSEX' → instrument_token
 let   subscribedSet  = new Set();
 
 // ── Depth processing ──────────────────────────────────────────────────────────
@@ -297,6 +299,7 @@ async function resolveFutToken(apiKey, accessToken, name, exchange) {
     }
     if (best) {
       await redisSet(KEY.futToken(name), best.token, 6 * 3600);
+      futTokens[name] = best.token;
       console.log(`[bridge] ${name} Fut token: ${best.token} (expiry ${best.expiry})`);
       return best.token;
     }
@@ -412,6 +415,32 @@ function dynamicSubscribe(newTokens) {
   console.log('[bridge] Dynamic subscribe:', fresh);
 }
 
+// ── HTTP server for Next.js → read snapshots without Redis ───────────────────
+// GET http://localhost:3001/dom?underlying=NIFTY
+// Next.js /api/dom/pressure reads from here instead of Redis.
+// Eliminates ~5M Redis writes/month from flushSnapshots.
+function startHttpServer() {
+  const port = parseInt(process.env.BRIDGE_HTTP_PORT || '3001', 10);
+  http.createServer((req, res) => {
+    const url = new URL(req.url, `http://localhost:${port}`);
+    if (url.pathname !== '/dom') { res.writeHead(404); res.end('Not found'); return; }
+
+    const underlying = url.searchParams.get('underlying') || 'NIFTY';
+    const token      = futTokens[underlying];
+    const snap       = token ? snapshots[token] : null;
+    const ageSeconds = snap?.updatedAt ? Math.floor(Date.now() / 1000) - snap.updatedAt : 999;
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    if (!token || !snap || ageSeconds > 30) {
+      res.end(JSON.stringify({ available: false }));
+    } else {
+      res.end(JSON.stringify({ available: true, snap }));
+    }
+  }).listen(port, '127.0.0.1', () => {
+    console.log(`[bridge] HTTP server listening on localhost:${port}`);
+  });
+}
+
 // ── WebSocket server for /dom page ────────────────────────────────────────────
 let wsServer = null;
 
@@ -481,11 +510,9 @@ async function main() {
   console.log('[bridge] TradingVerse DOM WebSocket Bridge starting');
   console.log('[bridge] Redis:', REDIS_URL?.slice(0, 40) + '...');
 
+  startHttpServer();
   startWsServer();
   await connect();
-
-  // Flush snapshots to Redis every 5s
-  setInterval(flushSnapshots, 5_000);
 
   // Poll intraday watchlist every 5 min between 8:00–10:00 IST — picks up late additions
   setInterval(async () => {

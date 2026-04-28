@@ -4,7 +4,7 @@ import { requireSession, unauthorized }      from '@/app/lib/session';
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS          = process.env.REDIS_NAMESPACE || 'default';
-const STALE_SEC   = 30;
+const BRIDGE_URL  = process.env.BRIDGE_URL || 'http://localhost:3001';
 
 async function redisGet(key) {
   try {
@@ -147,16 +147,15 @@ export async function GET(req) {
     return NextResponse.json({ available: false });
   }
 
-  const futToken = await redisGet(`${NS}:fut-token-${underlying}`);
-  if (!futToken)  return NextResponse.json({ available: false });
+  // Read snapshot directly from kite-ws-bridge in-memory HTTP server (localhost:3001).
+  // Eliminates Redis reads + the 5s Redis snapshot flush — both sides of the Redis cost.
+  const bridgeData = await fetch(`${BRIDGE_URL}/dom?underlying=${underlying}`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(2000),
+  }).then(r => r.json()).catch(() => null);
 
-  const snap = await redisGet(`${NS}:dom:snapshot:${futToken}`);
-  if (!snap)      return NextResponse.json({ available: false });
-
-  const ageSeconds = snap.updatedAt
-    ? Math.floor(Date.now() / 1000) - snap.updatedAt
-    : 999;
-  if (ageSeconds > STALE_SEC) return NextResponse.json({ available: false });
+  if (!bridgeData?.available) return NextResponse.json({ available: false });
+  const snap = bridgeData.snap;
 
   // Append delta5m sample to rolling history (used by DOM Ladder sparkline).
   // Fire-and-forget — don't await so the response isn't delayed.
