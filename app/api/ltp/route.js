@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/app/lib/providers';
 
+export const dynamic = 'force-dynamic';
+
 const REDIS_URL    = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN  = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS           = process.env.REDIS_NAMESPACE || 'default';

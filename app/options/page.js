@@ -1831,7 +1831,7 @@ export default function OptionsPage() {
     let active = true;
     const fetchSpot = async () => {
       try {
-        const res  = await fetch(`/api/ltp?symbol=${symbol}`);
+        const res  = await fetch(`/api/ltp?symbol=${symbol}`, { cache: 'no-store' });
         const data = await res.json();
         if (active && data.success && data.ltp) {
           setLiveSpot(data.ltp);
