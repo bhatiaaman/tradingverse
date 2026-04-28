@@ -540,7 +540,7 @@ function getNiftyLevelAlerts(indices) {
             transaction_type: 'BUY',
             order_type:       'MARKET',
             product:          'MIS',
-            quantity:         75,
+            quantity:         65,
           }),
         });
         const result = await r.json();

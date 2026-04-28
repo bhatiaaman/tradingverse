@@ -1812,7 +1812,7 @@ export default function OptionsPage() {
           transaction_type: 'BUY',
           order_type:       'MARKET',
           product:          'MIS',
-          quantity:         75,
+          quantity:         65,
         }),
       });
       const result = await r.json();
@@ -2074,8 +2074,8 @@ export default function OptionsPage() {
                 <div className="flex flex-wrap items-center gap-4">
                   <span className="text-emerald-300 font-bold text-sm">⚡ Confirm Buy</span>
                   <div className="text-[11px] font-mono flex items-center gap-3 flex-wrap">
-                    <span className="text-white">NIFTY {trade?.strike} CE · MARKET · MIS · 75 qty</span>
-                    <span className="text-emerald-400">~₹{trade ? (trade.entryLtp * 75).toLocaleString('en-IN') : '—'}</span>
+                    <span className="text-white">NIFTY {trade?.strike} CE · MARKET · MIS · 65 qty</span>
+                    <span className="text-emerald-400">~₹{trade ? (trade.entryLtp * 65).toLocaleString('en-IN') : '—'}</span>
                     <span className="text-red-400">SL ₹{trade?.sl.cePremium}</span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -2299,7 +2299,7 @@ export default function OptionsPage() {
                 {chainData?.strikes && (() => {
                   const atmRow = chainData.strikes.find(s => s.strike === chainData.atm);
                   if (!atmRow?.ce?.symbol || !atmRow?.pe?.symbol) return null;
-                  const lotSz  = symbol === 'BANKNIFTY' ? 35 : symbol === 'SENSEX' ? 10 : 75;
+                  const lotSz  = symbol === 'BANKNIFTY' ? 35 : symbol === 'SENSEX' ? 10 : 65;
                   const openModal = (side) => {
                     setStraddleOrderModal({ side, atmRow, lotSz });
                     setStraddleOrderLots(1);

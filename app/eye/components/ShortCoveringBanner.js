@@ -93,8 +93,8 @@ export default function ShortCoveringBanner({
           <div className="flex flex-wrap items-center gap-4">
             <span className="text-emerald-300 font-bold text-sm">⚡ Confirm Buy</span>
             <div className="text-[11px] font-mono flex items-center gap-3 flex-wrap">
-              <span className="text-white">NIFTY {trade?.strike} CE · MARKET · MIS · 75 qty</span>
-              <span className="text-emerald-400">~₹{trade ? (trade.entryLtp * 75).toLocaleString('en-IN') : '—'}</span>
+              <span className="text-white">NIFTY {trade?.strike} CE · MARKET · MIS · 65 qty</span>
+              <span className="text-emerald-400">~₹{trade ? (trade.entryLtp * 65).toLocaleString('en-IN') : '—'}</span>
               <span className="text-red-400">SL ₹{trade?.sl.cePremium}</span>
             </div>
             <div className="flex items-center gap-2">
