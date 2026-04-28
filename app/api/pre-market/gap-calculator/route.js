@@ -76,9 +76,12 @@ export async function GET(request) {
     
     // For NIFTY, accurately derive Predicted Open based on true SGX percentage gap applied against NIFTY spot
     let predictedOpenPrice = giftNiftyPrice;
-    let gapPoints = gapPercent ? (previousClose * (gapPercent / 100)) : 0;
+    let gapPoints = 0;
     
     if (symbol === 'NIFTY') {
+       if (isNaN(gapPercent)) {
+          gapPercent = ((giftNiftyPrice - previousClose) / previousClose) * 100;
+       }
        predictedOpenPrice = previousClose * (1 + (gapPercent / 100));
        gapPoints = predictedOpenPrice - previousClose;
     } else {
