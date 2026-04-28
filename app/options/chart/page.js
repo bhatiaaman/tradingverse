@@ -633,7 +633,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
         price={quickOrderPrice}
         lotSize={quickLotSize}
         defaultType="BUY"
-        onOrderPlaced={() => setQuickOrderOpen(false)}
+        onOrderPlaced={() => { /* modal closes itself after showing confirmation */ }}
       />
 
       <OrderModal
@@ -645,7 +645,7 @@ const OptionChartPanel = forwardRef(function OptionChartPanel(
         optionType={type}
         optionExpiry={expiry}
         optionExpiryType={expiryType}
-        onOrderPlaced={() => setOrderModalOpen(false)}
+        onOrderPlaced={() => { /* modal closes itself after showing confirmation */ }}
       />
     </div>
   );

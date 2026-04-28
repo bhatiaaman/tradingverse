@@ -1159,7 +1159,7 @@ function TradeDeskPanel({ buys, sells, regime, stats, symbol, spot, atm, strikes
         defaultType={orderModal?.side === 'buy' ? 'BUY' : 'SELL'}
         optionType={orderModal?.type}
         optionExpiry={resolvedExpiry?.slice(0, 10)}
-        onOrderPlaced={() => setOrderModal(null)}
+        onOrderPlaced={() => { /* modal closes itself after showing confirmation */ }}
       />
 
     </div>
