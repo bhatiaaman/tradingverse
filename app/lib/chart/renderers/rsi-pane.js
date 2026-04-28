@@ -4,7 +4,7 @@
 
 import { DARK } from '../palette.js';
 
-export function renderRSIPane(ctx, vp, rsiValues, rsiMAValues, snapIndex, label, palette) {
+export function renderRSIPane(ctx, vp, rsiValues, rsiMAValues, snapIndex, label, palette, divDots = null) {
   if (vp.rsiPaneH <= 0 || !rsiValues?.length) return;
   const P = palette ?? DARK;
 
@@ -121,6 +121,72 @@ export function renderRSIPane(ctx, vp, rsiValues, rsiMAValues, snapIndex, label,
   }
 
   ctx.restore();
+
+  // ── RSI Divergence markers ────────────────────────────────────────────────────
+  // Drawn after the restore so they're clipped to pane but appear above RSI line
+  if (divDots) {
+    const fromIdx = Math.max(0, Math.floor(vp.logFrom));
+    const toIdx   = Math.min(rsiValues.length - 1, Math.ceil(vp.logTo));
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(left, paneTop, paneW, paneH);
+    ctx.clip();
+
+    for (let i = fromIdx; i <= toIdx; i++) {
+      const dot = divDots[i];
+      if (!dot) continue;
+      const isBull  = dot.type === 'bull';
+      const color   = isBull ? 'rgba(34,197,94,1)' : 'rgba(239,68,68,1)';
+      const colorFg = isBull ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)';
+      const xCur    = vp.barCenterX(i);
+      const yCur    = yF(dot.rsiValue);
+
+      // Line connecting prior pivot RSI to current RSI
+      if (dot.priorIdx >= fromIdx) {
+        const xPrior = vp.barCenterX(dot.priorIdx);
+        const yPrior = yF(dot.priorRsi);
+        ctx.beginPath();
+        ctx.moveTo(xPrior, yPrior);
+        ctx.lineTo(xCur,   yCur);
+        ctx.strokeStyle = color;
+        ctx.lineWidth   = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Small circle at prior pivot
+        ctx.beginPath();
+        ctx.arc(xPrior, yPrior, 3, 0, Math.PI * 2);
+        ctx.fillStyle = colorFg;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(xPrior, yPrior, 3, 0, Math.PI * 2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // Filled circle at current divergence pivot
+      ctx.beginPath();
+      ctx.arc(xCur, yCur, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = colorFg;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(xCur, yCur, 4.5, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Arrow label below (bull) or above (bear)
+      ctx.fillStyle = color;
+      ctx.font      = 'bold 8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(isBull ? '▲' : '▼', xCur, isBull ? yCur + 14 : yCur - 7);
+    }
+
+    ctx.restore();
+  }
 
   // ── Value label (top-left of pane, TV style) ─────────────────────────────────
   const idx    = snapIndex ?? (rsiValues.length - 1);

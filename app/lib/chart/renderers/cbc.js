@@ -60,8 +60,8 @@ function fillZone(ctx, vp, times, topVals, bottomVals, color) {
 
 export function renderCBC(ctx, vp, cbcData, opts = {}) {
   if (!cbcData) return;
-  const { base, upper, lower, adxStrong, divDots, times } = cbcData;
-  const { showDivDots = true, showAdxFilter = true } = opts;
+  const { base, upper, lower, adxStrong, times } = cbcData;
+  const { showAdxFilter = true } = opts;
 
   // Use visible range to limit drawing
   const from = Math.max(0, Math.floor(vp.logFrom) - 1);
@@ -131,37 +131,6 @@ export function renderCBC(ctx, vp, cbcData, opts = {}) {
       ctx.fill();
     }
     ctx.restore();
-  }
-
-  // ── Layer 5: RSI divergence dots ────────────────────────────────────────
-  if (showDivDots && divDots) {
-    for (let i = 0; i < times.length; i++) {
-      const dot = divDots[i];
-      if (!dot) continue;
-      const x = vp.barCenterX(i);
-      const y = vp.priceToY(dot.price);
-      const isBull = dot.type === 'bull';
-
-      ctx.save();
-      // Outer glow ring
-      ctx.beginPath();
-      ctx.arc(x, y, 5, 0, Math.PI * 2);
-      ctx.fillStyle = isBull
-        ? 'rgba(34,197,94,0.20)'
-        : 'rgba(239,68,68,0.20)';
-      ctx.fill();
-      // Solid dot
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
-      ctx.fillStyle = isBull ? COLORS.divBull : COLORS.divBear;
-      ctx.fill();
-      // Direction arrow text
-      ctx.fillStyle = isBull ? COLORS.divBull : COLORS.divBear;
-      ctx.font = 'bold 8px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(isBull ? '▲' : '▼', x, isBull ? y + 14 : y - 7);
-      ctx.restore();
-    }
   }
 
   ctx.restore();

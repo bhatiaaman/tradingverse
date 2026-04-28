@@ -1,251 +1,313 @@
-# 📊 Composite Bias Curve (CBC) — User Guide
+# Bias Score Indicator — User Guide
 
-> **Where to find it:** Chart → Settings (⚙) → Overlays → **Bias Curve (CBC)**
+> **Where to find it:** Chart → Overlays → **Bias Score**
 > **Available on:** 5-minute and 15-minute intraday charts only. Disabled on Daily/Weekly.
 
 ---
 
-## What Is the CBC?
+## What Is the Bias Score?
 
-The Composite Bias Curve is a **single adaptive indicator** that answers one question:
+The Bias Score is a **single-number regime indicator** that replaces watching 5 separate indicators at once. It answers one question every bar:
 
-> *"Is the market in a tradeable trend right now, and which direction?"*
+> *"How many independent systems agree that price is trending right now, and in which direction?"*
 
-Instead of watching 4–5 separate indicators (VWAP, EMA, Kijun, ATR, ADX), the CBC combines them into **one visual system** with three zones:
+It appears as a **histogram pane below the main chart** — similar to RSI — with a smooth average curve drawn through it.
 
 ```
-  ━━━━━━━━━━━━━━━━━━━  Upper Band (green dashed)
-  ████ BULLISH ZONE ████   → Take longs here
-  ━━━━━━━━━━━━━━━━━━━  Base Curve (white solid)
-  ▒▒▒▒  CHOP ZONE  ▒▒▒▒   → No trade, wait
-  ━━━━━━━━━━━━━━━━━━━  Lower Band (red dashed)
-  ████ BEARISH ZONE ████   → Take shorts here
+┌────────────────────────────── Price Chart ──────────────────────────────┐
+│                                                                          │
+│  Candles, VWAP, CPR levels etc.                                         │
+│                                                                          │
+├──────────────────────────── Bias Score Pane ────────────────────────────┤
+│  ████  ████                          ████  ████  ██                     │
+│  ████  ████  ██                      ████  ████  ██  ▲ (bull arrow)     │
+│  ──────────────────────── zero line ─────────────────────────────────   │
+│              ▼ (bear arrow)                                              │
+│              ██  ████  ██                                                │
+└──────────────────────────────────────────────────────────────────────── ┘
 ```
 
 ---
 
-## The Math (Plain English)
+## The Five Components
 
-### Base Curve
-```
-Base = (40% × VWAP) + (30% × EMA 21) + (20% × Kijun) + (10% × EMA 9)
-```
+Each bar is a sum of **five independent conditions**, each contributing between −1 and +1:
 
-| Component | Weight | Why |
-|-----------|--------|-----|
-| VWAP      | 40%    | Institutional anchor — most money references VWAP |
-| EMA 21    | 30%    | Intraday trend direction |
-| Kijun (Ichimoku) | 20% | Market equilibrium / fair value |
-| EMA 9     | 10%    | Short-term momentum |
+| # | Component | How it scores | What it measures |
+|---|-----------|---------------|------------------|
+| 1 | **Price vs EMA 9** | `(close − EMA9) / ATR`, clamped ±1 | Short-term price position |
+| 2 | **Price vs EMA 21** | `(close − EMA21) / ATR`, clamped ±1 | Medium-term trend direction |
+| 3 | **Price vs VWAP** | `(close − VWAP) / ATR`, clamped ±1 | Institutional intraday reference |
+| 4 | **ADX / DMI** | `(+DI − −DI) / 25`, clamped ±1 | Directional momentum *strength* |
+| 5 | **Supertrend** | `+1` (bullish) or `−1` (bearish) | Trend *state* — trailing ATR stop |
 
-The result is a **smooth, adaptive curve** that moves with the market's true centre of gravity.
+**Total range: −5.0 to +5.0**
 
-### Volatility Bands
-```
-Upper Band = Base + (Multiplier × ATR)
-Lower Band = Base − (Multiplier × ATR)
-```
+The components are designed to be genuinely independent:
+- EMA 9/21 measure **price position** relative to moving averages
+- VWAP measures **where institutions anchored** for today's session
+- DMI measures **how decisively** the market is moving (not just direction)
+- Supertrend measures **trend state** — only flips on confirmed ATR breakouts
 
-Default multiplier is **0.5×**. On highly volatile days (e.g. budget/RBI), widen to **0.75× or 1.0×** in settings so the bands breathe with the market.
+This is why the old Kijun (Ichimoku baseline) was removed — it was mathematically similar to EMA 21 and added no new information.
 
 ---
 
-## Visual Guide
+## Reading the Histogram
 
-### 🟢 Bullish Regime
-**Conditions met:**
-- Price closes **above the Upper Band**
-- EMA 9 is above EMA 21
+### Bar Height = Strength of the Move
 
-**What you see:** Price candles sitting in the green fill zone, upper band line acting as support on pullbacks.
+The bar height is proportional to the score magnitude:
 
-**Action:** Look for long entries on pullbacks to the Upper Band or Base Curve. Hold existing longs. Do not short.
+```
++5  │ ████  → All 5 systems strongly bullish (price far above all lines)
++3  │ ███   → 3 systems fully aligned, 2 partially
++1  │ █     → Mild edge, marginal signals
+ 0  │ ─     → Neutral tick (grey)
+−1  │ █     → Mild bearish edge
+−3  │ ███   → 3 systems fully bearish
+−5  │ ████  → All 5 systems strongly bearish
+```
+
+**Short bars (±0.5 to ±1.5):** Mixed signals. Not a strong regime. Reduce size or wait.
+**Tall bars (±3.0 and above):** Strong confluence. Higher-probability entries in that direction.
+
+### Bar Color = Direction + Intensity
+
+| Score | Color | Interpretation |
+|-------|-------|----------------|
+| +4 to +5 | Deep green | Maximum bullish confluence |
+| +2 to +4 | Green | Strong bull regime |
+| +0.5 to +2 | Pale green | Mild bullish edge |
+| −0.5 to +0.5 | Grey tick | Neutral — no bias |
+| −0.5 to −2 | Pale red | Mild bearish edge |
+| −2 to −4 | Red | Strong bear regime |
+| −4 to −5 | Deep red | Maximum bearish confluence |
 
 ---
 
-### 🔴 Bearish Regime
-**Conditions met:**
-- Price closes **below the Lower Band**
-- EMA 9 is below EMA 21
+## The Average Curve (White Line)
 
-**What you see:** Price candles deep in the red fill zone, lower band acting as resistance on bounces.
+The white line is a **9-bar EMA of the raw score**. It is slower to respond than individual bars but more reliable for trend identification.
 
-**Action:** Look for short entries on bounces to the Lower Band or Base Curve. Hold existing shorts. Do not buy dips.
+```
+Individual bars  → react to each candle, noisy in chop
+Avg curve        → smooth trend of the bias, filters noise
+```
+
+### Key Avg Curve Signals
+
+**Avg curve above zero and rising:**
+Regime is bullish and strengthening. Look for long entries only. This is the "in trend" state.
+
+**Avg curve above zero but bars falling toward it:**
+Trend is intact but momentum is fading. Tighten stops on open longs. Do not add.
+
+**Avg curve below zero and falling:**
+Regime is bearish and strengthening. Look for short entries only.
+
+**Avg curve near zero, flat:**
+Market is in chop. No reliable bias. Skip trades.
+
+**Bars significantly ahead of avg curve (e.g. bars at +4, avg at +2):**
+The raw score has run ahead of its own average. Either momentum will continue and avg catches up, or bars will pull back toward avg. Not ideal for fresh entries — risk of a pullback.
 
 ---
 
-### 🔘 Chop Zone (Grey)
-**Conditions met:**
-- Price is between the Upper and Lower Bands
+## The Regime-Change Arrows
 
-**What you see:** Candles whipsawing around the white Base Curve line.
+A **▲ green arrow** or **▼ red arrow** appears in the pane when the avg curve crosses zero with bar confirmation:
 
-**Action:** **No trade.** Wait for a breakout above Upper Band or breakdown below Lower Band. The grey zone is where most retail traders get trapped — avoid it.
+### ▲ Bull Arrow — Avg crosses above zero, bars positive
+
+```
+Before:  avg was negative (red bars) → Market in bear regime
+Trigger: avg ticks above zero + current bar is green
+Signal:  Regime has officially shifted to BULLISH
+```
+
+**This is the highest-quality signal from this indicator.** It means:
+- At least 3–4 of 5 systems have flipped bullish
+- The shift has been sustained long enough for the EMA to cross
+- Raw bars confirm (not a noise tick)
+
+**Action:**
+- Fresh long entry on the next pullback
+- Set stop below the last swing low or below Supertrend line
+- Look to hold through the trend, not scalp
 
 ---
 
-## ADX Strength Diamonds 🔶
-
-When **ADX ≥ 20** (trend is confirmed), small **amber diamond markers** appear on the Base Curve.
+### ▼ Bear Arrow — Avg crosses below zero, bars negative
 
 ```
-  ◇  ◇     ◇  ◇  ◇
-━━━━━━━━━━━━━━━━━━━━━━━  ← Base Curve
+Before:  avg was positive (green bars) → Market in bull regime
+Trigger: avg ticks below zero + current bar is red
+Signal:  Regime has officially shifted to BEARISH
 ```
 
-**Meaning:**
-- Diamonds present → Trend has real strength → Trust the regime signal → Higher conviction entries
-- No diamonds → ADX < 20 → Low trend strength → Regime signal is weaker → Reduce size or skip
-
-**Rule:** Only take fresh entries when diamonds are showing. In choppy low-ADX markets, the CBC zones are less reliable.
-
-> **Config:** Toggle off in Settings if you find the chart too cluttered.
+**Action:**
+- Exit any open longs immediately
+- Look for short entries on the next bounce
+- Set stop above the last swing high
 
 ---
 
-## RSI Divergence Dots
+## Using Bias Score With CPR
 
-Divergence is the most powerful signal on the CBC. It warns you when a trend is **losing steam** — before price reverses — giving you early exit or counter-trade setups.
+This is where the indicator becomes a proper trading system.
+
+**CPR tells you WHERE the key price levels are.**
+**Bias Score tells you WHICH DIRECTION momentum favors.**
+
+Together they give you both a direction *and* a reference level for entry/stop.
+
+### High-Probability Setups
+
+**Setup 1 — Bull Arrow + CPR Reclaim**
+```
+1. Bias avg crosses above zero (▲ appears)
+2. Price simultaneously reclaims CPR Top Central (TC)
+3. Entry: Long on first pullback to TC from above
+4. Stop: Below CPR Pivot Point (PP)
+5. Target: Previous resistance or R1
+```
+
+**Setup 2 — Bear Arrow + CPR Rejection**
+```
+1. Bias avg crosses below zero (▼ appears)
+2. Price simultaneously breaks below CPR Bottom Central (BC)
+3. Entry: Short on first bounce back to BC (now resistance)
+4. Stop: Above CPR PP
+5. Target: Previous support or S1
+```
+
+**Setup 3 — Strong Bias + CPR Level as Entry**
+```
+1. Bars holding at +3 or above all morning
+2. Price pulls back to CPR PP or TC
+3. Entry: Long at CPR level — bias confirms the pullback is a buy
+4. Stop: Below CPR BC
+```
+
+**Setup 4 — Chop Warning**
+```
+1. Avg curve flat near zero, bars alternating red/green
+2. Price trading between CPR BC and TC
+3. Action: No trade. Both indicators agree — no edge.
+```
 
 ---
 
-### What Is RSI Divergence?
+## Practical Examples
 
-RSI measures the **speed and strength** of price movement, not price itself.
+### Example 1 — Morning Breakout (Nifty 15m)
 
-When price and RSI disagree about direction, it is called **divergence**. This disagreement often precedes a reversal.
+```
+Time    Price    Score   Avg     Arrow   CPR context
+09:15   24,100   +0.8    +0.3           Just opened, neutral
+09:30   24,180   +2.1    +0.9           Price above VWAP + EMA9
+09:45   24,250   +3.4    +1.8    ▲      Avg crosses zero! Price breaks CPR TC (24,200)
+10:00   24,230   +3.1    +2.2           Pullback to TC — ENTRY ZONE
+10:15   24,290   +3.8    +2.7           Bars tall green, avg rising — hold
+10:30   24,340   +4.1    +3.1           Deep green, trend confirmed
+```
+
+**Reading:** The ▲ at 09:45 with CPR TC breakout was the setup. Pullback to TC at 10:00 was the entry. Bars stayed tall green the whole way — no reason to exit early.
 
 ---
 
-### 🔴 Bearish Divergence (Red Dot + ▼)
-
-**Definition:** Price makes a **higher high**, but RSI makes a **lower high**.
+### Example 2 — Afternoon Reversal (Nifty 15m)
 
 ```
-Price:   Low ──── High ──────── HIGHER HIGH  ← price still going up
-RSI:     Low ──── High ─── lower high        ← RSI weakening
-                                    🔴▼       ← Red dot appears on Upper Band
+Time    Price    Score   Avg     Arrow   Note
+13:00   24,300   +3.2    +2.8           Strong green trend since morning
+13:15   24,320   +1.8    +2.6           Bars falling, avg still positive
+13:30   24,290   +0.4    +2.1           Bars nearly neutral — warning
+13:45   24,240   −1.2    +1.4           Bars gone red, avg losing ground
+14:00   24,200   −2.8    +0.3           Avg approaching zero — exit longs
+14:15   24,160   −3.5    −0.8    ▼      Avg crosses zero — confirmed bear
+14:30   24,190   −2.1    −1.2           Bounce to CPR area — SHORT ENTRY
 ```
 
-**What it means:**
-The rally is running out of buyers. Each push higher is happening with less momentum. Smart money is likely distributing (selling into strength).
-
-**Example — Nifty 5-minute chart:**
-
-```
-09:30  Nifty: 24,000 │ RSI: 62
-09:45  Nifty: 24,050 │ RSI: 67   ← both going up, normal
-10:00  Nifty: 24,120 │ RSI: 71   ← higher high
-10:30  Nifty: 24,180 │ RSI: 65   ← HIGHER price but LOWER RSI = DIVERGENCE 🔴
-```
-
-> Red dot appears on the Upper Band at the 10:30 candle.
-
-**What to do:**
-- If long: **tighten stop loss** or book partial profits
-- If not in trade: **do not initiate new longs** — wait for breakdown below Upper Band
-- Advanced: Enter short only after price **closes below the Upper Band** (the divergence dot is a warning, not a signal by itself)
+**Reading:** Bars started fading at 13:15 while avg was still positive — that was the first warning (tighten stops). The ▼ at 14:15 confirmed the shift. The bounce at 14:30 back to CPR was the short entry.
 
 ---
 
-### 🟢 Bullish Divergence (Green Dot + ▲)
-
-**Definition:** Price makes a **lower low**, but RSI makes a **higher low**.
+### Example 3 — Chop Day (Nifty 15m)
 
 ```
-Price:  High ──── Low ──────── LOWER LOW    ← price still falling
-RSI:    High ──── Low ─── higher low        ← RSI strengthening
-                                  🟢▲        ← Green dot appears on Lower Band
+Time    Price    Score   Avg     Note
+09:30   24,050   +1.2    +0.6    Mildly positive start
+09:45   24,030   −0.4    +0.3    Dropped below EMA9
+10:00   24,060   +0.8    +0.4    Back above, small green bars
+10:15   24,040   −0.2    +0.3    Back below — bars tiny, avg flat
+10:30   24,055   +0.5    +0.3    Nothing happening
 ```
 
-**What it means:**
-The sell-off is losing sellers. Each push lower happens with less downside momentum. Buyers are quietly absorbing the supply — a bounce or reversal is likely near.
-
-**Example — Nifty 5-minute chart:**
-
-```
-10:00  Nifty: 24,100 │ RSI: 38
-10:15  Nifty: 24,050 │ RSI: 35   ← both falling, normal
-10:30  Nifty: 24,010 │ RSI: 32   ← lower low
-11:00  Nifty: 23,970 │ RSI: 36   ← LOWER price but HIGHER RSI = DIVERGENCE 🟢
-```
-
-> Green dot appears on the Lower Band at the 11:00 candle.
-
-**What to do:**
-- If short: **tighten stop loss** or book partial profits
-- If not in trade: **do not initiate new shorts** — wait for breakout above Lower Band
-- Advanced: Enter long only after price **closes above the Lower Band**
-
----
-
-### ⚠️ Divergence Rules (Do Not Break)
-
-| Rule | Why |
-|------|-----|
-| Divergence is a **warning, not a signal** | Price can continue trending despite divergence for multiple candles |
-| Wait for **price confirmation** — a candle close that breaks the band | Entry on dot alone gets you stopped out often |
-| Divergence is strongest when **ADX diamonds are absent** | When trend is weak AND divergence appears, reversal probability is high |
-| Ignore divergence **during strong ADX trends** | In trending markets, bearish divergence can appear 3–4 times before any reversal |
-| **Look at the bigger picture** — check CPR levels | If bearish divergence appears near a major resistance (CPR TC / Call wall), reversal probability is much higher |
-
----
-
-## Configuration Settings
-
-| Setting | Default | Range | What It Does |
-|---------|---------|-------|--------------|
-| ATR Period | 14 | 5–50 | Lookback for ATR calculation. Lower = more reactive bands; Higher = smoother, wider |
-| Band Multiplier | 0.5× | 0.1–2.0 | How wide the bands are. Widen on volatile days (0.75–1.0) |
-| RSI Divergence Dots | ON | Toggle | Show/hide the 🟢🔴 divergence markers |
-| ADX Strength Diamonds | ON | Toggle | Show/hide the 🔶 ADX confirmation markers |
-
----
-
-## Combining CBC With Other Indicators
-
-### CBC + CPR
-- Bearish divergence **near CPR Top Central (TC)** = High-confidence short setup
-- Bullish divergence **near CPR Bottom Central (BC)** = High-confidence long setup
-
-### CBC + VWAP
-- Entering longs when price is in the **bullish zone AND above VWAP** = Double confirmation
-- Bearish zone AND below VWAP = Strong directional alignment, hold shorts
-
-### CBC + Order Book (Third Eye DOM)
-- Bullish regime on CBC + DOM score > 7 = Institutional buying aligns with technical bias
-- Chop zone + DOM neutral = Stay flat, no edge
+**Reading:** Bars never exceeded ±1.5, avg flat near 0. This is a no-trade day in the morning. No arrows, no conviction. Wait for a CPR breakout or go flat.
 
 ---
 
 ## Quick Reference Card
 
 ```
-SCENARIO                         │ ACTION
-─────────────────────────────────┼──────────────────────────────────
-Price in green zone + diamonds   │ Look for long entries
-Price in red zone + diamonds     │ Look for short entries
-Price in grey chop zone          │ No trade, wait for breakout
-Red dot (🔴▼) on Upper Band      │ Tighten long stops, no new longs
-Green dot (🟢▲) on Lower Band    │ Tighten short stops, no new shorts
-Dot + price confirms + no diamond│ Highest reversal probability
-Strong divergence during diamonds│ Trust trend, ignore dot for now
+WHAT YOU SEE                            WHAT TO DO
+────────────────────────────────────────────────────────────────
+▲ arrow (avg crosses above 0)           Look for long entry on next pullback
+▼ arrow (avg crosses below 0)           Exit longs, look for short on bounce
+Tall green bars (+3 to +5)              Trend is strong — hold longs, no shorting
+Tall red bars (−3 to −5)               Trend is strong — hold shorts, no buying
+Short mixed bars (±0–1.5), avg flat    Chop — no trade
+Bars fading toward avg from above      Momentum cooling — tighten long stops
+Bars at +4, avg only at +1.5           Extended — wait for pullback before adding
+▲ arrow + price above CPR TC           High-conviction long setup
+▼ arrow + price below CPR BC           High-conviction short setup
 ```
 
 ---
 
-## Common Mistakes to Avoid
+## Configuration
 
-1. **Trading the chop zone** — The grey middle zone looks tradeable. It is not. Skip every candle that closes between the bands.
+| Setting | Value | Notes |
+|---------|-------|-------|
+| Avg Period | 9 bars (fixed) | EMA of raw scores |
+| Supertrend | ATR 10, Mult 3 | Standard parameters |
+| DMI | Period 14 | Wilder's smoothing |
+| EMA | 9 and 21 | Standard intraday periods |
+| VWAP | Session-reset daily | Resets each day at 09:15 |
 
-2. **Treating divergence as an immediate entry** — A divergence dot means *momentum is weakening*, not that price has reversed. Always wait for the candle to close back inside the band before acting.
-
-3. **Using CBC on Daily/Weekly charts** — The indicator is designed for intraday (5m/15m). It is automatically disabled on daily and weekly intervals.
-
-4. **Ignoring the ADX diamonds** — A bullish regime with no diamonds means the move has no trend strength and may be a false breakout. Scale down size significantly.
-
-5. **Widening bands too much** — Setting the multiplier above 1.5× makes the chop zone so narrow that price is almost always in a "regime" — eliminating the filter's usefulness.
+No configuration needed. Parameters are set to intraday-optimised defaults.
 
 ---
 
-*Last updated: April 2026 | Indicator version: 1.0*
+## Common Mistakes
+
+**1. Treating every bar flip as a signal**
+Individual bars react to every candle. Only the *avg curve* crossing zero — confirmed by an arrow — is a meaningful regime signal. Bars alone are context, not triggers.
+
+**2. Entering on the arrow candle itself**
+The arrow marks the candle where the shift was confirmed. Enter on the *next* pullback to a CPR level or moving average — not at the moment the arrow prints.
+
+**3. Ignoring the bar-vs-avg gap**
+When bars are at +4 and avg is at +1.5, the raw reading is far ahead of its trend. This is an *extended* state. It can persist, but adding fresh longs here has poor risk/reward. Wait for the avg to catch up.
+
+**4. Using it on daily charts**
+The VWAP component resets each session and is only meaningful intraday. The indicator is disabled on Daily/Weekly deliberately.
+
+**5. Using it standalone without a price context**
+The Bias Score tells you *direction and strength*. It does not tell you *where to enter*. Always combine with CPR levels, S/R, or VWAP as your entry reference.
+
+---
+
+## Indicator Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 3.0 | Apr 2026 | Redesigned as histogram pane. Kijun removed. DMI + Supertrend added. Continuous ATR-normalised scoring. Avg curve + arrows. |
+| 2.0 | Apr 2026 | RSI divergence moved to RSI pane. ADX threshold raised to 25. Pivot lookback raised to ±5 bars. |
+| 1.0 | Mar 2026 | Initial release — band-based overlay on price chart (VWAP + EMA21 + Kijun + EMA9 base curve with ATR bands). |
+
+---
+
+*Last updated: April 2026 | Indicator version: 3.0*

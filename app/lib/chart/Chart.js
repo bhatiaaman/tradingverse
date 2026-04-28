@@ -26,8 +26,9 @@ import { renderSLClusters } from './renderers/slClusters.js';
 import { renderCPR }        from './renderers/cpr.js';
 import { renderBB }         from './renderers/bb.js';
 import { renderIchimoku }   from './renderers/ichimoku.js';
-import { renderCBC }        from './renderers/cbc.js';
-import { renderRSIPane }    from './renderers/rsi-pane.js';
+import { renderCBC }           from './renderers/cbc.js';
+import { renderBiasScorePane } from './renderers/bias-score.js';
+import { renderRSIPane }       from './renderers/rsi-pane.js';
 import { renderDrawings }   from './renderers/drawings.js';
 import { DARK as DARK_PALETTE, LIGHT as LIGHT_PALETTE } from './palette.js';
 
@@ -72,7 +73,8 @@ export function createChart(container, options = {}) {
   let   ichimokuData = null;              // { data: [], config: {} }
   let   cbcData     = null;               // computeCBC() output
   let   markers     = [];                 // [{ index, direction: 'bull'|'bear' }]
-  let   rsiPaneData = null;              // { rsi: number[], rsiMA: number[]|null, label: string }
+  let   biasScoreData = null;            // { scores: number[] }
+  let   rsiPaneData   = null;            // { rsi: number[], rsiMA: number[]|null, label: string, divDots: array|null }
   let   showVolume    = options.showVolume ?? true;
   let   drawings         = [];           // [{ id, type, p1, p2, color, width }]
   let   drawingInProgress = null;        // preview drawing while placing second point
@@ -133,9 +135,13 @@ export function createChart(container, options = {}) {
       const resolved = drawings.map(d => ({ ..._resolveDrawing(d), selected: d.id === selectedDrawingId }));
       renderDrawings(ctx, vp, resolved, drawingInProgress ? _resolveDrawing(drawingInProgress) : null);
     }
+    if (biasScoreData && vp.biasScorePaneH > 0) {
+      const snapIdx = crosshair.visible ? crosshair.snapIndex : null;
+      renderBiasScorePane(ctx, vp, biasScoreData.scores, snapIdx, biasScoreData.avgScores);
+    }
     if (rsiPaneData && vp.rsiPaneH > 0) {
       const snapIdx = crosshair.visible ? crosshair.snapIndex : null;
-      renderRSIPane(ctx, vp, rsiPaneData.rsi, rsiPaneData.rsiMA, snapIdx, rsiPaneData.label, palette);
+      renderRSIPane(ctx, vp, rsiPaneData.rsi, rsiPaneData.rsiMA, snapIdx, rsiPaneData.label, palette, rsiPaneData.divDots ?? null);
     }
     renderCrosshair(ctx, vp, crosshair, candles, interval);
 
@@ -451,10 +457,24 @@ export function createChart(container, options = {}) {
       markDirty();
     },
 
+    // ── Bias Score sub-pane ─────────────────────────────────────────────────────
+    // scores: number[] aligned to candles (-5…+5, nulls allowed)
+    setBiasScorePane(scores, avgScores = null) {
+      biasScoreData     = { scores: scores ?? [], avgScores: avgScores ?? null };
+      vp.biasScorePaneH = 50;
+      markDirty();
+    },
+
+    clearBiasScorePane() {
+      biasScoreData     = null;
+      vp.biasScorePaneH = 0;
+      markDirty();
+    },
+
     // ── RSI sub-pane ────────────────────────────────────────────────────────────
     // rsi: number[] aligned to candles (nulls allowed); rsiMA: number[]|null; label: e.g. 'RSI(12)'
-    setRSIPane(rsi, rsiMA = null, label = 'RSI') {
-      rsiPaneData = { rsi: rsi ?? [], rsiMA: rsiMA ?? null, label };
+    setRSIPane(rsi, rsiMA = null, label = 'RSI', divDots = null) {
+      rsiPaneData = { rsi: rsi ?? [], rsiMA: rsiMA ?? null, label, divDots };
       markDirty();
     },
 

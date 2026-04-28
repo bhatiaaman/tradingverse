@@ -477,9 +477,9 @@ export function computeATR(candles, period = 14) {
 //   adxStrong[]  — boolean per bar: ADX >= adxThreshold (trend confirmed)
 //   divDots[]  — null | { type: 'bull'|'bear', price } RSI divergence markers
 //
-// opts: { atrPeriod=14, bandMult=0.5, adxThreshold=20, showDivDots=true }
+// opts: { atrPeriod=14, bandMult=1.5, adxThreshold=25, showDivDots=true }
 export function computeCBC(candles, opts = {}) {
-  const { atrPeriod = 14, bandMult = 0.5, adxThreshold = 20, showDivDots = true } = opts;
+  const { atrPeriod = 14, bandMult = 1.5, adxThreshold = 25, showDivDots = true } = opts;
   const n = candles.length;
   const minBars = Math.max(26, atrPeriod + 1, 21); // need Kijun (26), ATR, EMA21
   if (n < minBars) return null;
@@ -507,20 +507,19 @@ export function computeCBC(candles, opts = {}) {
   // ATR
   const atr = computeATR(candles, atrPeriod);
 
-  // ADX (reuse computeADX if available, else simplified via RSI proxy)
-  // Simple DX-based ADX (Wilder):
+  // ADX
   const adxOut = _computeADX(candles, 14);
 
   // RSI for divergence detection
   const rsiOut = computeRSI(candles, 14);
 
   // ── Per-bar CBC ───────────────────────────────────────────────────────────
-  const base     = new Array(n).fill(null);
-  const upper    = new Array(n).fill(null);
-  const lower    = new Array(n).fill(null);
-  const regime   = new Array(n).fill('chop');
+  const base      = new Array(n).fill(null);
+  const upper     = new Array(n).fill(null);
+  const lower     = new Array(n).fill(null);
+  const regime    = new Array(n).fill('chop');
   const adxStrong = new Array(n).fill(false);
-  const divDots  = new Array(n).fill(null);
+  const divDots   = new Array(n).fill(null);
 
   for (let i = 0; i < n; i++) {
     const t   = candles[i].time;
@@ -543,59 +542,197 @@ export function computeCBC(candles, opts = {}) {
     upper[i] = parseFloat((b + band).toFixed(2));
     lower[i] = parseFloat((b - band).toFixed(2));
 
-    // Regime
-    if (cl > upper[i] && e9 > e21) regime[i] = 'bull';
-    else if (cl < lower[i] && e9 < e21) regime[i] = 'bear';
+    // Regime — price position relative to bands (single gate, no EMA double-check)
+    if (cl > upper[i]) regime[i] = 'bull';
+    else if (cl < lower[i]) regime[i] = 'bear';
     else regime[i] = 'chop';
 
     // ADX strength gate
     adxStrong[i] = adx != null && adx >= adxThreshold;
   }
 
-  // ── RSI Divergence dots ───────────────────────────────────────────────────
-  if (showDivDots && n >= 20) {
-    const LOOKBACK = 20; // bars to look back for pivot
-    for (let i = LOOKBACK; i < n; i++) {
+  // ── RSI Divergence — swing-pivot based ───────────────────────────────────
+  // Requires current bar `i` to be a confirmed swing high/low (±PIVOT_LOOK bars).
+  // divDots shape: { type, rsiValue, priorIdx, priorRsi } — rendered on RSI pane.
+  if (showDivDots && n >= 50) {
+    const LOOKBACK   = 40; // bars back to search for prior pivot
+    const PIVOT_LOOK = 5;  // bars each side to confirm a swing
+
+    const isSwingHigh = j => {
+      if (j < PIVOT_LOOK || j >= n - PIVOT_LOOK) return false;
+      const h = candles[j].high;
+      for (let d = 1; d <= PIVOT_LOOK; d++) {
+        if (candles[j - d].high >= h || candles[j + d].high >= h) return false;
+      }
+      return true;
+    };
+    const isSwingLow = j => {
+      if (j < PIVOT_LOOK || j >= n - PIVOT_LOOK) return false;
+      const l = candles[j].low;
+      for (let d = 1; d <= PIVOT_LOOK; d++) {
+        if (candles[j - d].low <= l || candles[j + d].low <= l) return false;
+      }
+      return true;
+    };
+
+    for (let i = LOOKBACK + PIVOT_LOOK; i < n - PIVOT_LOOK; i++) {
       if (base[i] == null) continue;
       const rsi = rsiOut[i];
       if (rsi == null) continue;
 
-      // Find prior swing pivot in lookback window
-      let priorHighIdx = -1, priorLowIdx = -1;
-      for (let j = i - 1; j >= i - LOOKBACK; j--) {
-        if (candles[j].close > candles[j - 1]?.close && candles[j].close > candles[j + 1]?.close) {
-          if (priorHighIdx < 0) priorHighIdx = j;
-        }
-        if (candles[j].close < candles[j - 1]?.close && candles[j].close < candles[j + 1]?.close) {
-          if (priorLowIdx < 0) priorLowIdx = j;
-        }
-      }
-
-      // Bearish divergence: price higher high, RSI lower high
-      if (priorHighIdx >= 0) {
-        const rsiPrior = rsiOut[priorHighIdx];
-        if (rsiPrior != null &&
-            candles[i].high > candles[priorHighIdx].high &&
-            rsi < rsiPrior &&
-            regime[i] === 'bull') {
-          divDots[i] = { type: 'bear', price: upper[i] };
+      // Bearish divergence: bar i is a swing high, price higher high, RSI lower high
+      if (isSwingHigh(i)) {
+        for (let j = i - PIVOT_LOOK - 1; j >= Math.max(0, i - LOOKBACK); j--) {
+          if (!isSwingHigh(j)) continue;
+          const priorRsi = rsiOut[j];
+          if (priorRsi == null) break;
+          if (candles[i].high > candles[j].high && rsi < priorRsi) {
+            divDots[i] = { type: 'bear', rsiValue: rsi, priorIdx: j, priorRsi };
+          }
+          break; // only compare to the nearest prior swing
         }
       }
 
-      // Bullish divergence: price lower low, RSI higher low
-      if (priorLowIdx >= 0) {
-        const rsiPrior = rsiOut[priorLowIdx];
-        if (rsiPrior != null &&
-            candles[i].low < candles[priorLowIdx].low &&
-            rsi > rsiPrior &&
-            regime[i] === 'bear') {
-          divDots[i] = { type: 'bull', price: lower[i] };
+      // Bullish divergence: bar i is a swing low, price lower low, RSI higher low
+      if (isSwingLow(i)) {
+        for (let j = i - PIVOT_LOOK - 1; j >= Math.max(0, i - LOOKBACK); j--) {
+          if (!isSwingLow(j)) continue;
+          const priorRsi = rsiOut[j];
+          if (priorRsi == null) break;
+          if (candles[i].low < candles[j].low && rsi > priorRsi) {
+            divDots[i] = { type: 'bull', rsiValue: rsi, priorIdx: j, priorRsi };
+          }
+          break;
         }
       }
     }
   }
 
   return { base, upper, lower, regime, adxStrong, divDots, times: candles.map(c => c.time) };
+}
+
+// ── RSI Divergence Detection ──────────────────────────────────────────────────
+// Returns divDots[] aligned to candles.
+// divDots[i] = { type: 'bull'|'bear', rsiValue, priorIdx, priorRsi } at confirmed pivots.
+// Bearish div: price makes HH but RSI makes LH at a swing high.
+// Bullish div:  price makes LL but RSI makes HL at a swing low.
+export function computeRSIDivergence(candles, rsiValues, opts = {}) {
+  const { pivotLook = 5, lookback = 40 } = opts;
+  const n = candles.length;
+  const divDots = new Array(n).fill(null);
+  if (!rsiValues || n < lookback + pivotLook * 2) return divDots;
+
+  const isSwingHigh = j => {
+    if (j < pivotLook || j >= n - pivotLook) return false;
+    const h = candles[j].high;
+    for (let d = 1; d <= pivotLook; d++) {
+      if (candles[j - d].high >= h || candles[j + d].high >= h) return false;
+    }
+    return true;
+  };
+  const isSwingLow = j => {
+    if (j < pivotLook || j >= n - pivotLook) return false;
+    const l = candles[j].low;
+    for (let d = 1; d <= pivotLook; d++) {
+      if (candles[j - d].low <= l || candles[j + d].low <= l) return false;
+    }
+    return true;
+  };
+
+  for (let i = lookback + pivotLook; i < n - pivotLook; i++) {
+    const rsi = rsiValues[i];
+    if (rsi == null) continue;
+
+    if (isSwingHigh(i)) {
+      for (let j = i - pivotLook - 1; j >= Math.max(0, i - lookback); j--) {
+        if (!isSwingHigh(j)) continue;
+        const priorRsi = rsiValues[j];
+        if (priorRsi == null) break;
+        if (candles[i].high > candles[j].high && rsi < priorRsi) {
+          divDots[i] = { type: 'bear', rsiValue: rsi, priorIdx: j, priorRsi };
+        }
+        break;
+      }
+    }
+
+    if (isSwingLow(i)) {
+      for (let j = i - pivotLook - 1; j >= Math.max(0, i - lookback); j--) {
+        if (!isSwingLow(j)) continue;
+        const priorRsi = rsiValues[j];
+        if (priorRsi == null) break;
+        if (candles[i].low < candles[j].low && rsi > priorRsi) {
+          divDots[i] = { type: 'bull', rsiValue: rsi, priorIdx: j, priorRsi };
+        }
+        break;
+      }
+    }
+  }
+
+  return divDots;
+}
+
+// ── Composite Bias Score ──────────────────────────────────────────────────────
+// Per-bar continuous score -5 … +5 from five independent conditions:
+//   EMA9, EMA21, VWAP  — ATR-normalised distance (±1 each)
+//   ADX/DMI            — (plusDI−minusDI)/25 clamped ±1 (direction × strength)
+//   Supertrend         — ±1 binary (bull/bear state, already ATR-based)
+// avgScores: EMA-9 of raw scores drawn as smooth avg curve.
+export function computeBiasScore(candles, opts = {}) {
+  const { avgPeriod = 9 } = opts;
+  const n = candles.length;
+  if (n < 30) return null;
+
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  const ema9raw  = computeEMA(candles, 9);
+  const ema21raw = computeEMA(candles, 21);
+  const e9map    = new Map(ema9raw.map(p  => [p.time, p.value]));
+  const e21map   = new Map(ema21raw.map(p => [p.time, p.value]));
+
+  const vwapRaw  = computeVWAP(candles);
+  const vwMap    = new Map(vwapRaw.map(p => [p.time, p.value]));
+
+  const atr      = computeATR(candles, 14);
+  const dmi      = _computeDMI(candles, 14);
+  const st       = _computeSupertrend(candles, 10, 3);
+
+  const scores = new Array(n).fill(null);
+
+  for (let i = 0; i < n; i++) {
+    const t   = candles[i].time;
+    const cl  = candles[i].close;
+    const e9  = e9map.get(t) ?? null;
+    const e21 = e21map.get(t) ?? null;
+    const vw  = vwMap.get(t) ?? null;
+    const a   = atr[i];
+    if (e9 == null || e21 == null || vw == null || a == null || a === 0) continue;
+    if (dmi[i] == null || st[i] == null) continue;
+
+    const { plusDI, minusDI } = dmi[i];
+    const stBull = st[i].bull;
+
+    let s = 0;
+    s += clamp((cl - e9)  / a, -1, 1);                    // EMA9 distance
+    s += clamp((cl - e21) / a, -1, 1);                    // EMA21 distance
+    s += clamp((cl - vw)  / a, -1, 1);                    // VWAP distance
+    s += clamp((plusDI - minusDI) / 25, -1, 1);           // DMI directional strength
+    s += stBull ? 1 : -1;                                  // Supertrend state
+
+    scores[i] = parseFloat(s.toFixed(3));
+  }
+
+  // EMA of scores → smooth avg curve
+  const avgScores = new Array(n).fill(null);
+  const k = 2 / (avgPeriod + 1);
+  let emaVal = null;
+  for (let i = 0; i < n; i++) {
+    const s = scores[i];
+    if (s == null) continue;
+    emaVal = emaVal == null ? s : s * k + emaVal * (1 - k);
+    avgScores[i] = parseFloat(emaVal.toFixed(3));
+  }
+
+  return { scores, avgScores, times: candles.map(c => c.time) };
 }
 
 // ── Internal ADX helper (not exported) ────────────────────────────────────────
@@ -631,6 +768,85 @@ function _computeADX(candles, period = 14) {
     dx = aTR > 0 ? Math.abs((aPlusDM - aMinusDM) / (aPlusDM + aMinusDM)) * 100 : 0;
     adx = (adx * (period - 1) + dx) / period;
     out[i] = parseFloat(adx.toFixed(1));
+  }
+  return out;
+}
+
+// Returns per-bar { plusDI, minusDI } using Wilder's smoothing (same as _computeADX).
+function _computeDMI(candles, period = 14) {
+  const n   = candles.length;
+  const out = new Array(n).fill(null);
+  if (n < period * 2) return out;
+
+  let plusDM = 0, minusDM = 0, trSum = 0;
+  for (let i = 1; i <= period; i++) {
+    const c = candles[i], p = candles[i - 1];
+    const up = c.high - p.high, dn = p.low - c.low;
+    plusDM  += up > dn && up > 0 ? up : 0;
+    minusDM += dn > up && dn > 0 ? dn : 0;
+    trSum   += Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+  }
+  let aPlus = plusDM, aMinus = minusDM, aTR = trSum;
+  if (aTR > 0) out[period] = { plusDI: (aPlus / aTR) * 100, minusDI: (aMinus / aTR) * 100 };
+
+  for (let i = period + 1; i < n; i++) {
+    const c = candles[i], p = candles[i - 1];
+    const up = c.high - p.high, dn = p.low - c.low;
+    const pDM = up > dn && up > 0 ? up : 0;
+    const mDM = dn > up && dn > 0 ? dn : 0;
+    const tr  = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+    aPlus  = aPlus  - aPlus  / period + pDM;
+    aMinus = aMinus - aMinus / period + mDM;
+    aTR    = aTR    - aTR    / period + tr;
+    if (aTR > 0) out[i] = { plusDI: (aPlus / aTR) * 100, minusDI: (aMinus / aTR) * 100 };
+  }
+  return out;
+}
+
+// Returns per-bar { value: supertrendLine, bull: boolean }.
+// Standard params: ATR period 10, multiplier 3.
+function _computeSupertrend(candles, atrPeriod = 10, mult = 3) {
+  const n   = candles.length;
+  const out = new Array(n).fill(null);
+  if (n < atrPeriod + 1) return out;
+
+  // Wilder ATR
+  const atrArr = new Array(n).fill(null);
+  let trSum = 0;
+  for (let i = 1; i <= atrPeriod; i++) {
+    const c = candles[i], p = candles[i - 1];
+    trSum += Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+  }
+  let atrVal = trSum / atrPeriod;
+  atrArr[atrPeriod] = atrVal;
+  for (let i = atrPeriod + 1; i < n; i++) {
+    const c = candles[i], p = candles[i - 1];
+    const tr = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+    atrVal = (atrVal * (atrPeriod - 1) + tr) / atrPeriod;
+    atrArr[i] = atrVal;
+  }
+
+  let upperBand = null, lowerBand = null, bull = true;
+  for (let i = atrPeriod; i < n; i++) {
+    const a = atrArr[i];
+    if (a == null) continue;
+    const hl2 = (candles[i].high + candles[i].low) / 2;
+    const basicUpper = hl2 + mult * a;
+    const basicLower = hl2 - mult * a;
+    const cl = candles[i].close;
+
+    // Adjust bands — can only tighten when trend is intact
+    if (upperBand == null) { upperBand = basicUpper; lowerBand = basicLower; }
+    else {
+      upperBand = basicUpper < upperBand || candles[i - 1].close > upperBand ? basicUpper : upperBand;
+      lowerBand = basicLower > lowerBand || candles[i - 1].close < lowerBand ? basicLower : lowerBand;
+    }
+
+    // Flip direction
+    if (bull  && cl < lowerBand) bull = false;
+    if (!bull && cl > upperBand) bull = true;
+
+    out[i] = { value: bull ? lowerBand : upperBand, bull };
   }
   return out;
 }

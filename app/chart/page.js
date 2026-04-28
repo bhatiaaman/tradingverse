@@ -11,7 +11,7 @@ import DrawingToolbar      from '@/app/components/DrawingToolbar';
 import {
   aggregateWeekly, computeVWAP, computeEMA, computeRSI,
   computeSMAAligned, computeBB, computeSMC, computeCPR,
-  computeIchimoku, computeATR, computeCBC
+  computeIchimoku, computeATR, computeBiasScore, computeRSIDivergence
 } from '@/app/lib/chart-indicators';
 import { useChartRefresh } from '@/app/lib/chart/useChartRefresh';
 import { Loader2 } from 'lucide-react';
@@ -76,7 +76,7 @@ const OVERLAY_DEFS = [
   { key: 'showBB',     label: 'Bollinger Bands', color: '#2962ff',        intradayOnly: false, dailyOnly: false, hasParams: true },
   { key: 'showRSI',    label: 'RSI',          color: '#818cf8',          intradayOnly: false, dailyOnly: false, hasParams: true },
   { key: 'showIchimoku', label: 'Ichimoku Cloud', color: '#10b981',        intradayOnly: false, dailyOnly: false, hasParams: true },
-  { key: 'showCBC',      label: 'Bias Curve (CBC)', color: '#22c55e',       intradayOnly: true,  dailyOnly: false, hasParams: true },
+  { key: 'showCBC',      label: 'Bias Score',        color: '#22c55e',       intradayOnly: true,  dailyOnly: false, hasParams: false },
 ];
 
 const DEFAULT_SETTINGS = {
@@ -102,13 +102,14 @@ const DEFAULT_SETTINGS = {
   // CBC settings
   showCBC:       false,
   cbcAtrPeriod:  14,
-  cbcBandMult:   0.5,
+  cbcBandMult:   1.5,
   cbcDivDots:    true,
   cbcAdxFilter:  true,
   bullColor:     '#22c55e',
   bearColor:     '#ef4444',
   rsiPeriod:     12,
   rsiMAPeriod:   5,
+  showRSIDiv:    false,
   bbLength:      20,
   bbMult:        2.0,
   // EMA line styles
@@ -617,31 +618,21 @@ function ChartPageInner() {
       chart.clearIchimoku();
     }
 
-    // ── CBC (Composite Bias Curve) — intraday only ────────────────────────
+    // ── Bias Score pane — intraday only ──────────────────────────────────
     const cbcIsIntraday = chartInterval !== 'day' && chartInterval !== 'week';
-    if (settings.showCBC && cbcIsIntraday && candles.length >= 26) {
+    if (settings.showCBC && cbcIsIntraday && candles.length >= 27) {
       try {
-        const cbc = computeCBC(candles, {
-          atrPeriod:    settings.cbcAtrPeriod  ?? 14,
-          bandMult:     settings.cbcBandMult   ?? 0.5,
-          adxThreshold: 20,
-          showDivDots:  settings.cbcDivDots    ?? true,
-        });
-        if (cbc) {
-          chart.setCBC(cbc, {
-            showDivDots:   settings.cbcDivDots   ?? true,
-            showAdxFilter: settings.cbcAdxFilter ?? true,
-          });
-        } else {
-          chart.clearCBC();
-        }
+        const bs = computeBiasScore(candles);
+        if (bs) chart.setBiasScorePane(bs.scores, bs.avgScores);
+        else    chart.clearBiasScorePane();
       } catch (e) {
-        console.warn('[CBC] computation error:', e);
-        chart.clearCBC();
+        console.warn('[BiasScore] computation error:', e);
+        chart.clearBiasScorePane();
       }
     } else {
-      chart.clearCBC();
+      chart.clearBiasScorePane();
     }
+    chart.clearCBC();
 
     // ── Candle colors ─────────────────────────────────────────────────────
     chart.setCandleColors({ bull: settings.bullColor, bear: settings.bearColor });
@@ -656,7 +647,8 @@ function ChartPageInner() {
       const rsi      = computeRSI(candles, period);
       const rsiMA    = maPeriod >= 2 ? computeSMAAligned(rsi, maPeriod) : null;
       const lbl      = maPeriod >= 2 ? `RSI(${period},${maPeriod})` : `RSI(${period})`;
-      chart.setRSIPane(rsi, rsiMA, lbl);
+      const divDots  = settings.showRSIDiv ? computeRSIDivergence(candles, rsi) : null;
+      chart.setRSIPane(rsi, rsiMA, lbl, divDots);
       chart.setRSIPaneHeight(chartRsiHRef.current);
     } else {
       chart.clearRSIPane();
@@ -827,7 +819,8 @@ function ChartPageInner() {
   }, [candles, lastPriceY]);
 
   const toggle = key => setSettings(s => {
-    const next = { ...s, [key]: !s[key] };
+    const toggled = !s[key];
+    const next = { ...s, [key]: toggled };
     try { localStorage.setItem('tv_chart_settings', JSON.stringify(next)); } catch {}
     return next;
   });
@@ -1483,6 +1476,11 @@ function ChartPageInner() {
                           className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-base"
                         />
                       </label>
+                      <label className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.04] border border-white/5 cursor-pointer active:bg-white/[0.08] transition-colors">
+                        <input type="checkbox" checked={!!settings.showRSIDiv} onChange={() => toggle('showRSIDiv')} className="w-5 h-5 accent-indigo-500 rounded bg-slate-800" />
+                        <span className="w-4 h-1 rounded-full shrink-0" style={{ backgroundColor: '#22c55e' }} />
+                        <span className="flex-1 text-sm text-white font-medium">Divergence Lines</span>
+                      </label>
                     </div>
                   )}
                   {configPage === 'showIchimoku' && (
@@ -1496,34 +1494,6 @@ function ChartPageInner() {
                         <label key={k} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.04] border border-white/5 cursor-pointer active:bg-white/[0.08] transition-colors">
                           <input type="checkbox" checked={!!settings[k]} onChange={() => toggle(k)} className="w-5 h-5 accent-indigo-500 rounded bg-slate-800" />
                           <span className="w-4 h-1 rounded-full shrink-0" style={{backgroundColor: color}} />
-                          <span className="flex-1 text-sm text-white font-medium">{label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                  {configPage === 'showCBC' && (
-                    <div className="flex flex-col gap-4">
-                      <label className="flex flex-col gap-2 text-sm text-slate-400">
-                        ATR Period
-                        <input type="number" min={5} max={50} value={settings.cbcAtrPeriod ?? 14}
-                          onChange={e => setNum('cbcAtrPeriod', Math.max(5, Math.min(50, +e.target.value || 14)))}
-                          className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-base"
-                        />
-                      </label>
-                      <label className="flex flex-col gap-2 text-sm text-slate-400">
-                        Band Multiplier (× ATR)
-                        <input type="number" min={0.1} max={2} step={0.1} value={settings.cbcBandMult ?? 0.5}
-                          onChange={e => setNum('cbcBandMult', Math.max(0.1, Math.min(2, +e.target.value || 0.5)))}
-                          className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-base"
-                        />
-                      </label>
-                      {[
-                        { k: 'cbcDivDots',   label: 'RSI Divergence Dots', color: '#22c55e' },
-                        { k: 'cbcAdxFilter', label: 'ADX Strength Diamonds', color: '#fbbf24' },
-                      ].map(({ k, label, color }) => (
-                        <label key={k} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.04] border border-white/5 cursor-pointer active:bg-white/[0.08] transition-colors">
-                          <input type="checkbox" checked={!!settings[k]} onChange={() => toggle(k)} className="w-5 h-5 accent-indigo-500 rounded bg-slate-800" />
-                          <span className="w-4 h-1 rounded-full shrink-0" style={{ backgroundColor: color }} />
                           <span className="flex-1 text-sm text-white font-medium">{label}</span>
                         </label>
                       ))}
@@ -1645,6 +1615,11 @@ function ChartPageInner() {
                         <input type="number" min={0} max={30} value={settings.rsiMAPeriod ?? 5}
                           onChange={e => setNum('rsiMAPeriod', Math.max(0, Math.min(30, +e.target.value || 0)))}
                           className="w-14 bg-slate-800 border border-white/10 rounded px-2 py-1 text-white text-center" />
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer hover:text-slate-200 transition-colors">
+                        <input type="checkbox" checked={!!settings.showRSIDiv} onChange={() => toggle('showRSIDiv')} className="w-3.5 h-3.5 accent-indigo-500 rounded bg-slate-800" />
+                        <span className="w-3 h-0.5 rounded-full shrink-0" style={{ backgroundColor: '#22c55e' }} />
+                        <span className="flex-1">Divergence Lines</span>
                       </label>
                     </div>
                   )}

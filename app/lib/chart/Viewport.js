@@ -10,7 +10,8 @@ export class Viewport {
     this.TIME_AXIS_H  = 28;
     this.PAD_TOP      = 10;
     this.PAD_LEFT     = 0;
-    this.rsiPaneH     = 0; // height of RSI sub-pane; 0 = hidden
+    this.rsiPaneH         = 0; // height of RSI sub-pane; 0 = hidden
+    this.biasScorePaneH   = 0; // height of Bias Score sub-pane; 0 = hidden (fixed 50px when on)
 
     this.width  = width;
     this.height = height;
@@ -35,15 +36,20 @@ export class Viewport {
     this.height = h;
   }
 
-  // ── Chart drawing area (excludes axes + RSI sub-pane) ───────────────────────
+  // ── Chart drawing area (excludes axes + sub-panes) ──────────────────────────
+  // Layout (top→bottom): main chart | bias score pane | RSI pane | time axis
   get chartLeft()   { return this.PAD_LEFT; }
   get chartRight()  { return this.width - this.PRICE_AXIS_W; }
   get chartTop()    { return this.PAD_TOP; }
-  get chartBottom() { return this.height - this.TIME_AXIS_H - this.rsiPaneH; }
+  get chartBottom() { return this.height - this.TIME_AXIS_H - this.rsiPaneH - this.biasScorePaneH; }
   get chartW()      { return this.chartRight - this.chartLeft; }
   get chartH()      { return this.chartBottom - this.chartTop; }
 
-  // RSI sub-pane bounds (between main chart and time axis)
+  // Bias Score sub-pane (between main chart and RSI pane)
+  get biasScorePaneTop() { return this.height - this.TIME_AXIS_H - this.rsiPaneH - this.biasScorePaneH; }
+  get biasScorePaneBot() { return this.height - this.TIME_AXIS_H - this.rsiPaneH; }
+
+  // RSI sub-pane (between bias score pane and time axis)
   get rsiPaneTop()   { return this.height - this.TIME_AXIS_H - this.rsiPaneH; }
   get rsiPaneBot()   { return this.height - this.TIME_AXIS_H; }
 
