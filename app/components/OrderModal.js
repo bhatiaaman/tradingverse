@@ -634,12 +634,12 @@ export default function OrderModal({
     }, 500);
   };
 
-  // Fetch available expiries for NIFTY/BANKNIFTY — only when no explicit expiry provided
+  // Fetch available expiries for NIFTY/BANKNIFTY — needed to determine weekly vs monthly
   useEffect(() => {
-    if (isOpen && optionType && (symbol === 'NIFTY' || symbol === 'BANKNIFTY') && !optionExpiry) {
+    if (isOpen && optionType && (symbol === 'NIFTY' || symbol === 'BANKNIFTY') && !optionExpiryType) {
       fetchAvailableExpiries();
     }
-  }, [isOpen, optionType, symbol, optionExpiry]);
+  }, [isOpen, optionType, symbol, optionExpiryType]);
 
   const fetchAvailableExpiries = async () => {
     setLoadingExpiries(true);
@@ -662,14 +662,17 @@ export default function OrderModal({
   useEffect(() => {
     if (!isOpen || !optionType || !symbol || !price || !isLoggedIn) return;
 
-    // When optionExpiry is passed explicitly, proceed immediately
-    if (optionExpiry) { fetchOptionDetails(); return; }
+    // When optionExpiry is passed explicitly and we know the type, proceed immediately
+    if (optionExpiry && optionExpiryType) { fetchOptionDetails(); return; }
+
+    // For NIFTY/BANKNIFTY without explicit expiry type, wait for availableExpiries to load
+    if ((symbol === 'NIFTY' || symbol === 'BANKNIFTY') && !optionExpiryType && availableExpiries.length === 0) return;
 
     // For NIFTY/BANKNIFTY without explicit expiry, wait for dropdown selection
-    if ((symbol === 'NIFTY' || symbol === 'BANKNIFTY') && !selectedExpiryDate) return;
+    if ((symbol === 'NIFTY' || symbol === 'BANKNIFTY') && !optionExpiry && !selectedExpiryDate) return;
 
     fetchOptionDetails();
-  }, [isOpen, optionType, symbol, price, isLoggedIn, selectedExpiryDate, optionExpiry, optionExpiryType]);
+  }, [isOpen, optionType, symbol, price, isLoggedIn, selectedExpiryDate, optionExpiry, optionExpiryType, availableExpiries.length]);
 
   const fetchOptionDetails = async () => {
     setFetchingLtp(true);
@@ -690,8 +693,13 @@ export default function OrderModal({
       let finalExpiryType = optionExpiryType;
       if (!finalExpiryType && (symbol === 'NIFTY' || symbol === 'BANKNIFTY')) {
         // Check if selected expiry is weekly or monthly
-        const expiryObj = availableExpiries.find(e => e.date === selectedExpiryDate);
-        finalExpiryType = expiryObj?.isMonthly ? 'monthly' : 'weekly';
+        const targetDate = optionExpiry || selectedExpiryDate;
+        const expiryObj = availableExpiries.find(e => e.date === targetDate);
+        if (expiryObj) {
+          finalExpiryType = expiryObj.isMonthly ? 'monthly' : 'weekly';
+        } else {
+          finalExpiryType = 'monthly'; // fallback
+        }
       } else if (!finalExpiryType) {
         finalExpiryType = 'monthly';
       }
