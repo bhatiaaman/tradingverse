@@ -1,0 +1,24 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Vultr VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          timeout: 20m
+          script: |
+            cd /var/www/tradingverse
+            git pull origin master
+            npm install --prefer-offline
+            NODE_OPTIONS="--max-old-space-size=1536" npm run build
+            pm2 restart tradingverse
+            pm2 status
