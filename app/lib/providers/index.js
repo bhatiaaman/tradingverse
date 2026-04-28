@@ -13,12 +13,18 @@ import { KiteBroker }         from './kite/KiteBroker.js';
 import { KiteDataProvider }   from './kite/KiteDataProvider.js';
 import { PaperBroker }        from './paper/PaperBroker.js';
 import { redis }              from '@/app/lib/redis';
+import { sql }                from '@/app/lib/db';
 import { kiteRedisGet }       from './kite/kite-redis.js';
 
 async function getActiveBroker() {
   try {
     const active = await redis.get('tradingverse:active_broker');
-    return active || 'kite'; // Default to Kite
+    if (active) return active;
+    // Redis evicted — fall back to DB and repopulate Redis
+    const rows = await sql`SELECT value FROM system_config WHERE key = 'active_broker'`;
+    const broker = rows[0]?.value?.broker ?? 'kite';
+    await redis.set('tradingverse:active_broker', broker);
+    return broker;
   } catch {
     return 'kite';
   }

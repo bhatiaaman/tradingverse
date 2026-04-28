@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireSession, unauthorized, forbidden, serviceUnavailable } from '@/app/lib/session';
 import { sql } from '@/app/lib/db';
+import { redis } from '@/app/lib/redis';
 
 const CONFIG_KEY    = 'active_broker';
 const VALID_BROKERS = ['kite', 'paper'];
@@ -32,5 +33,6 @@ export async function POST(request) {
     VALUES (${CONFIG_KEY}, ${{ broker }}, now())
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
   `;
+  await redis.set('tradingverse:active_broker', broker);
   return NextResponse.json({ success: true, broker });
 }

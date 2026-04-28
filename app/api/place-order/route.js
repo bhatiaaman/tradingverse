@@ -173,7 +173,7 @@ export async function POST(request) {
           VALUES (${paperId}, true, ${params.tradingsymbol}, ${params.exchange},
                   ${params.transaction_type}, ${params.order_type}, ${params.product},
                   ${params.quantity}, ${fillPrice}, 'COMPLETE', ${Date.now()},
-                  ${JSON.stringify({ price: params.price ?? null, trigger_price: params.trigger_price ?? null })})
+                  ${{ price: params.price ?? null, trigger_price: params.trigger_price ?? null }})
         `;
         return NextResponse.json({
           success: true, paper: true, order_id: paperId, fill_price: fillPrice,
