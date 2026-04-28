@@ -7,7 +7,7 @@ const NS          = process.env.REDIS_NAMESPACE || 'default';
 
 const NIFTY_TOKEN  = 256265; // NSE:NIFTY 50 index token
 const SNAP_KEY     = `${NS}:sc-snap:NIFTY`;
-const SNAP_TTL     = 45 * 60; // 45 minutes
+const SNAP_TTL     = 15 * 60; // 15 minutes
 const RESULT_TTL   = 55;     // 55s cache — one tick behind the 60s poll
 
 const SCORE_THRESHOLD = 7;
