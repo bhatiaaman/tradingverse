@@ -433,10 +433,8 @@ export async function GET(request) {
     const vwapSeries = computeVWAP(candles);
     const vwapNow    = vwapSeries.at(-1)?.value ?? spot;
 
-    // 4. Load daily persistent snapshot
-    const todayIST = new Date(Date.now() + IST_OFF_MS).toISOString().slice(0, 10);
-    const DAILY_SNAP_KEY = `${NS}:sc-snap:NIFTY:${todayIST}`;
-    let snap = await redisGet(DAILY_SNAP_KEY);
+    // 4. Load rolling snapshot
+    let snap = await redisGet(SNAP_KEY);
 
     // 5. Score each signal
     const sigVwap      = scoreVwapReclaim(candles, vwapSeries);
@@ -450,8 +448,40 @@ export async function GET(request) {
                   sigVolume.score + sigStraddle.score + sigPCR.score;
     const active = score >= SCORE_THRESHOLD;
 
-    // 6. Save baseline only if missing for today
+    // 6. Snapshot Management (Rolling Window & Expiry)
+    let shouldResetSnap = false;
+    const nowMs = Date.now();
+    let snapToSave = null;
+
     if (!snap) {
+      shouldResetSnap = true;
+    } else {
+      const ageSecs = (nowMs - snap.ts) / 1000;
+      
+      if (snap.activeSince) {
+        // It's currently in an active window
+        const activeDurationSecs = (nowMs - snap.activeSince) / 1000;
+        if (activeDurationSecs > SNAP_TTL) {
+          // Expire the signal after 45 mins to prevent it staying active all day
+          shouldResetSnap = true;
+        } else if (!active) {
+          // It fell out of active state. Reset baseline so it requires a fresh buildup to trigger again.
+          shouldResetSnap = true;
+        }
+      } else {
+        // Not in an active window
+        if (active) {
+          // Just triggered! Mark activeSince
+          snap.activeSince = nowMs;
+          snapToSave = snap;
+        } else if (ageSecs > SNAP_TTL) {
+          // Refresh baseline every 45 mins if nothing is happening
+          shouldResetSnap = true;
+        }
+      }
+    }
+
+    if (shouldResetSnap) {
       let snapCEOI = 0;
       if (chain?.strikes) {
         for (const [strikeStr, data] of Object.entries(chain.strikes)) {
@@ -460,7 +490,7 @@ export async function GET(request) {
         }
       }
       
-      snap = {
+      snapToSave = {
         spot,
         futOI,
         ceOI:      snapCEOI,
@@ -469,9 +499,15 @@ export async function GET(request) {
         atmCELTP:  chain?.atmCE?.ltp ?? null,
         atmPELTP:  chain?.atmPE?.ltp ?? null,
         atmPEOI:   chain?.atmPE?.oi  ?? null,
-        ts:        Date.now(),
+        ts:        nowMs,
+        activeSince: active && !shouldResetSnap ? nowMs : null,
       };
-      redisSet(DAILY_SNAP_KEY, snap, 24 * 3600).catch(() => {});
+    }
+
+    if (snapToSave) {
+      redisSet(SNAP_KEY, snapToSave, 24 * 3600).catch(() => {});
+      // Ensure we don't return negative snapshotAge if we just created it
+      snap = snapToSave;
     }
 
     // 7. Build trade suggestion if active
