@@ -92,13 +92,14 @@ async function fetchKiteCandles(token, interval, days, apiKey, accessToken) {
 }
 
 // ── Data collectors (mirrors order-intelligence/route.js) ─────────────────────
-async function collectBehavioralData(symbol, base) {
+async function collectBehavioralData(symbol, base, cookie) {
+  const fetchOpts = { cache: 'no-store', headers: cookie ? { cookie } : {} };
   const [positionsRes, ordersRes, sentimentRes, sectorRes, marketDataRes] = await Promise.allSettled([
-    fetch(`${base}/api/kite-positions`, { cache: 'no-store' }),
-    fetch(`${base}/api/kite-orders?limit=50`, { cache: 'no-store' }),
-    fetch(`${base}/api/sentiment`, { cache: 'no-store' }),
-    fetch(`${base}/api/sector-performance`, { cache: 'no-store' }),
-    fetch(`${base}/api/market-data`, { cache: 'no-store' }),
+    fetch(`${base}/api/kite-positions`, fetchOpts),
+    fetch(`${base}/api/kite-orders?limit=50`, fetchOpts),
+    fetch(`${base}/api/sentiment`, fetchOpts),
+    fetch(`${base}/api/sector-performance`, fetchOpts),
+    fetch(`${base}/api/market-data`, fetchOpts),
   ]);
 
   let allPositions = [];
@@ -167,7 +168,7 @@ async function collectBehavioralData(symbol, base) {
   };
 }
 
-async function collectStructureData(symbol, base) {
+async function collectStructureData(symbol, base, cookie) {
   const token = await resolveToken(symbol);
   if (!token) return null;
   const dp = await getDataProvider();
@@ -178,7 +179,7 @@ async function collectStructureData(symbol, base) {
     fetchKiteCandles(token,  '15minute', 7,  apiKey, accessToken),
     fetchKiteCandles(token,  'day',      90, apiKey, accessToken),
     fetchKiteCandles(256265, 'day',      90, apiKey, accessToken), // NIFTY
-    fetch(`${base}/api/market-breadth`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(`${base}/api/market-breadth`, { cache: 'no-store', headers: cookie ? { cookie } : {} }).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
 
   let breadth = null;
@@ -228,12 +229,12 @@ async function collectStationData(symbol) {
   return { candles15m: c15m ?? [], candlesDaily: cDaily ?? [] };
 }
 
-async function collectOIData(symbol, base) {
+async function collectOIData(symbol, base, cookie) {
   const OI_INDEX_MAP = { NIFTY: 'NIFTY', BANKNIFTY: 'BANKNIFTY' };
   const underlying = OI_INDEX_MAP[symbol?.toUpperCase()];
   if (!underlying) return null;
   try {
-    const r    = await fetch(`${base}/api/option-chain?underlying=${underlying}&expiry=weekly`, { cache: 'no-store' });
+    const r    = await fetch(`${base}/api/option-chain?underlying=${underlying}&expiry=weekly`, { cache: 'no-store', headers: cookie ? { cookie } : {} });
     if (!r.ok) return null;
     const data = await r.json();
     if (!data.pcr) return null;
@@ -254,7 +255,7 @@ async function collectOIData(symbol, base) {
 // ── Public API ────────────────────────────────────────────────────────────────
 // Returns unified intelligence for a symbol. Always runs all 5 agents.
 // base: internal base URL (e.g. 'http://localhost:3000') — needed for internal API calls.
-export async function getIntelligence(symbol, { base, interval = '15minute', transactionType, instrumentType, spotPrice, productType } = {}) {
+export async function getIntelligence(symbol, { base, cookie, interval = '15minute', transactionType, instrumentType, spotPrice, productType } = {}) {
   const sym      = symbol.toUpperCase();
   const isIndex  = INDEX_SYMBOLS.has(sym);
   const regimeSym = (sym === 'BANKNIFTY') ? 'BANKNIFTY' : 'NIFTY';
@@ -272,14 +273,14 @@ export async function getIntelligence(symbol, { base, interval = '15minute', tra
   // 1. Collect behavioral data + run all data collectors in parallel
   const [behavioralData, structureData, patternData, stationData, oiData, regimeRes] =
     await Promise.allSettled([
-      collectBehavioralData(sym, base),
-      collectStructureData(sym, base),
+      collectBehavioralData(sym, base, cookie),
+      collectStructureData(sym, base, cookie),
       collectPatternData(sym),
       collectStationData(sym),
-      isIndex ? collectOIData(sym, base) : Promise.resolve(null),
+      isIndex ? collectOIData(sym, base, cookie) : Promise.resolve(null),
       base ? fetch(`${base}/api/market-regime`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) },
         body: JSON.stringify({ symbol: regimeSym, type: 'intraday' }),
         cache: 'no-store',
       }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),

@@ -42,7 +42,8 @@ export async function GET(req) {
   if (cached) return NextResponse.json({ ...cached, fromCache: true });
 
   try {
-    const result = await getIntelligence(symbol, { base: baseUrl(req), interval });
+    const cookie = req.headers.get('cookie');
+    const result = await getIntelligence(symbol, { base: baseUrl(req), cookie, interval });
     await redisSet(cacheKey, result, CACHE_TTL);
     return NextResponse.json(result);
   } catch (err) {

@@ -33,7 +33,8 @@ export async function POST(req) {
       return NextResponse.json({ error: 'symbol is required' }, { status: 400 });
     }
 
-    const intel = await getIntelligence(symbol, { base: baseUrl(req), transactionType, instrumentType, spotPrice, productType });
+    const cookie = req.headers.get('cookie');
+    const intel = await getIntelligence(symbol, { base: baseUrl(req), cookie, transactionType, instrumentType, spotPrice, productType });
 
     // Return old shape so OrderModal fallback path keeps working unchanged
     return NextResponse.json({
