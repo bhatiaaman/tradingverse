@@ -29,7 +29,7 @@ export async function POST(request) {
 
   await sql`
     INSERT INTO system_config (key, value, updated_at)
-    VALUES (${CONFIG_KEY}, ${JSON.stringify({ broker })}, now())
+    VALUES (${CONFIG_KEY}, ${{ broker }}, now())
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
   `;
   return NextResponse.json({ success: true, broker });

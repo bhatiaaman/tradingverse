@@ -57,7 +57,7 @@ export async function POST(req) {
 
   await sql`
     INSERT INTO system_config (key, value, updated_at)
-    VALUES (${CONFIG_KEY}, ${JSON.stringify(merged)}, now())
+    VALUES (${CONFIG_KEY}, ${merged}, now())
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
   `;
   return NextResponse.json({ ok: true, settings: merged });

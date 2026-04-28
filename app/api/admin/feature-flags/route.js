@@ -53,7 +53,7 @@ export async function PATCH(req) {
 
   await sql`
     INSERT INTO system_config (key, value, updated_at)
-    VALUES (${CONFIG_KEY}, ${JSON.stringify(flags)}, now())
+    VALUES (${CONFIG_KEY}, ${flags}, now())
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
   `
   return NextResponse.json({ ok: true })
