@@ -476,9 +476,22 @@ function scoreToVerdict(score) {
 // Main export
 // ─────────────────────────────────────────────────────────────────────────────
 export function runStationAgent(data) {
-  const spotPrice = data.order?.spotPrice ?? 
-                    data.stationData?.candles15m?.at(-1)?.close ?? 
+  const spotPrice = data.order?.spotPrice ??
+                    data.stationData?.candles15m?.at(-1)?.close ??
                     null;
+
+  // Guard: if candle data is from a different symbol (Redis cache anomaly), bail out.
+  // Compare the known order spot price against the last candle close — if they diverge
+  // by more than 15%, the candles are almost certainly from the wrong instrument.
+  const orderSpot    = data.order?.spotPrice;
+  const lastClose    = data.stationData?.candles15m?.at(-1)?.close;
+  if (orderSpot && lastClose) {
+    const divergencePct = Math.abs(lastClose - orderSpot) / orderSpot * 100;
+    if (divergencePct > 15) {
+      console.warn(`station: candle price (${lastClose}) diverges ${divergencePct.toFixed(1)}% from order spot (${orderSpot}) — skipping station analysis`);
+      return { behaviors: [], checks: [], verdict: 'clear', riskScore: 0, zoneState: 'APPROACHING', nearestStation: null, allStations: [] };
+    }
+  }
 
   // 1. Run detectStations once (5m candles not available — degrades gracefully)
   let stationResult = null;

@@ -288,9 +288,27 @@ export async function getIntelligence(symbol, { base, interval = '15minute', tra
   const bd = behavioralData.status === 'fulfilled' ? behavioralData.value : null;
   const sd = structureData.status  === 'fulfilled' ? structureData.value  : null;
   const pd = patternData.status    === 'fulfilled' ? patternData.value    : null;
-  const td = stationData.status    === 'fulfilled' ? stationData.value    : null;
+  let   td = stationData.status    === 'fulfilled' ? stationData.value    : null;
   const od = oiData.status         === 'fulfilled' ? oiData.value         : null;
   const regime = regimeRes.status  === 'fulfilled' ? regimeRes.value      : null;
+
+  // Validate station candles — if the last candle close diverges >15% from the known spot
+  // price the cache contains data for the wrong symbol; bust it so the next call re-fetches.
+  if (spotPrice && td?.candles15m?.length) {
+    const lastClose    = td.candles15m.at(-1)?.close;
+    const divergencePct = lastClose ? Math.abs(lastClose - spotPrice) / spotPrice * 100 : 0;
+    if (divergencePct > 15) {
+      console.warn(`[manager] stale candles for ${sym}: last close ${lastClose} vs spot ${spotPrice} (${divergencePct.toFixed(1)}% off) — busting cache`);
+      const token = await resolveToken(sym).catch(() => null);
+      if (token) {
+        await Promise.allSettled([
+          redisSet(`${NS}:candles:${token}:15minute:7`, null, 1),
+          redisSet(`${NS}:candles:${token}:day:60`,     null, 1),
+        ]);
+      }
+      td = null; // don't use this data; station agent will degrade gracefully
+    }
+  }
 
   // 2. Build agent inputs
   const agentBase = { order, ...(bd ?? { positions: {}, orders: {}, sentiment: {}, sector: {}, vix: null }) };

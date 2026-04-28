@@ -137,8 +137,13 @@ function gatherSignals({ tradeBias, sentiment, zoneState, zone, oiData, structur
   }
 
   // ── Zone context ──────────────────────────────────────────────────────────
+  // Sanity-check zone price against order spot price — if they diverge > 15%
+  // the station agent ran on wrong-symbol candle data; skip zone signals entirely.
+  const zonePriceSane = !zone || !order?.spotPrice ||
+    (Math.abs(zone.price - order.spotPrice) / order.spotPrice * 100) <= 15;
+
   const threshold = (order?.productType === 'MIS' || order?.productType === 'BO') ? 0.75 : 2;
-  if (zone && zone.distance <= threshold) {
+  if (zonePriceSane && zone && zone.distance <= threshold) {
     const z = zone;
     const zLabel = `${z.type.charAt(0)}${z.type.slice(1).toLowerCase()} ₹${z.price.toFixed(0)}`;
 
