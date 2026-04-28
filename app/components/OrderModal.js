@@ -746,6 +746,7 @@ export default function OrderModal({
   useEffect(() => {
     if (isOpen) {
       setTransactionType(defaultType);
+      setOrderType(optionType ? 'LIMIT' : 'MARKET');
       const initLot = lotSizeProp || 1;
       setLotSize(initLot);
       setQuantity(initLot);
