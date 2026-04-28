@@ -229,8 +229,28 @@ export async function POST(request) {
         product: params.product, quantity: params.quantity,
         price: params.price ?? null, trigger_price: params.trigger_price ?? null,
       });
+
+      // Store bracket targets if provided — kite-worker monitors and places SL/TP on fill
+      const sl_price = body.sl_price ? parseFloat(body.sl_price) : null;
+      const tp_price = body.tp_price ? parseFloat(body.tp_price) : null;
+      if (sl_price || tp_price) {
+        const bracketData = {
+          sl_price, tp_price,
+          symbol:     params.tradingsymbol,
+          exchange:   params.exchange,
+          quantity:   params.quantity,
+          product:    params.product,
+          variety:    params.variety || 'regular',
+          exit_type:  params.transaction_type === 'BUY' ? 'SELL' : 'BUY',
+          created_at: Date.now(),
+        };
+        await redis.set(`tradingverse:bracket:${result.kiteOrderId}`, JSON.stringify(bracketData), { ex: 86400 });
+        await redis.sadd('tradingverse:bracket:pending', result.kiteOrderId);
+      }
+
       return NextResponse.json({
         success: true, order_id: result.kiteOrderId, orderId,
+        bracket: !!(sl_price || tp_price),
         message: `Order placed. Kite ID: ${result.kiteOrderId}`,
         details: params,
       });

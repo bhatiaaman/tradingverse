@@ -80,16 +80,30 @@ async function redisLtrim(key, start, stop) {
   return redisCmd('ltrim', key, String(start), String(stop));
 }
 
+async function redisSmembers(key) {
+  return redisCmd('smembers', key);
+}
+
+async function redisSadd(key, member) {
+  return redisCmd('sadd', key, member);
+}
+
+async function redisSrem(key, member) {
+  return redisCmd('srem', key, member);
+}
+
 // ─── Redis keys ───────────────────────────────────────────────────────────────
-// NS must match REDIS_NAMESPACE env var in the Next.js app (default: 'default')
 const NS           = process.env.REDIS_NAMESPACE || 'default';
 const QUEUE_KEY    = 'tradingverse:order_queue';
 const STATUS_PFX   = 'tradingverse:order_status:';
 const DEDUP_PFX    = 'tradingverse:order_dedup:';
 const EXEC_LOG_KEY = 'tradingverse:order_exec_log';
 const EXEC_LOG_MAX = 500;
-const KITE_TOKEN_KEY  = `${NS}:kite:access_token`;
-const KITE_APIKEY_KEY = `${NS}:kite:api_key`;
+const KITE_TOKEN_KEY    = `${NS}:kite:access_token`;
+const KITE_APIKEY_KEY   = `${NS}:kite:api_key`;
+const BRACKET_PENDING   = 'tradingverse:bracket:pending';
+const BRACKET_PFX       = 'tradingverse:bracket:';
+const BRACKET_RESULT_PFX = 'tradingverse:bracket:result:';
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
 async function writeLog(entry) {
@@ -166,6 +180,85 @@ async function processOrder(raw) {
   }
 }
 
+// ─── Bracket order monitoring ─────────────────────────────────────────────────
+async function placeBracketOrders(kite, kiteOrderId, bracket) {
+  const { sl_price, tp_price, symbol, exchange, quantity, product, exit_type, variety } = bracket;
+  const results = { status: 'done', sl_order_id: null, tp_order_id: null, errors: [], symbol, placed_at: Date.now() };
+
+  if (sl_price) {
+    try {
+      const r = await kite.placeOrder(variety || 'regular', {
+        tradingsymbol: symbol, exchange, transaction_type: exit_type,
+        quantity, product, order_type: 'SL-M', trigger_price: parseFloat(sl_price), validity: 'DAY',
+      });
+      results.sl_order_id = r.order_id;
+      console.log(`[bracket] SL placed: ${r.order_id} for ${symbol} @ trigger ${sl_price}`);
+    } catch (e) {
+      results.errors.push(`SL failed: ${e.message}`);
+      console.error(`[bracket] SL failed for ${symbol}:`, e.message);
+    }
+  }
+
+  if (tp_price) {
+    try {
+      const r = await kite.placeOrder(variety || 'regular', {
+        tradingsymbol: symbol, exchange, transaction_type: exit_type,
+        quantity, product, order_type: 'LIMIT', price: parseFloat(tp_price), validity: 'DAY',
+      });
+      results.tp_order_id = r.order_id;
+      console.log(`[bracket] TP placed: ${r.order_id} for ${symbol} @ ${tp_price}`);
+    } catch (e) {
+      results.errors.push(`TP failed: ${e.message}`);
+      console.error(`[bracket] TP failed for ${symbol}:`, e.message);
+    }
+  }
+
+  await redisSrem(BRACKET_PENDING, kiteOrderId);
+  await redisSet(`${BRACKET_RESULT_PFX}${kiteOrderId}`, JSON.stringify(results), 86400);
+}
+
+async function monitorBrackets() {
+  console.log('[bracket] Bracket monitor started');
+  while (true) {
+    try {
+      const members = await redisSmembers(BRACKET_PENDING);
+      if (members && members.length > 0) {
+        let kite;
+        try { kite = await getKite(); } catch { /* credentials not ready yet */ }
+
+        if (kite) {
+          const allOrders = await kite.getOrders();
+          for (const kiteOrderId of members) {
+            const order = allOrders.find(o => o.order_id === kiteOrderId);
+            if (!order) continue;
+
+            if (order.status === 'COMPLETE') {
+              const raw = await redisGet(`${BRACKET_PFX}${kiteOrderId}`);
+              if (!raw) { await redisSrem(BRACKET_PENDING, kiteOrderId); continue; }
+              try {
+                const bracket = JSON.parse(raw);
+                await placeBracketOrders(kite, kiteOrderId, bracket);
+              } catch (e) {
+                console.error('[bracket] placeBracketOrders error:', e.message);
+              }
+            } else if (order.status === 'CANCELLED' || order.status === 'REJECTED') {
+              await redisSrem(BRACKET_PENDING, kiteOrderId);
+              await redisSet(`${BRACKET_RESULT_PFX}${kiteOrderId}`,
+                JSON.stringify({ status: 'entry_cancelled', reason: order.status, placed_at: Date.now() }), 86400);
+              console.log(`[bracket] Entry ${order.status} — bracket cancelled for ${kiteOrderId}`);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[bracket] Monitor error:', e.message);
+    }
+    // 5s during market hours, 30s otherwise
+    const pollMs = marketHoursPollMs() === 1000 ? 5000 : 30000;
+    await new Promise(r => setTimeout(r, pollMs));
+  }
+}
+
 // ─── Main loop ────────────────────────────────────────────────────────────────
 async function main() {
   console.log('[worker] TradingVerse order worker started');
@@ -188,4 +281,9 @@ async function main() {
 main().catch(err => {
   console.error('[worker] Fatal error:', err);
   process.exit(1);
+});
+
+monitorBrackets().catch(err => {
+  console.error('[bracket] Fatal error:', err);
+  // Don't exit — order worker must keep running even if bracket monitor crashes
 });

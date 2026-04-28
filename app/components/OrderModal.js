@@ -550,6 +550,11 @@ export default function OrderModal({
   const [selectedExpiryDate, setSelectedExpiryDate] = useState(null);
   const [loadingExpiries, setLoadingExpiries] = useState(false);
 
+  const [slPrice, setSlPrice] = useState('');
+  const [tpPrice, setTpPrice] = useState('');
+  const [bracketStatus, setBracketStatus] = useState(null); // null | 'monitoring' | 'done' | 'error'
+  const bracketPollRef = useRef(null);
+
   const closeTimerRef = useRef(null); // tracked so we can cancel if modal reopens
   const [avgDownAlert, setAvgDownAlert] = useState(null); // Averaging down warning
   const [positions, setPositions] = useState([]);
@@ -753,6 +758,10 @@ export default function OrderModal({
       setProduct(defaultProduct);
       setLimitPrice(price?.toString() || '');
       setTriggerPrice('');
+      setSlPrice('');
+      setTpPrice('');
+      setBracketStatus(null);
+      clearInterval(bracketPollRef.current);
       setExchange(defaultExchange);
       setError('');
       setSuccess('');
@@ -972,6 +981,8 @@ export default function OrderModal({
           orderData.price = parseFloat(limitPrice);
         }
       }
+      if (slPrice)  orderData.sl_price = parseFloat(slPrice);
+      if (tpPrice)  orderData.tp_price = parseFloat(tpPrice);
       const response = await fetch('/api/place-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -986,14 +997,40 @@ export default function OrderModal({
       if (!response.ok) {
         throw new Error(result.error || 'Failed to place order');
       }
-      setSuccess(`Order placed! ID: ${result.order_id}`);
-      if (onOrderPlaced) {
-        onOrderPlaced(result);
+      const hasBracket = result.bracket && !result.paper;
+      setSuccess(hasBracket
+        ? `Order placed! Monitoring for fill to place SL/TP...`
+        : `Order placed! ID: ${result.order_id}`
+      );
+      if (onOrderPlaced) onOrderPlaced(result);
+
+      if (hasBracket) {
+        setBracketStatus('monitoring');
+        bracketPollRef.current = setInterval(async () => {
+          try {
+            const bs = await fetch(`/api/bracket-status/${result.order_id}`).then(r => r.json());
+            if (bs.status === 'done') {
+              clearInterval(bracketPollRef.current);
+              setBracketStatus('done');
+              const r = bs.result;
+              const parts = [];
+              if (r.sl_order_id) parts.push(`SL: ${r.sl_order_id}`);
+              if (r.tp_order_id) parts.push(`TP: ${r.tp_order_id}`);
+              if (r.errors?.length) parts.push(`Errors: ${r.errors.join(', ')}`);
+              setSuccess(`SL/TP placed! ${parts.join(' | ')}`);
+              closeTimerRef.current = setTimeout(onClose, 3000);
+            }
+          } catch { /* keep polling */ }
+        }, 5000);
+        // Stop polling after 15 min max
+        setTimeout(() => {
+          clearInterval(bracketPollRef.current);
+          setBracketStatus(null);
+        }, 15 * 60 * 1000);
+      } else {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = setTimeout(onClose, 2000);
       }
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = setTimeout(() => {
-        onClose();
-      }, 2000);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1152,8 +1189,34 @@ export default function OrderModal({
                 </div>
               )}
 
+              {/* Bracket SL / TP — real orders only, not paper */}
+              {providerStatus?.broker !== 'paper' && (
+                <div className="space-y-1">
+                  <label className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">
+                    Bracket — Auto SL / TP on fill <span className="text-slate-600 normal-case">(optional)</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[9px] text-slate-600">Stop Loss trigger</label>
+                      <input type="number" step="0.05" placeholder="e.g. 230" value={slPrice} onChange={e => setSlPrice(e.target.value)}
+                        className="w-full h-9 bg-rose-500/5 border border-rose-500/20 rounded-xl px-3 text-[13px] font-bold font-mono text-white focus:outline-none focus:border-rose-500/50 placeholder:text-slate-600" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] text-slate-600">Take Profit price</label>
+                      <input type="number" step="0.05" placeholder="e.g. 280" value={tpPrice} onChange={e => setTpPrice(e.target.value)}
+                        className="w-full h-9 bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-3 text-[13px] font-bold font-mono text-white focus:outline-none focus:border-emerald-500/50 placeholder:text-slate-600" />
+                    </div>
+                  </div>
+                  {(slPrice || tpPrice) && (
+                    <p className="text-[9px] text-slate-500">
+                      Once entry fills, worker auto-places {slPrice ? 'SL-M' : ''}{slPrice && tpPrice ? ' + ' : ''}{tpPrice ? 'LIMIT TP' : ''} order{slPrice && tpPrice ? 's' : ''}.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {error && <div className="text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-2 py-1.5">{error}</div>}
-              {success && <div className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2 py-1.5">{success}</div>}
+              {success && <div className={`text-[10px] rounded-lg px-2 py-1.5 ${bracketStatus === 'monitoring' ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20' : 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'}`}>{success}</div>}
 
               {/* Submit + Full Intel */}
               <div className="flex gap-2 pt-1">
