@@ -1,20 +1,11 @@
 import { NextResponse } from 'next/server'
-import { neon } from '@neondatabase/serverless'
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN
 const NS          = process.env.REDIS_NAMESPACE || 'tradingverse'
 const OWNER_EMAIL = process.env.OWNER_EMAIL?.toLowerCase().trim()
 
-// ── Neon (lazy init so Edge worker doesn't fail if env missing) ──────────────
-let _sql
-function getSql() {
-  if (!_sql) _sql = neon(process.env.NEON_DB_URL)
-  return _sql
-}
-
-// Session cache — avoids a Neon round-trip on every page navigation.
-// Sessions are 30-day tokens; a 60s in-memory TTL is safe and invisible to users.
+// Session cache — avoids a Redis round-trip on every page navigation.
 const SESSION_CACHE     = new Map()   // token → { email, plan, cachedAt }
 const SESSION_CACHE_TTL = 300_000      // 5 minutes
 
@@ -32,17 +23,10 @@ async function getSessionEmail(token) {
   const cached = getCachedSession(token)
   if (cached) return cached.email
   try {
-    const sql  = getSql()
-    const rows = await sql`
-      SELECT s.email, u.plan
-      FROM sessions s
-      LEFT JOIN users u ON u.email = s.email
-      WHERE s.token = ${token} AND s.expires_at > now()
-      LIMIT 1
-    `
-    if (!rows[0]) return null
-    SESSION_CACHE.set(token, { email: rows[0].email, plan: rows[0].plan ?? 'free', cachedAt: Date.now() })
-    return rows[0].email
+    const email = await redisGet(`${NS}:session:${token}`)
+    if (!email) return null
+    SESSION_CACHE.set(token, { email, plan: 'free', cachedAt: Date.now() })
+    return email
   } catch { return null }
 }
 
@@ -53,11 +37,8 @@ async function getUserPlan(email) {
       return entry.plan
     }
   }
-  try {
-    const sql  = getSql()
-    const rows = await sql`SELECT plan FROM users WHERE email = ${email} LIMIT 1`
-    return rows[0]?.plan ?? 'free'
-  } catch { return 'free' }
+  // Fallback: all authenticated users are treated as free unless cached plan says otherwise
+  return 'free'
 }
 
 // ── Feature flags still come from Redis (short-lived cache, not session data) ─

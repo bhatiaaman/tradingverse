@@ -68,6 +68,7 @@ export async function GET(req) {
     const token     = randomBytes(32).toString('hex')
     const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 3600 * 1000)
     await sql`INSERT INTO sessions (token, email, expires_at) VALUES (${token}, ${email}, ${expiresAt})`
+    await redis.set(`${NS}:session:${token}`, email, { ex: SESSION_TTL_DAYS * 24 * 3600 })
 
     const res = NextResponse.redirect(`${APP_URL}${safeNext}`)
     res.cookies.set('tv_session', token, {
