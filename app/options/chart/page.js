@@ -935,6 +935,22 @@ function OptionsChartInner() {
     window.history.replaceState({}, '', url.toString());
   }, [symbol, expiry, strike, interval, loadingMeta, loadingExp, loadingStr]);
 
+  // ── Real-time Spot Price Polling ──────────────────────────────────────────
+  useEffect(() => {
+    if (!symbol) return;
+    let timeout;
+    const pollSpot = async () => {
+      try {
+        const r = await fetch(`/api/ltp?symbol=${symbol}`);
+        const d = await r.json();
+        if (d.success && d.ltp) setSpotPrice(d.ltp);
+      } catch {}
+      timeout = setTimeout(pollSpot, 5000);
+    };
+    pollSpot();
+    return () => clearTimeout(timeout);
+  }, [symbol]);
+
   // ── One-line synthesis ───────────────────────────────────────────────────
   useEffect(() => {
     if (!symbol || !expiry || !strike) return;
