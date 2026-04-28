@@ -141,123 +141,124 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  // ── Safety gate: enforce server-side paper mode ────────────────────────────
-  // Paper mode is stored in Redis (tradingverse:active_broker = 'paper').
-  // If it is active, ALL orders MUST be paper — regardless of what the client sends.
-  // This prevents a client-side bug from ever firing a real Zerodha order while
-  // Paper Trading mode is enabled.
-  let activeBroker = 'kite';
   try {
-    const rows = await sql`SELECT value FROM system_config WHERE key = 'active_broker'`;
-    activeBroker = rows[0]?.value?.broker ?? 'kite';
-  } catch { /* default kite */ }
-  const isPaperMode = activeBroker === 'paper';
-
-  if (isPaperMode) {
-    body.paper = true; // force paper regardless of client flag
-  }
-
-  // ── Paper trade branch — direct execution, no queue ───────────────────────
-  if (body.paper) {
+    // ── Safety gate: enforce server-side paper mode ────────────────────────────
+    let activeBroker = 'kite';
     try {
-      const { params } = buildOrderParams(body);
-      let fillPrice = body.price ? parseFloat(body.price) : 0;
-      if (!fillPrice || params.order_type === 'MARKET') {
-        try {
-          const dp      = await getDataProvider();
-          const sym     = `${params.exchange}:${params.tradingsymbol}`;
-          const ltpData = await dp.getLTP(sym);
-          fillPrice = ltpData?.data?.[sym]?.last_price ?? fillPrice;
-        } catch { /* keep fillPrice as-is */ }
-      }
-      const paperId = `paper_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-      await sql`
-        INSERT INTO orders (order_id, paper, symbol, exchange, transaction_type, order_type, product, quantity, fill_price, status, ts, raw)
-        VALUES (${paperId}, true, ${params.tradingsymbol}, ${params.exchange},
-                ${params.transaction_type}, ${params.order_type}, ${params.product},
-                ${params.quantity}, ${fillPrice}, 'COMPLETE', ${Date.now()},
-                ${JSON.stringify({ price: params.price ?? null, trigger_price: params.trigger_price ?? null })})
-      `;
-      return NextResponse.json({
-        success: true, paper: true, order_id: paperId, fill_price: fillPrice,
-        message: `Paper ${params.transaction_type} executed at ₹${fillPrice}`,
-      });
-    } catch (e) {
-      return NextResponse.json({ error: e.message || 'Paper order failed' }, { status: e.status ?? 500 });
+      const rows = await sql`SELECT value FROM system_config WHERE key = 'active_broker'`;
+      activeBroker = rows[0]?.value?.broker ?? 'kite';
+    } catch { /* default kite */ }
+    const isPaperMode = activeBroker === 'paper';
+
+    if (isPaperMode) {
+      body.paper = true; // force paper regardless of client flag
     }
-  }
+
+    // ── Paper trade branch — direct execution, no queue ───────────────────────
+    if (body.paper) {
+      try {
+        const { params } = buildOrderParams(body);
+        let fillPrice = body.price ? parseFloat(body.price) : 0;
+        if (!fillPrice || params.order_type === 'MARKET') {
+          try {
+            const dp      = await getDataProvider();
+            const sym     = `${params.exchange}:${params.tradingsymbol}`;
+            const ltpData = await dp.getLTP(sym);
+            fillPrice = ltpData?.data?.[sym]?.last_price ?? fillPrice;
+          } catch { /* keep fillPrice as-is */ }
+        }
+        const paperId = `paper_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        await sql`
+          INSERT INTO orders (order_id, paper, symbol, exchange, transaction_type, order_type, product, quantity, fill_price, status, ts, raw)
+          VALUES (${paperId}, true, ${params.tradingsymbol}, ${params.exchange},
+                  ${params.transaction_type}, ${params.order_type}, ${params.product},
+                  ${params.quantity}, ${fillPrice}, 'COMPLETE', ${Date.now()},
+                  ${JSON.stringify({ price: params.price ?? null, trigger_price: params.trigger_price ?? null })})
+        `;
+        return NextResponse.json({
+          success: true, paper: true, order_id: paperId, fill_price: fillPrice,
+          message: `Paper ${params.transaction_type} executed at ₹${fillPrice}`,
+        });
+      } catch (e) {
+        return NextResponse.json({ error: e.message || 'Paper order failed' }, { status: e.status ?? 500 });
+      }
+    }
 
 
-  // ── Real order — queue via VPS worker ─────────────────────────────────────
-  let params, source;
-  try {
-    ({ params, source } = buildOrderParams(body));
-  } catch (e) {
-    return NextResponse.json({ error: e.message }, { status: e.status ?? 400 });
-  }
+    // ── Real order — queue via VPS worker ─────────────────────────────────────
+    let params, source;
+    try {
+      ({ params, source } = buildOrderParams(body));
+    } catch (e) {
+      return NextResponse.json({ error: e.message }, { status: e.status ?? 400 });
+    }
 
-  const orderId   = genOrderId();
-  const dedupKey  = `${DEDUP_PFX}${orderId}`;
-  const statusKey = `${STATUS_PFX}${orderId}`;
-  const ts        = Date.now();
+    const orderId   = genOrderId();
+    const dedupKey  = `${DEDUP_PFX}${orderId}`;
+    const statusKey = `${STATUS_PFX}${orderId}`;
+    const ts        = Date.now();
 
-  // Write dedup key (30s) + initial QUEUED status (10min)
-  await Promise.all([
-    redis.set(dedupKey,  '1',       { ex: 30 }),
-    redis.set(statusKey, 'QUEUED',  { ex: 600 }),
-  ]);
+    // Write dedup key (30s) + initial QUEUED status (10min)
+    await Promise.all([
+      redis.set(dedupKey,  '1',       { ex: 30 }),
+      redis.set(statusKey, 'QUEUED',  { ex: 600 }),
+    ]);
 
-  // Log RECEIVED
-  await writeExecLog({
-    event: 'RECEIVED', orderId, ts,
-    symbol: params.tradingsymbol, exchange: params.exchange,
-    transaction_type: params.transaction_type, order_type: params.order_type,
-    product: params.product, quantity: params.quantity,
-    price: params.price ?? null, trigger_price: params.trigger_price ?? null,
-    source,
-  });
-
-  // Push to queue
-  const payload = { orderId, ts, source, ...params };
-  await redis.lpush(QUEUE_KEY, JSON.stringify(payload));
-
-  // Poll for result
-  const result = await pollStatus(orderId);
-
-  if (result.status === 'SUCCESS') {
-    await writeOrderLog({
-      ts, status: 'success', order_id: result.kiteOrderId, orderId,
+    // Log RECEIVED
+    await writeExecLog({
+      event: 'RECEIVED', orderId, ts,
       symbol: params.tradingsymbol, exchange: params.exchange,
       transaction_type: params.transaction_type, order_type: params.order_type,
       product: params.product, quantity: params.quantity,
       price: params.price ?? null, trigger_price: params.trigger_price ?? null,
+      source,
     });
-    return NextResponse.json({
-      success: true, order_id: result.kiteOrderId, orderId,
-      message: `Order placed. Kite ID: ${result.kiteOrderId}`,
-      details: params,
+
+    // Push to queue
+    const payload = { orderId, ts, source, ...params };
+    await redis.lpush(QUEUE_KEY, JSON.stringify(payload));
+
+    // Poll for result
+    const result = await pollStatus(orderId);
+
+    if (result.status === 'SUCCESS') {
+      await writeOrderLog({
+        ts, status: 'success', order_id: result.kiteOrderId, orderId,
+        symbol: params.tradingsymbol, exchange: params.exchange,
+        transaction_type: params.transaction_type, order_type: params.order_type,
+        product: params.product, quantity: params.quantity,
+        price: params.price ?? null, trigger_price: params.trigger_price ?? null,
+      });
+      return NextResponse.json({
+        success: true, order_id: result.kiteOrderId, orderId,
+        message: `Order placed. Kite ID: ${result.kiteOrderId}`,
+        details: params,
+      });
+    }
+
+    if (result.status === 'TIMEOUT') {
+      // Order is still in queue / being processed — return orderId so frontend can track
+      return NextResponse.json({
+        success: false, pending: true, orderId,
+        error: 'Worker did not respond in time. Check Execution Log for status.',
+      }, { status: 202 });
+    }
+
+    // FAILED or REJECTED
+    const errMsg = result.error || 'Order failed';
+    await writeOrderLog({
+      ts, status: 'failed', order_id: null, orderId,
+      symbol: params.tradingsymbol, exchange: params.exchange,
+      transaction_type: params.transaction_type, order_type: params.order_type,
+      product: params.product, quantity: params.quantity,
+      price: params.price ?? null, trigger_price: params.trigger_price ?? null,
+      error: errMsg,
     });
+    return NextResponse.json({ success: false, error: errMsg, orderId }, { status: 400 });
+  } catch (error) {
+    console.error('[place-order] Fatal error:', error);
+    return NextResponse.json({ success: false, error: 'Internal server error: ' + error.message }, { status: 500 });
   }
-
-  if (result.status === 'TIMEOUT') {
-    // Order is still in queue / being processed — return orderId so frontend can track
-    return NextResponse.json({
-      success: false, pending: true, orderId,
-      error: 'Worker did not respond in time. Check Execution Log for status.',
-    }, { status: 202 });
-  }
-
-  // FAILED or REJECTED
-  const errMsg = result.error || 'Order failed';
-  await writeOrderLog({
-    ts, status: 'failed', order_id: null, orderId,
-    symbol: params.tradingsymbol, exchange: params.exchange,
-    transaction_type: params.transaction_type, order_type: params.order_type,
-    product: params.product, quantity: params.quantity,
-    price: params.price ?? null, trigger_price: params.trigger_price ?? null,
-    error: errMsg,
-  });
-  return NextResponse.json({ success: false, error: errMsg, orderId }, { status: 400 });
 }
 
 // ─── GET handler (unchanged) ──────────────────────────────────────────────────
