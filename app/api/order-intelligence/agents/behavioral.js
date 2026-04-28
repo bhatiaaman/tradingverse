@@ -15,29 +15,64 @@ function getTradeBias(instrumentType, transactionType) {
   return transactionType === 'BUY' ? 'BULLISH' : 'BEARISH'; // EQ / FUT
 }
 
+function getUnderlying(tradingsymbol) {
+  if (!tradingsymbol) return '';
+  const m = tradingsymbol.match(/^([A-Z&]+)/);
+  return m ? m[1] : tradingsymbol;
+}
+
+function getPositionBias(p) {
+  const t = p.tradingsymbol || '';
+  const isCE = t.endsWith('CE');
+  const isPE = t.endsWith('PE');
+  if (isCE) return p.quantity > 0 ? 'BULLISH' : 'BEARISH';
+  if (isPE) return p.quantity > 0 ? 'BEARISH' : 'BULLISH';
+  return p.quantity > 0 ? 'BULLISH' : 'BEARISH';
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // BEHAVIOR 1: Adding to a losing position
-// Fires when user already holds the same symbol in the same direction at a loss.
+// Fires when user already holds ANY position on the same underlying in the same direction at a loss.
 // ─────────────────────────────────────────────────────────────────────────────
 function checkAddingToLoser(data) {
-  const { sameSymbol } = data.positions;
-  if (!sameSymbol) return null;
+  const { all } = data.positions;
+  if (!all || all.length === 0) return null;
 
-  const addingLong  = sameSymbol.quantity > 0 && data.order.transactionType === 'BUY';
-  const addingShort = sameSymbol.quantity < 0 && data.order.transactionType === 'SELL';
-  if (!addingLong && !addingShort) return null;
+  const { instrumentType, transactionType, symbol } = data.order;
+  const orderBias = getTradeBias(instrumentType, transactionType);
+  const orderUnderlying = getUnderlying(symbol);
 
-  const threshold = data.order.exchange === 'NFO' ? -500 : -200;
-  if (sameSymbol.pnl >= threshold) return null;
+  let worstLoser = null;
 
-  const loss = Math.abs(sameSymbol.pnl).toFixed(0);
-  return {
-    type: 'ADDING_TO_LOSER',
-    severity: 'warning',
-    title: 'Adding to a losing position',
-    detail: `${sameSymbol.tradingsymbol} is currently down ₹${loss}. Averaging in increases your risk.`,
-    riskScore: 25,
-  };
+  for (const p of all) {
+    const pUnderlying = getUnderlying(p.tradingsymbol);
+    if (pUnderlying === orderUnderlying) {
+      const pBias = getPositionBias(p);
+      if (pBias === orderBias) {
+        const isNFO = p.exchange === 'NFO' || p.tradingsymbol.endsWith('CE') || p.tradingsymbol.endsWith('PE');
+        const threshold = isNFO ? -500 : -200;
+        
+        if (p.pnl < threshold) {
+          if (!worstLoser || p.pnl < worstLoser.pnl) {
+            worstLoser = p;
+          }
+        }
+      }
+    }
+  }
+
+  if (worstLoser) {
+    const loss = Math.abs(worstLoser.pnl).toFixed(0);
+    return {
+      type: 'ADDING_TO_LOSER',
+      severity: 'warning',
+      title: 'Adding to a losing position',
+      detail: `${worstLoser.tradingsymbol} is currently down ₹${loss}. Adding more ${orderBias.toLowerCase()} exposure increases your risk.`,
+      riskScore: 25,
+    };
+  }
+
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
