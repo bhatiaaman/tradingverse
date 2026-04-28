@@ -6,13 +6,20 @@
 //   import { sql } from '@/app/lib/db'
 //   const rows = await sql`SELECT * FROM users WHERE email = ${email}`
 
-import { neon } from '@neondatabase/serverless';
+import postgres from 'postgres';
 
 if (!process.env.NEON_DB_URL) {
   throw new Error('NEON_DB_URL environment variable is not set');
 }
 
-export const sql = neon(process.env.NEON_DB_URL);
+const client = postgres(process.env.NEON_DB_URL, {
+  ssl: 'require',
+  max: 5,
+  idle_timeout: 20,
+  connect_timeout: 10,
+});
+
+export const sql = client;
 
 // ─── Schema migration ──────────────────────────────────────────────────────────
 // Call once on app startup or via /api/db-migrate route.
