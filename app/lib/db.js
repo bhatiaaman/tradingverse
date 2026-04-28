@@ -12,8 +12,10 @@ if (!process.env.NEON_DB_URL) {
   throw new Error('NEON_DB_URL environment variable is not set');
 }
 
+const isLocal = process.env.NEON_DB_URL?.includes('localhost') || process.env.NEON_DB_URL?.includes('127.0.0.1');
+
 const client = postgres(process.env.NEON_DB_URL, {
-  ssl: 'require',
+  ssl: isLocal ? false : 'require',
   max: 5,
   idle_timeout: 20,
   connect_timeout: 10,
