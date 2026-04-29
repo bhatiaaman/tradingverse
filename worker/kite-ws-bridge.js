@@ -454,6 +454,7 @@ function dynamicSubscribe(newTokens) {
 // Eliminates ~5M Redis writes/month from flushSnapshots.
 function startHttpServer() {
   const port = parseInt(process.env.BRIDGE_HTTP_PORT || '3001', 10);
+  console.log(`[bridge] startHttpServer called, port=${port}`);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://localhost:${port}`);
     if (url.pathname !== '/dom') { res.writeHead(404); res.end('Not found'); return; }
