@@ -312,16 +312,19 @@ async function resolveFutToken(apiKey, accessToken, name, exchange) {
 
 const FUT_EXCHANGES = { NIFTY: 'NFO', SENSEX: 'BFO', BANKNIFTY: 'NFO' };
 
+// Backoff state — set when instruments API returns 429 so we stop hammering it.
+let instrumentsBackoffUntil = 0;
+
 async function resolveTokens(apiKey, accessToken) {
   const tokens = new Set();
+  const now    = Date.now();
+  const inBackoff = now < instrumentsBackoffUntil;
 
-  // Resolve fut tokens — in-memory first, Redis second, instruments API last.
-  // Avoids hitting Kite instruments API on every reconnect (prevents 429).
   for (const [name, exchange] of Object.entries(FUT_EXCHANGES)) {
-    if (futTokens[name]) {
-      tokens.add(futTokens[name]);
-      continue;
-    }
+    // 1. In-memory (survives reconnects within the same process)
+    if (futTokens[name]) { tokens.add(futTokens[name]); continue; }
+
+    // 2. Redis cache (survives process restarts, 6h TTL)
     const cached = await redisGet(KEY.futToken(name));
     if (cached) {
       futTokens[name] = cached;
@@ -329,8 +332,22 @@ async function resolveTokens(apiKey, accessToken) {
       console.log(`[bridge] ${name} Fut token from cache: ${cached}`);
       continue;
     }
+
+    // 3. Instruments API — skip if we're in a 429 backoff window
+    if (inBackoff) {
+      const waitMin = Math.ceil((instrumentsBackoffUntil - now) / 60_000);
+      console.warn(`[bridge] ${name} Fut resolve skipped — instruments API in cooldown (${waitMin}min left)`);
+      continue;
+    }
+
     const t = await resolveFutToken(apiKey, accessToken, name, exchange);
-    if (t) tokens.add(t);
+    if (t) {
+      tokens.add(t);
+    } else {
+      // Back off 30 min on failure (covers 429 and auth errors)
+      instrumentsBackoffUntil = now + 30 * 60_000;
+      console.warn('[bridge] Instruments API failed — backing off 30min');
+    }
   }
 
   // Intraday stock list
@@ -342,7 +359,7 @@ async function resolveTokens(apiKey, accessToken) {
       const tok = instrumentMap?.[sym];
       if (tok) {
         tokens.add(tok);
-        await redisSet(KEY.stockToken(sym), tok, 86400); // symbol → token map, 24h TTL
+        await redisSet(KEY.stockToken(sym), tok, 86400);
         console.log(`[bridge] Stock ${sym}: ${tok}`);
       } else {
         console.warn(`[bridge] Token not found for ${sym}`);
@@ -381,10 +398,12 @@ async function connect() {
 
   ticker.on('connect', () => {
     console.log('[bridge] Kite WebSocket connected ✓');
-    if (tokens.length > 0) {
-      ticker.subscribe(tokens);
-      ticker.setMode(ticker.modeFull, tokens);
-      console.log(`[bridge] Subscribed ${tokens.length} tokens in modeFull`);
+    // Re-read subscribedSet so a token-refresh reconnect picks up fresh tokens
+    const live = [...subscribedSet];
+    if (live.length > 0) {
+      ticker.subscribe(live);
+      ticker.setMode(ticker.modeFull, live);
+      console.log(`[bridge] Subscribed ${live.length} tokens in modeFull`);
     }
   });
 
