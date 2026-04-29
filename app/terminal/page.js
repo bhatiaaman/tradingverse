@@ -13,6 +13,7 @@ import {
   Sun, Moon, Activity, ScanSearch, Target, BarChart3,
   Pencil, Check, Bell, BellOff, Plus, Trash2,
 } from 'lucide-react';
+import { Panel, Group, Separator, useDefaultLayout } from "react-resizable-panels";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -923,7 +924,7 @@ function WatchlistPanel({ watchTab, setWatchTab, watchlist, watchQuotes, watchSe
     : {};
 
   return (
-    <div className="w-screen md:w-[265px] flex-shrink-0 flex flex-col h-full bg-gray-50 dark:bg-slate-900/60 border-r border-gray-200 dark:border-white/10 overflow-hidden">
+    <div className="w-full flex flex-col h-full bg-gray-50 dark:bg-slate-900/60 border-r border-gray-200 dark:border-white/10 overflow-hidden">
 
       {/* Tab header */}
       <div className="flex border-b border-gray-200 dark:border-white/10 flex-shrink-0">
@@ -2091,7 +2092,7 @@ function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder
   };
 
   return (
-    <div className={`flex-shrink-0 h-full border-l border-gray-200 dark:border-white/10 flex flex-col bg-gray-50 dark:bg-slate-900/40 transition-all duration-200 ${open ? 'w-screen md:w-[300px]' : 'w-screen md:w-9'}`}>
+    <div className={`h-full border-l border-gray-200 dark:border-white/10 flex flex-col bg-gray-50 dark:bg-slate-900/40 transition-all duration-200 w-full`}>
       {/* Toggle + header */}
       <div className={`flex items-center flex-shrink-0 border-b border-gray-200 dark:border-white/10 ${open ? 'px-2 py-1 justify-between' : 'justify-center py-2'}`}>
         {open ? (
@@ -2751,8 +2752,11 @@ function PlaceOrderTab({
 
   const [mobileIntelTab, setMobileIntelTab] = useState('order'); // 'order' | 'intel'
 
+  const storage = typeof window !== 'undefined' ? window.localStorage : { getItem: () => null, setItem: () => {} };
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "placeorder-layout-v5", storage });
+
   return (
-    <div className="h-full flex flex-col md:flex-row overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden">
 
       {/* Mobile inner tab bar — hidden on md+ */}
       <div className="md:hidden flex border-b border-gray-200 dark:border-white/10 flex-shrink-0 bg-white dark:bg-slate-900/40">
@@ -2767,10 +2771,12 @@ function PlaceOrderTab({
         ))}
       </div>
 
-      {/* ── ORDER FORM (left, fixed 360px on desktop; full-width on mobile) ── */}
-      <div className={`${mobileIntelTab !== 'order' ? 'hidden md:block' : ''} w-full md:w-[360px] md:flex-shrink-0 border-r border-gray-200 dark:border-white/10 overflow-y-auto scrollbar-thin p-4 space-y-3 bg-white dark:bg-transparent`}>
+      <Group orientation="horizontal" className="flex-1 overflow-hidden w-full h-full" id="placeorder-layout-v6" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
+        {/* ── ORDER FORM (left) ── */}
+        <Panel id="order-form-panel" defaultSize="40%" minSize="20%">
+          <div className={`${mobileIntelTab !== 'order' ? 'hidden md:block' : ''} w-full h-full overflow-y-auto scrollbar-thin p-4 space-y-3 bg-white dark:bg-transparent`}>
 
-        {/* Symbol search */}
+          {/* Symbol search */}
         <div className="relative">
           <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 block">Symbol</label>
           <div className="flex items-center gap-2 bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-xl px-3 py-2">
@@ -2836,7 +2842,7 @@ function PlaceOrderTab({
             <span className="w-px h-3 bg-gray-300 dark:bg-white/10 mx-0.5" />
             <button
               onClick={() => window.open(`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(`NSE:${symbol}`)}&interval=15`, '_blank')}
-              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 text-xs font-medium px-1.5 py-0.5 hover:bg-blue-500/20 rounded transition-colors flex items-center gap-0.5"
+              className="text-blue-600 dark:blue-400 hover:text-blue-800 dark:hover:text-blue-200 text-xs font-medium px-1.5 py-0.5 hover:bg-blue-500/20 rounded transition-colors flex items-center gap-0.5"
               title="Equity chart"
             >EQ <ExternalLink size={10} /></button>
             {isFnO && (<>
@@ -3161,10 +3167,14 @@ function PlaceOrderTab({
               : `${transactionType} ${symbol || '---'}`
           }
         </button>
-      </div>
+        </div>
+      </Panel>
+
+      <Separator className="hidden md:flex w-[4px] bg-gray-200 dark:bg-white/10 hover:bg-blue-500 cursor-col-resize transition-colors" />
 
       {/* ── INTELLIGENCE PANEL (center, all 5 agents) ── */}
-      <div className={`${mobileIntelTab !== 'intel' ? 'hidden md:block' : ''} flex-1 overflow-y-auto scrollbar-thin p-4`}>
+      <Panel id="intelligence-panel" defaultSize="60%" minSize="30%">
+        <div className={`${mobileIntelTab !== 'intel' ? 'hidden md:flex' : 'flex'} w-full flex-col h-full overflow-y-auto scrollbar-thin p-4`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Brain size={14} className="text-purple-500 dark:text-purple-400" />
@@ -3258,9 +3268,11 @@ function PlaceOrderTab({
             runLabel={!isOICapable ? 'NIFTY/BANKNIFTY only' : 'Run'}
           />
         </div>
-      </div>
+        </div>
+      </Panel>
+    </Group>
 
-      {/* ── DANGER MODAL ── */}
+    {/* ── DANGER MODAL ── */}
       {dangerModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 border border-red-500/30 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
@@ -3362,6 +3374,7 @@ export default function TerminalPage() {
   const [panelOrders, setPanelOrders]       = useState([]);
   const [panelOrdersLoading, setPanelOrdersLoading] = useState(false);
   const prevOrderStatusMapRef = useRef({}); // order_id → status, for execution detection
+  const ordersPanelRef = useRef(null);
   const [ordersOpen, setOrdersOpen]         = useState(true);
 
   // FnO movers (right sidebar)
@@ -4177,14 +4190,34 @@ export default function TerminalPage() {
     executePlaceOrder();
   };
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const storage = typeof window !== 'undefined' ? window.localStorage : { getItem: () => null, setItem: () => {} };
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "terminal-layout-v6", storage });
+
   // ── Render
+  if (!mounted) {
+    return (
+      <div className="h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-white flex flex-col overflow-hidden">
+        <TopBar indices={indices} kiteConnected={kiteConnected} user={user} setUser={setUser} regimeData={regimeData} />
+        <div className="flex-1 flex items-center justify-center bg-slate-900">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-white flex flex-col overflow-hidden">
       <TopBar indices={indices} kiteConnected={kiteConnected} user={user} setUser={setUser} regimeData={regimeData} />
 
-      <div className="flex flex-1 overflow-hidden">
+      <Group orientation="horizontal" className="flex-1 overflow-hidden w-full h-full" id="terminal-layout-v6" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
         {/* Watchlist: always visible on md+, mobile-controlled */}
-        <div className={`${mobileTab !== 'watchlist' ? 'hidden md:block' : 'block'} flex-shrink-0 h-full`}>
+        <Panel id="watchlist-panel" defaultSize="18%" minSize="10%" maxSize="30%">
+          <div className={`${mobileTab !== 'watchlist' ? 'hidden md:block' : 'block'} h-full w-full`}>
           <WatchlistPanel
             watchTab={watchTab} setWatchTab={setWatchTab}
             watchlist={activeWatchlist}
@@ -4203,10 +4236,14 @@ export default function TerminalPage() {
             intradayStocks={intradayStocks}
             fetchIntradayStocks={fetchIntradayStocks}
           />
-        </div>
+          </div>
+        </Panel>
+
+        <Separator className="hidden md:flex w-[4px] bg-gray-200 dark:bg-white/10 hover:bg-blue-500 cursor-col-resize transition-colors z-10" />
 
         {/* Middle panel: always visible on md+, mobile-controlled */}
-        <div className={`${mobileTab !== 'trade' ? 'hidden md:flex' : 'flex'} flex-1 flex-col overflow-hidden border-l border-gray-200 dark:border-white/10`}>
+        <Panel id="middle-trade-panel" defaultSize="62%" minSize="30%">
+          <div className={`${mobileTab !== 'trade' ? 'hidden md:flex' : 'flex'} flex-col h-full w-full overflow-hidden`}>
           {/* Tab bar */}
           <div className="flex items-center border-b border-gray-200 dark:border-white/10 flex-shrink-0 bg-white dark:bg-slate-900/40">
             <div className="flex flex-1 min-w-0">
@@ -4270,11 +4307,19 @@ export default function TerminalPage() {
               />
 
             )}
+            </div>
           </div>
-        </div>
+        </Panel>
+
+        <Separator className="hidden md:flex w-[4px] bg-gray-200 dark:bg-white/10 hover:bg-blue-500 cursor-col-resize transition-colors z-10" />
 
         {/* Orders right panel: always visible on md+, mobile-controlled */}
-        <div className={`${mobileTab !== 'orders' ? 'hidden md:block' : 'block'} flex-shrink-0 h-full`}>
+        <Panel 
+          id="orders-right-panel"
+          panelRef={ordersPanelRef}
+          defaultSize="20%" minSize="10%" maxSize="40%" 
+        >
+          <div className={`${mobileTab !== 'orders' ? 'hidden md:block' : 'block'} h-full w-full`}>
           <OrdersRightPanel
             orders={panelOrders}
             loading={panelOrdersLoading}
@@ -4283,12 +4328,19 @@ export default function TerminalPage() {
             onCancelOrder={handleCancelPanelOrder}
             onModifyOrder={handleModifyPanelOrder}
             open={ordersOpen}
-            setOpen={setOrdersOpen}
+            setOpen={(updater) => {
+              setOrdersOpen(prev => {
+                const next = typeof updater === 'function' ? updater(prev) : updater;
+                if (next) ordersPanelRef.current?.expand();
+                else ordersPanelRef.current?.collapse();
+                return next;
+              });
+            }}
             positions={positions}
           />
-
-        </div>
-      </div>
+          </div>
+        </Panel>
+      </Group>
 
       {/* Price alert drawer */}
       <AlertDrawer
