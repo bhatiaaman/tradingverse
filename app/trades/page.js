@@ -289,6 +289,8 @@ function getNiftyLevelAlerts(indices) {
     const [optionExpiry, setOptionExpiry] = useState('weekly');
     const [scData, setScData] = useState(null);
     const [scLastUpdated, setScLastUpdated] = useState(null);
+    const [strongCrossAlert, setStrongCrossAlert] = useState(null);
+    const lastAlertTimeRef = useRef(null);
 
     // Helper: check if today is in last week of expiry (after 2nd last Tuesday to last Thursday)
     function isLastWeekOfExpiry(date = new Date()) {
@@ -988,8 +990,12 @@ function getNiftyLevelAlerts(indices) {
         const fetchData = async () => {
           try {
             const days = chartInterval === 'week' ? 365 : chartInterval === 'day' ? 60 : 5;
-            const res  = await fetch(`/api/nifty-chart?symbol=${chartSymbol}&interval=${chartInterval}&days=${days}`);
+            const [res, dailyRes] = await Promise.all([
+              fetch(`/api/nifty-chart?symbol=${chartSymbol}&interval=${chartInterval}&days=${days}`),
+              chartInterval !== 'day' ? fetch(`/api/nifty-chart?symbol=${chartSymbol}&interval=day&days=60`) : Promise.resolve(null)
+            ]);
             const data = await res.json();
+            const dailyData = dailyRes ? await dailyRes.json() : null;
             if (!data.candles?.length) return;
 
             candleDataRef.current = data.candles;
@@ -1028,6 +1034,27 @@ function getNiftyLevelAlerts(indices) {
               if (showVwap) chart.setLine('vwap', { data: vwapData, color: '#a78bfa', width: 2 });
             } else {
               chart.clearLine('vwap');
+            }
+
+            // Strong Cross Alert Check
+            if (data.candles?.length > 0) {
+              import('@/app/lib/chart-indicators').then(({ detectStrongCross }) => {
+                const cross = detectStrongCross(data.candles, dailyData ? dailyData.candles : data.candles);
+                if (cross && cross.time !== lastAlertTimeRef.current) {
+                  lastAlertTimeRef.current = cross.time;
+                  setStrongCrossAlert(cross);
+                  import('@/app/lib/sounds').then(s => {
+                    if (cross.direction === 'bull') {
+                      if (s.playShortCoveringAlert) s.playShortCoveringAlert();
+                      else if (s.playBullishFlip) s.playBullishFlip();
+                    } else {
+                      if (s.playReversalAlert) s.playReversalAlert();
+                      else if (s.playBearishFlip) s.playBearishFlip();
+                    }
+                  });
+                  setTimeout(() => setStrongCrossAlert(null), 10000);
+                }
+              });
             }
 
             // Setup Eye scan (after VWAP is populated in the ref)
@@ -1585,6 +1612,18 @@ function getNiftyLevelAlerts(indices) {
 
         {/* MAIN CONTENT */}
         <main className="max-w-[1400px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
+
+          {/* Strong Cross Alert Overlay */}
+          {strongCrossAlert && (
+            <div className={`fixed top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 text-white px-5 py-3 rounded-full backdrop-blur-md border animate-in slide-in-from-top-4 fade-in duration-300 ${strongCrossAlert.direction === 'bull' ? 'bg-emerald-500/95 border-emerald-400/50 shadow-[0_0_30px_rgba(16,185,129,0.3)]' : 'bg-red-500/95 border-red-400/50 shadow-[0_0_30px_rgba(239,68,68,0.3)]'}`}>
+              <span className="text-2xl animate-bounce">{strongCrossAlert.direction === 'bull' ? '🚀' : '🩸'}</span>
+              <div className="flex flex-col">
+                <span className="font-bold text-sm tracking-wide">Strong {strongCrossAlert.direction === 'bull' ? 'Bullish' : 'Bearish'} Cross: {strongCrossAlert.crossed}</span>
+                <span className="text-[10px] font-medium opacity-90">Confirmed at ₹{strongCrossAlert.price.toFixed(1)}</span>
+              </div>
+              <button onClick={() => setStrongCrossAlert(null)} className="ml-2 text-white/60 hover:text-white transition-colors">✕</button>
+            </div>
+          )}
 
           {/* NEW: glow commentary border when price approaching a key level */}
           {(() => {

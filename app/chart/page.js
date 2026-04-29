@@ -203,7 +203,8 @@ function ChartPageInner() {
   const hoverPriceRef      = useRef(null);  // price at cursor — read by click handler, never causes re-render
   
   const [isWatchlistOpen, setIsWatchlistOpen] = useState(false);
-
+  const [strongCrossAlert, setStrongCrossAlert] = useState(null);
+  const lastAlertTimeRef = useRef(null);
 
   // Quick-order state (indices only)
   const [quickQty,     setQuickQty]     = useState(symbol === 'BANKNIFTY' ? 30 : 65);
@@ -407,6 +408,24 @@ function ChartPageInner() {
       setCandles(newCandles);
       setLastTick(null); // clear tick after full refresh
       if (chartRef.current) applyOverlays(chartRef.current, newCandles);
+
+      import('@/app/lib/chart-indicators').then(({ detectStrongCross }) => {
+        const cross = detectStrongCross(newCandles, dailyCandles);
+        if (cross && cross.time !== lastAlertTimeRef.current) {
+          lastAlertTimeRef.current = cross.time;
+          setStrongCrossAlert(cross);
+          import('@/app/lib/sounds').then(s => {
+            if (cross.direction === 'bull') {
+              if (s.playShortCoveringAlert) s.playShortCoveringAlert();
+              else if (s.playBullishFlip) s.playBullishFlip();
+            } else {
+              if (s.playReversalAlert) s.playReversalAlert();
+              else if (s.playBearishFlip) s.playBearishFlip();
+            }
+          });
+          setTimeout(() => setStrongCrossAlert(null), 10000);
+        }
+      });
     },
     onTick: (ltp) => {
       setLastTick(ltp);
@@ -1189,6 +1208,18 @@ function ChartPageInner() {
             }}
           >
             <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-slate-600/50 group-hover:bg-slate-400/60 transition-colors" />
+          </div>
+        )}
+
+        {/* Strong Cross Alert */}
+        {strongCrossAlert && (
+          <div className={`absolute top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 text-white px-5 py-3 rounded-full backdrop-blur-md border animate-in slide-in-from-top-4 fade-in duration-300 ${strongCrossAlert.direction === 'bull' ? 'bg-emerald-500/95 border-emerald-400/50 shadow-[0_0_30px_rgba(16,185,129,0.3)]' : 'bg-red-500/95 border-red-400/50 shadow-[0_0_30px_rgba(239,68,68,0.3)]'}`}>
+            <span className="text-2xl animate-bounce">{strongCrossAlert.direction === 'bull' ? '🚀' : '🩸'}</span>
+            <div className="flex flex-col">
+              <span className="font-bold text-sm tracking-wide">Strong {strongCrossAlert.direction === 'bull' ? 'Bullish' : 'Bearish'} Cross: {strongCrossAlert.crossed}</span>
+              <span className="text-[10px] font-medium opacity-90">Confirmed at ₹{strongCrossAlert.price.toFixed(1)}</span>
+            </div>
+            <button onClick={() => setStrongCrossAlert(null)} className="ml-2 text-white/60 hover:text-white transition-colors">✕</button>
           </div>
         )}
 

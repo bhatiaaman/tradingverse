@@ -850,3 +850,76 @@ function _computeSupertrend(candles, atrPeriod = 10, mult = 3) {
   }
   return out;
 }
+
+// ── Strong Cross Detection ───────────────────────────────────────────
+// Detects if the current forming or latest closed candle has crossed a high-timeframe 
+// support/resistance (Daily 9 EMA or EMA 200) with strong confirmation.
+export function detectStrongCross(candles, dailyCandles) {
+  if (!candles || candles.length < 2) return null;
+  const c = candles[candles.length - 1];
+  const p = candles[candles.length - 2];
+
+  // 1. Determine Candle Direction
+  const isBull = c.close > c.open;
+  const isBear = c.close < c.open;
+  if (!isBull && !isBear) return null;
+
+  const dir = isBull ? 'bull' : 'bear';
+
+  // 2. Compute necessary indicators for current timeframe
+  const ema200 = computeEMA(candles, 200);
+  const rsi = computeRSI(candles, 14);
+  const adxData = _computeADX(candles, 14);
+  const vwap = computeVWAP(candles);
+
+  const curE200 = ema200[ema200.length - 1]?.value;
+  const prevE200 = ema200[ema200.length - 2]?.value;
+  const curRSI = rsi[rsi.length - 1];
+  const curADX = adxData[adxData.length - 1];
+  const curVWAP = vwap[vwap.length - 1]?.value;
+
+  // 3. Compute Daily 9 EMA for the latest daily candle
+  let curE9D = null;
+  if (dailyCandles && dailyCandles.length >= 9) {
+    const dailyEma = computeEMA(dailyCandles, 9);
+    curE9D = dailyEma[dailyEma.length - 1]?.value;
+  }
+
+  // Cross checks
+  let crossE200 = false;
+  let crossE9D = false;
+
+  if (isBull) {
+    crossE200 = curE200 && p.close <= prevE200 && c.close > curE200;
+    crossE9D = curE9D && p.close <= curE9D && c.close > curE9D;
+  } else {
+    crossE200 = curE200 && p.close >= prevE200 && c.close < curE200;
+    crossE9D = curE9D && p.close >= curE9D && c.close < curE9D;
+  }
+
+  if (!crossE200 && !crossE9D) return null;
+
+  // 4. Additional strength checks
+  if (isBull && (!curRSI || curRSI <= 60)) return null;
+  if (isBear && (!curRSI || curRSI >= 40)) return null;
+  
+  if (!curADX || curADX <= 20) return null;
+  
+  if (isBull && (curVWAP && c.close <= curVWAP)) return null;
+  if (isBear && (curVWAP && c.close >= curVWAP)) return null;
+
+  // 5. Volume check
+  // We can skip strictly failing Nifty if volume is zero across the board, but if volume exists, ensure it's good.
+  const volSlice = candles.slice(-21, -1);
+  const avgVol = volSlice.reduce((s, x) => s + (x.volume || 0), 0) / (volSlice.length || 1);
+  if (avgVol > 0 && c.volume < avgVol * 1.2) {
+    return null;
+  }
+
+  return {
+    direction: dir,
+    crossed: crossE9D && crossE200 ? 'Daily 9 EMA & EMA 200' : (crossE9D ? 'Daily 9 EMA' : 'EMA 200'),
+    time: c.time,
+    price: c.close
+  };
+}
