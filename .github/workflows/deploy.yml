@@ -25,4 +25,5 @@ jobs:
             npm install --prefer-offline
             NODE_OPTIONS="--max-old-space-size=1536" npm run build
             pm2 restart tradingverse
+            pm2 restart kite-ws-bridge
             pm2 status

@@ -304,6 +304,9 @@ export default function ThirdEyePanel() {
   const [setupHistory,  setSetupHistory]  = useState([]);
   const [scoreTrend,    setScoreTrend]    = useState(null);
 
+  const [smoothedDomScore, setSmoothedDomScore] = useState(null);
+  const domScoreHistRef  = useRef([]);          // rolling window of last 4 signed DOM scores
+
   const scanTimer        = useRef(null);
   const tickTimer        = useRef(null);
   const prevScalpRef     = useRef(null);
@@ -758,7 +761,18 @@ export default function ThirdEyePanel() {
       </div>
 
       {/* ── DOM data (headless — supplies domData via onData callback) ─────────── */}
-      <DomPressureStrip underlying={underlying} devMode={isDevMode} onData={setDomData} headless={true} />
+      <DomPressureStrip underlying={underlying} devMode={isDevMode} onData={data => {
+        setDomData(data);
+        if (data?.available && data.score != null) {
+          const signed = data.direction === 'bull' ? data.score
+                       : data.direction === 'bear' ? -data.score : 0;
+          const hist = domScoreHistRef.current;
+          hist.push(signed);
+          if (hist.length > 4) hist.shift();
+          const avg = hist.reduce((s, v) => s + v, 0) / hist.length;
+          setSmoothedDomScore(parseFloat(avg.toFixed(1)));
+        }
+      }} headless={true} />
 
 
       {/* ── Setup Zone ──────────────────────────────────────────────────────── */}
