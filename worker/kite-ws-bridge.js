@@ -473,8 +473,8 @@ function startHttpServer() {
   server.on('error', err => {
     console.error(`[bridge] HTTP server failed to start on port ${port}: ${err.message}`);
   });
-  server.listen(port, '127.0.0.1', () => {
-    console.log(`[bridge] HTTP server listening on localhost:${port}`);
+  server.listen(port, () => {
+    console.log(`[bridge] HTTP server listening on port ${port}`);
   });
 }
 
