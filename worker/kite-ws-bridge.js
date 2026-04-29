@@ -315,8 +315,20 @@ const FUT_EXCHANGES = { NIFTY: 'NFO', SENSEX: 'BFO', BANKNIFTY: 'NFO' };
 async function resolveTokens(apiKey, accessToken) {
   const tokens = new Set();
 
-  // Always subscribe Nifty + Sensex + BankNifty futures — resolve fresh from instruments CSV
+  // Resolve fut tokens — in-memory first, Redis second, instruments API last.
+  // Avoids hitting Kite instruments API on every reconnect (prevents 429).
   for (const [name, exchange] of Object.entries(FUT_EXCHANGES)) {
+    if (futTokens[name]) {
+      tokens.add(futTokens[name]);
+      continue;
+    }
+    const cached = await redisGet(KEY.futToken(name));
+    if (cached) {
+      futTokens[name] = cached;
+      tokens.add(cached);
+      console.log(`[bridge] ${name} Fut token from cache: ${cached}`);
+      continue;
+    }
     const t = await resolveFutToken(apiKey, accessToken, name, exchange);
     if (t) tokens.add(t);
   }
@@ -421,7 +433,7 @@ function dynamicSubscribe(newTokens) {
 // Eliminates ~5M Redis writes/month from flushSnapshots.
 function startHttpServer() {
   const port = parseInt(process.env.BRIDGE_HTTP_PORT || '3001', 10);
-  http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://localhost:${port}`);
     if (url.pathname !== '/dom') { res.writeHead(404); res.end('Not found'); return; }
 
@@ -436,7 +448,11 @@ function startHttpServer() {
     } else {
       res.end(JSON.stringify({ available: true, snap }));
     }
-  }).listen(port, '127.0.0.1', () => {
+  });
+  server.on('error', err => {
+    console.error(`[bridge] HTTP server failed to start on port ${port}: ${err.message}`);
+  });
+  server.listen(port, '127.0.0.1', () => {
     console.log(`[bridge] HTTP server listening on localhost:${port}`);
   });
 }

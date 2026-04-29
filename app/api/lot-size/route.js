@@ -36,31 +36,36 @@ async function getLotSizeMap(dp) {
   const cached = await redisGet(LOT_SIZE_KEY);
   if (cached) return cached;
 
-  const csvText = await dp.getNFOInstrumentsCSV();
-  const lines   = csvText.trim().split('\n');
-  const headers = lines[0].split(',');
+  try {
+    const csvText = await dp.getNFOInstrumentsCSV();
+    const lines   = csvText.trim().split('\n');
+    const headers = lines[0].split(',');
 
-  const lotSizeIdx = headers.indexOf('lot_size');
-  const nameIdx    = headers.indexOf('name');
-  const typeIdx    = headers.indexOf('instrument_type');
+    const lotSizeIdx = headers.indexOf('lot_size');
+    const nameIdx    = headers.indexOf('name');
+    const typeIdx    = headers.indexOf('instrument_type');
 
-  const instruments = {};
-  for (let i = 1; i < lines.length; i++) {
-    const cols    = lines[i].split(',');
-    const type    = cols[typeIdx];
-    const lotSize = parseInt(cols[lotSizeIdx]) || 0;
-    if (type === 'FUT' && lotSize > 0) {
-      const name = cols[nameIdx]?.replace(/"/g, '').trim();
-      if (name && !instruments[name]) instruments[name] = lotSize;
+    const instruments = {};
+    for (let i = 1; i < lines.length; i++) {
+      const cols    = lines[i].split(',');
+      const type    = cols[typeIdx];
+      const lotSize = parseInt(cols[lotSizeIdx]) || 0;
+      if (type === 'FUT' && lotSize > 0) {
+        const name = cols[nameIdx]?.replace(/"/g, '').trim();
+        if (name && !instruments[name]) instruments[name] = lotSize;
+      }
     }
-  }
-  // Merge fallbacks for symbols not found in NFO (indices, less-liquid stocks)
-  for (const [sym, ls] of Object.entries(FALLBACK_LOT_SIZES)) {
-    if (!instruments[sym]) instruments[sym] = ls;
-  }
+    // Merge fallbacks for symbols not found in NFO (indices, less-liquid stocks)
+    for (const [sym, ls] of Object.entries(FALLBACK_LOT_SIZES)) {
+      if (!instruments[sym]) instruments[sym] = ls;
+    }
 
-  await redisSet(LOT_SIZE_KEY, instruments, LOT_SIZE_TTL);
-  return instruments;
+    await redisSet(LOT_SIZE_KEY, instruments, LOT_SIZE_TTL);
+    return instruments;
+  } catch (e) {
+    console.error('Lot size map fetch failed:', e.message, '— using fallback');
+    return FALLBACK_LOT_SIZES;
+  }
 }
 
 export async function GET(request) {
