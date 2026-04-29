@@ -1022,10 +1022,12 @@ export default function OrderModal({
             }
           } catch { /* keep polling */ }
         }, 5000);
-        // Stop polling after 15 min max
+        // Stop polling after 15 min max and auto-close the modal
         setTimeout(() => {
           clearInterval(bracketPollRef.current);
           setBracketStatus(null);
+          setSuccess('Order placed — SL/TP monitoring timed out. Check your positions.');
+          closeTimerRef.current = setTimeout(onClose, 5000);
         }, 15 * 60 * 1000);
       } else {
         clearTimeout(closeTimerRef.current);
