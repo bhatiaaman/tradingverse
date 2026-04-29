@@ -213,8 +213,9 @@ async function placeBracketOrders(kite, kiteOrderId, bracket) {
     }
   }
 
-  await redisSrem(BRACKET_PENDING, kiteOrderId);
-  await redisSet(`${BRACKET_RESULT_PFX}${kiteOrderId}`, JSON.stringify(results), 86400);
+  // Always write result and clear pending — even if SL/TP placement failed
+  try { await redisSrem(BRACKET_PENDING, kiteOrderId); } catch (e) { console.error('[bracket] SREM failed:', e.message); }
+  try { await redisSet(`${BRACKET_RESULT_PFX}${kiteOrderId}`, JSON.stringify(results), 86400); } catch (e) { console.error('[bracket] Result write failed:', e.message); }
 }
 
 async function monitorBrackets() {
@@ -224,27 +225,47 @@ async function monitorBrackets() {
       const members = await redisSmembers(BRACKET_PENDING);
       if (members && members.length > 0) {
         let kite;
-        try { kite = await getKite(); } catch { /* credentials not ready yet */ }
+        try { kite = await getKite(); } catch (e) { console.warn('[bracket] getKite failed:', e.message); }
 
         if (kite) {
           const allOrders = await kite.getOrders();
+          console.log(`[bracket] Checking ${members.length} pending bracket(s), ${allOrders.length} orders in book`);
+
           for (const kiteOrderId of members) {
-            const order = allOrders.find(o => o.order_id === kiteOrderId);
-            if (!order) continue;
+            // Primary: search bulk order list
+            let order = allOrders.find(o => String(o.order_id) === String(kiteOrderId));
+
+            // Fallback: fetch order history directly if not found in bulk list
+            if (!order) {
+              try {
+                const history = await kite.getOrderHistory(kiteOrderId);
+                if (history && history.length > 0) order = history[history.length - 1];
+              } catch { /* order may not exist */ }
+            }
+
+            if (!order) {
+              console.log(`[bracket] Order ${kiteOrderId} not found in order book yet`);
+              continue;
+            }
+
+            console.log(`[bracket] Order ${kiteOrderId} status=${order.status}`);
 
             if (order.status === 'COMPLETE') {
               const raw = await redisGet(`${BRACKET_PFX}${kiteOrderId}`);
               if (!raw) { await redisSrem(BRACKET_PENDING, kiteOrderId); continue; }
-              try {
-                const bracket = JSON.parse(raw);
-                await placeBracketOrders(kite, kiteOrderId, bracket);
-              } catch (e) {
-                console.error('[bracket] placeBracketOrders error:', e.message);
+              let bracket;
+              try { bracket = JSON.parse(raw); } catch (e) {
+                console.error('[bracket] Failed to parse bracket data:', e.message, 'raw:', raw?.slice(0, 100));
+                await redisSrem(BRACKET_PENDING, kiteOrderId);
+                continue;
               }
+              await placeBracketOrders(kite, kiteOrderId, bracket);
             } else if (order.status === 'CANCELLED' || order.status === 'REJECTED') {
-              await redisSrem(BRACKET_PENDING, kiteOrderId);
-              await redisSet(`${BRACKET_RESULT_PFX}${kiteOrderId}`,
-                JSON.stringify({ status: 'entry_cancelled', reason: order.status, placed_at: Date.now() }), 86400);
+              try { await redisSrem(BRACKET_PENDING, kiteOrderId); } catch {}
+              try {
+                await redisSet(`${BRACKET_RESULT_PFX}${kiteOrderId}`,
+                  JSON.stringify({ status: 'entry_cancelled', reason: order.status, placed_at: Date.now() }), 86400);
+              } catch {}
               console.log(`[bracket] Entry ${order.status} — bracket cancelled for ${kiteOrderId}`);
             }
           }

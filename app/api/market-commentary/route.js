@@ -1412,12 +1412,14 @@ export async function GET(request) {
       }
     }
 
-    const baseUrl = request.url.split('/api/')[0];
+    // Use localhost for internal fetches — avoids VPS firewall blocking self-connections
+    // on the external interface when request.url contains the public IP/domain.
+    const internalBase = `http://localhost:${process.env.PORT || 3000}`;
 
-    // Parallel data fetch
+    // Parallel data fetch — 12s timeout as safety net for slow responses
     const [marketData, optionChainData] = await Promise.all([
-      fetch(`${baseUrl}/api/market-data`, { cache: 'no-store' }).then(r => r.json()),
-      fetch(`${baseUrl}/api/option-chain?underlying=NIFTY&expiry=weekly`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
+      fetch(`${internalBase}/api/market-data`, { cache: 'no-store', signal: AbortSignal.timeout(12000) }).then(r => r.json()),
+      fetch(`${internalBase}/api/option-chain?underlying=NIFTY&expiry=weekly`, { cache: 'no-store', signal: AbortSignal.timeout(12000) }).then(r => r.json()).catch(() => null),
     ]);
 
     let commentary;

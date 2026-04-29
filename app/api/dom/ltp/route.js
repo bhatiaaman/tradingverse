@@ -29,10 +29,6 @@ export async function GET(req) {
   const { session } = await requireSession();
   if (!session) return unauthorized();
 
-  if (process.env.DOM_ENABLED !== 'true') {
-    return NextResponse.json({ available: false, reason: 'disabled' });
-  }
-
   const encoder = new TextEncoder();
   const started = Date.now();
   let   closed  = false;

@@ -143,10 +143,6 @@ export async function GET(req) {
     });
   }
 
-  if (process.env.DOM_ENABLED !== 'true') {
-    return NextResponse.json({ available: false });
-  }
-
   // Read snapshot directly from kite-ws-bridge in-memory HTTP server (localhost:3001).
   // Eliminates Redis reads + the 5s Redis snapshot flush — both sides of the Redis cost.
   const bridgeData = await fetch(`${BRIDGE_URL}/dom?underlying=${underlying}`, {

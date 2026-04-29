@@ -8,9 +8,9 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const symbol = searchParams.get('symbol') || 'NIFTY';
 
-    // Fetch from your existing market-data API
-    const baseUrl = request.url.split('/api/')[0];
-    const marketResponse = await fetch(`${baseUrl}/api/market-data`);
+    // Fetch from internal market-data — use localhost to bypass VPS firewall on external interface
+    const internalBase = `http://localhost:${process.env.PORT || 3000}`;
+    const marketResponse = await fetch(`${internalBase}/api/market-data`);
     
     if (!marketResponse.ok) {
       throw new Error('Failed to fetch market data');
