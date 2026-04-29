@@ -24,7 +24,9 @@ jobs:
             git pull origin master
             npm install --prefer-offline
             NODE_OPTIONS="--max-old-space-size=1536" npm run build
+            export REDIS_NAMESPACE=$(grep '^REDIS_NAMESPACE=' .env.local | cut -d= -f2)
             pm2 restart tradingverse
-            pm2 restart kite-worker
-            pm2 restart kite-ws-bridge
+            pm2 restart kite-worker --update-env
+            pm2 restart kite-ws-bridge --update-env
+            pm2 save
             pm2 status
