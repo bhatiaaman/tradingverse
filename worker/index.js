@@ -119,7 +119,7 @@ async function writeLog(entry) {
 
 // ─── Get fresh Kite credentials from Redis ────────────────────────────────────
 async function getKite() {
-  const apiKey      = process.env.KITE_API_KEY || await redisGet(KITE_APIKEY_KEY);
+  const apiKey      = await redisGet(KITE_APIKEY_KEY) || process.env.KITE_API_KEY;
   const accessToken = await redisGet(KITE_TOKEN_KEY);
   console.log(`[worker] api_key=${apiKey?.slice(0,8)}... token=${accessToken?.slice(0,8)}... key_source=${process.env.KITE_API_KEY ? 'env' : 'redis'}`);
   if (!apiKey || !accessToken) throw new Error('Kite credentials missing in Redis');

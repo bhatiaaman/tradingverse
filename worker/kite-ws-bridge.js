@@ -375,10 +375,12 @@ let ticker         = null;
 let reconnectTimer = null;
 
 async function connect() {
-  const apiKey      = process.env.KITE_API_KEY || await redisGet(KEY.kiteApiKey());
+  const apiKey      = await redisGet(KEY.kiteApiKey()) || process.env.KITE_API_KEY;
   const accessToken = await redisGet(KEY.kiteToken());
 
-  if (!apiKey || !accessToken) {
+  console.log(`[bridge] connect() NS=${NS} token=${accessToken ? accessToken.slice(0,8)+'...' : 'MISSING'}`);
+
+  if (!apiKey || !accessToken || accessToken.trim() === '') {
     console.warn('[bridge] Kite credentials not found in Redis — retrying in 60s');
     reconnectTimer = setTimeout(connect, 60_000);
     return;
