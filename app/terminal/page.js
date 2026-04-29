@@ -1656,6 +1656,142 @@ function ExitModal({ position, onClose, onPlaced }) {
   );
 }
 
+// ── AddToPositionModal ────────────────────────────────────────────────────────
+function AddToPositionModal({ position, onClose, onPlaced }) {
+  const isLong  = (position.quantity || 0) > 0;
+  const side    = isLong ? 'BUY' : 'SELL';
+  const ltp     = position.last_price || 0;
+
+  const [qty,       setQty]       = useState(1);
+  const [lotSize,   setLotSize]   = useState(1);
+  const [orderType, setOrderType] = useState('LIMIT');
+  const [price,     setPrice]     = useState(ltp.toFixed(2));
+  const [placing,   setPlacing]   = useState(false);
+  const [error,     setError]     = useState('');
+
+  useEffect(() => {
+    const derivExchanges = ['NFO', 'BFO', 'MCX', 'CDS'];
+    if (derivExchanges.includes(position.exchange)) {
+      const underlying = position.tradingsymbol.match(/^[A-Z&]+/)?.[0];
+      if (underlying) {
+        fetch(`/api/lot-size?symbol=${underlying}`)
+          .then(r => r.json())
+          .then(d => { if (d.lotSize) { setLotSize(d.lotSize); setQty(d.lotSize); } });
+      }
+    }
+  }, [position.tradingsymbol, position.exchange]);
+
+  async function place() {
+    if (qty <= 0) { setError('Quantity must be greater than zero'); return; }
+    if (lotSize > 1 && qty % lotSize !== 0) {
+      setError(`Quantity must be a multiple of lot size (${lotSize})`);
+      return;
+    }
+    setPlacing(true);
+    setError('');
+    try {
+      const body = {
+        tradingsymbol:    position.tradingsymbol,
+        exchange:         position.exchange || 'NSE',
+        transaction_type: side,
+        quantity:         qty,
+        order_type:       orderType,
+        product:          position.product,
+        variety:          'regular',
+      };
+      if (orderType === 'LIMIT') body.price = Number(price);
+      const r = await fetch('/api/place-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!d.success) throw new Error(d.error || 'Order failed');
+      onPlaced();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPlacing(false);
+    }
+  }
+
+  const newAvg = qty > 0 && ltp > 0
+    ? ((position.average_price * Math.abs(position.quantity) + ltp * qty) / (Math.abs(position.quantity) + qty)).toFixed(2)
+    : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl p-5 w-80 border border-gray-200 dark:border-white/10" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">Add to Position</p>
+            <p className="text-xs text-gray-400">{position.tradingsymbol} · {side} · averaging {isLong ? 'long' : 'short'}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-lg leading-none">×</button>
+        </div>
+
+        {/* Current position snapshot */}
+        <div className="flex items-center justify-between px-3 py-2 rounded-lg mb-4 bg-gray-50 dark:bg-white/5 text-xs font-mono text-gray-600 dark:text-white/60 border border-gray-100 dark:border-white/10">
+          <span>Existing: {Math.abs(position.quantity)} qty @ ₹{position.average_price?.toFixed(2)}</span>
+          {newAvg && <span className="text-blue-500">→ avg ₹{newAvg}</span>}
+        </div>
+
+        <div className="space-y-3 mb-4">
+          {/* Quantity */}
+          <div>
+            <label className="text-xs text-gray-500 dark:text-white/50 block mb-1">Quantity</label>
+            <div className="relative">
+              <input
+                type="number" step={lotSize} min={lotSize} value={qty}
+                onChange={e => setQty(parseInt(e.target.value) || 0)}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+              />
+              {lotSize > 1 && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">{Math.floor(qty/lotSize)} LOTS</span>}
+            </div>
+          </div>
+
+          {/* Order type */}
+          <div className="flex gap-2">
+            {['MARKET', 'LIMIT'].map(t => (
+              <button key={t} onClick={() => setOrderType(t)}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                  orderType === t
+                    ? 'bg-blue-500 border-blue-500 text-white'
+                    : 'border-gray-200 dark:border-white/10 text-gray-500 dark:text-white/50 hover:border-blue-400'
+                }`}
+              >{t}</button>
+            ))}
+          </div>
+
+          {orderType === 'LIMIT' && (
+            <div>
+              <label className="text-xs text-gray-500 dark:text-white/50 block mb-1">Limit Price</label>
+              <input
+                type="number" step="0.05" value={price}
+                onChange={e => setPrice(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+              />
+            </div>
+          )}
+          <p className="text-xs text-gray-400 font-mono">LTP: ₹{ltp.toFixed(2)} · Avg: ₹{position.average_price?.toFixed(2)}</p>
+        </div>
+
+        {error && <p className="text-[11px] text-red-500 mb-3 bg-red-50 dark:bg-red-500/10 p-2 rounded-lg border border-red-100 dark:border-red-500/20">{error}</p>}
+        <button
+          onClick={place} disabled={placing}
+          className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 ${
+            isLong
+              ? 'bg-green-600 hover:bg-green-700 text-white'
+              : 'bg-red-600 hover:bg-red-700 text-white'
+          }`}
+        >
+          {placing ? 'Placing…' : `${side} ${qty} @ ${orderType === 'MARKET' ? 'MKT' : `₹${price}`}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── AlertDrawer — price alert management panel ────────────────────────────────
 function AlertDrawer({ open, onClose, prefillSymbol = '' }) {
   const [alerts,   setAlerts]   = useState([]);
@@ -1832,11 +1968,34 @@ function AlertDrawer({ open, onClose, prefillSymbol = '' }) {
 }
 
 function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) {
-  const [slModal,   setSlModal]   = useState(null);
-  const [exitModal, setExitModal] = useState(null);
-  const [liveLtps,  setLiveLtps]  = useState({});  // { [instrument_token]: ltp }
-  const [ltpLive,   setLtpLive]   = useState(false);
+  const [slModal,      setSlModal]      = useState(null);
+  const [exitModal,    setExitModal]    = useState(null);
+  const [addModal,     setAddModal]     = useState(null);
+  const [liveLtps,     setLiveLtps]     = useState({});
+  const [ltpLive,      setLtpLive]      = useState(false);
+  const [depthOpen,    setDepthOpen]    = useState(new Set());
+  const [depthCache,   setDepthCache]   = useState({});
+  const [depthLoading, setDepthLoading] = useState(new Set());
   const esRef = useRef(null);
+
+  async function toggleDepth(p) {
+    const key = p.tradingsymbol;
+    setDepthOpen(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) { next.delete(key); return next; }
+      next.add(key);
+      return next;
+    });
+    if (!depthCache[key]) {
+      setDepthLoading(prev => new Set(prev).add(key));
+      try {
+        const r = await fetch(`/api/depth?symbol=${encodeURIComponent(p.tradingsymbol)}&exchange=${encodeURIComponent(p.exchange || 'NSE')}`);
+        const d = await r.json();
+        setDepthCache(prev => ({ ...prev, [key]: d }));
+      } catch {}
+      setDepthLoading(prev => { const s = new Set(prev); s.delete(key); return s; });
+    }
+  }
 
   // SSE connection to /api/dom/ltp — live price overlay for P&L
   useEffect(() => {
@@ -1905,7 +2064,7 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
                 <th className="text-right pb-2 font-medium">LTP</th>
                 <th className="text-right pb-2 font-medium">P&amp;L</th>
                 <th className="text-right pb-2 font-medium">SL</th>
-                <th className="text-right pb-2 font-medium">Exit</th>
+                <th className="text-right pb-2 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1916,61 +2075,119 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
                   ? (liveLtp - (p.average_price || 0)) * p.quantity
                   : (p.pnl || 0);
                 const hasStop  = p.quantity !== 0 && hasSL(p, openOrders);
-                const noStop   = p.quantity !== 0 && !hasStop;
                 const isClosed = p.quantity === 0;
+                const depthExpanded = depthOpen.has(p.tradingsymbol);
+                const depth = depthCache[p.tradingsymbol];
+                const isDepthLoading = depthLoading.has(p.tradingsymbol);
                 return (
-                  <tr key={p.tradingsymbol} className="border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                    <td className="py-2.5 font-medium text-gray-900 dark:text-white">{p.tradingsymbol}</td>
-                    <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">{p.quantity}</td>
-                    <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">
-                      <div>₹{p.average_price?.toFixed(2)}</div>
-                      {(() => {
-                        const lastFill = openOrders
-                          ?.filter(o => o.tradingsymbol === p.tradingsymbol && o.status === 'COMPLETE')
-                          ?.sort((a, b) => new Date(b.order_timestamp || 0) - new Date(a.order_timestamp || 0))[0];
-                        if (lastFill) {
-                          return (
-                            <div className="text-[9px] text-gray-400 font-medium leading-none mt-0.5" title="Last executed price">
-                              exec ₹{lastFill.average_price?.toFixed(2)}
+                  <>
+                    <tr key={p.tradingsymbol} className="border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                      <td className="py-2.5 font-medium text-gray-900 dark:text-white">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => toggleDepth(p)}
+                            title="Toggle depth"
+                            className={`p-0.5 rounded transition-colors ${depthExpanded ? 'text-blue-500 bg-blue-50 dark:bg-blue-500/10' : 'text-gray-300 dark:text-white/20 hover:text-gray-500 dark:hover:text-white/50'}`}
+                          >
+                            <ChevronDown size={10} className={`transition-transform ${depthExpanded ? 'rotate-180' : ''}`} />
+                          </button>
+                          {p.tradingsymbol}
+                        </div>
+                      </td>
+                      <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">{p.quantity}</td>
+                      <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">
+                        <div>₹{p.average_price?.toFixed(2)}</div>
+                        {(() => {
+                          const lastFill = openOrders
+                            ?.filter(o => o.tradingsymbol === p.tradingsymbol && o.status === 'COMPLETE')
+                            ?.sort((a, b) => new Date(b.order_timestamp || 0) - new Date(a.order_timestamp || 0))[0];
+                          if (lastFill) {
+                            return (
+                              <div className="text-[9px] text-gray-400 font-medium leading-none mt-0.5" title="Last executed price">
+                                exec ₹{lastFill.average_price?.toFixed(2)}
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </td>
+                      <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">
+                        ₹{dispLtp?.toFixed(2) ?? '—'}
+                      </td>
+                      <td className={`py-2.5 text-right font-mono font-semibold ${pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {pnl >= 0 ? '+' : ''}₹{pnl.toFixed(2)}
+                      </td>
+                      <td className="py-2.5 text-right">
+                        {isClosed ? (
+                          <span className="text-gray-300 dark:text-white/20">—</span>
+                        ) : hasStop ? (
+                          <span className="text-green-600 dark:text-green-400 text-xs">✓</span>
+                        ) : (
+                          <button
+                            onClick={() => setSlModal(p)}
+                            className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/30 transition-colors text-xs font-medium"
+                          >
+                            + SL
+                          </button>
+                        )}
+                      </td>
+                      <td className="py-2.5 text-right">
+                        {isClosed ? (
+                          <span className="text-gray-300 dark:text-white/20">—</span>
+                        ) : (
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => setAddModal(p)}
+                              title="Add to position"
+                              className="px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors text-xs font-semibold"
+                            >+</button>
+                            <button
+                              onClick={() => setExitModal(p)}
+                              className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/30 transition-colors text-xs font-semibold"
+                            >Exit</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                    {depthExpanded && (
+                      <tr key={`${p.tradingsymbol}-depth`} className="bg-gray-50/50 dark:bg-white/[0.02]">
+                        <td colSpan={7} className="px-3 py-2">
+                          {isDepthLoading ? (
+                            <div className="flex items-center gap-1.5 text-[10px] text-gray-400"><Loader2 size={10} className="animate-spin" /> Loading depth…</div>
+                          ) : depth?.error ? (
+                            <span className="text-[10px] text-red-400">{depth.error}</span>
+                          ) : depth ? (
+                            <div className="flex gap-4">
+                              <div className="flex-1">
+                                <p className="text-[9px] font-semibold text-green-600 dark:text-green-400 mb-1 uppercase tracking-wider">Bids</p>
+                                {(depth.buy ?? []).slice(0, 3).map((b, i) => b ? (
+                                  <div key={i} className="flex justify-between font-mono text-[10px] text-gray-700 dark:text-white/70">
+                                    <span className="text-green-600 dark:text-green-400">₹{b.price?.toFixed(2)}</span>
+                                    <span className="text-gray-400">{b.qty?.toLocaleString()}</span>
+                                  </div>
+                                ) : null)}
+                              </div>
+                              <div className="w-px bg-gray-200 dark:bg-white/10" />
+                              <div className="flex-1">
+                                <p className="text-[9px] font-semibold text-red-500 dark:text-red-400 mb-1 uppercase tracking-wider">Asks</p>
+                                {(depth.sell ?? []).slice(0, 3).map((a, i) => a ? (
+                                  <div key={i} className="flex justify-between font-mono text-[10px] text-gray-700 dark:text-white/70">
+                                    <span className="text-red-600 dark:text-red-400">₹{a.price?.toFixed(2)}</span>
+                                    <span className="text-gray-400">{a.qty?.toLocaleString()}</span>
+                                  </div>
+                                ) : null)}
+                              </div>
+                              {depth.spread != null && (
+                                <div className="self-center text-[9px] text-gray-400 font-mono whitespace-nowrap">
+                                  spread<br/>₹{depth.spread}
+                                </div>
+                              )}
                             </div>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </td>
-                    <td className="py-2.5 text-right font-mono text-gray-700 dark:text-white/80">
-                      ₹{dispLtp?.toFixed(2) ?? '—'}
-                    </td>
-                    <td className={`py-2.5 text-right font-mono font-semibold ${pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {pnl >= 0 ? '+' : ''}₹{pnl.toFixed(2)}
-                    </td>
-                    <td className="py-2.5 text-right">
-                      {isClosed ? (
-                        <span className="text-gray-300 dark:text-white/20">—</span>
-                      ) : hasStop ? (
-                        <span className="text-green-600 dark:text-green-400 text-xs">✓</span>
-                      ) : (
-                        <button
-                          onClick={() => setSlModal(p)}
-                          className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/30 transition-colors text-xs font-medium"
-                        >
-                          + SL
-                        </button>
-                      )}
-                    </td>
-                    <td className="py-2.5 text-right">
-                      {isClosed ? (
-                        <span className="text-gray-300 dark:text-white/20">—</span>
-                      ) : (
-                        <button
-                          onClick={() => setExitModal(p)}
-                          className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/30 transition-colors text-xs font-semibold"
-                        >
-                          Exit
-                        </button>
-                      )}
-                    </td>
-                  </tr>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 );
               })}
             </tbody>
@@ -1990,6 +2207,13 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
           position={exitModal}
           onClose={() => setExitModal(null)}
           onPlaced={() => { setExitModal(null); onRefresh(); }}
+        />
+      )}
+      {addModal && (
+        <AddToPositionModal
+          position={addModal}
+          onClose={() => setAddModal(null)}
+          onPlaced={() => { setAddModal(null); onRefresh(); }}
         />
       )}
     </div>
@@ -3599,7 +3823,7 @@ export default function TerminalPage() {
   useEffect(() => {
     if (activeWatchlist.length === 0) return;
     fetchWatchQuotes(activeWatchlist);
-    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchWatchQuotes(activeWatchlist); }, 15_000);
+    const iv = setInterval(() => { if (isMarketHours() && isVisible) fetchWatchQuotes(activeWatchlist); }, 5_000);
     return () => clearInterval(iv);
   }, [activeWatchlist, isVisible, fetchWatchQuotes]);
 
@@ -4314,10 +4538,17 @@ export default function TerminalPage() {
         <Separator className="hidden md:flex w-[4px] bg-gray-200 dark:bg-white/10 hover:bg-blue-500 cursor-col-resize transition-colors z-10" />
 
         {/* Orders right panel: always visible on md+, mobile-controlled */}
-        <Panel 
+        <Panel
           id="orders-right-panel"
           panelRef={ordersPanelRef}
-          defaultSize="20%" minSize="10%" maxSize="40%" 
+          defaultSize="20%" minSize="10%" maxSize="40%"
+          collapsible collapsedSize="36px"
+          onResize={(size) => {
+            if (size?.inPixels != null) {
+              if (size.inPixels <= 40 && ordersOpen) setOrdersOpen(false);
+              else if (size.inPixels > 40 && !ordersOpen) setOrdersOpen(true);
+            }
+          }}
         >
           <div className={`${mobileTab !== 'orders' ? 'hidden md:block' : 'block'} h-full w-full`}>
           <OrdersRightPanel
