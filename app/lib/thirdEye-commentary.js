@@ -227,6 +227,15 @@ const TEMPLATES = {
   },
 
   EXHAUSTED_LONG({ features, biasSummary, biasAlignment, biasTf }) {
+    const belowVwap = features.vwapAbove === false;
+    if (belowVwap) {
+      return {
+        headline: 'Bullish move fading — bears reclaiming ground',
+        context:  `Price dropped below VWAP (${fmt(features.vwap)}). Buying pressure fading. ${rsiLabel(features.rsi)}. ${biasNote(biasAlignment, biasSummary, biasTf)}`,
+        watch:    `Watch for follow-through below ${fmt(features.vwap - 20)}. Sustained hold below VWAP confirms reversal.`,
+        risk:     `If price reclaims VWAP (${fmt(features.vwap)}), bullish pressure returns.`,
+      };
+    }
     return {
       headline: 'Bullish move exhausting',
       context:  `Buying pressure fading. ${rsiLabel(features.rsi)}. ${adxLabel(features.adx, features.adxRising)}. Move getting stretched. ${biasNote(biasAlignment, biasSummary, biasTf)}`,
@@ -236,6 +245,15 @@ const TEMPLATES = {
   },
 
   EXHAUSTED_SHORT({ features, biasSummary, biasAlignment, biasTf }) {
+    const aboveVwap = features.vwapAbove === true;
+    if (aboveVwap) {
+      return {
+        headline: 'Bearish move fading — bulls reclaiming ground',
+        context:  `Price back above VWAP (${fmt(features.vwap)}). Selling pressure fading. ${rsiLabel(features.rsi)}. ${biasNote(biasAlignment, biasSummary, biasTf)}`,
+        watch:    `Watch for follow-through above ${fmt(features.vwap + 20)}. Sustained hold above VWAP confirms reversal.`,
+        risk:     `If price slips back below VWAP (${fmt(features.vwap)}), bearish pressure returns.`,
+      };
+    }
     return {
       headline: 'Bearish move exhausting',
       context:  `Selling pressure fading. ${rsiLabel(features.rsi)}. ${adxLabel(features.adx, features.adxRising)}. Move getting stretched. ${biasNote(biasAlignment, biasSummary, biasTf)}`,

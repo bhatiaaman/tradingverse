@@ -438,15 +438,17 @@ export async function POST(req) {
   // Toggle via Vercel env var; silently skipped when off.
   const DOM_ENABLED = process.env.DOM_ENABLED === 'true';
   let domVerdict = null;
-  if (DOM_ENABLED && scalpSetup) {
+  if (DOM_ENABLED) {
     const futToken = await redisGet(FUT_TOKEN_KEY(FUTURES_NAME[underlying]));
     if (futToken) {
+      const domDir = scalpSetup?.direction
+        ?? ((engineResult?.smoothedLong ?? 50) >= (engineResult?.smoothedShort ?? 50) ? 'bull' : 'bear');
       domVerdict = await getDomContext(
         futToken,
-        scalpSetup.direction,
-        scalpSetup.niftyPrice,
-        scalpSetup.niftyTarget,
-        scalpSetup.vwap ?? null,
+        domDir,
+        scalpSetup?.niftyPrice ?? spot,
+        scalpSetup?.niftyTarget ?? null,
+        scalpSetup?.vwap ?? null,
       );
     }
   }
