@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Settings, Eye, RefreshCw, Wifi, WifiOff, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Settings, Eye, RefreshCw, Wifi, WifiOff, ChevronDown, ChevronUp, X, AlertCircle } from 'lucide-react';
 import SetupZone        from './SetupZone';
 import DomPressureStrip from './DomPressureStrip';
 

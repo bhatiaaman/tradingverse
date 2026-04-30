@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { TrendingUp, TrendingDown, Zap, X, ChevronDown, ChevronUp, Clock } from 'lucide-react';
+import { TrendingUp, TrendingDown, Zap, X, ChevronDown, ChevronUp, Clock, Eye } from 'lucide-react';
 
 function fmt(n, dec = 0) {
   if (n == null || isNaN(n)) return '—';
