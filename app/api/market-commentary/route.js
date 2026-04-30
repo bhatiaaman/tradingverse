@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════
-// MARKET COMMENTARY - 3-Layer Architecture
+// MARKET COMMENTARY - 3-Layer Architecture (Last updated: 2026-04-30T17:52)
 // Layer 1: Data Collection (price + options + intraday candles + time)
 // Layer 2: Analysis Engine (structure, OI, levels, time, conflicts)
 // Layer 3: Commentary Generator (reversal-aware, trader-friendly output)
@@ -727,11 +727,11 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
   const vix         = parseFloat(marketData.indices?.vix             || 0);
 
   // Global Pulse (Dow Futures YM=F)
-  const dowFuturesChange = parseFloat(marketData.global?.dowFuturesChangePercent || 0);
-  const isGlobalStrong = dowFuturesChange > 0.4;
-  const isGlobalWeak   = dowFuturesChange < -0.4;
-  const isGlobalCrash  = dowFuturesChange < -1.0;
-  const isGlobalSurge  = dowFuturesChange > 1.0;
+  const globalMarketPulse = parseFloat(marketData.global?.dowFuturesChangePercent || 0);
+  const isGlobalStrong = globalMarketPulse > 0.4;
+  const isGlobalWeak   = globalMarketPulse < -0.4;
+  const isGlobalCrash  = globalMarketPulse < -1.0;
+  const isGlobalSurge  = globalMarketPulse > 1.0;
 
   // BankNifty relative strength
   const niftyChangePct    = parseFloat(marketData.indices?.niftyChangePercent    ?? 0) || null;
@@ -930,14 +930,14 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
     warnings.push(`🔄 ${reversalResult.commentary.state}: ${reversalResult.commentary.headline}`);
   }
   // ── Global Pulse Warnings (Critical Only) ──
-  if (dowFuturesChange < -1.0) {
-    warnings.push(`🔴 GLOBAL ALERT: Dow Futures down ${dowFuturesChange.toFixed(2)}%. Extreme selling pressure globally.`);
-  } else if (dowFuturesChange > 1.0) {
-    warnings.push(`🟢 GLOBAL SURGE: Dow Futures up ${dowFuturesChange.toFixed(2)}%. Strong global tailwinds.`);
-  } else if (dowFuturesChange < -0.4 && finalBias === 'BULLISH') {
-    warnings.push(`⚠️ GLOBAL DIVERGENCE: Nifty is Bullish but Dow Futures are weak (${dowFuturesChange.toFixed(2)}%). Upside may be capped.`);
-  } else if (dowFuturesChange > 0.4 && finalBias === 'BEARISH') {
-    warnings.push(`⚠️ GLOBAL DIVERGENCE: Nifty is Bearish but Dow Futures are strong (+${dowFuturesChange.toFixed(2)}%). Selling may exhaust.`);
+  if (globalMarketPulse < -1.0) {
+    warnings.push(`🔴 GLOBAL ALERT: Dow Futures down ${globalMarketPulse.toFixed(2)}%. Extreme selling pressure globally.`);
+  } else if (globalMarketPulse > 1.0) {
+    warnings.push(`🟢 GLOBAL SURGE: Dow Futures up ${globalMarketPulse.toFixed(2)}%. Strong global tailwinds.`);
+  } else if (globalMarketPulse < -0.4 && finalBias === 'BULLISH') {
+    warnings.push(`⚠️ GLOBAL DIVERGENCE: Nifty is Bullish but Dow Futures are weak (${globalMarketPulse.toFixed(2)}%). Upside may be capped.`);
+  } else if (globalMarketPulse > 0.4 && finalBias === 'BEARISH') {
+    warnings.push(`⚠️ GLOBAL DIVERGENCE: Nifty is Bearish but Dow Futures are strong (+${globalMarketPulse.toFixed(2)}%). Selling may exhaust.`);
   }
 
   return {

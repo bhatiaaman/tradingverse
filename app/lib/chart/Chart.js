@@ -20,7 +20,8 @@ import { renderLine }        from './renderers/lines.js';
 import { renderZones }       from './renderers/zones.js';
 import { renderVolume }      from './renderers/volume.js';
 import { renderCrosshair }   from './renderers/crosshair.js';
-import { renderMarkers }     from './renderers/markers.js';
+import { renderMarkers }      from './renderers/markers.js';
+import { renderEventMarkers } from './renderers/event-markers.js';
 import { renderSMC }        from './renderers/smc.js';
 import { renderSLClusters } from './renderers/slClusters.js';
 import { renderCPR }        from './renderers/cpr.js';
@@ -73,6 +74,8 @@ export function createChart(container, options = {}) {
   let   ichimokuData = null;              // { data: [], config: {} }
   let   cbcData     = null;               // computeCBC() output
   let   markers     = [];                 // [{ index, direction: 'bull'|'bear' }]
+  let   eventMarkers    = [];            // [{ index, type, label, dateISO }]
+  let   rawEventMarkers = [];           // source data before index resolution
   let   biasScoreData = null;            // { scores: number[] }
   let   rsiPaneData   = null;            // { rsi: number[], rsiMA: number[]|null, label: string, divDots: array|null }
   let   showVolume    = options.showVolume ?? true;
@@ -131,6 +134,7 @@ export function createChart(container, options = {}) {
     }
     renderCandles(ctx, vp, candles, candleColors);
     renderMarkers(ctx, vp, candles, markers);
+    renderEventMarkers(ctx, vp, candles, eventMarkers);
     if (drawings.length || drawingInProgress) {
       const resolved = drawings.map(d => ({ ..._resolveDrawing(d), selected: d.id === selectedDrawingId }));
       renderDrawings(ctx, vp, resolved, drawingInProgress ? _resolveDrawing(drawingInProgress) : null);
@@ -285,6 +289,20 @@ export function createChart(container, options = {}) {
   // Start render loop
   rafId = requestAnimationFrame(render);
 
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  function _resolveEventMarkers(raw) {
+    return raw.map(m => {
+      const eventEpoch = Math.floor(new Date(m.dateISO + 'T00:00:00Z').getTime() / 1000);
+      let bestDist = Infinity, bestIdx = -1;
+      for (let i = 0; i < candles.length; i++) {
+        const dist = Math.abs(candles[i].time - eventEpoch);
+        if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+      }
+      if (bestIdx < 0 || bestDist > 7 * 86400) return null;
+      return { ...m, index: bestIdx };
+    }).filter(Boolean);
+  }
+
   // ── Public API ───────────────────────────────────────────────────────────────
   return {
 
@@ -297,6 +315,7 @@ export function createChart(container, options = {}) {
         lineMap.set(id, { ...line, values: _reindex(line._raw) });
       }
       markers = markers.map(m => ({ ...m, index: timeIndex.get(m.time) ?? -1 })).filter(m => m.index >= 0);
+      if (rawEventMarkers.length) eventMarkers = _resolveEventMarkers(rawEventMarkers);
       const defaultBars = { '1minute': 390, '5minute': 234, '15minute': 104, '60minute': 150, 'day': 252 }[interval];
       if (defaultBars) vp.fitRecent(candles, defaultBars);
       else             vp.fitContent(candles);
@@ -352,6 +371,15 @@ export function createChart(container, options = {}) {
         }
         return { ...m, index };
       }).filter(m => m.index >= 0);
+      markDirty();
+    },
+
+    // Set corporate event markers. data: [{ dateISO, type, label }]
+    // Maps event dates to the nearest candle — works on day/week charts.
+    setEventMarkers(data) {
+      rawEventMarkers = data ?? [];
+      if (!rawEventMarkers.length) { eventMarkers = []; markDirty(); return; }
+      eventMarkers = _resolveEventMarkers(rawEventMarkers);
       markDirty();
     },
 

@@ -508,6 +508,7 @@ export default function OrderModal({
   lotSize: lotSizeProp = null, // pre-resolved lot size (quick mode skips API lot size fetch)
 }) {
   const symUpper        = symbol?.toUpperCase();
+  const isIndexSym      = new Set(['NIFTY','BANKNIFTY','FINNIFTY','MIDCPNIFTY','SENSEX','BANKEX']).has(symUpper);
   const isBse           = symUpper === 'SENSEX' || symUpper === 'BANKEX';
   const isResolvedOpt   = !optionType && /^.+(CE|PE)$/.test(symUpper || '');
   const defaultExchange = optionType
@@ -558,6 +559,7 @@ export default function OrderModal({
   const closeTimerRef = useRef(null); // tracked so we can cancel if modal reopens
   const [avgDownAlert, setAvgDownAlert] = useState(null); // Averaging down warning
   const [positions, setPositions] = useState([]);
+  const [stockEvents, setStockEvents] = useState(null);
   const [activeTab, setActiveTab] = useState('order');
   const [depth, setDepth]           = useState(null);
   const [depthLoading, setDepthLoading] = useState(false);
@@ -572,6 +574,7 @@ export default function OrderModal({
     if (isOpen) {
       checkKiteAuth();
       if (mode !== 'quick') fetchPositions();
+      if (!optionType && !isResolvedOpt && !isIndexSym) fetchStockEvents();
     }
     return () => clearTimeout(closeTimerRef.current);
   }, [isOpen]);
@@ -586,6 +589,15 @@ export default function OrderModal({
     } catch (err) {
       console.error('Error fetching positions:', err);
     }
+  };
+
+  const fetchStockEvents = async () => {
+    if (!symUpper) return;
+    try {
+      const res  = await fetch(`/api/stock-events?symbol=${encodeURIComponent(symUpper)}&days=14`);
+      const data = await res.json();
+      if (!data.error) setStockEvents(data);
+    } catch { /* non-fatal */ }
   };
 
   const checkKiteAuth = async () => {
@@ -773,6 +785,7 @@ export default function OrderModal({
       setRegimeData(null);
       setDepth(null);
       setMinimalIntel(null);
+      setStockEvents(null);
       setEffectiveMode(mode);
       setAvailableExpiries([]);
       setSelectedExpiryDate(null);
@@ -1121,6 +1134,22 @@ export default function OrderModal({
               {effectiveMode === 'minimal' && (
                 <MinimalIntelCard minimalIntel={minimalIntel} loading={minimalLoading} />
               )}
+
+              {/* Upcoming events warning */}
+              {stockEvents?.upcoming?.filter(e => e.daysAway <= 7).length > 0 && (() => {
+                const top = stockEvents.upcoming.find(e => e.daysAway <= 7);
+                const when = top.daysAway === 0 ? 'Today' : top.daysAway === 1 ? 'Tomorrow' : `${top.daysAway}d`;
+                const isResult = top.type === 'result';
+                const icon = isResult ? '📊' : top.type === 'dividend' ? '💰' : '📅';
+                return (
+                  <div className={`flex items-center gap-2 rounded-xl px-2.5 py-2 border ${isResult ? 'bg-orange-500/[0.07] border-orange-500/25' : 'bg-amber-500/[0.07] border-amber-500/20'}`}>
+                    <span className="text-xs flex-shrink-0">{icon}</span>
+                    <p className={`text-[10px] font-semibold ${isResult ? 'text-orange-300' : 'text-amber-300'}`}>
+                      {top.label} {when}{isResult ? ' — expect volatility' : ''}
+                    </p>
+                  </div>
+                );
+              })()}
 
               {/* Qty + Product */}
               <div className="grid grid-cols-2 gap-3">
@@ -1738,6 +1767,35 @@ export default function OrderModal({
               ₹{estimatedValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </span>
           </div>
+
+          {/* ── Upcoming Events Warning ───────────────────────────────────────── */}
+          {stockEvents?.upcoming?.length > 0 && (() => {
+            const near = stockEvents.upcoming.filter(e => e.daysAway <= 7);
+            if (!near.length) return null;
+            const top       = near[0];
+            const isResult  = top.type === 'result';
+            const isSoon    = top.daysAway <= 2;
+            const border    = isResult ? 'border-orange-500/40' : 'border-amber-500/30';
+            const bg        = isResult ? 'bg-orange-950/50'     : 'bg-amber-950/40';
+            const text      = isResult ? 'text-orange-300'      : 'text-amber-300';
+            const icon      = isResult ? '📊' : top.type === 'dividend' ? '💰' : top.type === 'split' ? '✂️' : '📅';
+            const when      = top.daysAway === 0 ? 'Today' : top.daysAway === 1 ? 'Tomorrow' : `in ${top.daysAway}d`;
+            return (
+              <div className={`rounded-lg border ${border} ${bg} px-3 py-2`}>
+                <div className="flex items-start gap-2">
+                  <span className="text-sm leading-none mt-0.5 flex-shrink-0">{icon}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-[11px] font-bold ${text}`}>
+                      {top.label} {when}
+                      {near.length > 1 && <span className="font-normal text-slate-400"> · {near.length - 1} more event{near.length > 2 ? 's' : ''}</span>}
+                    </p>
+                    {top.detail && <p className="text-[10px] text-slate-400 mt-0.5 truncate">{top.detail}</p>}
+                    {isResult && <p className="text-[10px] text-slate-500 mt-0.5">Expect elevated volatility — size accordingly</p>}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ── Structure Risk Bar — full mode only ──────────────────────────── */}
           {effectiveMode === 'full' && (() => {

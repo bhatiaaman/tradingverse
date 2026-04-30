@@ -195,6 +195,7 @@ function ChartPageInner() {
   const [quickOrderOpen,   setQuickOrderOpen]     = useState(false);
   const [quickOrderSide,   setQuickOrderSide]     = useState('BUY');
   const [quickOrderPrice,  setQuickOrderPrice]    = useState(null);
+  const [stockEventData,   setStockEventData]     = useState(null);
   // Performance Refs for Ultra-Smooth Crosshair (Kite-style)
   const crosshairLineRef   = useRef(null);
   const crosshairButtonRef = useRef(null);
@@ -324,6 +325,22 @@ function ChartPageInner() {
       if (intelRes.ok) setIntelligence(await intelRes.json());
 
     } catch { /* non-fatal */ }
+
+    // Fetch corporate events for equity symbols on daily/weekly chart
+    const indexSymbols2 = new Set(['NIFTY','BANKNIFTY','FINNIFTY','MIDCPNIFTY','SENSEX','BANKEX']);
+    if (!indexSymbols2.has(symbol.toUpperCase()) && !symbol.match(/^.+(CE|PE)$/) &&
+        (chartInterval === 'day' || chartInterval === 'week')) {
+      try {
+        const evRes = await fetch(`/api/stock-events?symbol=${encodeURIComponent(symbol)}&days=60`, { cache: 'no-store' });
+        if (evRes.ok) {
+          const evData = await evRes.json();
+          setStockEventData(evData?.events ?? []);
+        }
+      } catch { /* non-fatal */ }
+    } else {
+      setStockEventData(null);
+    }
+
     setLoading(false);
   }, [symbol, chartInterval]);
 
@@ -673,6 +690,16 @@ function ChartPageInner() {
       chart.clearRSIPane();
     }
   }, [settings, dailyCandles, intelligence, slData, chartInterval]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Event markers — corporate events on day/week charts ──────────────────────
+  useEffect(() => {
+    if (!chartRef.current) return;
+    if (stockEventData?.length) {
+      chartRef.current.setEventMarkers(stockEventData);
+    } else {
+      chartRef.current.setEventMarkers([]);
+    }
+  }, [stockEventData]);
 
   // ── Build / rebuild chart, or just update overlays if data hasn't changed ────
   // Key invariant: chart is destroyed+recreated (resetting viewport) ONLY when
