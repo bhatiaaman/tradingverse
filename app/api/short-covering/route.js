@@ -224,9 +224,18 @@ function scoreFutOIDrop(snap, futOI, spot, candles = []) {
     pctSinceLow = ((spot - dayLow) / dayLow * 100);
   }
 
-  const priceMoved = pctSinceSnap > 0.015 || pctSinceLow > 0.04; 
-  const oiFell     = futOI < snap.futOI * 0.998; // ≥0.2% drop from baseline (~30k-50k contracts)
+  // In Short Covering, price MUST go UP while OI goes DOWN.
+  // If price is DOWN from snapshot (pctSinceSnap < 0), it is Long Liquidation, not Short Covering.
+  // We require a meaningful bounce from the snapshot (e.g. +0.03% = ~7 points) OR a strong bounce from the low.
+  const priceMoved = pctSinceSnap > 0.03 || (pctSinceSnap >= -0.02 && pctSinceLow > 0.1);
+  
+  const oiFell     = futOI < snap.futOI * 0.997; // ≥0.3% drop from baseline
   const oiPct      = snap.futOI > 0 ? ((futOI - snap.futOI) / snap.futOI * 100).toFixed(1) : '—';
+
+  // Strict check: if price is heavily down from snapshot, it's Long Liquidation
+  if (pctSinceSnap < -0.05 && oiFell) {
+     return { score: 0, hit: false, detail: `Futures OI ↓${Math.abs(parseFloat(oiPct))}% but price is falling (Long Liquidation)` };
+  }
 
   if (priceMoved && oiFell) {
     return {
