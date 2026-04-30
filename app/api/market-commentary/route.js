@@ -1528,7 +1528,7 @@ export async function GET(request) {
     return NextResponse.json(result);
 
   } catch (error) {
-    console.error('Market commentary error:', error);
+    console.error('Market commentary error:', error.message, error.stack?.split('\n')[1]?.trim());
 
     return NextResponse.json({
       success: true,

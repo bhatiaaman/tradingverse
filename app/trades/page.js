@@ -624,6 +624,7 @@ function getNiftyLevelAlerts(indices) {
       try {
         const response = await fetch(`/api/market-commentary${forceRefresh ? '?refresh=1' : ''}`);
         const data = await response.json();
+        if (data.error) console.error('[commentary] server error:', data.error);
         const next = data.commentary;
         prevCommentaryRef.current = next;
         soundEnabledRef.current   = true;

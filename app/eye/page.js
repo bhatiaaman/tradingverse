@@ -753,6 +753,8 @@ function getNiftyLevelAlerts(indices) {
         // Drop this response if a newer fetch already committed
         if (myId < commentaryFetchIdRef.current) return;
 
+        if (data.error) console.error('[commentary] server error:', data.error);
+
         const next = data.commentary;
         const prev = prevCommentaryRef.current;
 
