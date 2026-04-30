@@ -95,14 +95,14 @@ function buildPressure(snap) {
     invalidation = `If price ${bullDelta ? 'drops sharply' : 'rises sharply'}, trapped ${bullDelta ? 'longs' : 'shorts'} will accelerate the move`;
   } else if (direction === 'bull') {
     invalidation = strong
-      ? 'Bias fades if delta turns negative or imbalance drops below 1.6'
-      : 'Watch for imbalance to flip below 1.0 or delta to turn negative';
+      ? 'Strong buyer interest — setup fades only if buyers step back suddenly'
+      : 'Setup weakens if buyers stop defending or price action turns choppy';
   } else if (direction === 'bear') {
     invalidation = strong
-      ? 'Bias fades if delta turns positive or imbalance rises above 0.63'
-      : 'Watch for imbalance to flip above 1.0 or delta to turn positive';
+      ? 'Strong seller interest — setup fades only if sellers step away suddenly'
+      : 'Setup weakens if sellers back off or price starts bouncing';
   } else {
-    invalidation = 'Avoid entries until one side clearly dominates';
+    invalidation = 'No clear edge yet — wait for buyers or sellers to take control';
   }
 
   // Wall note

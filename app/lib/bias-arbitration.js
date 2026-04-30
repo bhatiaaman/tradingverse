@@ -95,7 +95,11 @@ export function runArbitration({ engineResult, optionsCtx, domVerdict, spot }) {
   }
 
   // ── Weighted final score ──────────────────────────────────────────────────
-  const weighted   = Object.values(engines).reduce((s, e) => s + e.weight * e.score, 0);
+  // Normalize weights across available engines only — unavailable engines
+  // (e.g. DOM when bridge is down) must not dilute the remaining signals.
+  const availEngines    = Object.values(engines).filter(e => e.available);
+  const totalAvailW     = availEngines.reduce((s, e) => s + e.weight, 0) || 1;
+  const weighted        = availEngines.reduce((s, e) => s + (e.weight / totalAvailW) * e.score, 0);
   const finalScore = parseFloat(clamp(weighted, -10, 10).toFixed(1));
 
   // ── Conflict detection ────────────────────────────────────────────────────
