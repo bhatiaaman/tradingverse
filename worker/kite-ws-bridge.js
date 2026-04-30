@@ -84,6 +84,15 @@ async function redisSet(key, value, ttl) {
   } catch { /* non-fatal */ }
 }
 
+async function redisDel(key) {
+  try {
+    await fetch(`${REDIS_URL}/del/${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+    });
+  } catch { /* non-fatal */ }
+}
+
 // ── In-memory state ───────────────────────────────────────────────────────────
 const snapshots      = {};   // token → current computed snapshot
 const prevSnaps      = {};   // token → snapshot from previous tick (stacking detection)
@@ -538,6 +547,9 @@ function scheduleMorningRotation() {
   setTimeout(async () => {
     console.log('[bridge] Morning rotation — refreshing intraday token list');
     instrumentMap = null; // force rebuild
+    // Clear fut-token caches so expiring contracts are not reused
+    for (const k of Object.keys(futTokens)) delete futTokens[k];
+    for (const name of Object.keys(FUT_EXCHANGES)) await redisDel(KEY.futToken(name));
     await connect();      // re-reads watchlist + futures tokens
     scheduleMorningRotation();
   }, msUntil);
