@@ -1659,17 +1659,18 @@ function ExitModal({ position, onClose, onPlaced }) {
 }
 
 // ── AddToPositionModal ────────────────────────────────────────────────────────
-function AddToPositionModal({ position, onClose, onPlaced }) {
+function AddToPositionModal({ position, onClose, onPlaced, regimeData }) {
   const isLong  = (position.quantity || 0) > 0;
   const side    = isLong ? 'BUY' : 'SELL';
   const ltp     = position.last_price || 0;
 
-  const [qty,       setQty]       = useState(1);
-  const [lotSize,   setLotSize]   = useState(1);
-  const [orderType, setOrderType] = useState('LIMIT');
-  const [price,     setPrice]     = useState(ltp.toFixed(2));
-  const [placing,   setPlacing]   = useState(false);
-  const [error,     setError]     = useState('');
+  const [qty,             setQty]             = useState(1);
+  const [lotSize,         setLotSize]         = useState(1);
+  const [orderType,       setOrderType]       = useState('LIMIT');
+  const [price,           setPrice]           = useState(ltp.toFixed(2));
+  const [placing,         setPlacing]         = useState(false);
+  const [error,           setError]           = useState('');
+  const [bypassedWarning, setBypassedWarning] = useState(false);
 
   useEffect(() => {
     const derivExchanges = ['NFO', 'BFO', 'MCX', 'CDS'];
@@ -1685,10 +1686,35 @@ function AddToPositionModal({ position, onClose, onPlaced }) {
 
   async function place() {
     if (qty <= 0) { setError('Quantity must be greater than zero'); return; }
-    if (lotSize > 1 && qty % lotSize !== 0) {
-      setError(`Quantity must be a multiple of lot size (${lotSize})`);
+    // Behavioral check: Prevent averaging down losers or trading against trend without explicit override
+    const isLoser = isLong ? ltp < position.average_price : ltp > position.average_price;
+    
+    const isPE = position.tradingsymbol.endsWith('PE');
+    const isOption = isPE || position.tradingsymbol.endsWith('CE');
+    const orderBullish = isOption ? (side === 'BUY' && !isPE) || (side === 'SELL' && isPE) : (side === 'BUY');
+
+    const intradayRegime = regimeData?.NIFTY;
+    let trendConflictMsg = '';
+    if (intradayRegime?.regime && intradayRegime.regime !== 'INITIALIZING') {
+      const clearlyBullishIntraday = ['TREND_DAY_UP', 'SHORT_SQUEEZE'].includes(intradayRegime.regime);
+      const clearlyBearishIntraday = ['TREND_DAY_DOWN', 'LONG_LIQUIDATION'].includes(intradayRegime.regime);
+      if (clearlyBearishIntraday && orderBullish) {
+        trendConflictMsg = `Intraday trend is BEARISH (${intradayRegime.regime.replace(/_/g, ' ')}) — you're averaging a bullish trade.`;
+      } else if (clearlyBullishIntraday && !orderBullish) {
+        trendConflictMsg = `Intraday trend is BULLISH (${intradayRegime.regime.replace(/_/g, ' ')}) — you're averaging a bearish trade.`;
+      }
+    }
+
+    const behavioralErrors = [];
+    if (isLoser) behavioralErrors.push('You are averaging down a losing position (statistically negative-EV behavior).');
+    if (trendConflictMsg) behavioralErrors.push(trendConflictMsg);
+
+    if (behavioralErrors.length > 0 && !bypassedWarning) {
+      setError(`⚠️ BEHAVIORAL WARNING:\n• ${behavioralErrors.join('\n• ')}\n\nClick Place Order again to force override.`);
+      setBypassedWarning(true);
       return;
     }
+
     setPlacing(true);
     setError('');
     try {
@@ -1778,7 +1804,7 @@ function AddToPositionModal({ position, onClose, onPlaced }) {
           <p className="text-xs text-gray-400 font-mono">LTP: ₹{ltp.toFixed(2)} · Avg: ₹{position.average_price?.toFixed(2)}</p>
         </div>
 
-        {error && <p className="text-[11px] text-red-500 mb-3 bg-red-50 dark:bg-red-500/10 p-2 rounded-lg border border-red-100 dark:border-red-500/20">{error}</p>}
+        {error && <p className="text-[11px] text-red-500 mb-3 bg-red-50 dark:bg-red-500/10 p-2 rounded-lg border border-red-100 dark:border-red-500/20 whitespace-pre-wrap">{error}</p>}
         <button
           onClick={place} disabled={placing}
           className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 ${
@@ -1969,7 +1995,7 @@ function AlertDrawer({ open, onClose, prefillSymbol = '' }) {
   );
 }
 
-function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) {
+function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh, regimeData }) {
   const [slModal,      setSlModal]      = useState(null);
   const [exitModal,    setExitModal]    = useState(null);
   const [addModal,     setAddModal]     = useState(null);
@@ -2216,6 +2242,7 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
           position={addModal}
           onClose={() => setAddModal(null)}
           onPlaced={() => { setAddModal(null); onRefresh(); }}
+          regimeData={regimeData}
         />
       )}
     </div>
@@ -4507,7 +4534,7 @@ export default function TerminalPage() {
 
           {/* Tab content */}
           <div className="flex-1 overflow-hidden">
-            {activeTab === 'positions' && <PositionsTab positions={positions} openOrders={panelOrders} loading={positionsLoading} kiteError={kiteError} onRefresh={fetchPositions} />}
+            {activeTab === 'positions' && <PositionsTab positions={positions} openOrders={panelOrders} loading={positionsLoading} kiteError={kiteError} onRefresh={fetchPositions} regimeData={regimeData} />}
 
             {activeTab === 'scSetup'    && <ShortCoveringPanel kiteConnected={kiteConnected} />}
             {activeTab === 'placeOrder' && (
