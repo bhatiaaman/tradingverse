@@ -1265,9 +1265,11 @@ function MarketDepthPanel({ instrument }) {
   return (
     <div className="rounded-xl border border-gray-200 dark:border-white/8 overflow-hidden">
       {/* Header — always visible */}
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-slate-800/40 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
+        className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-slate-800/40 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors cursor-pointer"
       >
         <span className="text-[11px] font-semibold text-gray-500 dark:text-white/50 uppercase tracking-wider">Market Depth</span>
         <div className="flex items-center gap-1.5">
@@ -1284,7 +1286,7 @@ function MarketDepthPanel({ instrument }) {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
         </div>
-      </button>
+      </div>
 
       {/* Depth table */}
       {open && (
