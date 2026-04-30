@@ -1412,11 +1412,9 @@ export async function GET(request) {
       }
     }
 
-    // On Vercel: use the request origin (public URL) — localhost is unreachable in serverless.
-    // On VPS: use localhost to bypass the firewall blocking self-connections on the external interface.
-    const internalBase = process.env.VERCEL
-      ? new URL(request.url).origin
-      : `http://localhost:${process.env.PORT || 3000}`;
+    // Use localhost for internal fetches — avoids VPS firewall blocking self-connections
+    // on the external interface when request.url contains the public IP/domain.
+    const internalBase = `http://localhost:${process.env.PORT || 3000}`;
 
     // Parallel data fetch — 12s timeout as safety net for slow responses
     const [marketData, optionChainData] = await Promise.all([

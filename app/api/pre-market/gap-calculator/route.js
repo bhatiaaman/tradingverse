@@ -8,10 +8,8 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const symbol = searchParams.get('symbol') || 'NIFTY';
 
-    // Vercel: use request origin (localhost unreachable in serverless). VPS: use localhost to bypass firewall.
-    const internalBase = process.env.VERCEL
-      ? new URL(request.url).origin
-      : `http://localhost:${process.env.PORT || 3000}`;
+    // Fetch from internal market-data — use localhost to bypass VPS firewall on external interface
+    const internalBase = `http://localhost:${process.env.PORT || 3000}`;
     const marketResponse = await fetch(`${internalBase}/api/market-data`);
     
     if (!marketResponse.ok) {
