@@ -930,7 +930,6 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
     warnings.push(`🔄 ${reversalResult.commentary.state}: ${reversalResult.commentary.headline}`);
   }
   // ── Global Pulse Warnings (Critical Only) ──
-  const dowFuturesChange = parseFloat(marketData.global?.dowFuturesChangePercent || 0);
   if (dowFuturesChange < -1.0) {
     warnings.push(`🔴 GLOBAL ALERT: Dow Futures down ${dowFuturesChange.toFixed(2)}%. Extreme selling pressure globally.`);
   } else if (dowFuturesChange > 1.0) {
