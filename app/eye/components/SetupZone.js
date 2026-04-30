@@ -41,23 +41,37 @@ function PlacedCard({ setup, placedResult }) {
   const isBull = setup.direction === 'bull';
   const accent = isBull ? 'emerald' : 'rose';
   return (
-    <div className={`rounded-lg border border-${accent}-700/40 bg-${accent}-950/50 px-3 py-2.5 space-y-1.5`}>
-      <div className="flex items-center gap-2">
-        <Zap size={12} className={`text-${accent}-400`} />
-        <span className={`text-xs font-bold text-${accent}-300`}>{setup.optType} order placed</span>
-        <span className="text-[10px] font-mono text-slate-500 ml-auto tabular-nums">{istTime(setup.candleTime)}</span>
+    <div className={`rounded-xl border border-${accent}-500/30 bg-${accent}-500/[0.03] backdrop-blur-md px-4 py-3.5 space-y-2 shadow-lg relative overflow-hidden`}>
+      <div className={`absolute top-0 left-0 w-1 h-full bg-${accent}-500/40`} />
+      <div className="flex items-center gap-2.5">
+        <div className={`p-1 rounded-full bg-${accent}-500/20`}>
+          <Zap size={13} className={`text-${accent}-400`} />
+        </div>
+        <span className={`text-[13px] font-black tracking-tight text-${accent}-300 uppercase`}>{setup.optType} Execution Live</span>
+        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/[0.03] border border-white/[0.06] ml-auto">
+          <Clock size={10} className="text-slate-500" />
+          <span className="text-[10px] font-mono font-bold text-slate-400 tabular-nums">{istTime(setup.candleTime)}</span>
+        </div>
       </div>
       {placedResult?.symbol && (
-        <p className="text-[11px] font-mono text-slate-300">{placedResult.symbol}</p>
+        <p className="text-[11px] font-bold font-mono text-slate-100/90 tracking-tight pl-0.5">{placedResult.symbol}</p>
       )}
       {placedResult?.entryLimit && (
-        <div className="flex gap-4 text-[10px] font-mono text-slate-400">
-          <span>Entry <span className="text-slate-200 font-bold tabular-nums">₹{placedResult.entryLimit}</span></span>
-          {placedResult.slTrigger && <span>SL <span className="text-rose-300 font-bold tabular-nums">₹{placedResult.slTrigger}</span></span>}
+        <div className="flex gap-5 text-[10px] font-bold font-mono text-slate-500 pl-0.5 pt-1">
+          <div className="flex flex-col gap-0.5">
+            <span className="uppercase text-[8px] tracking-widest text-slate-600">Entry</span>
+            <span className="text-slate-100 text-[12px] tabular-nums">₹{placedResult.entryLimit}</span>
+          </div>
+          {placedResult.slTrigger && (
+            <div className="flex flex-col gap-0.5">
+              <span className="uppercase text-[8px] tracking-widest text-rose-500/60">Protection</span>
+              <span className="text-rose-400 text-[12px] tabular-nums">₹{placedResult.slTrigger}</span>
+            </div>
+          )}
         </div>
       )}
       {placedResult?.slError && (
-        <p className="text-[10px] text-amber-400">{placedResult.slError}</p>
+        <p className="text-[10px] font-bold text-amber-500/80 pl-0.5 mt-1 animate-pulse">⚠️ {placedResult.slError}</p>
       )}
     </div>
   );
@@ -72,163 +86,130 @@ function SetupCard({ setup, onPlace, onSkip, placing, underlying }) {
   const isBull    = setup.direction === 'bull';
   const typeLabel = TYPE_LABEL[setup.type] ?? setup.type;
 
-  // Gradient button styles via inline style to avoid Tailwind JIT limitations
   const btnGrad = isBull
-    ? 'linear-gradient(135deg, #065f46 0%, #059669 100%)'
-    : 'linear-gradient(135deg, #9f1239 0%, #e11d48 100%)';
-  const btnGradHover = isBull
-    ? 'linear-gradient(135deg, #059669 0%, #34d399 100%)'
-    : 'linear-gradient(135deg, #e11d48 0%, #f43f5e 100%)';
+    ? 'linear-gradient(135deg, #065f46 0%, #10b981 100%)'
+    : 'linear-gradient(135deg, #9f1239 0%, #f43f5e 100%)';
 
   return (
-    <div className={`rounded-lg border ${isBull ? 'border-emerald-700/40 bg-emerald-950/30' : 'border-rose-700/40 bg-rose-950/30'} px-3 py-2.5 space-y-2.5`}>
+    <div className={`rounded-xl border ${isBull ? 'border-emerald-500/30 bg-emerald-500/[0.03]' : 'border-rose-500/30 bg-rose-500/[0.03]'} backdrop-blur-md px-4 py-4 space-y-4 shadow-xl relative overflow-hidden`}>
+      <div className={`absolute top-0 left-0 w-1 h-full ${isBull ? 'bg-emerald-500/40' : 'bg-rose-500/40'}`} />
 
       {/* Header row */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {isBull
-            ? <TrendingUp  size={12} className="text-emerald-400" />
-            : <TrendingDown size={12} className="text-rose-400"   />}
-          <span className={`text-xs font-bold ${isBull ? 'text-emerald-300' : 'text-rose-300'}`}>
-            {setup.optType} — {typeLabel}
-          </span>
-          {setup.confidence === 'high' && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-950 border border-amber-700/50 text-amber-300 font-mono font-bold">HIGH</span>
-          )}
-          {setup.volumeSpike && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-violet-950 border border-violet-700/50 text-violet-300 font-mono">⚡ Vol</span>
-          )}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className={`p-1.5 rounded-lg ${isBull ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`}>
+            {isBull ? <TrendingUp size={14} className="text-emerald-400" /> : <TrendingDown size={14} className="text-rose-400" />}
+          </div>
+          <div className="flex flex-col">
+            <span className={`text-[13px] font-black tracking-tight leading-none ${isBull ? 'text-emerald-300' : 'text-rose-300'} uppercase`}>
+              {setup.optType} Signal · {typeLabel}
+            </span>
+            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">Found at {istTime(setup.candleTime)}</span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-mono text-slate-600 tabular-nums">{istTime(setup.candleTime)}</span>
-          <button onClick={onSkip} className="text-slate-700 hover:text-slate-400 transition-colors">
-            <X size={12} />
+          {setup.confidence === 'high' && (
+            <span className="text-[9px] px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 font-black tracking-widest">HIGH</span>
+          )}
+          <button onClick={onSkip} className="p-1 rounded-md text-slate-600 hover:text-slate-100 hover:bg-white/[0.05] transition-all">
+            <X size={14} />
           </button>
         </div>
       </div>
 
       {/* Levels grid */}
-      <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
+      <div className="grid grid-cols-3 gap-3 bg-white/[0.02] p-2.5 rounded-xl border border-white/[0.04]">
         <div className="space-y-1">
-          <div className="text-slate-600 uppercase tracking-[0.1em]">{underlying}</div>
-          <div className="text-slate-100 font-bold text-[13px] tabular-nums">{fmt(setup.niftyPrice, 0)}</div>
+          <div className="text-[9px] font-black text-slate-600 uppercase tracking-wider">{underlying} Spot</div>
+          <div className="text-slate-100 font-black text-base tabular-nums leading-none tracking-tight">{fmt(setup.niftyPrice, 0)}</div>
         </div>
         <div className="space-y-1">
-          <div className="text-emerald-600 uppercase tracking-[0.1em]">Target +{setup.targetPts}</div>
-          <div className="text-emerald-300 font-bold text-[13px] tabular-nums">{fmt(setup.niftyTarget, 0)}</div>
+          <div className="text-[9px] font-black text-emerald-600 uppercase tracking-wider">Target</div>
+          <div className="text-emerald-400 font-black text-base tabular-nums leading-none tracking-tight">+{setup.targetPts}</div>
         </div>
         <div className="space-y-1">
-          <div className="text-rose-600 uppercase tracking-[0.1em]">SL -{setup.slPts}</div>
-          <div className="text-rose-300 font-bold text-[13px] tabular-nums">{fmt(setup.niftySl, 0)}</div>
+          <div className="text-[9px] font-black text-rose-600 uppercase tracking-wider">Stop Loss</div>
+          <div className="text-rose-400 font-black text-base tabular-nums leading-none tracking-tight">-{setup.slPts}</div>
         </div>
       </div>
 
-      {/* ATM strike + session */}
-      <div className="text-[10px] font-mono text-slate-500">
-        ATM {setup.strike} {setup.optType}
-        {setup.sessionPhase && (
-          <span className="ml-1 text-slate-600">
-            · {setup.sessionPhase === 'primary' ? 'Primary' : setup.sessionPhase === 'secondary' ? 'Secondary' : setup.sessionPhase}
+      {/* ATM strike + session context */}
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-slate-700" />
+          <span className="text-[10px] font-bold font-mono text-slate-400 uppercase tracking-tight">
+            Strike <span className="text-slate-200">{setup.strike} {setup.optType}</span>
           </span>
+        </div>
+        {setup.volumeSpike && (
+          <span className="text-[9px] font-black text-indigo-400/90 uppercase tracking-widest bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">⚡ Vol Spike</span>
         )}
       </div>
-
-      {/* ORB context */}
-      {setup.type === 'ORB' && setup.orHigh != null && (
-        <div className="text-[10px] font-mono text-indigo-400/80 bg-indigo-950/40 border border-indigo-800/30 rounded-lg px-2.5 py-1.5">
-          Opening range <span className="tabular-nums">{fmt(setup.orLow, 0)}</span>
-          <span className="text-slate-600"> – </span>
-          <span className="tabular-nums">{fmt(setup.orHigh, 0)}</span>
-          <span className="text-slate-600 ml-1">· breakout above/below range</span>
-        </div>
-      )}
-
-      {/* ATR expansion zone */}
-      {setup.type === 'ATR_EXPANSION' && setup.atrExpansionHigh != null && (
-        <div className="text-[10px] font-mono text-violet-400/80 bg-violet-950/40 border border-violet-800/30 rounded-lg px-2.5 py-1.5">
-          Expansion zone <span className="tabular-nums">{fmt(setup.atrExpansionLow, 0)}</span>
-          <span className="text-slate-600"> – </span>
-          <span className="tabular-nums">{fmt(setup.atrExpansionHigh, 0)}</span>
-          <span className="text-slate-600 ml-1">· momentum or wait for pullback</span>
-        </div>
-      )}
 
       {/* DOM verdict */}
       {setup.domVerdict && setup.domVerdict.level !== 'no-data' && (() => {
         const v = setup.domVerdict;
-        const levelStyle = {
-          go:      { bg: 'bg-emerald-950/40 border-emerald-800/40', title: 'text-emerald-300' },
-          wait:    { bg: 'bg-amber-950/40 border-amber-800/40',     title: 'text-amber-300'   },
-          caution: { bg: 'bg-amber-950/30 border-amber-900/30',     title: 'text-amber-400'   },
-          avoid:   { bg: 'bg-rose-950/40 border-rose-800/40',       title: 'text-rose-300'    },
-        }[v.level] ?? { bg: 'bg-slate-800/40 border-slate-700/30', title: 'text-slate-500' };
+        const vStyle = {
+          go:      { bg: 'bg-emerald-500/5 border-emerald-500/20', title: 'text-emerald-400', bar: 'bg-emerald-500/30' },
+          wait:    { bg: 'bg-amber-500/5 border-amber-500/20',     title: 'text-amber-400',   bar: 'bg-amber-500/30' },
+          caution: { bg: 'bg-amber-500/5 border-amber-500/20',     title: 'text-amber-500',   bar: 'bg-amber-500/30' },
+          avoid:   { bg: 'bg-rose-500/5 border-rose-500/20',       title: 'text-rose-400',    bar: 'bg-rose-500/30' },
+        }[v.level] ?? { bg: 'bg-slate-800/10 border-slate-700/20', title: 'text-slate-500',  bar: 'bg-slate-700/20' };
 
         return (
-          <div className={`rounded-lg border px-2.5 py-2 space-y-1.5 ${levelStyle.bg}`}>
-            <div className="flex items-start justify-between gap-2">
-              <p className={`text-[10px] font-semibold font-mono leading-snug ${levelStyle.title}`}>
+          <div className={`relative rounded-xl border p-3 space-y-2 overflow-hidden shadow-inner ${vStyle.bg}`}>
+            <div className="absolute top-0 left-0 w-1 h-full shadow-sm" style={{ backgroundColor: vStyle.bar }} />
+            <div className="flex items-center justify-between">
+              <p className={`text-[11px] font-black leading-tight uppercase tracking-tight ${vStyle.title}`}>
                 {v.icon} {v.message}
               </p>
               {v.confidence && (
-                <span className={`shrink-0 text-[9px] font-mono px-1.5 py-0.5 rounded-full border font-bold ${
-                  v.confidence === 'high'   ? 'bg-amber-950 border-amber-700/50 text-amber-300' :
-                  v.confidence === 'medium' ? 'bg-slate-800 border-slate-600/50 text-slate-300' :
-                  'bg-slate-900 border-slate-700/40 text-slate-500'
-                }`}>{v.confidence.toUpperCase()}</span>
+                <span className="text-[9px] font-black px-2 py-0.5 rounded bg-white/[0.03] border border-white/[0.06] text-slate-400 uppercase tracking-widest">{v.confidence}</span>
               )}
             </div>
-            {(v.bias || v.context) && (
-              <div className="flex items-center gap-2 text-[9px] font-mono">
-                {v.bias    && <span className="text-slate-400">{v.bias}</span>}
-                {v.bias && v.context && <span className="text-slate-700">·</span>}
-                {v.context && <span className="text-slate-500">{v.context}</span>}
-              </div>
-            )}
-            <div className="space-y-0.5 text-[9px] font-mono text-slate-500">
-              {v.meaning     && <p><span className="text-slate-600">Meaning  </span>{v.meaning}</p>}
-              {v.implication && <p><span className="text-slate-600">→ </span>{v.implication}</p>}
-              {v.action      && <p><span className="text-slate-600">Action   </span>{v.action}</p>}
-            </div>
+            <p className="text-[10px] font-bold text-slate-300 leading-snug tracking-tight">
+              {v.action || v.meaning}
+            </p>
             {v.invalidation && (
-              <p className="text-[9px] font-mono text-amber-600/80">❗ {v.invalidation}</p>
+              <p className="text-[9px] font-bold text-amber-500/60 leading-tight">❗ {v.invalidation}</p>
             )}
           </div>
         );
       })()}
 
       {/* Qty + Place button */}
-      <div className="flex items-center gap-2 pt-0.5">
-        <span className="text-[10px] text-slate-500 shrink-0 font-mono">Qty</span>
-        <input
-          type="number"
-          value={qty}
-          min={lotStep} step={lotStep}
-          onChange={e => setQty(Math.max(lotStep, parseInt(e.target.value) || lotStep))}
-          className="w-16 bg-[#1c2030] border border-white/[0.08] text-slate-200 text-xs font-mono rounded-lg px-2 py-1 text-right focus:outline-none focus:border-slate-500"
-        />
+      <div className="flex items-center gap-3 pt-1">
+        <div className="flex flex-col gap-0.5">
+           <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest pl-1">Size</span>
+           <input
+            type="number"
+            value={qty}
+            min={lotStep} step={lotStep}
+            onChange={e => setQty(Math.max(lotStep, parseInt(e.target.value) || lotStep))}
+            className="w-16 bg-white/[0.03] border border-white/[0.06] text-white text-xs font-black font-mono rounded-lg px-2 py-1.5 text-right focus:outline-none focus:border-indigo-500/50 transition-all"
+          />
+        </div>
         {!confirm ? (
           <button
             onClick={() => setConfirm(true)}
-            className="flex-1 py-2 rounded-lg text-xs font-bold text-white transition-all duration-200 shadow-md active:scale-[0.98]"
+            className="flex-1 h-[38px] rounded-xl text-xs font-black text-white uppercase tracking-widest transition-all duration-300 shadow-lg active:scale-95 hover:brightness-110"
             style={{ background: btnGrad }}
-            onMouseEnter={e => e.currentTarget.style.background = btnGradHover}
-            onMouseLeave={e => e.currentTarget.style.background = btnGrad}
           >
-            BUY {setup.optType}
+            Execute {setup.optType}
           </button>
         ) : (
-          <div className="flex-1 flex gap-1">
+          <div className="flex-1 flex gap-2 h-[38px]">
             <button
               onClick={() => { onPlace({ ...setup, qty }); setConfirm(false); }}
               disabled={placing}
-              className="flex-1 py-2 rounded-lg text-xs font-bold text-white transition-all shadow-md disabled:opacity-50 active:scale-[0.98]"
-              style={{ background: placing ? '#374151' : btnGrad }}
+              className="flex-1 rounded-xl text-[10px] font-black text-white uppercase tracking-widest transition-all shadow-lg active:scale-95 disabled:opacity-50"
+              style={{ background: placing ? '#334155' : btnGrad }}
             >
-              {placing ? 'Placing…' : 'Confirm · risk noted'}
+              {placing ? 'Transmitting…' : 'Confirm Order'}
             </button>
             <button
               onClick={() => setConfirm(false)}
-              className="px-3 py-2 rounded-lg text-xs bg-[#1c2030] hover:bg-[#252b3b] text-slate-400 transition-colors"
+              className="px-4 rounded-xl text-[10px] font-black bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] text-slate-400 uppercase tracking-widest transition-all"
             >
               Cancel
             </button>
@@ -296,7 +277,7 @@ export default function SetupZone({
       )}
 
       {/* Active setup / placed / placeholder */}
-      <div className="px-3 pb-2.5">
+      <div className="px-3 pb-3">
         {placed && placedResult ? (
           <PlacedCard setup={setup ?? {}} placedResult={placedResult} />
         ) : setup ? (
@@ -308,9 +289,17 @@ export default function SetupZone({
             underlying={underlying}
           />
         ) : (
-          <p className="text-[10px] text-slate-700 font-mono leading-relaxed">
-            Watching · VWAP Cross · Momentum Drive · Power Candle · Pullback Resume · ATR Expansion · ORB
-          </p>
+          <div className="relative rounded-xl border border-dashed border-slate-800 bg-white/[0.01] p-4 flex flex-col items-center justify-center text-center space-y-2 group">
+            <div className="p-2 rounded-full bg-slate-800/30 group-hover:bg-slate-800/50 transition-colors">
+              <Eye size={16} className="text-slate-600" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Awaiting Setup</p>
+              <p className="text-[9px] font-bold text-slate-600 uppercase tracking-tighter leading-tight max-w-[200px]">
+                Scanning VWAP, Momentum, Power Candles, and ATR Expansion zones in real-time.
+              </p>
+            </div>
+          </div>
         )}
       </div>
 

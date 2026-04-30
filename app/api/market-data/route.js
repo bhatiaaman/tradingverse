@@ -242,12 +242,14 @@ async function fetchGIFTNifty() {
 
 async function fetchGlobalIndices() {
   try {
-    const [dow, nasdaq, dax] = await Promise.all([
+    const [dow, nasdaq, dax, dowFutures] = await Promise.all([
       fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EDJI?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000), cache: 'no-store' }).then(r => r.json()),
       fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EIXIC?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000), cache: 'no-store' }).then(r => r.json()),
       fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGDAXI?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000), cache: 'no-store' }).then(r => r.json()),
+      fetch('https://query1.finance.yahoo.com/v8/finance/chart/YM%3DF?interval=1d', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000), cache: 'no-store' }).then(r => r.json()),
     ]);
     function extract(meta) {
+      if (!meta) return null;
       const price = meta.regularMarketPrice;
       const prevClose = meta.chartPreviousClose || meta.previousClose;
       const change = price - prevClose;
@@ -255,9 +257,10 @@ async function fetchGlobalIndices() {
       return { price, prevClose, change, changePercent };
     }
     return {
-      dow: extract(dow.chart.result[0].meta),
-      nasdaq: extract(nasdaq.chart.result[0].meta),
-      dax: extract(dax.chart.result[0].meta),
+      dow: extract(dow.chart?.result?.[0]?.meta),
+      nasdaq: extract(nasdaq.chart?.result?.[0]?.meta),
+      dax: extract(dax.chart?.result?.[0]?.meta),
+      dowFutures: extract(dowFutures.chart?.result?.[0]?.meta),
     };
   } catch (error) {
     console.error('Global indices fetch error:', error);
@@ -619,6 +622,8 @@ export async function GET() {
         dax:    globalIndices?.dax?.price           ? globalIndices.dax.price.toFixed(2)           : null,
         daxChange: globalIndices?.dax?.change       ? globalIndices.dax.change.toFixed(2)          : null,
         daxChangePercent: globalIndices?.dax?.changePercent ? globalIndices.dax.changePercent.toFixed(2) : null,
+        dowFutures: globalIndices?.dowFutures?.price ? globalIndices.dowFutures.price.toFixed(2) : null,
+        dowFuturesChangePercent: globalIndices?.dowFutures?.changePercent ? globalIndices.dowFutures.changePercent.toFixed(2) : null,
       },
       sentiment: {
         bias:       displayBias,

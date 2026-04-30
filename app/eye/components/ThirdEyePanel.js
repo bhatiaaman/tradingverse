@@ -7,11 +7,11 @@ import DomPressureStrip from './DomPressureStrip';
 
 // ── Bias verdict styles ───────────────────────────────────────────────────────
 const BIAS_STYLE = {
-  'Strong Bullish': { text: 'text-emerald-300', score: 'text-emerald-300', dot: 'bg-emerald-400', bar: ['#065f46','#34d399'] },
-  'Bullish':        { text: 'text-emerald-400', score: 'text-emerald-400', dot: 'bg-emerald-500', bar: ['#065f46','#10b981'] },
-  'Neutral':        { text: 'text-slate-300',   score: 'text-slate-400',   dot: 'bg-slate-500',  bar: ['#334155','#64748b'] },
-  'Bearish':        { text: 'text-rose-400',    score: 'text-rose-400',   dot: 'bg-rose-500',   bar: ['#9f1239','#fb7185'] },
-  'Strong Bearish': { text: 'text-rose-300',    score: 'text-rose-300',   dot: 'bg-rose-400',   bar: ['#881337','#f43f5e'] },
+  'Strong Bullish': { text: 'text-emerald-400', score: 'text-emerald-400', dot: 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]', bar: ['#064e3b','#10b981'] },
+  'Bullish':        { text: 'text-emerald-500', score: 'text-emerald-500', dot: 'bg-emerald-500', bar: ['#064e3b','#10b981'] },
+  'Neutral':        { text: 'text-slate-400',   score: 'text-slate-400',   dot: 'bg-slate-600',  bar: ['#1e293b','#475569'] },
+  'Bearish':        { text: 'text-rose-500',    score: 'text-rose-500',   dot: 'bg-rose-500',   bar: ['#4c0519','#f43f5e'] },
+  'Strong Bearish': { text: 'text-rose-400',    score: 'text-rose-400',   dot: 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.6)]', bar: ['#4c0519','#f43f5e'] },
 };
 const CONF_BADGE = {
   high:   'bg-amber-950 border-amber-700/50 text-amber-300',
@@ -71,21 +71,21 @@ const STATE_COLORS = {
 // ── Radial glow bloom per state ───────────────────────────────────────────────
 // Charcoal base (#131722) + obsidian-style bloom from top center.
 const STATE_GLOW = {
-  BUILDING_LONG:       'radial-gradient(ellipse 90% 45% at 50% 0%, rgba(16,185,129,0.13) 0%, transparent 100%)',
-  CONFIRMED_LONG:      'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(16,185,129,0.18) 0%, transparent 100%)',
-  CONTINUING_LONG:     'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(16,185,129,0.16) 0%, transparent 100%)',
-  PULLBACK_LONG:       'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(245,158,11,0.13) 0%, transparent 100%)',
-  DEEP_PULLBACK_LONG:  'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(245,158,11,0.14) 0%, transparent 100%)',
-  EXHAUSTED_LONG:      'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(234,179,8,0.12) 0%, transparent 100%)',
-  BUILDING_SHORT:      'radial-gradient(ellipse 90% 45% at 50% 0%, rgba(244,63,94,0.13) 0%, transparent 100%)',
-  CONFIRMED_SHORT:     'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(244,63,94,0.18) 0%, transparent 100%)',
-  CONTINUING_SHORT:    'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(244,63,94,0.16) 0%, transparent 100%)',
-  PULLBACK_SHORT:      'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(245,158,11,0.13) 0%, transparent 100%)',
-  DEEP_PULLBACK_SHORT: 'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(245,158,11,0.14) 0%, transparent 100%)',
-  EXHAUSTED_SHORT:     'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(234,179,8,0.12) 0%, transparent 100%)',
+  BUILDING_LONG:       'radial-gradient(ellipse 90% 60% at 50% 0%, rgba(16,185,129,0.08) 0%, transparent 100%)',
+  CONFIRMED_LONG:      'radial-gradient(ellipse 90% 70% at 50% 0%, rgba(16,185,129,0.12) 0%, transparent 100%)',
+  CONTINUING_LONG:     'radial-gradient(ellipse 90% 70% at 50% 0%, rgba(16,185,129,0.10) 0%, transparent 100%)',
+  PULLBACK_LONG:       'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(245,158,11,0.08) 0%, transparent 100%)',
+  DEEP_PULLBACK_LONG:  'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(245,158,11,0.10) 0%, transparent 100%)',
+  EXHAUSTED_LONG:      'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(234,179,8,0.08) 0%, transparent 100%)',
+  BUILDING_SHORT:      'radial-gradient(ellipse 90% 60% at 50% 0%, rgba(244,63,94,0.08) 0%, transparent 100%)',
+  CONFIRMED_SHORT:     'radial-gradient(ellipse 90% 70% at 50% 0%, rgba(244,63,94,0.12) 0%, transparent 100%)',
+  CONTINUING_SHORT:    'radial-gradient(ellipse 90% 70% at 50% 0%, rgba(244,63,94,0.10) 0%, transparent 100%)',
+  PULLBACK_SHORT:      'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(245,158,11,0.08) 0%, transparent 100%)',
+  DEEP_PULLBACK_SHORT: 'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(245,158,11,0.10) 0%, transparent 100%)',
+  EXHAUSTED_SHORT:     'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(234,179,8,0.08) 0%, transparent 100%)',
   INVALIDATED:         'none',
-  TRAPPED_LONG:        'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(249,115,22,0.13) 0%, transparent 100%)',
-  TRAPPED_SHORT:       'radial-gradient(ellipse 90% 40% at 50% 0%, rgba(249,115,22,0.13) 0%, transparent 100%)',
+  TRAPPED_LONG:        'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(249,115,22,0.10) 0%, transparent 100%)',
+  TRAPPED_SHORT:       'radial-gradient(ellipse 90% 50% at 50% 0%, rgba(249,115,22,0.10) 0%, transparent 100%)',
   RANGING:             'none',
   NEUTRAL:             'none',
 };
@@ -559,57 +559,69 @@ export default function ThirdEyePanel() {
       )}
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div className="relative z-10 flex items-center justify-between px-3 py-2.5 border-b border-white/[0.05]">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Eye size={13} className={`${colors.text} opacity-80`} />
-          <span className="text-[10px] font-mono font-bold tracking-[0.2em] text-slate-400 uppercase">
-            Third Eye
-          </span>
+      <div className="relative z-10 flex items-center justify-between px-4 py-3 border-b border-white/[0.04]">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 mr-1">
+            <div className={`p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] shadow-inner`}>
+              <Eye size={14} className={`${colors.text} opacity-90`} />
+            </div>
+            <span className="text-[11px] font-bold tracking-[0.25em] text-slate-100 uppercase drop-shadow-md">
+              Third Eye
+            </span>
+          </div>
+
           {/* Underlying toggle */}
-          <div className="flex items-center rounded-lg overflow-hidden border border-slate-700/40 text-[10px] font-mono">
+          <div className="flex items-center bg-[#0a0d14]/80 p-0.5 rounded-lg border border-white/[0.06] shadow-sm">
             <button
               onClick={() => setUnderlying('NIFTY')}
-              className={`px-2.5 py-0.5 transition-colors ${underlying === 'NIFTY' ? 'bg-indigo-600/80 text-white' : 'bg-[#1c2030]/60 text-slate-500 hover:text-slate-300'}`}
+              className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all duration-300 ${underlying === 'NIFTY' ? 'bg-indigo-600 shadow-[0_0_12px_rgba(79,70,229,0.3)] text-white' : 'text-slate-500 hover:text-slate-300'}`}
             >NIFTY</button>
             <button
               onClick={() => setUnderlying('SENSEX')}
-              className={`px-2.5 py-0.5 transition-colors ${underlying === 'SENSEX' ? 'bg-indigo-600/80 text-white' : 'bg-[#1c2030]/60 text-slate-500 hover:text-slate-300'}`}
+              className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all duration-300 ${underlying === 'SENSEX' ? 'bg-indigo-600 shadow-[0_0_12px_rgba(79,70,229,0.3)] text-white' : 'text-slate-500 hover:text-slate-300'}`}
             >SENSEX</button>
           </div>
-          {/* Session badge */}
-          <span
-            className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-semibold ${sessBadge.color}`}
-            title={sessBadge.title}
-          >
-            {sessBadge.label}
-          </span>
-          {/* TF toggle — clickable, saves a trip to settings */}
-          <div className="flex items-center rounded-lg overflow-hidden border border-slate-700/40 text-[10px] font-mono">
+
+          {/* Dow Futures / Global Pulse Indicator */}
+          {ltp?.global?.dowFutures && (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/[0.06] shadow-sm group cursor-help" title="Dow Jones Futures (YM=F) — 24h Global Proxy">
+              <div className={`w-1.5 h-1.5 rounded-full ${parseFloat(ltp.global.dowFuturesChangePercent) >= 0 ? 'bg-emerald-400' : 'bg-rose-400'} animate-pulse`} />
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Global</span>
+              <span className={`text-[10px] font-mono font-bold tabular-nums ${parseFloat(ltp.global.dowFuturesChangePercent) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {parseFloat(ltp.global.dowFuturesChangePercent) >= 0 ? '+' : ''}{ltp.global.dowFuturesChangePercent}%
+              </span>
+            </div>
+          )}
+
+          {/* TF toggle */}
+          <div className="flex items-center bg-[#0a0d14]/80 p-0.5 rounded-lg border border-white/[0.06] shadow-sm">
             <button
               onClick={() => { setTf('5minute'); saveSettings({ ...settings, activeTf: '5minute' }); }}
-              className={`px-2 py-0.5 transition-colors ${tf === '5minute' ? 'bg-indigo-600/80 text-white' : 'bg-[#1c2030]/60 text-slate-500 hover:text-slate-300'}`}
+              className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all duration-300 ${tf === '5minute' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'}`}
               title="5-minute candles, 15-minute trend bias"
             >5m</button>
             <button
               onClick={() => { setTf('15minute'); saveSettings({ ...settings, activeTf: '15minute' }); }}
-              className={`px-2 py-0.5 transition-colors ${tf === '15minute' ? 'bg-indigo-600/80 text-white' : 'bg-[#1c2030]/60 text-slate-500 hover:text-slate-300'}`}
+              className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all duration-300 ${tf === '15minute' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'}`}
               title="15-minute candles, 1-hour trend bias"
             >15m</button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {scanData?.marketHours !== undefined && (
-            scanData.marketHours
-              ? <Wifi size={11} className="text-emerald-500/60" />
-              : <WifiOff size={11} className="text-slate-700" />
-          )}
-          {loading && <RefreshCw size={11} className="text-slate-600 animate-spin" />}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+            {scanData?.marketHours !== undefined && (
+              scanData.marketHours
+                ? <Wifi size={12} className="text-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
+                : <WifiOff size={12} className="text-slate-600" />
+            )}
+            {loading && <RefreshCw size={12} className="text-indigo-400 animate-spin" />}
+          </div>
           <button
             onClick={() => setShowSettings(true)}
-            className="text-slate-600 hover:text-slate-300 transition-colors"
+            className="p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-slate-500 hover:text-slate-100 hover:bg-white/[0.08] transition-all"
             title="Third Eye Settings"
           >
-            <Settings size={12} />
+            <Settings size={14} />
           </button>
         </div>
       </div>
@@ -618,31 +630,37 @@ export default function ThirdEyePanel() {
       <div className="relative z-10 px-4 py-4 border-b border-white/[0.04] space-y-3">
 
         {/* Row 1: Verdict label + live price */}
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1 min-w-0">
-            <div className="flex items-center gap-2.5">
-              <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 shadow-sm ${biasArb?.conflict ? 'bg-amber-400 animate-pulse' : (biasStyle.dot ?? 'bg-slate-500')}`} />
-              <span className={`text-lg font-bold leading-none tracking-tight ${biasArb?.conflict ? 'text-amber-300' : biasStyle.text}`}>
+        <div className="flex items-start justify-between gap-3 pt-1">
+          <div className="space-y-1.5 min-w-0">
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <span className={`block w-3 h-3 rounded-full flex-shrink-0 ${biasArb?.conflict ? 'bg-amber-400' : (biasStyle.dot ?? 'bg-slate-500')}`} />
+                {(biasStyle.dot && !biasArb?.conflict) && <span className={`absolute inset-0 rounded-full animate-ping opacity-25 ${biasStyle.dot}`} />}
+              </div>
+              <span className={`text-2xl font-black tracking-tight leading-none ${biasArb?.conflict ? 'text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.3)]' : biasStyle.text + ' drop-shadow-sm'}`}>
                 {biasArb?.conflict ? 'Mixed Signals' : (biasArb?.biasLabel ?? stateLabel(state))}
               </span>
               {scoreTrend && scoreTrend !== 'flat' && (
-                <span className={`text-sm font-bold leading-none ${scoreTrend === 'up' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {scoreTrend === 'up' ? '↑' : '↓'}
-                </span>
+                <div className={`flex items-center justify-center w-5 h-5 rounded-full ${scoreTrend === 'up' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'} border border-white/[0.05]`}>
+                  <span className="text-[10px] font-black">{scoreTrend === 'up' ? '↑' : '↓'}</span>
+                </div>
               )}
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap pl-0.5">
-              <span className="text-[11px] text-slate-400 leading-none">
+            <div className="flex items-center gap-2 flex-wrap pl-1">
+              <span className="text-[11px] font-bold text-slate-400/90 tracking-wide bg-white/[0.03] px-2 py-0.5 rounded-md border border-white/[0.05]">
                 {marketStateDescription(state, biasAlign)}
               </span>
               {scanData?.qualifier && scanData.qualifier !== 'neutral' && (
-                <span className={`text-[10px] font-semibold ${qualColor}`}>· {scanData.qualifier}</span>
+                <span className={`text-[10px] font-black uppercase tracking-widest ${qualColor} bg-white/[0.02] px-1.5 py-0.5 rounded border border-white/[0.03]`}>
+                  {scanData.qualifier}
+                </span>
               )}
             </div>
           </div>
           {ltpDisplay && (
-            <div className="text-right shrink-0">
-              <span className="text-xl font-bold tabular-nums text-white leading-none">
+            <div className="text-right shrink-0 bg-white/[0.03] p-2 rounded-xl border border-white/[0.05] shadow-inner backdrop-blur-sm">
+              <div className="text-[9px] font-black text-slate-500 uppercase tracking-tighter mb-0.5">Spot Price</div>
+              <span className="text-2xl font-black tabular-nums text-white leading-none tracking-tight">
                 {fmt(ltpDisplay, 1)}
               </span>
             </div>
@@ -651,76 +669,109 @@ export default function ThirdEyePanel() {
 
         {/* Row 2: Score bar + score number + confidence */}
         {biasArb && (
-          <div className="flex items-center gap-3">
-            <VerdictBar score={biasArb.finalScore} conflict={biasArb.conflict} height="h-2" />
-            <span className={`text-sm font-bold shrink-0 w-9 text-right tabular-nums ${biasArb.conflict ? 'text-amber-400' : biasStyle.score}`}>
-              {biasArb.finalScore > 0 ? '+' : ''}{biasArb.finalScore}
-            </span>
-            <span className={`text-[9px] font-semibold px-2.5 py-0.5 rounded-full border shrink-0 tracking-wide ${confBadge}`}>
-              {(biasArb.confidence ?? 'low').toUpperCase()}
-            </span>
+          <div className="flex items-center gap-4 bg-white/[0.02] p-2.5 rounded-xl border border-white/[0.04] shadow-inner">
+            <div className="flex-1 flex flex-col gap-1">
+              <div className="flex justify-between items-center px-0.5">
+                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Aggregate Strength</span>
+                <span className={`text-[11px] font-black tabular-nums ${biasArb.conflict ? 'text-amber-400' : biasStyle.score}`}>
+                  {biasArb.finalScore > 0 ? '+' : ''}{biasArb.finalScore}
+                </span>
+              </div>
+              <VerdictBar score={biasArb.finalScore} conflict={biasArb.conflict} height="h-2.5" />
+            </div>
+            <div className="flex flex-col items-end gap-1 shrink-0">
+               <span className="text-[9px] font-bold text-slate-600 uppercase tracking-tighter">Confidence</span>
+               <span className={`text-[10px] font-black px-3 py-1 rounded-lg border shadow-lg tracking-wider ${confBadge}`}>
+                {(biasArb.confidence ?? 'low').toUpperCase()}
+              </span>
+            </div>
           </div>
         )}
 
         {/* Row 3: Meta chips — session · HTF alignment · time · VWAP */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold ${sessBadge.color}`} title={sessBadge.title}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-[9px] px-2.5 py-1 rounded-lg font-bold uppercase tracking-wider shadow-sm border ${sessBadge.color}`} title={sessBadge.title}>
             {sessBadge.label}
           </span>
           {biasAlign && state !== 'NEUTRAL' && state !== 'RANGING' && (
             <span
               title={biasAlign.aligned ? 'Higher timeframe aligned — trade with the trend.' : biasAlign.counter ? 'Higher timeframe opposing — counter-trend, be cautious.' : 'Higher timeframe neutral.'}
-              className={`text-[9px] px-2 py-0.5 rounded-full border font-semibold ${
-                biasAlign.aligned ? 'bg-emerald-950/60 border-emerald-800/40 text-emerald-300' :
-                biasAlign.counter ? 'bg-rose-950/60 border-rose-800/40 text-rose-300' :
-                'bg-slate-800/60 border-slate-700/40 text-slate-400'
+              className={`text-[9px] px-2.5 py-1 rounded-lg border font-bold uppercase tracking-wider shadow-sm ${
+                biasAlign.aligned ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-300' :
+                biasAlign.counter ? 'bg-rose-950/80 border-rose-500/30 text-rose-300' :
+                'bg-slate-800/80 border-slate-700/40 text-slate-400'
               }`}
             >
               {biasTf} {biasAlign.label}
             </span>
           )}
           {scanData?.candlesInState != null && (
-            <span className="text-[9px] text-slate-500" title="How long the engine has been in this state.">
-              {elapsed(scanData.candlesInState, tf)} in state
-            </span>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/[0.05]" title="Time in current state">
+               <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">Stability</span>
+               <span className="text-[9px] font-bold text-slate-400 tabular-nums uppercase">
+                {elapsed(scanData.candlesInState, tf)}
+              </span>
+            </div>
           )}
           {vwapVal && (
-            <span className="text-[9px] text-slate-500" title="Volume Weighted Average Price">
-              VWAP <span className="text-slate-300 tabular-nums font-medium">{fmt(vwapVal, 0)}</span>
-            </span>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/[0.05]" title="Volume Weighted Average Price">
+               <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">VWAP</span>
+               <span className="text-[9px] font-bold text-slate-300 tabular-nums">
+                {fmt(vwapVal, 0)}
+              </span>
+            </div>
           )}
         </div>
 
         {/* Row 4: Commentary */}
         {commentary && (commentary.headline || commentary.watch || commentary.risk) && (
-          <div className="space-y-1.5 pt-0.5 border-t border-white/[0.04]">
+          <div className="space-y-2 pt-3 pb-1 border-t border-white/[0.04]">
             {commentary.headline && (
-              <p className="text-[12px] font-semibold text-white/90 leading-snug">
-                {commentary.headline}
-              </p>
+              <div className="flex gap-2">
+                 <div className="w-1 h-auto rounded-full bg-indigo-500/40 shrink-0" />
+                 <p className="text-[13px] font-bold text-white/95 leading-snug tracking-tight">
+                  {commentary.headline}
+                </p>
+              </div>
             )}
-            {commentary.watch && (
-              <p className="text-[11px] text-slate-400 leading-snug flex gap-1.5">
-                <span className="text-sky-400 shrink-0 mt-px">→</span>
-                <span>{commentary.watch}</span>
-              </p>
-            )}
-            {commentary.risk && (
-              <p className="text-[11px] text-slate-500 leading-snug flex gap-1.5">
-                <span className="text-rose-400/60 shrink-0 mt-px">✕</span>
-                <span>{commentary.risk}</span>
-              </p>
-            )}
+            <div className="pl-3 space-y-1.5">
+              {commentary.watch && (
+                <div className="flex items-center gap-2.5">
+                  <div className="p-0.5 rounded bg-sky-500/10 border border-sky-500/20">
+                    <ChevronDown size={10} className="text-sky-400 rotate-[-90deg]" />
+                  </div>
+                  <p className="text-[11px] font-medium text-slate-300 leading-none">
+                    {commentary.watch}
+                  </p>
+                </div>
+              )}
+              {commentary.risk && (
+                <div className="flex items-center gap-2.5">
+                  <div className="p-0.5 rounded bg-rose-500/10 border border-rose-500/20">
+                    <X size={10} className="text-rose-400 opacity-70" />
+                  </div>
+                  <p className="text-[11px] font-medium text-slate-400 leading-none">
+                    {commentary.risk}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
         {/* Row 5: DOM alert — invalidation / wall note */}
         {(domData?.invalidation || domData?.wallNote) && (
-          <div className="flex items-start gap-2 bg-amber-500/[0.07] border border-amber-500/20 rounded-xl px-3 py-2">
-            <span className="text-amber-400/80 text-[11px] shrink-0 mt-px">⚠</span>
-            <span className="text-[11px] text-amber-200/70 leading-relaxed">
-              {domData.invalidation ?? domData.wallNote}
-            </span>
+          <div className="group relative flex items-start gap-3 bg-gradient-to-r from-amber-500/[0.08] to-transparent border border-amber-500/20 rounded-xl px-3.5 py-2.5 overflow-hidden shadow-lg">
+            <div className="absolute top-0 left-0 w-1 h-full bg-amber-500/40" />
+            <div className="flex-shrink-0 p-1 rounded-full bg-amber-500/20 border border-amber-500/30">
+              <AlertCircle size={12} className="text-amber-400 animate-pulse" />
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[9px] font-black text-amber-500/60 uppercase tracking-widest leading-none">Critical Threshold</span>
+              <p className="text-[11px] font-bold text-amber-100/90 leading-tight tracking-tight">
+                {domData.invalidation ?? domData.wallNote}
+              </p>
+            </div>
           </div>
         )}
       </div>
