@@ -76,16 +76,10 @@ async function fetchNiftyHistoricalFromKite(dp) {
       const todayIST = todayISO.slice(0, 10);
       
       const completedCandles = historicalData.filter(c => {
-        // Kite dates are like "2026-04-24T00:00:00+0530"
-        // new Date() handles the +0530 offset correctly. 
-        // We just need to know the date portion in IST.
+        // c.date may be a string ("2026-04-24T00:00:00+0530") or a Date object
+        // depending on which KiteConnect SDK version is in use. Normalise to IST date.
         const dt = new Date(c.date);
-        const istDateStr = new Date(dt.getTime() + 5.5 * 3600000).getUTCOffset === undefined 
-          ? new Date(dt.getTime() + 5.5 * 3600000).toISOString().slice(0, 10)
-          : ""; // fallback handled below
-        
-        // Simpler/Reliable IST Date extraction from Kite string
-        const candleDateIST = c.date.slice(0, 10); 
+        const candleDateIST = new Date(dt.getTime() + 5.5 * 3600000).toISOString().slice(0, 10);
         return candleDateIST < todayIST;
       });
 

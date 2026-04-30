@@ -1416,12 +1416,16 @@ export async function GET(request) {
     // on the external interface when request.url contains the public IP/domain.
     const internalBase = `http://localhost:${process.env.PORT || 3000}`;
 
-    // Parallel data fetch — both fail gracefully so a slow external source never
-    // blocks commentary. market-data uses no timeout (pre-market sources can be slow).
-    const [marketData, optionChainData] = await Promise.all([
-      fetch(`${internalBase}/api/market-data`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
-      fetch(`${internalBase}/api/option-chain?underlying=NIFTY&expiry=weekly`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
-    ]);
+    // Parallel data fetch — both fail gracefully. Extra try/catch guards against
+    // undici SSL errors (e.g. Yahoo Finance blocking VPS IPs mid-connection) that
+    // can escape .catch() when the TCP socket is in a bad state.
+    let marketData = null, optionChainData = null;
+    try {
+      [marketData, optionChainData] = await Promise.all([
+        fetch(`${internalBase}/api/market-data`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
+        fetch(`${internalBase}/api/option-chain?underlying=NIFTY&expiry=weekly`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
+      ]);
+    } catch { /* SSL / network error — treat both as unavailable */ }
 
     let commentary;
     let dailyBias = null, fifteenMinBias = null;
