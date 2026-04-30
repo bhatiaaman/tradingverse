@@ -391,7 +391,7 @@ function makeCommentary({ spot, atm, maxPain, pcr, straddlePremium, ivHvRatio,
   // 2. PCR with change detection
   if (pcr != null) {
     const delta = (prevPCR != null && Math.abs(pcr - prevPCR) > 0.05)
-      ? ` (${pcr > prevPCR ? '↑ from ' : '↓ from '}${prevPCR.toFixed(2)} — ${pcr > prevPCR ? 'put writing picking up, bearish' : 'call writing increasing, bullish'})`
+      ? ` (${pcr > prevPCR ? '↑ from ' : '↓ from '}${prevPCR.toFixed(2)} — ${pcr > prevPCR ? 'put writing picking up, bullish' : 'call writing increasing, bearish'})`
       : '';
     if (pcr < 0.5)
       lines.push({ icon: '📊', c: 'text-red-400',     t: `PCR ${pcr.toFixed(2)} — very bearish. Heavy call writing capping rallies.${delta} Note: in squeeze setups, low PCR = contrarian fuel — see Short Squeeze Risk card.` });
@@ -798,9 +798,9 @@ export default function ExpiryPage() {
       {/* Controls bar */}
       <div className="max-w-[1400px] mx-auto px-6 pt-4 pb-2 flex flex-wrap items-center gap-3">
         <div className="flex gap-1 bg-[#0c1a2e] border border-white/8 rounded-xl p-1">
-          {['NIFTY', 'BANKNIFTY'].map(s => (
+          {['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'].map(s => (
             <button key={s} onClick={() => { setSymbol(s); setSelectedExp(''); }}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${symbol === s ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+              className={`px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-colors ${symbol === s ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>
               {s}
             </button>
           ))}

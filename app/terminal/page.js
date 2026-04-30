@@ -1354,10 +1354,13 @@ function hasSL(position, openOrders) {
   const sym       = position.tradingsymbol;
   const isLong    = (position.quantity || 0) > 0;
   const neededSide = isLong ? 'SELL' : 'BUY';
+  const OPEN_STATUS_LIST = ['OPEN', 'TRIGGER PENDING', 'PUT ORDER REQ RECEIVED', 'VALIDATION PENDING', 'OPEN PENDING', 'MODIFY PENDING', 'MODIFY VALIDATION PENDING', 'MODIFIED', 'CANCEL PENDING', 'AMO REQ RECEIVED'];
+  
   return openOrders.some(o =>
     o.tradingsymbol === sym &&
     o.transaction_type?.toUpperCase() === neededSide &&
-    ['SL', 'SL-M'].includes(o.order_type?.toUpperCase())
+    ['SL', 'SL-M'].includes(o.order_type?.toUpperCase()) &&
+    OPEN_STATUS_LIST.includes(o.status?.toUpperCase())
   );
 }
 

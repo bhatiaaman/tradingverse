@@ -30,18 +30,24 @@ async function redisSet(key, value, ex) {
 
 // Well-known Kite instrument tokens (NSE indices)
 const INDEX_TOKENS = {
-  NIFTY:    256265,   // NSE:NIFTY 50
-  BANKNIFTY: 260105,  // NSE:NIFTY BANK
-  VIX:      264969,   // NSE:INDIA VIX
+  NIFTY:     256265,   // NSE:NIFTY 50
+  BANKNIFTY:  260105,  // NSE:NIFTY BANK
+  FINNIFTY:   257801,  // NSE:NIFTY FIN SERVICE
+  MIDCPNIFTY: 258057,  // NSE:NIFTY MID SELECT
+  SENSEX:     265,     // BSE:SENSEX
+  BANKEX:     271,     // BSE:BANKEX
+  VIX:       264969,   // NSE:INDIA VIX
 };
 
-const INSTRUMENTS_KEY = `${NS}:nfo-options-instruments`;
+const INSTRUMENTS_TTL = 2 * 3600;
+const instrumentsKey  = (exchange) => `${NS}:${exchange.toLowerCase()}-straddle-instruments`;
 
-async function getNFOInstruments(dp) {
-  const cached = await redisGet(INSTRUMENTS_KEY);
+async function getOptionsInstruments(dp, exchange) {
+  const cacheKey = instrumentsKey(exchange);
+  const cached   = await redisGet(cacheKey);
   if (cached) return cached;
 
-  const csvText = await dp.getInstrumentsCSV('NFO');
+  const csvText = await dp.getInstrumentsCSV(exchange);
   const lines   = csvText.trim().split('\n');
   const headers = lines[0].split(',');
   const tokenIdx  = headers.indexOf('instrument_token');
@@ -51,12 +57,19 @@ async function getNFOInstruments(dp) {
   const strikeIdx = headers.indexOf('strike');
   const typeIdx   = headers.indexOf('instrument_type');
 
+  const supported = exchange === 'NFO' 
+    ? new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'])
+    : new Set(['SENSEX', 'BANKEX', 'BSESENSEX', 'BSEBANKEX']);
+
   const instruments = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',');
-    const name = cols[nameIdx]?.replace(/"/g, '').trim();
+    let name = cols[nameIdx]?.replace(/"/g, '').trim();
+    if (name === 'BSESENSEX') name = 'SENSEX';
+    if (name === 'BSEBANKEX') name = 'BANKEX';
+
     const type = cols[typeIdx]?.replace(/"/g, '').trim();
-    if ((name === 'NIFTY' || name === 'BANKNIFTY') && (type === 'CE' || type === 'PE')) {
+    if (supported.has(name) && (type === 'CE' || type === 'PE')) {
       instruments.push({
         token:  parseInt(cols[tokenIdx]) || 0,
         symbol: cols[tsIdx]?.replace(/"/g, '').trim(),
@@ -67,7 +80,7 @@ async function getNFOInstruments(dp) {
       });
     }
   }
-  await redisSet(INSTRUMENTS_KEY, instruments, 2 * 3600);
+  await redisSet(cacheKey, instruments, INSTRUMENTS_TTL);
   return instruments;
 }
 
@@ -103,7 +116,10 @@ export async function GET(request) {
     const dp = await getDataProvider();
     if (!dp.isConnected()) return NextResponse.json({ error: 'Kite disconnected' }, { status: 503 });
 
-    const instruments = await getNFOInstruments(dp);
+    const isBFO   = symbol === 'SENSEX' || symbol === 'BANKEX';
+    const exchange = isBFO ? 'BFO' : 'NFO';
+
+    const instruments = await getOptionsInstruments(dp, exchange);
     const ce = instruments.find(i => i.name === symbol && i.expiry === expiry && i.strike === ceStrike && i.type === 'CE');
     const pe = instruments.find(i => i.name === symbol && i.expiry === expiry && i.strike === peStrike && i.type === 'PE');
 
