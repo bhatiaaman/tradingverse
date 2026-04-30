@@ -615,58 +615,62 @@ export default function ThirdEyePanel() {
       </div>
 
       {/* ── Tier 1: Aggregated Verdict Hero ──────────────────────────────────── */}
-      <div className="relative z-10 px-3 py-3 border-b border-white/[0.04] space-y-2.5">
+      <div className="relative z-10 px-4 py-4 border-b border-white/[0.04] space-y-3">
 
-        {/* Row 1: Big verdict label + live price */}
+        {/* Row 1: Verdict label + live price */}
         <div className="flex items-start justify-between gap-3">
-          <div className="space-y-0.5 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${biasArb?.conflict ? 'bg-amber-400 animate-pulse' : (biasStyle.dot ?? 'bg-slate-500')}`} />
-              <span className={`text-sm font-bold leading-tight ${biasArb?.conflict ? 'text-amber-300' : biasStyle.text}`}>
+          <div className="space-y-1 min-w-0">
+            <div className="flex items-center gap-2.5">
+              <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 shadow-sm ${biasArb?.conflict ? 'bg-amber-400 animate-pulse' : (biasStyle.dot ?? 'bg-slate-500')}`} />
+              <span className={`text-lg font-bold leading-none tracking-tight ${biasArb?.conflict ? 'text-amber-300' : biasStyle.text}`}>
                 {biasArb?.conflict ? 'Mixed Signals' : (biasArb?.biasLabel ?? stateLabel(state))}
               </span>
               {scoreTrend && scoreTrend !== 'flat' && (
-                <span className={`text-[11px] font-bold leading-none ${scoreTrend === 'up' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                <span className={`text-sm font-bold leading-none ${scoreTrend === 'up' ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {scoreTrend === 'up' ? '↑' : '↓'}
                 </span>
               )}
             </div>
-            <span className="text-[10px] font-mono text-slate-400 block">
-              {marketStateDescription(state, biasAlign)}
+            <div className="flex items-center gap-1.5 flex-wrap pl-0.5">
+              <span className="text-[11px] text-slate-400 leading-none">
+                {marketStateDescription(state, biasAlign)}
+              </span>
               {scanData?.qualifier && scanData.qualifier !== 'neutral' && (
-                <span className={`ml-1.5 ${qualColor}`}>· {scanData.qualifier}</span>
+                <span className={`text-[10px] font-semibold ${qualColor}`}>· {scanData.qualifier}</span>
               )}
-            </span>
+            </div>
           </div>
           {ltpDisplay && (
-            <span className="text-[15px] font-bold tabular-nums text-slate-100 leading-tight shrink-0">
-              {fmt(ltpDisplay, 1)}
-            </span>
+            <div className="text-right shrink-0">
+              <span className="text-xl font-bold tabular-nums text-white leading-none">
+                {fmt(ltpDisplay, 1)}
+              </span>
+            </div>
           )}
         </div>
 
-        {/* Row 2: Sentiment bar + score + confidence */}
+        {/* Row 2: Score bar + score number + confidence */}
         {biasArb && (
-          <div className="flex items-center gap-2.5">
-            <VerdictBar score={biasArb.finalScore} conflict={biasArb.conflict} />
-            <span className={`text-[12px] font-mono font-bold shrink-0 w-8 text-right tabular-nums ${biasArb.conflict ? 'text-amber-400' : biasStyle.score}`}>
+          <div className="flex items-center gap-3">
+            <VerdictBar score={biasArb.finalScore} conflict={biasArb.conflict} height="h-2" />
+            <span className={`text-sm font-bold shrink-0 w-9 text-right tabular-nums ${biasArb.conflict ? 'text-amber-400' : biasStyle.score}`}>
               {biasArb.finalScore > 0 ? '+' : ''}{biasArb.finalScore}
             </span>
-            <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border font-bold shrink-0 ${confBadge}`}>
+            <span className={`text-[9px] font-semibold px-2.5 py-0.5 rounded-full border shrink-0 tracking-wide ${confBadge}`}>
               {(biasArb.confidence ?? 'low').toUpperCase()}
             </span>
           </div>
         )}
 
-        {/* Row 3: Meta chips — session · HTF · time · VWAP */}
+        {/* Row 3: Meta chips — session · HTF alignment · time · VWAP */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-semibold ${sessBadge.color}`} title={sessBadge.title}>
+          <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold ${sessBadge.color}`} title={sessBadge.title}>
             {sessBadge.label}
           </span>
           {biasAlign && state !== 'NEUTRAL' && state !== 'RANGING' && (
             <span
               title={biasAlign.aligned ? 'Higher timeframe aligned — trade with the trend.' : biasAlign.counter ? 'Higher timeframe opposing — counter-trend, be cautious.' : 'Higher timeframe neutral.'}
-              className={`text-[9px] font-mono px-2 py-0.5 rounded-full border font-semibold ${
+              className={`text-[9px] px-2 py-0.5 rounded-full border font-semibold ${
                 biasAlign.aligned ? 'bg-emerald-950/60 border-emerald-800/40 text-emerald-300' :
                 biasAlign.counter ? 'bg-rose-950/60 border-rose-800/40 text-rose-300' :
                 'bg-slate-800/60 border-slate-700/40 text-slate-400'
@@ -676,82 +680,89 @@ export default function ThirdEyePanel() {
             </span>
           )}
           {scanData?.candlesInState != null && (
-            <span className="text-[9px] font-mono text-slate-400" title="How long the engine has been in this state.">
+            <span className="text-[9px] text-slate-500" title="How long the engine has been in this state.">
               {elapsed(scanData.candlesInState, tf)} in state
             </span>
           )}
           {vwapVal && (
-            <span className="text-[9px] font-mono text-slate-400" title="Volume Weighted Average Price — above VWAP = buyers in control.">
-              VWAP <span className="text-slate-300 tabular-nums">{fmt(vwapVal, 0)}</span>
+            <span className="text-[9px] text-slate-500" title="Volume Weighted Average Price">
+              VWAP <span className="text-slate-300 tabular-nums font-medium">{fmt(vwapVal, 0)}</span>
             </span>
           )}
         </div>
 
-        {/* Row 4: Commentary — watch + risk */}
-        {commentary && (commentary.watch || commentary.risk) && (
-          <div className="space-y-1 pt-0.5">
-            <p className="text-[11px] font-semibold text-white/85 leading-snug">
-              {commentary.headline}
-            </p>
+        {/* Row 4: Commentary */}
+        {commentary && (commentary.headline || commentary.watch || commentary.risk) && (
+          <div className="space-y-1.5 pt-0.5 border-t border-white/[0.04]">
+            {commentary.headline && (
+              <p className="text-[12px] font-semibold text-white/90 leading-snug">
+                {commentary.headline}
+              </p>
+            )}
             {commentary.watch && (
-              <p className="text-[10px] text-slate-400 leading-snug">
-                <span className="text-sky-400 mr-0.5">→</span>{commentary.watch}
+              <p className="text-[11px] text-slate-400 leading-snug flex gap-1.5">
+                <span className="text-sky-400 shrink-0 mt-px">→</span>
+                <span>{commentary.watch}</span>
               </p>
             )}
             {commentary.risk && (
-              <p className="text-[10px] text-slate-500 leading-snug">
-                <span className="text-rose-400/70 mr-0.5">✕</span>{commentary.risk}
+              <p className="text-[11px] text-slate-500 leading-snug flex gap-1.5">
+                <span className="text-rose-400/60 shrink-0 mt-px">✕</span>
+                <span>{commentary.risk}</span>
               </p>
             )}
           </div>
         )}
 
-        {/* Row 5: DOM alert chip — invalidation / wall note */}
+        {/* Row 5: DOM alert — invalidation / wall note */}
         {(domData?.invalidation || domData?.wallNote) && (
-          <div className="flex items-start gap-1.5 bg-amber-950/25 border border-amber-800/30 rounded-lg px-2.5 py-1.5">
-            <span className="text-amber-400 text-[10px] shrink-0 mt-px">⚠</span>
-            <span className="text-[10px] font-mono text-amber-300/90 leading-relaxed">
+          <div className="flex items-start gap-2 bg-amber-500/[0.07] border border-amber-500/20 rounded-xl px-3 py-2">
+            <span className="text-amber-400/80 text-[11px] shrink-0 mt-px">⚠</span>
+            <span className="text-[11px] text-amber-200/70 leading-relaxed">
               {domData.invalidation ?? domData.wallNote}
             </span>
           </div>
         )}
       </div>
 
-      {/* ── Tier 2: Bias Breakdown (collapsible, closed by default) ──────────── */}
+      {/* ── Tier 2: Bias Breakdown (collapsible) ─────────────────────────────── */}
       <div className="relative z-10 border-b border-white/[0.04]">
         <button
           onClick={() => setShowBreakdown(p => !p)}
-          className="w-full px-3 py-1.5 flex items-center justify-between text-[9px] font-mono text-slate-500 hover:text-slate-300 transition-colors uppercase tracking-[0.12em]"
+          className="w-full px-4 py-2 flex items-center justify-between text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
         >
-          <span>Bias Breakdown {biasArb ? `· ${biasArb.agreementNote ?? ''}` : ''}</span>
-          {showBreakdown ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+          <span className="font-medium tracking-wide">
+            Bias Breakdown
+            {biasArb?.agreementNote && <span className="ml-1.5 text-slate-600">· {biasArb.agreementNote}</span>}
+          </span>
+          {showBreakdown ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
         </button>
 
         {showBreakdown && biasArb?.engines && (
-          <div className="px-3 pb-3 space-y-2">
+          <div className="px-4 pb-4 space-y-2.5">
             {Object.entries(biasArb.engines).map(([key, eng]) => {
               const meta  = ENGINE_META[key] ?? { label: key, tip: '' };
               const score = eng.available ? eng.score : 0;
               const bull  = score >= 0;
               const pct   = Math.min(50, Math.abs(score) * 5);
-              const grad  = bull
-                ? 'linear-gradient(to right,#065f46,#34d399)'
-                : 'linear-gradient(to right,#9f1239,#fb7185)';
+              const grad  = !eng.available ? null
+                : bull ? 'linear-gradient(to right,#065f46,#34d399)'
+                       : 'linear-gradient(to right,#9f1239,#fb7185)';
               const engStyle = BIAS_STYLE[eng.label] ?? BIAS_STYLE.Neutral;
               return (
-                <div key={key} className="flex items-center gap-2" title={meta.tip}>
-                  <span className="text-[9px] font-mono text-slate-400 w-16 shrink-0">{meta.label}</span>
-                  <div className="relative flex-1 bg-white/[0.06] rounded-full overflow-hidden h-1.5">
-                    <div className="absolute inset-y-0 w-px bg-slate-600/40" style={{ left: '50%' }} />
-                    {score !== 0 && (
+                <div key={key} className="flex items-center gap-3" title={meta.tip}>
+                  <span className="text-[10px] text-slate-400 w-16 shrink-0">{meta.label}</span>
+                  <div className="relative flex-1 bg-white/[0.05] rounded-full overflow-hidden h-[5px]">
+                    <div className="absolute inset-y-0 w-px bg-slate-600/30" style={{ left: '50%' }} />
+                    {score !== 0 && grad && (
                       <div className="absolute inset-y-0 transition-all duration-700" style={{
                         background: grad,
                         ...(bull ? { left: '50%', width: `${pct}%` } : { right: `${50-pct}%`, width: `${pct}%` }),
                       }} />
                     )}
                   </div>
-                  <span className={`text-[9px] font-mono w-7 text-right shrink-0 tabular-nums font-semibold ${eng.available ? engStyle.score : 'text-slate-600'}`}>
-                    {eng.available ? (score > 0 ? '+' : '') + score : 'n/a'}
+                  <span className={`text-[10px] font-medium w-8 text-right shrink-0 tabular-nums ${eng.available ? engStyle.score : 'text-slate-700'}`}>
+                    {eng.available ? (score > 0 ? '+' : '') + score : '—'}
                   </span>
                 </div>
               );
