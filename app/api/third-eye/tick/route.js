@@ -19,6 +19,7 @@ const UNDERLYING_QUOTE = {
   SENSEX: 'BSE:SENSEX',
 };
 const tickKey = (underlying) => `${NS}:${underlying.toLowerCase()}-ltp`;
+const MARKET_DATA_KEY = `${NS}:market-data`;
 
 async function redisGet(key) {
   try {
@@ -52,8 +53,14 @@ export async function GET(req) {
 
   // Try Redis cache first (avoids hitting Kite on every tick)
   const cached = await redisGet(cacheKey);
+  const marketData = await redisGet(MARKET_DATA_KEY);
+
   if (cached) {
-    return NextResponse.json({ ...cached, fromCache: true });
+    return NextResponse.json({
+      ...cached,
+      global: marketData?.global || null,
+      fromCache: true
+    });
   }
 
   try {
@@ -70,6 +77,7 @@ export async function GET(req) {
       underlying,
       change:    quote?.[quoteKey]?.net_change ?? null,
       changePct: quote?.[quoteKey]?.net_change_percentage ?? null,
+      global:    marketData?.global || null,
       timestamp: new Date().toISOString(),
     };
 

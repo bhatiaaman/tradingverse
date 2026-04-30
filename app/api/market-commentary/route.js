@@ -726,6 +726,13 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
   const ema9        = parseFloat(marketData.indices?.niftyEMA9      || 0) || null;
   const vix         = parseFloat(marketData.indices?.vix             || 0);
 
+  // Global Pulse (Dow Futures YM=F)
+  const dowFuturesChange = parseFloat(marketData.global?.dowFuturesChangePercent || 0);
+  const isGlobalStrong = dowFuturesChange > 0.4;
+  const isGlobalWeak   = dowFuturesChange < -0.4;
+  const isGlobalCrash  = dowFuturesChange < -1.0;
+  const isGlobalSurge  = dowFuturesChange > 1.0;
+
   // BankNifty relative strength
   const niftyChangePct    = parseFloat(marketData.indices?.niftyChangePercent    ?? 0) || null;
   const bankNiftyChangePct = parseFloat(marketData.indices?.bankNiftyChangePercent ?? 0) || null;
@@ -921,6 +928,17 @@ function generateLiveCommentary(marketData, optionChain, intraday) {
   // Medium-confidence reversal: add to warnings
   if (reversalResult.reversalZone && reversalResult.confidence === 'MEDIUM') {
     warnings.push(`🔄 ${reversalResult.commentary.state}: ${reversalResult.commentary.headline}`);
+  }
+  // ── Global Pulse Warnings (Critical Only) ──
+  const dowFuturesChange = parseFloat(marketData.global?.dowFuturesChangePercent || 0);
+  if (dowFuturesChange < -1.0) {
+    warnings.push(`🔴 GLOBAL ALERT: Dow Futures down ${dowFuturesChange.toFixed(2)}%. Extreme selling pressure globally.`);
+  } else if (dowFuturesChange > 1.0) {
+    warnings.push(`🟢 GLOBAL SURGE: Dow Futures up ${dowFuturesChange.toFixed(2)}%. Strong global tailwinds.`);
+  } else if (dowFuturesChange < -0.4 && finalBias === 'BULLISH') {
+    warnings.push(`⚠️ GLOBAL DIVERGENCE: Nifty is Bullish but Dow Futures are weak (${dowFuturesChange.toFixed(2)}%). Upside may be capped.`);
+  } else if (dowFuturesChange > 0.4 && finalBias === 'BEARISH') {
+    warnings.push(`⚠️ GLOBAL DIVERGENCE: Nifty is Bearish but Dow Futures are strong (+${dowFuturesChange.toFixed(2)}%). Selling may exhaust.`);
   }
 
   return {

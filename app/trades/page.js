@@ -2054,14 +2054,18 @@ function getNiftyLevelAlerts(indices) {
                 <div className="flex justify-between items-center">
                   <span className="text-slate-400 text-[9px]">DOW</span>
                   <span className="text-slate-100 text-[9px] lg:text-xs font-mono font-medium">{marketData?.global?.dow || '---'}</span>
-                  {marketData?.global?.dowChange && (
-                    <span className={`text-[8px] font-mono ${parseFloat(marketData.global.dowChange) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {parseFloat(marketData.global.dowChange) >= 0 ? '+' : ''}{parseFloat(marketData.global.dowChange).toFixed(2)}
-                    </span>
-                  )}
                   {marketData?.global?.dowChangePercent && (
                     <span className={`text-[8px] font-mono ${parseFloat(marketData.global.dowChangePercent) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      ({parseFloat(marketData.global.dowChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.global.dowChangePercent).toFixed(2)}%)
+                      {parseFloat(marketData.global.dowChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.global.dowChangePercent).toFixed(2)}%
+                    </span>
+                  )}
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-blue-400 text-[9px] font-bold">YM=F</span>
+                  <span className="text-slate-100 text-[9px] lg:text-xs font-mono font-medium">{marketData?.global?.dowFutures || '---'}</span>
+                  {marketData?.global?.dowFuturesChangePercent && (
+                    <span className={`text-[8px] font-mono font-bold ${parseFloat(marketData.global.dowFuturesChangePercent) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {parseFloat(marketData.global.dowFuturesChangePercent) >= 0 ? '+' : ''}{parseFloat(marketData.global.dowFuturesChangePercent).toFixed(2)}%
                     </span>
                   )}
                 </div>
