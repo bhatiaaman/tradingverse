@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { usePageVisibility } from '@/app/hooks/usePageVisibility';
 import { useTheme } from '@/lib/theme-context';
@@ -2080,8 +2080,8 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
                 const depth = depthCache[p.tradingsymbol];
                 const isDepthLoading = depthLoading.has(p.tradingsymbol);
                 return (
-                  <>
-                    <tr key={p.tradingsymbol} className="border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                  <React.Fragment key={p.tradingsymbol}>
+                    <tr className="border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                       <td className="py-2.5 font-medium text-gray-900 dark:text-white">
                         <div className="flex items-center gap-1">
                           <button
@@ -2150,7 +2150,7 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
                       </td>
                     </tr>
                     {depthExpanded && (
-                      <tr key={`${p.tradingsymbol}-depth`} className="bg-gray-50/50 dark:bg-white/[0.02]">
+                      <tr className="bg-gray-50/50 dark:bg-white/[0.02]">
                         <td colSpan={7} className="px-3 py-2">
                           {isDepthLoading ? (
                             <div className="flex items-center gap-1.5 text-[10px] text-gray-400"><Loader2 size={10} className="animate-spin" /> Loading depth…</div>
@@ -2187,7 +2187,7 @@ function PositionsTab({ positions, openOrders, loading, kiteError, onRefresh }) 
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 );
               })}
             </tbody>
