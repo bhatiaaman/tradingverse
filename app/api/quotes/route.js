@@ -4,7 +4,13 @@ import { getDataProvider } from '@/app/lib/providers';
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const NS          = process.env.REDIS_NAMESPACE || 'default';
-const CACHE_TTL   = 15; // 15 seconds
+function getCacheTtl() {
+  const ist   = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const day   = ist.getUTCDay();
+  if (day === 0 || day === 6) return 60;
+  const mins  = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  return (mins >= 555 && mins <= 930) ? 5 : 60; // 5s during market hours, 60s otherwise
+}
 
 const INDEX_INSTRUMENTS = {
   'NIFTY':      'NSE:NIFTY 50',
@@ -79,7 +85,7 @@ export async function GET(request) {
     }
 
     const payload = { quotes, timestamp: new Date().toISOString() };
-    await redisSet(cacheKey, payload, CACHE_TTL);
+    await redisSet(cacheKey, payload, getCacheTtl());
     return NextResponse.json(payload, {
       headers: { 'Cache-Control': 's-maxage=15, stale-while-revalidate=10' },
     });
