@@ -291,14 +291,19 @@ export function createChart(container, options = {}) {
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
   function _resolveEventMarkers(raw) {
+    if (!candles.length) return [];
+    const lastCandleTime = candles[candles.length - 1].time;
     return raw.map(m => {
       const eventEpoch = Math.floor(new Date(m.dateISO + 'T00:00:00Z').getTime() / 1000);
+      // Future events have no candles yet — skip
+      if (eventEpoch > lastCandleTime + 86400) return null;
       let bestDist = Infinity, bestIdx = -1;
       for (let i = 0; i < candles.length; i++) {
         const dist = Math.abs(candles[i].time - eventEpoch);
         if (dist < bestDist) { bestDist = dist; bestIdx = i; }
       }
-      if (bestIdx < 0 || bestDist > 7 * 86400) return null;
+      // Allow up to 4 days gap to handle weekends/holidays
+      if (bestIdx < 0 || bestDist > 4 * 86400) return null;
       return { ...m, index: bestIdx };
     }).filter(Boolean);
   }

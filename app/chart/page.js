@@ -331,7 +331,7 @@ function ChartPageInner() {
     if (!indexSymbols2.has(symbol.toUpperCase()) && !symbol.match(/^.+(CE|PE)$/) &&
         (chartInterval === 'day' || chartInterval === 'week')) {
       try {
-        const evRes = await fetch(`/api/stock-events?symbol=${encodeURIComponent(symbol)}&days=60`, { cache: 'no-store' });
+        const evRes = await fetch(`/api/stock-events?symbol=${encodeURIComponent(symbol)}&days=30&lookback=90`, { cache: 'no-store' });
         if (evRes.ok) {
           const evData = await evRes.json();
           setStockEventData(evData?.events ?? []);
@@ -1465,6 +1465,27 @@ function ChartPageInner() {
             )}
           </div>
         )}
+
+        {/* Upcoming events pill — top-right, daily/weekly charts only */}
+        {stockEventData && (() => {
+          const upcoming = stockEventData.filter(e => !e.isPast && e.daysAway >= 0 && e.daysAway <= 30);
+          if (!upcoming.length) return null;
+          const top = upcoming[0];
+          const TYPE_COLOR = { result: '#f97316', dividend: '#10b981', bonus: '#60a5fa', split: '#a78bfa', default: '#94a3b8' };
+          const color = TYPE_COLOR[top.type] ?? TYPE_COLOR.default;
+          const icon  = top.type === 'result' ? '📊' : top.type === 'dividend' ? '💰' : top.type === 'bonus' ? 'B' : top.type === 'split' ? '✂' : '📅';
+          const when  = top.daysAway === 0 ? 'Today' : top.daysAway === 1 ? 'Tomorrow' : `in ${top.daysAway}d`;
+          return (
+            <div className="absolute top-2 right-2 z-10 pointer-events-none select-none flex items-center gap-1.5 bg-[#0a0e1a]/85 border rounded-lg px-2 py-1"
+              style={{ borderColor: color + '40' }}>
+              <span className="text-[11px] leading-none">{icon}</span>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold leading-tight" style={{ color }}>{top.label} {when}</span>
+                {upcoming.length > 1 && <span className="text-[9px] text-slate-500">+{upcoming.length - 1} more</span>}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* VWAP badge — bottom-left, stacked above the Intelligence pill */}
         {settings.showVwap && isIntraday && vwap != null && (

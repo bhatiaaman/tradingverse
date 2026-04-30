@@ -177,18 +177,18 @@ const EVENT_URGENCY = {
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
-  const symbol  = (searchParams.get('symbol') || '').toUpperCase().trim();
-  const days    = Math.min(90, Math.max(7, parseInt(searchParams.get('days') || '30', 10)));
-  const refresh = searchParams.get('refresh') === '1';
+  const symbol   = (searchParams.get('symbol') || '').toUpperCase().trim();
+  const days     = Math.min(90,  Math.max(7,  parseInt(searchParams.get('days')     || '30', 10)));
+  const lookback = Math.min(365, Math.max(7,  parseInt(searchParams.get('lookback') || '30', 10)));
+  const refresh  = searchParams.get('refresh') === '1';
 
   if (!symbol) return NextResponse.json({ error: 'symbol required' }, { status: 400 });
 
   const today    = getISTToday();
   const toDate   = addDays(today, days);
-  // Include recent past (7d) so dividend ex-dates just passed still show
-  const fromDate = addDays(today, -7);
+  const fromDate = addDays(today, -lookback);
 
-  const cacheKey = `${NS}:stock-events:${symbol}:${today}`;
+  const cacheKey = `${NS}:stock-events:${symbol}:${today}:lb${lookback}`;
 
   if (!refresh) {
     const cached = await redis.get(cacheKey);
@@ -216,7 +216,7 @@ export async function GET(req) {
       if (!dateISO) continue;
 
       const d = daysAway(dateISO, today);
-      if (d < -7 || d > days) continue;
+      if (d < -lookback || d > days) continue;
 
       const purpose = (act.purpose || '').trim();
       const subject = (act.subject || '').trim();
@@ -242,7 +242,7 @@ export async function GET(req) {
       if (!dateISO) continue;
 
       const d = daysAway(dateISO, today);
-      if (d < -7 || d > days) continue;
+      if (d < -lookback || d > days) continue;
 
       const purpose = (ev.purpose || ev.bm_desc || '').trim();
       const type    = categoriseAction(purpose, '');
