@@ -552,6 +552,9 @@ async function main() {
   startWsServer();
   await connect();
 
+  // Flush in-memory snapshots to Redis every 5s — dom-context.js reads from Redis by token.
+  setInterval(flushSnapshots, 5_000);
+
   // Poll intraday watchlist every 5 min between 8:00–10:00 IST — picks up late additions
   setInterval(async () => {
     const istHour = (new Date(Date.now() + 5.5 * 3600 * 1000)).getUTCHours();
