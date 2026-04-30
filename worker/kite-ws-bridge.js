@@ -294,7 +294,7 @@ async function resolveFutToken(apiKey, accessToken, name, exchange) {
       const exp = cols[expIdx]?.replace(/"/g,'').trim();
       if (!exp) continue;
       const expiryDate = new Date(exp);
-      if (expiryDate < today) continue;
+      if (expiryDate <= today) continue;
       if (!best || expiryDate < new Date(best.expiry)) best = { token: parseInt(cols[tokIdx]), expiry: exp };
     }
     if (best) {
