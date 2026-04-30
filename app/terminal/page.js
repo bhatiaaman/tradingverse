@@ -2413,35 +2413,44 @@ function OrdersRightPanel({ orders, loading, kiteError, onRefresh, onCancelOrder
                         </>)}
                       </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                        <span className="text-[10px] text-gray-400">Qty {o.quantity}</span>
-                        <span className="text-[10px] text-gray-400">
-                          {o.status === 'COMPLETE' && o.average_price > 0 ? (
-                            <span className="text-gray-900 dark:text-white font-medium">Avg. ₹{o.average_price.toFixed(2)}</span>
-                          ) : (
-                            <span>{o.price > 0 ? `@ ₹${o.price}` : '@ MKT'}</span>
-                          )}
-                        </span>
-                        {o.last_price != null && (
-                          <span className="text-[10px] font-mono text-blue-500 font-semibold ml-1 whitespace-nowrap">
-                            · LTP ₹{o.last_price.toFixed(2)}
+                    <div className="flex flex-col gap-1 mt-0.5">
+                      {/* Row 1: Qty and Price (Left) + Net Avg (Right) */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-gray-500 dark:text-gray-400">Qty {o.quantity}</span>
+                          <span className="text-[10px] text-gray-600 dark:text-gray-300">
+                            {o.status === 'COMPLETE' && o.average_price > 0 ? (
+                              <span className="text-gray-900 dark:text-white font-medium">Avg. ₹{o.average_price.toFixed(2)}</span>
+                            ) : (
+                              <span>{o.price > 0 ? `@ ₹${o.price}` : '@ MKT'}</span>
+                            )}
                           </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1.5">
+                        </div>
                         {(() => {
                            const pos = positions?.find(p => p.tradingsymbol === o.tradingsymbol);
                            if (pos && pos.quantity !== 0) {
                              return (
-                               <span className="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-white/40 font-medium">
+                               <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-white/40 font-medium">
                                  net avg ₹{pos.average_price.toFixed(2)}
                                </span>
                              );
                            }
                            return null;
                         })()}
-                        <OrderStatusBadge status={o.status} />
+                      </div>
+                      
+                      {/* Row 2: LTP (Left) + Status (Right) */}
+                      <div className="flex items-center justify-between mt-0.5">
+                        <div className="flex-1">
+                          {o.last_price != null ? (
+                            <span className="text-[10px] font-mono text-blue-600 dark:text-blue-400 font-medium">
+                              LTP ₹{o.last_price.toFixed(2)}
+                            </span>
+                          ) : <div />}
+                        </div>
+                        <div className="flex-shrink-0">
+                          <OrderStatusBadge status={o.status} />
+                        </div>
                       </div>
                     </div>
 
