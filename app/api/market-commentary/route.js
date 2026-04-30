@@ -1416,14 +1416,30 @@ export async function GET(request) {
     // on the external interface when request.url contains the public IP/domain.
     const internalBase = `http://localhost:${process.env.PORT || 3000}`;
 
-    // Parallel data fetch — 12s timeout as safety net for slow responses
+    // Parallel data fetch — both fail gracefully so a slow external source never
+    // blocks commentary. market-data uses no timeout (pre-market sources can be slow).
     const [marketData, optionChainData] = await Promise.all([
-      fetch(`${internalBase}/api/market-data`, { cache: 'no-store', signal: AbortSignal.timeout(12000) }).then(r => r.json()),
-      fetch(`${internalBase}/api/option-chain?underlying=NIFTY&expiry=weekly`, { cache: 'no-store', signal: AbortSignal.timeout(12000) }).then(r => r.json()).catch(() => null),
+      fetch(`${internalBase}/api/market-data`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
+      fetch(`${internalBase}/api/option-chain?underlying=NIFTY&expiry=weekly`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
     ]);
 
     let commentary;
     let dailyBias = null, fifteenMinBias = null;
+
+    if (!marketData) {
+      return NextResponse.json({
+        success: true,
+        commentary: {
+          state: 'DATA UNAVAILABLE', stateEmoji: '⚠️',
+          bias: 'NEUTRAL', biasEmoji: '🟡',
+          keyLevel: null,
+          headline: 'Market data unavailable — retrying shortly',
+          action: 'Data source slow to respond. Will auto-refresh.',
+          warnings: [], reversal: null,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     // Weekend check — markets are closed Sat/Sun; don't show a pre-market gap analysis
     const istNow  = getISTTime();
@@ -1450,6 +1466,7 @@ export async function GET(request) {
       // 5-min OI change tracking (best-effort)
       if (optionChainData?.totalCallOI && optionChainData?.totalPutOI) {
         const { callOIChange5min, putOIChange5min } = await getOIChange5Min(
+          'NIFTY',
           optionChainData.totalCallOI,
           optionChainData.totalPutOI
         );
